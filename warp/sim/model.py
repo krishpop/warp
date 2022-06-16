@@ -225,6 +225,7 @@ class Model:
         body_com (wp.array): Rigid body center of mass (in local frame), shape [body_count, 7], float
         body_inertia (wp.array): Rigid body inertia tensor (relative to COM), shape [body_count, 3, 3], float
 
+        TODO: update this
         joint_type (wp.array): Joint type, shape [joint_count], int
         joint_parent (wp.array): Joint parent, shape [joint_count], int
         joint_X_pj (wp.array): Joint transform in parent frame, shape [joint_count, 7], float
@@ -234,6 +235,12 @@ class Model:
         joint_target_ke (wp.array): Joint stiffness, shape [joint_count], float
         joint_target_kd (wp.array): Joint damping, shape [joint_count], float
         joint_target (wp.array): Joint target, shape [joint_count], float
+        joint_linear_compliance (wp.array): Joint linear compliance, shape [joint_count], float
+        joint_angular_compliance (wp.array): Joint linear compliance, shape [joint_count], float
+        joint_limit_lower (wp.array): Joint lower position limits, shape [joint_count], float
+        joint_limit_upper (wp.array): Joint upper position limits, shape [joint_count], float
+        joint_twist_lower (wp.array): Joint lower twist limit, shape [joint_count], float
+        joint_twist_upper (wp.array): Joint upper twist limit, shape [joint_count], float
 
         particle_count (int): Total number of particles in the system
         body_count (int): Total number of bodies in the system
@@ -285,6 +292,7 @@ class Model:
         self.body_com = None
         self.body_inertia = None
 
+        # TODO: update this
         self.joint_type = None
         self.joint_parent = None
         self.joint_child = None
@@ -295,6 +303,12 @@ class Model:
         self.joint_target_ke = None
         self.joint_target_kd = None
         self.joint_target = None
+        self.joint_linear_compliance = None
+        self.joint_angular_compliance = None
+        self.joint_limit_lower = None
+        self.joint_limit_upper = None
+        self.joint_twist_lower = None
+        self.joint_twist_upper = None
 
         # todo: per-joint values?
         self.joint_attach_ke = 1.e+3
@@ -309,7 +323,7 @@ class Model:
         self.spring_count = 0
         self.contact_count = 0
 
-        self.gravity = np.array((0.0, -9.8, 0.0))
+        self.gravity = np.array((0.0, -9.80665, 0.0))
 
         self.soft_contact_distance = 0.1
         self.soft_contact_margin = 0.2
@@ -376,6 +390,12 @@ class Model:
             s.body_q = wp.clone(self.body_q)
             s.body_qd = wp.clone(self.body_qd)
             s.body_f = wp.zeros_like(self.body_qd)
+
+            s.body_deltas = wp.zeros(
+                self.body_count,
+                dtype=wp.spatial_vector,
+                device=s.body_q.device,
+                requires_grad=requires_grad)
 
             s.body_q.requires_grad = requires_grad
             s.body_qd.requires_grad = requires_grad
@@ -608,6 +628,12 @@ class ModelBuilder:
         self.joint_limit_kd = []
         self.joint_act = []
 
+        self.joint_twist_lower = []
+        self.joint_twist_upper = []
+
+        self.joint_linear_compliance = []
+        self.joint_angular_compliance = []
+
         self.joint_q_start = []
         self.joint_qd_start = []
         self.articulation_start = []
@@ -645,6 +671,10 @@ class ModelBuilder:
         joint_limit_lower: float=-1.e+3,
         joint_limit_upper: float=1.e+3,
         joint_armature: float=0.0,
+        joint_twist_lower: float=-1.e+3,
+        joint_twist_upper: float=1.e+3,
+        joint_linear_compliance: float=0.0,
+        joint_angular_compliance: float=0.0,
         com: Vec3=np.zeros(3),
         I_m: Mat33=np.zeros((3, 3)), 
         m: float=0.0) -> int:
@@ -722,6 +752,8 @@ class ModelBuilder:
         joint_limit_kd = np.resize(np.atleast_1d(joint_limit_kd), dof_count)
         joint_limit_lower = np.resize(np.atleast_1d(joint_limit_lower), dof_count)
         joint_limit_upper = np.resize(np.atleast_1d(joint_limit_upper), dof_count)
+        joint_twist_lower = np.resize(np.atleast_1d(joint_twist_lower), dof_count)
+        joint_twist_upper = np.resize(np.atleast_1d(joint_twist_upper), dof_count)
        
         for i in range(coord_count):
             self.joint_q.append(0.0)
@@ -733,9 +765,14 @@ class ModelBuilder:
             self.joint_limit_upper.append(joint_limit_upper[i])
             self.joint_limit_ke.append(joint_limit_ke[i])
             self.joint_limit_kd.append(joint_limit_kd[i])
+            self.joint_twist_lower.append(joint_twist_lower[i])
+            self.joint_twist_upper.append(joint_twist_upper[i])
             self.joint_target_ke.append(joint_target_ke[i])
             self.joint_target_kd.append(joint_target_kd[i])
             self.joint_target.append(0.0)
+            
+        self.joint_linear_compliance.append(joint_linear_compliance)
+        self.joint_angular_compliance.append(joint_angular_compliance)
 
         self.joint_q_start.append(self.joint_coord_count)
         self.joint_qd_start.append(self.joint_dof_count)
@@ -1752,6 +1789,7 @@ class ModelBuilder:
         m.body_com = wp.array(self.body_com, dtype=wp.vec3, device=device)
 
         # model
+        m.joint_count = self.joint_count
         m.joint_type = wp.array(self.joint_type, dtype=wp.int32, device=device)
         m.joint_parent = wp.array(self.joint_parent, dtype=wp.int32, device=device)
         m.joint_child = wp.array(self.joint_child, dtype=wp.int32, device=device)
@@ -1772,6 +1810,8 @@ class ModelBuilder:
         m.joint_limit_upper = wp.array(self.joint_limit_upper, dtype=wp.float32, device=device)
         m.joint_limit_ke = wp.array(self.joint_limit_ke, dtype=wp.float32, device=device)
         m.joint_limit_kd = wp.array(self.joint_limit_kd, dtype=wp.float32, device=device)
+        m.joint_linear_compliance = wp.array(self.joint_linear_compliance, dtype=wp.float32, device=device)
+        m.joint_angular_compliance = wp.array(self.joint_angular_compliance, dtype=wp.float32, device=device)
 
         # 'close' the start index arrays with a sentinel value
         self.joint_q_start.append(self.joint_coord_count)
