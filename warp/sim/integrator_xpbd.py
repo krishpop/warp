@@ -402,51 +402,55 @@ def eval_body_contacts(body_q: wp.array(dtype=wp.transform),
 
 @wp.func
 def world_to_body(v: wp.vec3, pose: wp.transform) -> wp.vec3:
-    return v
+    # return v
     # Project a vector from world frame into rest frame of body
-    # q = wp.transform_get_rotation(pose)
-    # projected = wp.quat_rotate_inv(q, v)
-    # return projected
+    q = wp.transform_get_rotation(pose)
+    projected = wp.quat_rotate_inv(q, v)
+    return projected
 
 @wp.func
 def body_to_world(v: wp.vec3, pose: wp.transform) -> wp.vec3:
-    return v
+    # return v
     # Project a vector from world frame into rest frame of body
-    # q = wp.transform_get_rotation(pose)
-    # projected = wp.quat_rotate(q, v)
-    # return projected
+    q = wp.transform_get_rotation(pose)
+    projected = wp.quat_rotate(q, v)
+    return projected
 
-@wp.func
-def get_inverse_mass(
-    tf: wp.transform,
-    normal: wp.vec3,
-    arm: wp.vec3,
-    I_inv: wp.mat33,
-    m_inv: float,
-    angular: bool,
-) -> float:
-    # Compute the inverse mass of a point relative to the center of mass
-    # of a rigid body.
-    if m_inv == 0.0:
-        return m_inv
-    q = wp.transform_get_rotation(tf)
-    p = wp.transform_get_translation(tf)
+# @wp.func
+# def get_inverse_mass(
+#     tf: wp.transform,
+#     normal: wp.vec3,
+#     arm: wp.vec3,
+#     I_inv: wp.mat33,
+#     m_inv: float,
+#     angular: bool,
+# ) -> float:
+#     # Compute the inverse mass of a point relative to the center of mass
+#     # of a rigid body.
+#     if m_inv == 0.0:
+#         return m_inv
+#     q = wp.transform_get_rotation(tf)
+#     p = wp.transform_get_translation(tf)
     
-    if angular:
-        rn = wp.quat_rotate_inv(q, normal)
-    else:
-        rn = wp.quat_rotate_inv(q, wp.cross(arm-p, normal))
+#     if angular:
+#         rn = wp.quat_rotate_inv(q, normal)
+#     else:
+#         rn = wp.quat_rotate_inv(q, wp.cross(arm-p, normal))
 
 
 @wp.func
 def positional_correction(
     dx: wp.vec3,
+    at1: wp.vec3,
+    at2: wp.vec3,
     tf1: wp.transform,
     tf2: wp.transform,
     m_inv1: float,
     m_inv2: float,
     I_inv1: wp.mat33,
     I_inv2: wp.mat33,
+    # com1: wp.vec3,
+    # com2: wp.vec3,
     alpha_tilde: float,
     # lambda_prev: float,
     deltas: wp.array(dtype=wp.spatial_vector),
@@ -461,42 +465,105 @@ def positional_correction(
     # [1] https://matthias-research.github.io/pages/publications/PBDBodies.pdf
 
     c = wp.length(dx)
+    if c == 0.0:
+        return wp.vec3(0.0, 0.0, 0.0)
+
     n = wp.normalize(dx)
 
-    # project variables to body rest frame as they are in local matrix.
-    n_local_1 = world_to_body(n, tf1)
-    n_local_2 = world_to_body(n, tf2)
-    r1 = wp.transform_get_translation(tf1)
-    r2 = wp.transform_get_translation(tf2)
-    r1_local = world_to_body(r1, tf1)
-    r2_local = world_to_body(r2, tf2)
+    # project variables to body rest frame as they are in local matrix
+    # n1 = n
+    # n2 = n
+    # n1 = world_to_body(n, tf1)
+    # n2 = world_to_body(n, tf2)
+    # r1 = at1
+    # r2 = at2
 
-    # Eq. 1-2
-    r1xn = wp.cross(r1_local, n_local_1)
-    r2xn = wp.cross(r2_local, n_local_2)
+    # r1 = at1 - wp.transform_get_translation(tf1)
+    # r2 = at2 - wp.transform_get_translation(tf2)
+
+    r1 = at1
+    r2 = at2
+
+    # print("r1")
+    # print(r1)
+    # print("r2")
+    # print(r2)
+
+
+    # r1 = world_to_body(r1, tf1)
+    # r2 = world_to_body(r2, tf2)
+
+    # rd1 = wp.quat_rotate_inv(q1, wp.cross(r1, corr))
+    # rd2 = wp.quat_rotate_inv(q2, wp.cross(r2, corr))
+
+    # print("r1")
+    # print(r1)
+    # print("r2")
+    # print(r2)
+
+    q1 = wp.transform_get_rotation(tf1)
+    q2 = wp.transform_get_rotation(tf2)
+
+    # Eq. 2-3 (make sure to project into the frame of the body)
+    r1xn = wp.quat_rotate_inv(q1, wp.cross(r1, n))
+    r2xn = wp.quat_rotate_inv(q2, wp.cross(r2, n))
     w1 = m_inv1 + wp.dot(r1xn, I_inv1 * r1xn)
     w2 = m_inv2 + wp.dot(r2xn, I_inv2 * r2xn)
+    w = w1 + w2
+    if w == 0.0:
+        return wp.vec3(0.0, 0.0, 0.0)
 
+    # Eq. 4-5
     lambda_prev = 0.0
-    d_lambda = (-c - alpha_tilde * lambda_prev) / (w1 + w2 + alpha_tilde)
+    d_lambda = (-c - alpha_tilde * lambda_prev) / (w + alpha_tilde)
     # TODO consider lambda_prev?
     p = d_lambda * n
 
     if body_1 >= 0 and m_inv1 > 0.0:
-        dp = body_to_world(p, tf1)
+        # dp = body_to_world(p, tf1)
+        dp = -p
         # dp = p * m_inv1
-        dq = wp.cross(r1_local, p)
-        wp.atomic_sub(deltas, body_1, wp.spatial_vector(dq, dp))
+
+        rd = wp.quat_rotate_inv(q1, wp.cross(r1, -p))
+        dq = wp.quat_rotate(q1, I_inv1 * rd)
+
+        # rd = wp.cross(r1, -p)
+        # dq = I_inv1 * rd
+
+        # TODO remove
+        # dq = wp.vec3(0.0)
+
+        # w = wp.length(dq)
+        # if w > 0.1:
+        #     dq = wp.normalize(dq) * 0.1
+        # TODO instead of atomic_sub, try -p in equations above
+        # wp.atomic_add(deltas, body_1, wp.spatial_vector(dq, dp))
+
     if body_2 >= 0 and m_inv2 > 0.0:
-        dp = body_to_world(p, tf2)
+        # dp = body_to_world(p, tf2)
+        dp = p
         # dp = p * m_inv2
-        dq = wp.cross(r2_local, p)
+
+        rd = wp.quat_rotate_inv(q2, wp.cross(r2, p))
+        dq = wp.quat_rotate(q2, I_inv2 * rd)
+
+        # TODO this should be +p
+        # rd = wp.cross(r2, p)
+        # dq = I_inv2 * rd
+
+        # TODO remove
+        # dq = wp.vec3(0.0)
+
+        # w = wp.length(dq)
+        # if w > 0.1:
+        #     dq = wp.normalize(dq) * 0.1
+
         wp.atomic_add(deltas, body_2, wp.spatial_vector(dq, dp))
     return p
 
 @wp.func
 def angular_correction(
-    dq: wp.vec3,
+    corr: wp.vec3,
     tf1: wp.transform,
     tf2: wp.transform,
     m_inv1: float,
@@ -516,19 +583,29 @@ def angular_correction(
     # Equation 2-5 of [1]
     # [1] https://matthias-research.github.io/pages/publications/PBDBodies.pdf
 
-    theta = wp.length(dq)
-    n = wp.normalize(dq)
+    theta = wp.length(corr)
+    if theta == 0.0:
+        return wp.vec3(0.0, 0.0, 0.0)
+    n = wp.normalize(corr)
+
+    q1 = wp.transform_get_rotation(tf1)
+    q2 = wp.transform_get_rotation(tf2)
 
     # project variables to body rest frame as they are in local matrix.
-    n_local_1 = world_to_body(n, tf1)
-    n_local_2 = world_to_body(n, tf2)
+    # n1 = world_to_body(n, tf1)
+    # n2 = world_to_body(n, tf2)
+    n1 = wp.quat_rotate_inv(q1, n)
+    n2 = wp.quat_rotate_inv(q2, n)
 
     # Eq. 11-12
-    w1 = wp.dot(n_local_1, I_inv1 * n_local_1)
-    w2 = wp.dot(n_local_2, I_inv2 * n_local_2)
+    w1 = wp.dot(n1, I_inv1 * n1)
+    w2 = wp.dot(n2, I_inv2 * n2)
+    w = w1 + w2
+    if w == 0.0:
+        return wp.vec3(0.0, 0.0, 0.0)
 
     lambda_prev = 0.0
-    d_lambda = (-theta - alpha_tilde * lambda_prev) / (w1 + w2 + alpha_tilde)
+    d_lambda = (-theta - alpha_tilde * lambda_prev) / (w + alpha_tilde)
     # TODO consider lambda_prev?
     p = d_lambda * n
 
@@ -537,8 +614,10 @@ def angular_correction(
         # pose1 = poses[body_1]
         # x1 = wp.transform_get_translation(pose1)
         # q1 = wp.transform_get_rotation(pose1)
-        dq = p
-        wp.atomic_sub(deltas, body_1, wp.spatial_vector(dq, dp))
+        # dq = p
+        rd = wp.quat_rotate_inv(q1, n1 * d_lambda)
+        dq = wp.quat_rotate(q1, I_inv1 * rd)
+        wp.atomic_add(deltas, body_1, wp.spatial_vector(dq, dp))
         # dq = wp.quat(I_inv1 * p, 0.0)
         # q1 += wp.quat_multiply(0.5 * dq, q1)
         # q1 = wp.quat_normalize(q1)
@@ -547,8 +626,10 @@ def angular_correction(
         # pose2 = poses[body_2]
         # x2 = wp.transform_get_translation(pose2)
         # q2 = wp.transform_get_rotation(pose2)
-        dq = p
-        wp.atomic_add(deltas, body_2, wp.spatial_vector(dq, dp))
+        # dq = p
+        rd = wp.quat_rotate_inv(q1, n2 * d_lambda)
+        dq = wp.quat_rotate(q1, I_inv1 * rd)
+        wp.atomic_sub(deltas, body_2, wp.spatial_vector(dq, dp))
         # dq = wp.quat(I_inv2 * p, 0.0)
         # q2 += wp.quat_multiply(0.5 * dq, q2)
         # q2 = wp.quat_normalize(q2)
@@ -572,19 +653,24 @@ def apply_body_deltas(
         return
     tf = poses_in[tid]
     delta = deltas[tid]
-    com = body_com[tid]
+    # com = body_com[tid]
 
     p = wp.transform_get_translation(tf)
     q = wp.transform_get_rotation(tf)
 
     # update position
     dp = wp.spatial_bottom(delta)
-    epsilon = 1.0 # e-3
+    epsilon = 1.0 # 1e-4  #1e-7
     p += dp * inv_m * epsilon
+
+    # print("p:")
+    # print(p)
 
     # update orientation
     I_inv = body_inv_I[tid]
-    dq = I_inv * wp.spatial_top(delta)
+    # rd = wp.quat_rotate_inv(q, wp.spatial_top(delta))
+    # dq = wp.quat_rotate(q, I_inv * rd)
+    dq = wp.spatial_top(delta)
     # TODO reactivate
     q += 0.5 * wp.quat(dq, 0.0) * q * epsilon
     q = wp.normalize(q)
@@ -695,32 +781,72 @@ def solve_body_joints(body_q: wp.array(dtype=wp.transform),
     # print(type)
 
     # rigid body indices of the child and parent
-    b1 = joint_child[tid]
-    b2 = joint_parent[tid]
+    # b1 = joint_child[tid]
+    # b2 = joint_parent[tid]
     # b1 = joint_parent[tid]
     # b2 = joint_child[tid]
+    
+    # rigid body indices of the child and parent
+    id_c = tid
+    id_p = joint_parent[tid]
 
-    tf1 = joint_X_c[tid]
-    m_inv1 = 0.0
-    I_inv1 = wp.mat33(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
-    if b1 >= 0:
-        tf1 = body_q[b1] * tf1
-        m_inv1 = body_inv_m[b1]
-        I_inv1 = body_inv_I[b1]
-    tf2 = joint_X_p[tid]
-    m_inv2 = 0.0
-    I_inv2 = wp.mat33(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
-    if b2 >= 0:
-        tf2 = body_q[b2] * tf2
-        m_inv2 = body_inv_m[b2]
-        I_inv2 = body_inv_I[b2]
+    X_pj = joint_X_p[tid]
+    X_cj = joint_X_c[tid]
+    
+    X_wp = X_pj
+    r_p = wp.vec3()
+    w_p = wp.vec3()
+    v_p = wp.vec3()
+    m_inv_p = 0.0
+    I_inv_p = wp.mat33(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    # parent transform and moment arm
+    if (id_p >= 0):
+        X_wp = body_q[id_p]*X_wp
+        r_p = wp.transform_get_translation(X_wp) - wp.transform_point(body_q[id_p], body_com[id_p])
+        # r_p = wp.transform_point(body_q[id_p], body_com[id_p])
+        m_inv_p = body_inv_m[id_p]
+        I_inv_p = body_inv_I[id_p]
+    
+    # child transform and moment arm
+    X_wc = body_q[id_c]*X_cj
+    r_c = wp.transform_get_translation(X_wc) - wp.transform_point(body_q[id_c], body_com[id_c])
+    # r_c = wp.transform_point(body_q[id_c], body_com[id_c])
+    m_inv_c = body_inv_m[id_c]
+    I_inv_c = body_inv_I[id_c]
+    
 
-    # print("tf1")
-    # print(b1)
-    # print(tf1)
-    # print("tf2")
-    # print(b2)
-    # print(tf2)
+    # tf1 = joint_X_c[tid]
+    # com1 = wp.vec3(0.0)
+    # pose1 = wp.transform(wp.vec3(0.0), wp.quat_identity())
+    # if b1 >= 0:
+    #     pose1 = body_q[b1]
+    #     tf1 = pose1 * tf1
+    #     m_inv1 = body_inv_m[b1]
+    #     I_inv1 = body_inv_I[b1]
+    #     com1 = body_com[b1]
+    # tf2 = joint_X_p[tid]
+    # m_inv2 = 0.0
+    # I_inv2 = wp.mat33(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    # com2 = wp.vec3(0.0)
+    # pose2 = wp.transform(wp.vec3(0.0), wp.quat_identity())
+    # if b2 >= 0:
+    #     pose2 = body_q[b2]
+    #     tf2 = pose2 * tf2
+    #     m_inv2 = body_inv_m[b2]
+    #     I_inv2 = body_inv_I[b2]
+    #     com2 = body_com[b2]
+
+    
+    x_p = wp.transform_get_translation(X_wp)
+    x_c = wp.transform_get_translation(X_wc)
+
+    q_p = wp.transform_get_rotation(X_wp)
+    q_c = wp.transform_get_rotation(X_wc)
+
+    # compute errors
+    x_err = x_c - x_p
+    # x_err = r_c - r_p
+    r_err = wp.quat_inverse(q_p)*q_c
 
     # joint properties (for 1D joints)
     q_start = joint_q_start[tid]
@@ -731,8 +857,8 @@ def solve_body_joints(body_q: wp.array(dtype=wp.transform),
         limit_lower = 0.0
         limit_upper = 0.0
     else:
-        limit_lower = joint_limit_lower[q_start]
-        limit_upper = joint_limit_upper[q_start]
+        limit_lower = joint_limit_lower[qd_start]
+        limit_upper = joint_limit_upper[qd_start]
 
     # transform the joint axis to the local frame of the child
     # axis1 = wp.transform_vector(tf1, axis)
@@ -744,84 +870,194 @@ def solve_body_joints(body_q: wp.array(dtype=wp.transform),
     angular_alpha_tilde = angular_alpha / dt / dt
 
     # prevent division by zero
-    linear_alpha_tilde = wp.max(linear_alpha_tilde, 1e-6)
-    angular_alpha_tilde = wp.max(angular_alpha_tilde, 1e-6)
+    # linear_alpha_tilde = wp.max(linear_alpha_tilde, 1e-6)
+    # angular_alpha_tilde = wp.max(angular_alpha_tilde, 1e-6)
 
     # handle angular constraints
-    q1 = wp.transform_get_rotation(tf1)
-    q2 = wp.transform_get_rotation(tf2)
     if (type == wp.sim.JOINT_REVOLUTE):
         # align joint axes
-        a1 = quat_basis_vector_a(q1)
-        a2 = quat_basis_vector_a(q2)
+        # a1 = quat_basis_vector_a(q_p)
+        # a2 = quat_basis_vector_a(q_c)
+        a_p = wp.quat_rotate(q_p, axis)
+        a_c = wp.quat_rotate(q_c, axis)
         # Eq. 20
-        corr = wp.cross(a1, a2)
-        angular_correction(
-            corr, tf1, tf2, m_inv1, m_inv2, I_inv1, I_inv2,
-            angular_alpha_tilde, deltas, b1, b2)
-    if (type == wp.sim.JOINT_FIXED):
+        corr = wp.cross(a_p, a_c)
+        # angular_correction(
+        #     corr, tf1, tf2, m_inv1, m_inv2, I_inv1, I_inv2,
+        #     angular_alpha_tilde, deltas, b1, b2)
+        # XXX we use pose1 and pose2 here instead of tf1, tf2
+        # angular_correction(
+        #     corr, X_wp, X_wc, m_inv_p, m_inv_c, I_inv_p, I_inv_c,
+        #     angular_alpha_tilde, deltas, id_p, id_c)
+    if (type == wp.sim.JOINT_FIXED) or (type == wp.sim.JOINT_PRISMATIC):
         # Eq. 18-19
-        q = q1 * wp.quat_inverse(q2)
+        q = q_p * wp.quat_inverse(q_c)
         corr = 2.0 * wp.vec3(q[0], q[1], q[2])
-        angular_correction(
-            corr, tf1, tf2, m_inv1, m_inv2, I_inv1, I_inv2,
-            angular_alpha_tilde, deltas, b1, b2)
+        # angular_correction(
+        #     corr, tf1, tf2, m_inv1, m_inv2, I_inv1, I_inv2,
+        #     angular_alpha_tilde, deltas, id_p, id_c)
+        # XXX we use pose1 and pose2 here instead of tf1, tf2
+        # angular_correction(
+        #     corr, X_wp, X_wc, m_inv_p, m_inv_c, I_inv_p, I_inv_c,
+        #     angular_alpha_tilde, deltas, id_p, id_c)
+        # print("angular correction")
+        # print(corr)
     if (type == wp.sim.JOINT_BALL):
         # TODO: implement Eq. 22-24
         wp.print("Ball joint not implemented")
         return
 
     # handle positional constraints
-    r1 = wp.transform_get_translation(tf1)
-    r2 = wp.transform_get_translation(tf2)
-    dr = r2 - r1
-    dx = dr  # TODO add support for separation distance? (Eq. 25)
+    # at1 = wp.transform_get_translation(tf1)
+    # at2 = wp.transform_get_translation(tf2)
+    at1 = r_p
+    at2 = r_c
+
+
+    # at1 = wp.transform_point(tf1, com1)
+    # at2 = wp.transform_point(tf2, com2)
+    # at1 = wp.transform_get_translation(tf1) - wp.transform_point(tf1, com1)
+    # at2 = wp.transform_get_translation(tf2) - wp.transform_point(tf2, com2)
+    # at1 = wp.transform_point(tf1, -com1)
+    # at2 = wp.transform_point(tf2, -com2)
+    # the positional correction is the difference between the COM of the two bodies
+    # so we have to subtract the COM offset
+    # at1 = r1 + wp.quat_rotate_inv(q1, com1)
+    # at2 = r2 + wp.quat_rotate_inv(q2, com2)
+    # r1 -= wp.transform_point(tf1, com1)
+    # r2 -= wp.transform_point(tf2, com2)
+    # dr = at2 - at1
+    dx = x_err
+    # dx = dr  # TODO add support for separation distance? (Eq. 25)
+
+    # if tid > 0:
+    # #     print("dx")
+    # #     print(dx)
+    #     # print("tf1")
+    #     # print(tf1)
+    #     # print("tf2")
+    #     # print(tf2)
+    #     print("at1")
+    #     print(at1)
+    #     print("at2")
+    #     print(at2)
+
+    # define set of perpendicular unit axes a, b, c
+    # (Sec. 3.4.1)
+    world_axis = wp.transform_vector(X_wp, axis)
+    if (type == wp.sim.JOINT_PRISMATIC):
+        normal_a = wp.normalize(world_axis)
+        # https://math.stackexchange.com/a/3582461
+        g = wp.sign(normal_a[2])
+        h = normal_a[2] + g
+        normal_b = wp.vec3(g - normal_a[0]*normal_a[0]/h, -normal_a[0]*normal_a[1]/h, -normal_a[0])
+        # normal_b = wp.normalize(wp.cross(normal_a, wp.vec3(0.0, 1.0, 0.0)))
+        normal_c = wp.normalize(wp.cross(normal_a, normal_b))
+        # print("normal_a")
+        # print(normal_a)
+        # print("normal_b")
+        # print(normal_b)
+        # print("normal_c")
+        # print(normal_c)
+    else:
+        normal_a = wp.normalize(quat_basis_vector_a(q_p))
+        normal_b = wp.normalize(quat_basis_vector_b(q_p))
+        normal_c = wp.normalize(quat_basis_vector_c(q_p))
+
+    normal_a = wp.vec3(1.0, 0.0, 0.0)
+    normal_b = wp.vec3(0.0, 1.0, 0.0)
+    normal_c = wp.vec3(0.0, 0.0, 1.0)
+
+    # normal_a = wp.quat_rotate_inv(q_p, wp.vec3(1.0, 0.0, 0.0))
+    # normal_b = wp.quat_rotate_inv(q_p, wp.vec3(0.0, 1.0, 0.0))
+    # normal_c = wp.quat_rotate_inv(q_p, wp.vec3(0.0, 0.0, 1.0))
+
+    # normal_a = wp.quat_rotate(q_p, wp.vec3(1.0, 0.0, 0.0))
+    # normal_b = wp.quat_rotate(q_p, wp.vec3(0.0, 1.0, 0.0))
+    # normal_c = wp.quat_rotate(q_p, wp.vec3(0.0, 0.0, 1.0))
+
+    # dx =  wp.quat_rotate_inv(q_p, dx)
+    dx =  wp.quat_rotate_inv(q_c, dx)
+
 
     lower_pos_limits = wp.vec3(0.0)
     upper_pos_limits = wp.vec3(0.0)
     if (type == wp.sim.JOINT_PRISMATIC):
-        lower_pos_limits = axis * limit_lower
-        upper_pos_limits = axis * limit_upper
+        # world_axis = wp.transform_vector(X_wp, axis)
+        # world_axis = wp.transform_vector(pose1, axis)
+        # world_axis = wp.vec3(1.0, 0.0, 0.0)
+        world_axis = axis
+        # print("world_axis")
+        # print(world_axis)
+        lower_pos_limits = world_axis * limit_lower
+        upper_pos_limits = world_axis * limit_upper
+        # print("lower_pos_limits")
+        # print(lower_pos_limits)
+        # print("upper_pos_limits")
+        # print(upper_pos_limits)
 
     corr = wp.vec3(0.0)
 
-    normal_a = wp.normalize(quat_basis_vector_a(q1))
+    # normal_a = wp.normalize(quat_basis_vector_a(q_p))
     # print("unit x")
     # print(normal_a)
     d = wp.dot(normal_a, dx)
+    # print("da")
+    # print(d)
+
     if (d < lower_pos_limits[0]):
         corr -= normal_a * (lower_pos_limits[0] - d)
     if (d > upper_pos_limits[0]):
-        # TODO which one?
-        # corr -= normal_a * (d - upper_pos_limits[0])
-        corr -= normal_a * (upper_pos_limits[0] - d)  # from Matthias
-    normal_b = wp.normalize(quat_basis_vector_b(q1))
+        corr -= normal_a * (upper_pos_limits[0] - d)
+
+    # normal_b = wp.normalize(quat_basis_vector_b(q_p))
     # print("unit y")
     # print(normal_b)
     d = wp.dot(normal_b, dx)
+    # print("db")
+    # print(d)
+
     if (d < lower_pos_limits[1]):
         corr -= normal_b * (lower_pos_limits[1] - d)
     if (d > upper_pos_limits[1]):
-        # TODO which one?
-        # corr -= normal_b * (d - upper_pos_limits[1])
-        corr -= normal_b * (upper_pos_limits[1] - d)  # from Matthias
-    normal_c = wp.normalize(quat_basis_vector_c(q1))
+        corr -= normal_b * (upper_pos_limits[1] - d)
+
+    # normal_c = wp.normalize(quat_basis_vector_c(q_p))
     # print("unit z")
     # print(normal_c)
     d = wp.dot(normal_c, dx)
+    # print("dc")
+    # print(d)
+
     if (d < lower_pos_limits[2]):
         corr -= normal_c * (lower_pos_limits[2] - d)
     if (d > upper_pos_limits[2]):
-        # TODO which one?
-        # corr -= normal_c * (d - upper_pos_limits[2])
-        corr -= normal_c * (upper_pos_limits[2] - d)  # from Matthias
+        corr -= normal_c * (upper_pos_limits[2] - d)
+
+
+    # TODO remove
+    # corr = corr / 2.0
+
+    # corr = wp.quat_rotate(q_p, corr)
+
     
-    positional_correction(corr, tf1, tf2, m_inv1, m_inv2, I_inv1, I_inv2,
-                          linear_alpha_tilde, deltas, b1, b2)
+    # at1 = wp.transform_get_translation(X_wp)
+    # at2 = wp.transform_get_translation(X_wc)
+    # positional_correction(corr, at1, at2, tf1, tf2, m_inv1, m_inv2, I_inv1, I_inv2,
+    #                       linear_alpha_tilde, deltas, id_p, id_c)
+    # XXX we need to use the poses of the bodies, not the joint frames!
+    positional_correction(corr, at1, at2, X_wp, X_wc, m_inv_p, m_inv_c, I_inv_p, I_inv_c,
+                          linear_alpha_tilde, deltas, id_p, id_c)
 
     # if (tid > 0):
+    #     print("x_err")
+    #     print(x_err)
     #     print("corr")
     #     print(corr)
+    #     print("delta 1")
+    #     print(deltas[id_p])
+    #     print("delta 2")
+    #     print(deltas[id_c])
 
 
 
@@ -854,8 +1090,8 @@ def solve_body_joints2(body_q: wp.array(dtype=wp.transform),
     tid = wp.tid()
 
     # rigid body indices of the child and parent
-    c_child = joint_child[tid]
-    c_parent = joint_parent[tid]
+    id_c = joint_child[tid]
+    id_p = joint_parent[tid]
 
     X_pj = joint_X_p[tid]
     X_cj = joint_X_c[tid]
@@ -865,24 +1101,24 @@ def solve_body_joints2(body_q: wp.array(dtype=wp.transform),
     w_p = wp.vec3()  # angular velocity of parent
     v_p = wp.vec3()  # linear velocity of parent
 
-    if (c_parent >= 0):  # (joint with no parent has index -1)
-        X_wp = body_q[c_parent]*X_wp  # parent transform
+    if (id_p >= 0):  # (joint with no parent has index -1)
+        X_wp = body_q[id_p]*X_wp  # parent transform
         # moment arm from parent COM to joint pos
         r_p = wp.transform_get_translation(
-            X_wp) - wp.transform_point(body_q[c_parent], body_com[c_parent])
+            X_wp) - wp.transform_point(body_q[id_p], body_com[id_p])
 
-        twist_p = body_qd[c_parent]
+        twist_p = body_qd[id_p]
 
         w_p = wp.spatial_top(twist_p)  # angular velocity of parent
         # linear velocity of parent (at point of joint!)
         v_p = wp.spatial_bottom(twist_p) + wp.cross(w_p, r_p)
 
     # child transform and moment arm (NB. X_cj is identity in WARP importer)
-    X_wc = body_q[c_child]  # *X_cj
+    X_wc = body_q[id_c]  # *X_cj
     r_c = wp.transform_get_translation(
-        X_wc) - wp.transform_point(body_q[c_child], body_com[c_child])
+        X_wc) - wp.transform_point(body_q[id_c], body_com[id_c])
 
-    twist_c = body_qd[c_child]
+    twist_c = body_qd[id_c]
 
     w_c = wp.spatial_top(twist_c)  # angular velocity of child
     v_c = wp.spatial_bottom(twist_c) + wp.cross(w_c,
@@ -890,10 +1126,10 @@ def solve_body_joints2(body_q: wp.array(dtype=wp.transform),
 
     # joint properties (for 1D joints)
     # indexed by body indices of child (with joint associated connecting to parent)
-    q_start = joint_q_start[c_child]
-    qd_start = joint_qd_start[c_child]
-    type = joint_type[c_child]
-    axis = joint_axis[c_child]
+    q_start = joint_q_start[id_c]
+    qd_start = joint_qd_start[id_c]
+    type = joint_type[id_c]
+    axis = joint_axis[id_c]
 
     target = joint_target[qd_start]
     target_ke = joint_target_ke[qd_start]  # stiffness
@@ -904,18 +1140,18 @@ def solve_body_joints2(body_q: wp.array(dtype=wp.transform),
 
     act = joint_act[qd_start]
 
-    m_p = body_mass[c_parent]
-    m_c = body_mass[c_child]
+    m_p = body_mass[id_p]
+    m_c = body_mass[id_c]
 
-    inv_m_p = body_inv_m[c_parent]
-    inv_m_c = body_inv_m[c_child]
+    inv_m_p = body_inv_m[id_p]
+    inv_m_c = body_inv_m[id_c]
 
     # NB - in body's local rest frame
-    I_p = body_I[c_parent]
-    I_c = body_I[c_child]
+    I_p = body_I[id_p]
+    I_c = body_I[id_c]
 
-    inv_I_p = body_inv_I[c_parent]
-    inv_I_c = body_inv_I[c_child]
+    inv_I_p = body_inv_I[id_p]
+    inv_I_c = body_inv_I[id_c]
 
     x_p = wp.transform_get_translation(X_wp)
     x_c = wp.transform_get_translation(X_wc)
@@ -943,7 +1179,7 @@ def solve_body_joints2(body_q: wp.array(dtype=wp.transform),
     if type == wp.sim.JOINT_FIXED:
 
         p_pos = xpbd_positional_impulse(
-            x_err, r_p, r_c, body_q[c_parent], body_q[c_child], inv_m_p, inv_m_c, inv_I_p, inv_I_c, a_hat
+            x_err, r_p, r_c, body_q[id_p], body_q[id_c], inv_m_p, inv_m_c, inv_I_p, inv_I_c, a_hat
         )
 
         # equation 19
@@ -951,12 +1187,12 @@ def solve_body_joints2(body_q: wp.array(dtype=wp.transform),
         q_err = 2. * wp.vec3(r_err[0], r_err[1], r_err[2])
 
         p_rot = xpbd_angular_impluse(
-            q_err, body_q[c_parent], body_q[c_child], inv_I_p, inv_I_c, a_hat
+            q_err, body_q[id_p], body_q[id_c], inv_I_p, inv_I_c, a_hat
         )
 
-    p_pos_parent = world_to_body(p_pos, body_q[c_parent])
-    r_pos_parent = world_to_body(r_p, body_q[c_parent])
-    p_rot_parent = world_to_body(p_rot, body_q[c_parent])
+    p_pos_parent = world_to_body(p_pos, body_q[id_p])
+    r_pos_parent = world_to_body(r_p, body_q[id_p])
+    p_rot_parent = world_to_body(p_rot, body_q[id_p])
 
     # deltas appear as [ang_delta, lin_delta] (like velocities)
     # equations 6-9 and 15-16 of apaper
@@ -969,9 +1205,9 @@ def solve_body_joints2(body_q: wp.array(dtype=wp.transform),
     )
 
     # project vectors to rest reference frame so that they project onto inertia matrix
-    p_pos_child = world_to_body(p_pos, body_q[c_child])
-    r_pos_child = world_to_body(r_c, body_q[c_child])
-    p_rot_child = world_to_body(p_rot, body_q[c_child])
+    p_pos_child = world_to_body(p_pos, body_q[id_c])
+    r_pos_child = world_to_body(r_c, body_q[id_c])
+    p_rot_child = world_to_body(p_rot, body_q[id_c])
 
     # deltas appear as [ang_delta, lin_delta] (like velocities)
     delta_child = wp.spatial_vector(
@@ -982,8 +1218,8 @@ def solve_body_joints2(body_q: wp.array(dtype=wp.transform),
         p_pos * inv_m_c,
     )
 
-    wp.atomic_add(deltas, c_child, delta_child)
-    wp.atomic_add(deltas, c_parent, delta_parent)
+    wp.atomic_add(deltas, id_c, delta_child)
+    wp.atomic_add(deltas, id_p, delta_parent)
 
 
 @wp.kernel
@@ -993,7 +1229,7 @@ def update_body_velocities(
     # deltas: wp.array(dtype=wp.spatial_vector),
     dt: float,
     # body_q_out: wp.array(dtype=wp.transform),
-    vel_qd_out: wp.array(dtype=wp.spatial_vector)
+    qd_out: wp.array(dtype=wp.spatial_vector)
 ):
 
     tid = wp.tid()
@@ -1007,6 +1243,8 @@ def update_body_velocities(
     q = wp.transform_get_rotation(pose)
     q_prev = wp.transform_get_rotation(pose_prev)
 
+    # Update body velocities according to Alg. 2
+
     v = (x - x_prev) / dt
     dq = q * wp.quat_inverse(q_prev)  #XXX  wp.quat_inverse(q_prev) * q ?
 
@@ -1014,7 +1252,8 @@ def update_body_velocities(
     if dq[3] < 0.0:
         omega = -omega
 
-    vel_qd_out[tid] = wp.spatial_vector(omega, v)
+    # TODO remove minus sign
+    qd_out[tid] = wp.spatial_vector(omega, v)
 
     # weight = 1.0f/Max(1.0f, linearDeltas[tid].w);
 
@@ -1185,10 +1424,11 @@ class XPBDIntegrator:
             # alloc rigid body force buffer
             if (model.body_count):
                 state_out.body_f.zero_()
-                # state_out.body_deltas.zero_()
 
             # integrate rigid bodies
             if (model.body_count):
+                body_q_prev= wp.clone(state_in.body_q)
+
                 wp.launch(
                     kernel=integrate_bodies,
                     dim=model.body_count,
@@ -1213,9 +1453,8 @@ class XPBDIntegrator:
             # body_f = None
 
             if state_in.body_count:
-                # body_q_pred = wp.zeros_like(state_in.body_q)
                 # body_qd_pred = wp.zeros_like(state_in.body_qd)
-                new_body_q = wp.zeros_like(state_in.body_q)
+                # body_q_new = wp.clone(state_out.body_q)
                 # body_f = state_in.body_f
                 # body_deltas = state_out.body_deltas
                 state_out.body_deltas.zero_()
@@ -1246,14 +1485,16 @@ class XPBDIntegrator:
                 # -------------------------------------
                 # integrate bodies
 
-                new_body_q = wp.clone(state_out.body_q)
+                body_q_new = wp.clone(state_out.body_q)
 
                 for i in range(self.iterations):
+                    # print(f"### iteration {i} / {self.iterations-1}")
+                    state_out.body_deltas.zero_()
 
                     wp.launch(kernel=solve_body_joints,
                               dim=model.joint_count,
                               inputs=[
-                                  new_body_q,
+                                  body_q_new,
                                   state_out.body_qd,
                                   model.body_com,
                                   model.body_mass,
@@ -1278,7 +1519,7 @@ class XPBDIntegrator:
                                   model.joint_twist_upper,
                                   model.joint_linear_compliance,
                                   model.joint_angular_compliance,
-                                  dt / self.iterations
+                                  dt
                               ],
                               outputs=[
                                   state_out.body_deltas
@@ -1289,7 +1530,7 @@ class XPBDIntegrator:
                     wp.launch(kernel=apply_body_deltas,
                             dim=model.body_count,
                             inputs=[
-                                new_body_q,
+                                body_q_new,
                                 model.body_com,
                                 model.body_mass,
                                 model.body_inertia,
@@ -1298,7 +1539,7 @@ class XPBDIntegrator:
                                 state_out.body_deltas
                             ],
                             outputs=[
-                                new_body_q,
+                                body_q_new,
                             ],
                             device=model.device)
 
@@ -1306,8 +1547,8 @@ class XPBDIntegrator:
                 wp.launch(kernel=update_body_velocities,
                         dim=model.body_count,
                         inputs=[
-                            new_body_q,
-                            state_in.body_q,
+                            body_q_new,
+                            body_q_prev,
                             dt
                         ],
                         outputs=[
@@ -1315,7 +1556,7 @@ class XPBDIntegrator:
                         ],
                         device=model.device)
 
-                state_out.body_q = new_body_q
+                state_out.body_q = body_q_new
 
             state_out.particle_q = particle_q
             state_out.particle_qd = particle_qd
