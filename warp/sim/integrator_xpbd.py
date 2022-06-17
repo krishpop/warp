@@ -77,20 +77,28 @@ def integrate_bodies(body_q: wp.array(dtype=wp.transform),
 
     # linear part
     v1 = v0 + (f0 * inv_mass + gravity * wp.nonzero(inv_mass)) * dt
-    x1 = x_com + v1 * dt
+    # x1 = x_com + v1 * dt
 
-    # angular part (compute in body frame)
+    x1 = x0 + v1 * dt
+
+    # angular part
     wb = wp.quat_rotate_inv(r0, w0)
-    tb = wp.quat_rotate_inv(r0, t0) - wp.cross(wb,
-                                               inertia*wb)   # coriolis forces
+    gyr = -(inv_inertia * wp.cross(wb, inertia*wb))
+    w1 = w0 + dt * wp.quat_rotate(r0, gyr)
 
-    w1 = wp.quat_rotate(r0, wb + inv_inertia * tb * dt)
+    # # angular part (compute in body frame)
+    # wb = wp.quat_rotate_inv(r0, w0)
+    # tb = wp.quat_rotate_inv(r0, t0) - wp.cross(wb,
+    #                                            inertia*wb)   # coriolis forces
+
+    # w1 = wp.quat_rotate(r0, wb + inv_inertia * tb * dt)
     r1 = wp.normalize(r0 + wp.quat(w1, 0.0) * r0 * 0.5 * dt)
 
     # angular damping, todo: expose
     # w1 = w1*(1.0-0.1*dt)
 
-    body_q_new[tid] = wp.transform(x1 - wp.quat_rotate(r1, body_com[tid]), r1)
+    # body_q_new[tid] = wp.transform(x1 - wp.quat_rotate(r1, body_com[tid]), r1)
+    body_q_new[tid] = wp.transform(x1, r1)
     body_qd_new[tid] = wp.spatial_vector(w1, v1)
 
 
@@ -478,11 +486,11 @@ def positional_correction(
     # r1 = at1
     # r2 = at2
 
-    r1 = at1 - wp.transform_get_translation(tf1)
-    r2 = at2 - wp.transform_get_translation(tf2)
+    # r1 = at1 - wp.transform_get_translation(tf1)
+    # r2 = at2 - wp.transform_get_translation(tf2)
 
-    # r1 = at1
-    # r2 = at2
+    r1 = at1
+    r2 = at2
 
     # print("r1")
     # print(r1)
@@ -520,10 +528,12 @@ def positional_correction(
     p = d_lambda * n
 
     if body_1 >= 0 and m_inv1 > 0.0:
+        # Eq. 6
         # dp = body_to_world(p, tf1)
         dp = p
         # dp = p * m_inv1
 
+        # Eq. 8
         rd = wp.quat_rotate_inv(q1, wp.cross(r1, p))
         dq = wp.quat_rotate(q1, I_inv1 * rd)
 
@@ -531,7 +541,7 @@ def positional_correction(
         # dq = I_inv1 * rd
 
         # TODO remove
-        dq = wp.vec3(0.0)
+        # dq = wp.vec3(0.0)
 
         # w = wp.length(dq)
         # if w > 0.1:
@@ -540,10 +550,12 @@ def positional_correction(
         wp.atomic_sub(deltas, body_1, wp.spatial_vector(dq, dp))
 
     if body_2 >= 0 and m_inv2 > 0.0:
+        # Eq. 7
         # dp = body_to_world(p, tf2)
         dp = p
         # dp = p * m_inv2
 
+        # Eq. 9
         rd = wp.quat_rotate_inv(q2, wp.cross(r2, p))
         dq = wp.quat_rotate(q2, I_inv2 * rd)
 
@@ -591,7 +603,7 @@ def angular_correction(
     q1 = wp.transform_get_rotation(tf1)
     q2 = wp.transform_get_rotation(tf2)
 
-    # project variables to body rest frame as they are in local matrix.
+    # project variables to body rest frame as they are in local matrix
     # n1 = world_to_body(n, tf1)
     # n2 = world_to_body(n, tf2)
     n1 = wp.quat_rotate_inv(q1, n)
@@ -604,36 +616,26 @@ def angular_correction(
     if w == 0.0:
         return wp.vec3(0.0, 0.0, 0.0)
 
+    # Eq. 13-14
     lambda_prev = 0.0
     d_lambda = (-theta - alpha_tilde * lambda_prev) / (w + alpha_tilde)
     # TODO consider lambda_prev?
     p = d_lambda * n
 
+    # Eq. 15-16
     dp = wp.vec3(0.0)
     if body_1 >= 0 and m_inv1 > 0.0:
-        # pose1 = poses[body_1]
-        # x1 = wp.transform_get_translation(pose1)
-        # q1 = wp.transform_get_rotation(pose1)
-        # dq = p
-        rd = wp.quat_rotate_inv(q1, n1 * d_lambda)
+        # rd = wp.quat_rotate_inv(q1, n * d_lambda)
+        # dq = wp.quat_rotate(q1, I_inv1 * rd)
+        rd = n1 * d_lambda
         dq = wp.quat_rotate(q1, I_inv1 * rd)
-        wp.atomic_add(deltas, body_1, wp.spatial_vector(dq, dp))
-        # dq = wp.quat(I_inv1 * p, 0.0)
-        # q1 += wp.quat_multiply(0.5 * dq, q1)
-        # q1 = wp.quat_normalize(q1)
-        # poses[body_1] = wp.transform(x1, q1)
+        wp.atomic_sub(deltas, body_1, wp.spatial_vector(dq, dp))
     if body_2 >= 0 and m_inv2 > 0.0:
-        # pose2 = poses[body_2]
-        # x2 = wp.transform_get_translation(pose2)
-        # q2 = wp.transform_get_rotation(pose2)
-        # dq = p
-        rd = wp.quat_rotate_inv(q1, n2 * d_lambda)
-        dq = wp.quat_rotate(q1, I_inv1 * rd)
-        wp.atomic_sub(deltas, body_2, wp.spatial_vector(dq, dp))
-        # dq = wp.quat(I_inv2 * p, 0.0)
-        # q2 += wp.quat_multiply(0.5 * dq, q2)
-        # q2 = wp.quat_normalize(q2)
-        # poses[body_2] = wp.transform(x2, q2)
+        # rd = wp.quat_rotate_inv(q2, n * d_lambda)
+        # dq = wp.quat_rotate(q2, I_inv2 * rd)
+        rd = n2 * d_lambda
+        dq = wp.quat_rotate(q2, I_inv2 * rd)
+        wp.atomic_add(deltas, body_2, wp.spatial_vector(dq, dp))
     return p
 
 @wp.kernel
@@ -667,63 +669,14 @@ def apply_body_deltas(
     # print(p)
 
     # update orientation
-    I_inv = body_inv_I[tid]
+    # I_inv = body_inv_I[tid]
     # rd = wp.quat_rotate_inv(q, wp.spatial_top(delta))
     # dq = wp.quat_rotate(q, I_inv * rd)
     dq = wp.spatial_top(delta)
-    # TODO reactivate
     q += 0.5 * wp.quat(dq, 0.0) * q * epsilon
     q = wp.normalize(q)
 
     poses_out[tid] = wp.transform(p, q)
-
-# @wp.func
-# def correct_velocity(
-#     dv: wp.vec3,
-#     r1: wp.vec3,
-#     r2: wp.vec3,
-#     body1_q: wp.transform,
-#     body2_q: wp.transform,
-#     body1_m_inv: float,
-#     body2_m_inv: float,
-#     body1_I_inv: wp.mat33,
-#     body2_I_inv: wp.mat33,
-#     alpha_tilde: float,
-#     # lambda_prev: float,
-#     poses: wp.array(dtype=wp.transform),
-#     body_1: int,
-#     body_2: int,
-# ) -> wp.vec3:
-#     p = dv / ()
-
-# @wp.func
-# def xpbd_angular_impluse(
-#     dq: wp.vec3,
-#     body1_q: wp.transform,
-#     body2_q: wp.transform,
-#     body1_I_inv: wp.mat33,
-#     body2_I_inv: wp.mat33,
-#     compliance: float,
-# ) -> wp.vec3:
-#     # Calculates the lagrange angular multiplier for two bodies.
-#     # Compliance corresponds to alpha / dt^2 (corrected for timestep)
-#     # Equation 11-16 of [1].
-#     # [1] https://matthias-research.github.io/pages/publications/PBDBodies.pdf
-
-#     theta = wp.length(dq)
-#     n = wp.normalize(dq)
-
-#     # project variables to body rest frame as they are in local matrix.
-#     n_local_1 = world_to_body(n, body1_q)
-#     n_local_2 = world_to_body(n, body2_q)
-
-#     w1 = wp.dot(n_local_1, body1_I_inv * n_local_1)
-#     w2 = wp.dot(n_local_2, body2_I_inv * n_local_2)
-
-#     d_lambda = -theta / (w1 + w2 + compliance)
-#     p = d_lambda * n
-
-#     return p
 
 @wp.func
 def quat_basis_vector_a(q: wp.quat) -> wp.vec3:
@@ -776,15 +729,6 @@ def solve_body_joints(body_q: wp.array(dtype=wp.transform),
 
     if (type == wp.sim.JOINT_FREE):
         return
-
-    # print("joint")
-    # print(type)
-
-    # rigid body indices of the child and parent
-    # b1 = joint_child[tid]
-    # b2 = joint_parent[tid]
-    # b1 = joint_parent[tid]
-    # b2 = joint_child[tid]
     
     # rigid body indices of the child and parent
     id_c = tid
@@ -800,26 +744,38 @@ def solve_body_joints(body_q: wp.array(dtype=wp.transform),
     m_inv_p = 0.0
     I_inv_p = wp.mat33(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
     pose_p = wp.transform(wp.vec3(0.0), wp.quat_identity())
-    # parent transform and COM
+    # parent transform and moment arm
     if (id_p >= 0):
         pose_p = body_q[id_p]
         X_wp = pose_p * X_wp
-        # r_p = wp.transform_get_translation(X_wp) - wp.transform_point(body_q[id_p], body_com[id_p])
+        r_p = wp.transform_get_translation(X_wp) - wp.transform_point(pose_p, body_com[id_p])
+        # r_p = wp.transform_get_translation(X_wp) - wp.transform_get_translation(pose_p)
+        # r_p = wp.transform_get_translation(X_wp) - wp.transform_point(X_wp, body_com[id_p])
         # r_p = wp.transform_point(body_q[id_p], body_com[id_p])
-        r_p = wp.transform_point(body_q[id_p], -body_com[id_p])
+        # r_p = wp.transform_point(body_q[id_p], -body_com[id_p])
         # r_p = wp.transform_get_translation(X_wp)
+        # r_p = wp.transform_vector(X_wp, body_com[id_p])
+        # r_p = wp.vec3()
         m_inv_p = body_inv_m[id_p]
         I_inv_p = body_inv_I[id_p]
     
-    # child transform and COM
+    # child transform and moment arm
     pose_c = body_q[id_c]
     X_wc = pose_c * X_cj
-    # r_c = wp.transform_get_translation(X_wc) - wp.transform_point(body_q[id_c], body_com[id_c])
+    r_c = wp.transform_get_translation(X_wc) - wp.transform_point(pose_c, body_com[id_c])
+    # r_c = wp.transform_get_translation(X_wc) - wp.transform_get_translation(pose_c)
+    # r_c = wp.transform_get_translation(X_wc) - wp.transform_point(X_wc, body_com[id_c])
     # r_c = wp.transform_point(body_q[id_c], body_com[id_c])
-    r_c = wp.transform_point(body_q[id_c], -body_com[id_c])
+    # r_c = wp.transform_point(body_q[id_c], -body_com[id_c])
     # r_c = wp.transform_get_translation(X_wc)
+    # r_c = wp.transform_vector(X_wc, body_com[id_c])
+    # r_c = wp.vec3()
     m_inv_c = body_inv_m[id_c]
     I_inv_c = body_inv_I[id_c]
+
+    # TODO remove
+    # r_p = -r_p
+    # r_c = -r_c
 
     # if tid > 0:
     #     print("Joint")
@@ -851,15 +807,18 @@ def solve_body_joints(body_q: wp.array(dtype=wp.transform),
     #     I_inv2 = body_inv_I[b2]
     #     com2 = body_com[b2]
 
-    
+    # joint connection points
     x_p = wp.transform_get_translation(X_wp)
     x_c = wp.transform_get_translation(X_wc)
 
+    # local joint rotations
     q_p = wp.transform_get_rotation(X_wp)
     q_c = wp.transform_get_rotation(X_wc)
 
     # compute errors
+    # delta x is the difference of point r_2 minus point r_1 (Fig. 3)
     x_err = x_c - x_p
+    # x_err = x_p - x_c  # TODO remove
     # x_err = r_c - r_p
     r_err = wp.quat_inverse(q_p)*q_c
 
@@ -905,8 +864,10 @@ def solve_body_joints(body_q: wp.array(dtype=wp.transform),
             corr, pose_p, pose_c, m_inv_p, m_inv_c, I_inv_p, I_inv_c,
             angular_alpha_tilde, deltas, id_p, id_c)
     if (type == wp.sim.JOINT_FIXED) or (type == wp.sim.JOINT_PRISMATIC):
+        # align the mutual orientations of the two bodies
         # Eq. 18-19
         q = q_p * wp.quat_inverse(q_c)
+        # q = wp.quat_inverse(q_p)*q_c  # XXX this is from Euler integrator
         corr = 2.0 * wp.vec3(q[0], q[1], q[2])
         # angular_correction(
         #     corr, X_wp, X_wc, m_inv_p, m_inv_c, I_inv_p, I_inv_c,
@@ -993,8 +954,14 @@ def solve_body_joints(body_q: wp.array(dtype=wp.transform),
     # normal_b = wp.quat_rotate(q_p, wp.vec3(0.0, 1.0, 0.0))
     # normal_c = wp.quat_rotate(q_p, wp.vec3(0.0, 0.0, 1.0))
 
-    # dx =  wp.quat_rotate_inv(q_p, dx)
-    dx =  wp.quat_rotate_inv(q_c, dx)
+    # rotate the error vector into the joint frame
+    # q_dx = q_c
+    # q_dx = wp.transform_get_rotation(pose_p)
+    # q_dx = wp.transform_get_rotation(pose_c)
+    q_dx = q_p
+    # q_dx = wp.quat_identity()
+
+    dx =  wp.quat_rotate_inv(q_dx, dx)
 
 
     lower_pos_limits = wp.vec3(0.0)
@@ -1055,7 +1022,8 @@ def solve_body_joints(body_q: wp.array(dtype=wp.transform),
     # TODO remove
     # corr = corr / 2.0
 
-    corr = wp.quat_rotate(q_c, corr)
+    # rotate correction vector into world frame
+    corr = wp.quat_rotate(q_dx, corr)
 
     
     # at1 = wp.transform_get_translation(X_wp)
