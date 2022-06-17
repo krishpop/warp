@@ -478,11 +478,11 @@ def positional_correction(
     # r1 = at1
     # r2 = at2
 
-    # r1 = at1 - wp.transform_get_translation(tf1)
-    # r2 = at2 - wp.transform_get_translation(tf2)
+    r1 = at1 - wp.transform_get_translation(tf1)
+    r2 = at2 - wp.transform_get_translation(tf2)
 
-    r1 = at1
-    r2 = at2
+    # r1 = at1
+    # r2 = at2
 
     # print("r1")
     # print(r1)
@@ -521,23 +521,23 @@ def positional_correction(
 
     if body_1 >= 0 and m_inv1 > 0.0:
         # dp = body_to_world(p, tf1)
-        dp = -p
+        dp = p
         # dp = p * m_inv1
 
-        rd = wp.quat_rotate_inv(q1, wp.cross(r1, -p))
+        rd = wp.quat_rotate_inv(q1, wp.cross(r1, p))
         dq = wp.quat_rotate(q1, I_inv1 * rd)
 
         # rd = wp.cross(r1, -p)
         # dq = I_inv1 * rd
 
         # TODO remove
-        # dq = wp.vec3(0.0)
+        dq = wp.vec3(0.0)
 
         # w = wp.length(dq)
         # if w > 0.1:
         #     dq = wp.normalize(dq) * 0.1
         # TODO instead of atomic_sub, try -p in equations above
-        # wp.atomic_add(deltas, body_1, wp.spatial_vector(dq, dp))
+        wp.atomic_sub(deltas, body_1, wp.spatial_vector(dq, dp))
 
     if body_2 >= 0 and m_inv2 > 0.0:
         # dp = body_to_world(p, tf2)
@@ -799,20 +799,35 @@ def solve_body_joints(body_q: wp.array(dtype=wp.transform),
     v_p = wp.vec3()
     m_inv_p = 0.0
     I_inv_p = wp.mat33(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
-    # parent transform and moment arm
+    pose_p = wp.transform(wp.vec3(0.0), wp.quat_identity())
+    # parent transform and COM
     if (id_p >= 0):
-        X_wp = body_q[id_p]*X_wp
-        r_p = wp.transform_get_translation(X_wp) - wp.transform_point(body_q[id_p], body_com[id_p])
+        pose_p = body_q[id_p]
+        X_wp = pose_p * X_wp
+        # r_p = wp.transform_get_translation(X_wp) - wp.transform_point(body_q[id_p], body_com[id_p])
         # r_p = wp.transform_point(body_q[id_p], body_com[id_p])
+        r_p = wp.transform_point(body_q[id_p], -body_com[id_p])
+        # r_p = wp.transform_get_translation(X_wp)
         m_inv_p = body_inv_m[id_p]
         I_inv_p = body_inv_I[id_p]
     
-    # child transform and moment arm
-    X_wc = body_q[id_c]*X_cj
-    r_c = wp.transform_get_translation(X_wc) - wp.transform_point(body_q[id_c], body_com[id_c])
+    # child transform and COM
+    pose_c = body_q[id_c]
+    X_wc = pose_c * X_cj
+    # r_c = wp.transform_get_translation(X_wc) - wp.transform_point(body_q[id_c], body_com[id_c])
     # r_c = wp.transform_point(body_q[id_c], body_com[id_c])
+    r_c = wp.transform_point(body_q[id_c], -body_com[id_c])
+    # r_c = wp.transform_get_translation(X_wc)
     m_inv_c = body_inv_m[id_c]
     I_inv_c = body_inv_I[id_c]
+
+    # if tid > 0:
+    #     print("Joint")
+    #     print(tid)
+    #     print("r_p")
+    #     print(r_p)
+    #     print("r_c")
+    #     print(r_c)
     
 
     # tf1 = joint_X_c[tid]
@@ -876,30 +891,30 @@ def solve_body_joints(body_q: wp.array(dtype=wp.transform),
     # handle angular constraints
     if (type == wp.sim.JOINT_REVOLUTE):
         # align joint axes
-        # a1 = quat_basis_vector_a(q_p)
-        # a2 = quat_basis_vector_a(q_c)
+        # a_p = quat_basis_vector_a(q_p)
+        # a_c = quat_basis_vector_a(q_c)
         a_p = wp.quat_rotate(q_p, axis)
         a_c = wp.quat_rotate(q_c, axis)
         # Eq. 20
         corr = wp.cross(a_p, a_c)
         # angular_correction(
-        #     corr, tf1, tf2, m_inv1, m_inv2, I_inv1, I_inv2,
-        #     angular_alpha_tilde, deltas, b1, b2)
-        # XXX we use pose1 and pose2 here instead of tf1, tf2
-        # angular_correction(
         #     corr, X_wp, X_wc, m_inv_p, m_inv_c, I_inv_p, I_inv_c,
         #     angular_alpha_tilde, deltas, id_p, id_c)
+        # XXX we use pose1 and pose2 here instead of tf1, tf2
+        angular_correction(
+            corr, pose_p, pose_c, m_inv_p, m_inv_c, I_inv_p, I_inv_c,
+            angular_alpha_tilde, deltas, id_p, id_c)
     if (type == wp.sim.JOINT_FIXED) or (type == wp.sim.JOINT_PRISMATIC):
         # Eq. 18-19
         q = q_p * wp.quat_inverse(q_c)
         corr = 2.0 * wp.vec3(q[0], q[1], q[2])
         # angular_correction(
-        #     corr, tf1, tf2, m_inv1, m_inv2, I_inv1, I_inv2,
-        #     angular_alpha_tilde, deltas, id_p, id_c)
-        # XXX we use pose1 and pose2 here instead of tf1, tf2
-        # angular_correction(
         #     corr, X_wp, X_wc, m_inv_p, m_inv_c, I_inv_p, I_inv_c,
         #     angular_alpha_tilde, deltas, id_p, id_c)
+        # XXX we use pose1 and pose2 here instead of tf1, tf2
+        angular_correction(
+            corr, pose_p, pose_c, m_inv_p, m_inv_c, I_inv_p, I_inv_c,
+            angular_alpha_tilde, deltas, id_p, id_c)
         # print("angular correction")
         # print(corr)
     if (type == wp.sim.JOINT_BALL):
@@ -929,6 +944,8 @@ def solve_body_joints(body_q: wp.array(dtype=wp.transform),
     # dr = at2 - at1
     dx = x_err
     # dx = dr  # TODO add support for separation distance? (Eq. 25)
+
+    # dx = r_c - r_p
 
     # if tid > 0:
     # #     print("dx")
@@ -1038,7 +1055,7 @@ def solve_body_joints(body_q: wp.array(dtype=wp.transform),
     # TODO remove
     # corr = corr / 2.0
 
-    # corr = wp.quat_rotate(q_p, corr)
+    corr = wp.quat_rotate(q_c, corr)
 
     
     # at1 = wp.transform_get_translation(X_wp)
@@ -1046,7 +1063,9 @@ def solve_body_joints(body_q: wp.array(dtype=wp.transform),
     # positional_correction(corr, at1, at2, tf1, tf2, m_inv1, m_inv2, I_inv1, I_inv2,
     #                       linear_alpha_tilde, deltas, id_p, id_c)
     # XXX we need to use the poses of the bodies, not the joint frames!
-    positional_correction(corr, at1, at2, X_wp, X_wc, m_inv_p, m_inv_c, I_inv_p, I_inv_c,
+    # positional_correction(corr, r_p, r_c, X_wp, X_wc, m_inv_p, m_inv_c, I_inv_p, I_inv_c,
+    #                       linear_alpha_tilde, deltas, id_p, id_c)
+    positional_correction(corr, r_p, r_c, pose_p, pose_c, m_inv_p, m_inv_c, I_inv_p, I_inv_c,
                           linear_alpha_tilde, deltas, id_p, id_c)
 
     # if (tid > 0):
