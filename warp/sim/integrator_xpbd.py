@@ -77,28 +77,28 @@ def integrate_bodies(body_q: wp.array(dtype=wp.transform),
 
     # linear part
     v1 = v0 + (f0 * inv_mass + gravity * wp.nonzero(inv_mass)) * dt
-    # x1 = x_com + v1 * dt
+    x1 = x_com + v1 * dt
 
-    x1 = x0 + v1 * dt
+    # x1 = x0 + v1 * dt
 
     # angular part
-    wb = wp.quat_rotate_inv(r0, w0)
-    gyr = -(inv_inertia * wp.cross(wb, inertia*wb))
-    w1 = w0 + dt * wp.quat_rotate(r0, gyr)
+    # wb = wp.quat_rotate_inv(r0, w0)
+    # gyr = -(inv_inertia * wp.cross(wb, inertia*wb))
+    # w1 = w0 + dt * wp.quat_rotate(r0, gyr)
 
     # # angular part (compute in body frame)
-    # wb = wp.quat_rotate_inv(r0, w0)
-    # tb = wp.quat_rotate_inv(r0, t0) - wp.cross(wb,
-    #                                            inertia*wb)   # coriolis forces
+    wb = wp.quat_rotate_inv(r0, w0)
+    tb = wp.quat_rotate_inv(r0, t0) - wp.cross(wb,
+                                               inertia*wb)   # coriolis forces
 
-    # w1 = wp.quat_rotate(r0, wb + inv_inertia * tb * dt)
+    w1 = wp.quat_rotate(r0, wb + inv_inertia * tb * dt)
     r1 = wp.normalize(r0 + wp.quat(w1, 0.0) * r0 * 0.5 * dt)
 
     # angular damping, todo: expose
     # w1 = w1*(1.0-0.1*dt)
 
-    # body_q_new[tid] = wp.transform(x1 - wp.quat_rotate(r1, body_com[tid]), r1)
-    body_q_new[tid] = wp.transform(x1, r1)
+    body_q_new[tid] = wp.transform(x1 - wp.quat_rotate(r1, body_com[tid]), r1)
+    # body_q_new[tid] = wp.transform(x1, r1)
     body_qd_new[tid] = wp.spatial_vector(w1, v1)
 
 
@@ -543,9 +543,9 @@ def positional_correction(
         # TODO remove
         # dq = wp.vec3(0.0)
 
-        # w = wp.length(dq)
-        # if w > 0.1:
-        #     dq = wp.normalize(dq) * 0.1
+        w = wp.length(dq)
+        if w > 0.1:
+            dq = wp.normalize(dq) * 0.1
         # TODO instead of atomic_sub, try -p in equations above
         wp.atomic_sub(deltas, body_1, wp.spatial_vector(dq, dp))
 
@@ -566,9 +566,9 @@ def positional_correction(
         # TODO remove
         # dq = wp.vec3(0.0)
 
-        # w = wp.length(dq)
-        # if w > 0.1:
-        #     dq = wp.normalize(dq) * 0.1
+        w = wp.length(dq)
+        if w > 0.1:
+            dq = wp.normalize(dq) * 0.1
 
         wp.atomic_add(deltas, body_2, wp.spatial_vector(dq, dp))
     return p
@@ -1213,6 +1213,7 @@ def solve_body_joints2(body_q: wp.array(dtype=wp.transform),
 def update_body_velocities(
     poses: wp.array(dtype=wp.transform),
     poses_prev: wp.array(dtype=wp.transform),
+    body_com: wp.array(dtype=wp.vec3),
     # deltas: wp.array(dtype=wp.spatial_vector),
     dt: float,
     # body_q_out: wp.array(dtype=wp.transform),
@@ -1232,7 +1233,11 @@ def update_body_velocities(
 
     # Update body velocities according to Alg. 2
 
-    v = (x - x_prev) / dt
+    x_com = x + wp.quat_rotate(q, body_com[tid])
+    x_com_prev = x_prev + wp.quat_rotate(q_prev, body_com[tid])
+
+    # v = (x - x_prev) / dt
+    v = (x_com - x_com_prev) / dt
     dq = q * wp.quat_inverse(q_prev)  #XXX  wp.quat_inverse(q_prev) * q ?
 
     omega = 2.0/dt * wp.vec3(dq[0], dq[1], dq[2])
@@ -1536,6 +1541,7 @@ class XPBDIntegrator:
                         inputs=[
                             body_q_new,
                             body_q_prev,
+                            model.body_com,
                             dt
                         ],
                         outputs=[
