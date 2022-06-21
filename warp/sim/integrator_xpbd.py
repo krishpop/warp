@@ -603,6 +603,49 @@ def solve_body_joints(body_q: wp.array(dtype=wp.transform),
         angular_correction(
             corr, pose_p, pose_c, m_inv_p, m_inv_c, I_inv_p, I_inv_c,
             angular_alpha_tilde, deltas, id_p, id_c)
+
+        # limit joint angles (Alg. 3)
+        pi = 3.14159265359
+        two_pi = 2.0 * pi
+        if limit_lower > -two_pi or limit_upper < two_pi:
+            # find a perpendicular vector to joint axis
+            a = axis
+            # https://math.stackexchange.com/a/3582461
+            g = wp.sign(a[2])
+            h = a[2] + g
+            b = wp.vec3(g - a[0]*a[0]/h, -a[0]*a[1]/h, -a[0])
+            # c = wp.normalize(wp.cross(a, b))
+
+            # joint axis
+            n = wp.quat_rotate(q_p, a)
+            # the axes n1 and n2 are aligned with the two bodies
+            n1 = wp.quat_rotate(q_p, b)
+            n2 = wp.quat_rotate(q_c, b)
+
+            phi = wp.asin(wp.dot(wp.cross(n1, n2), n))
+            # print("phi")
+            # print(phi)
+            if wp.dot(n1, n2) < 0.0:
+                phi = pi - phi
+            if phi > pi:
+                phi -= two_pi
+            if phi < -pi:
+                phi += two_pi
+            if phi < limit_lower or phi > limit_upper:
+                phi = wp.clamp(phi, limit_lower, limit_upper)
+                # print("clamped phi")
+                # print(phi)
+                # rot = wp.quat(phi, n[0], n[1], n[2])
+                # rot = wp.quat(n, phi)
+                rot = wp.quat_from_axis_angle(n, phi)
+                n1 = wp.quat_rotate(rot, n1)
+                corr = wp.cross(n1, n2)
+                # print("corr")
+                # print(corr)
+                angular_correction(
+                    corr, pose_p, pose_c, m_inv_p, m_inv_c, I_inv_p, I_inv_c,
+                    angular_alpha_tilde, deltas, id_p, id_c)
+
     if (type == wp.sim.JOINT_FIXED) or (type == wp.sim.JOINT_PRISMATIC):
         # align the mutual orientations of the two bodies
         # Eq. 18-19
