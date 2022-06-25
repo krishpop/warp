@@ -533,6 +533,81 @@ def quat_basis_vector_c(q: wp.quat) -> wp.vec3:
     return wp.vec3((q[1] * w2) + q[0] * z2, (-q[0] * w2) + q[1] * z2, (q[3] * w2) - 1.0 + q[2] * z2)
 
 @wp.kernel
+def apply_joint_torques(
+    body_q: wp.array(dtype=wp.transform),
+    body_com: wp.array(dtype=wp.vec3),
+    joint_q_start: wp.array(dtype=int),
+    joint_qd_start: wp.array(dtype=int),
+    joint_type: wp.array(dtype=int),
+    joint_parent: wp.array(dtype=int),
+    joint_child: wp.array(dtype=int),
+    joint_X_p: wp.array(dtype=wp.transform),
+    joint_X_c: wp.array(dtype=wp.transform),
+    joint_axis: wp.array(dtype=wp.vec3),
+    joint_act: wp.array(dtype=float),
+    body_f: wp.array(dtype=wp.spatial_vector)
+):
+    tid = wp.tid()
+    type = joint_type[tid]
+    if (type == wp.sim.JOINT_FIXED):
+        return
+    if (type == wp.sim.JOINT_FREE):
+        return
+    
+    # rigid body indices of the child and parent
+    id_c = joint_child[tid]
+    id_p = joint_parent[tid]
+
+    X_pj = joint_X_p[tid]
+    X_cj = joint_X_c[tid]
+    
+    X_wp = X_pj
+    pose_p = X_pj # wp.transform_identity()
+    com_p = wp.vec3(0.0)
+    # parent transform and moment arm
+    if (id_p >= 0):
+        pose_p = body_q[id_p]
+        X_wp = pose_p * X_wp
+        com_p = body_com[id_p]
+    r_p = wp.transform_get_translation(X_wp) - wp.transform_point(pose_p, com_p)
+    
+    # child transform and moment arm
+    pose_c = body_q[id_c]
+    X_wc = pose_c * X_cj
+    com_c = body_com[id_c]
+    r_c = wp.transform_get_translation(X_wc) - wp.transform_point(pose_c, com_c)    
+
+    # local joint rotations
+    q_p = wp.transform_get_rotation(X_wp)
+    q_c = wp.transform_get_rotation(X_wc)
+
+    # joint properties (for 1D joints)
+    q_start = joint_q_start[tid]
+    qd_start = joint_qd_start[tid]
+    axis = joint_axis[tid]
+    act = joint_act[qd_start]
+
+    # total force/torque on the parent
+    t_total = wp.vec3()
+    f_total = wp.vec3()
+
+    # handle angular constraints
+    if (type == wp.sim.JOINT_REVOLUTE):
+        a_p = wp.transform_vector(X_wp, axis)
+        # a_c = wp.quat_rotate(q_c, axis)
+        t_total += act * a_p
+    elif (type == wp.sim.JOINT_PRISMATIC):
+        a_p = wp.transform_vector(X_wp, axis)
+        f_total += act * a_p
+    else:
+        print("joint type not handled in apply_joint_torques")
+        
+    # write forces
+    if (id_p >= 0):
+        wp.atomic_add(body_f, id_p, wp.spatial_vector(t_total + wp.cross(r_p, f_total), f_total)) 
+    wp.atomic_sub(body_f, id_c, wp.spatial_vector(t_total + wp.cross(r_c, f_total), f_total))
+
+@wp.kernel
 def solve_body_joints(body_q: wp.array(dtype=wp.transform),
                       body_qd: wp.array(dtype=wp.spatial_vector),
                       body_com: wp.array(dtype=wp.vec3),
@@ -992,12 +1067,33 @@ class XPBDIntegrator:
                 body_q_prev= wp.clone(state_in.body_q)
 
                 wp.launch(
+                    kernel=apply_joint_torques,
+                    dim=model.joint_count,
+                    inputs=[
+                        state_in.body_q,
+                        model.body_com,
+                        model.joint_q_start,
+                        model.joint_qd_start,
+                        model.joint_type,
+                        model.joint_parent,
+                        model.joint_child,
+                        model.joint_X_p,
+                        model.joint_X_c,
+                        model.joint_axis,
+                        model.joint_act,
+                    ],
+                    outputs=[
+                        state_out.body_f
+                    ],
+                    device=model.device)
+
+                wp.launch(
                     kernel=integrate_bodies,
                     dim=model.body_count,
                     inputs=[
                         state_in.body_q,
                         state_in.body_qd,
-                        state_in.body_f,
+                        state_out.body_f,
                         model.body_com,
                         model.body_mass,
                         model.body_inertia,
