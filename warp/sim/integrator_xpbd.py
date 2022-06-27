@@ -1064,7 +1064,7 @@ class XPBDIntegrator:
 
             # integrate rigid bodies
             if (model.body_count):
-                body_q_prev= wp.clone(state_in.body_q)
+                state_out.body_q_prev.assign(state_in.body_q)
 
                 wp.launch(
                     kernel=apply_joint_torques,
@@ -1108,42 +1108,9 @@ class XPBDIntegrator:
                     ],
                     device=model.device)
 
-            # body_f = None
-
-            if state_in.body_count:
-                # body_qd_pred = wp.zeros_like(state_in.body_qd)
-                # body_q_new = wp.clone(state_out.body_q)
-                # body_f = state_in.body_f
-                # body_deltas = state_out.body_deltas
-                state_out.body_deltas.zero_()
-
-                # body_deltas = wp.zeros_like(state_in.body_q)
-
-                #compute_forces(model, state_in, particle_f, body_f)
-
-                # if (model.body_count and model.contact_count > 0 and model.ground):
-
-                #     wp.launch(kernel=eval_body_contacts,
-                #                 dim=model.contact_count,
-                #                 inputs=[
-                #                     state_in.body_q,
-                #                     state_in.body_qd,
-                #                     model.body_com,
-                #                     model.contact_body0,
-                #                     model.contact_point0,
-                #                     model.contact_dist,
-                #                     model.contact_material,
-                #                     model.shape_materials
-                #                 ],
-                #                 outputs=[
-                #                     body_f
-                #                 ],
-                #                 device=model.device)
 
                 # -------------------------------------
                 # integrate bodies
-
-                body_q_new = wp.clone(state_out.body_q)
 
                 for i in range(self.iterations):
                     # print(f"### iteration {i} / {self.iterations-1}")
@@ -1152,7 +1119,7 @@ class XPBDIntegrator:
                     wp.launch(kernel=solve_body_joints,
                               dim=model.joint_count,
                               inputs=[
-                                  body_q_new,
+                                  state_out.body_q,
                                   state_out.body_qd,
                                   model.body_com,
                                   model.body_mass,
@@ -1189,8 +1156,8 @@ class XPBDIntegrator:
                         wp.launch(kernel=solve_body_contact_positions,
                                 dim=model.contact_count,
                                 inputs=[
-                                    body_q_new,
-                                    body_q_prev,
+                                    state_out.body_q,
+                                    state_out.body_q_prev,
                                     model.body_com,
                                     model.body_inv_mass,
                                     model.body_inv_inertia,
@@ -1209,7 +1176,7 @@ class XPBDIntegrator:
                     wp.launch(kernel=apply_body_deltas,
                             dim=model.body_count,
                             inputs=[
-                                body_q_new,
+                                state_out.body_q,
                                 model.body_com,
                                 model.body_mass,
                                 model.body_inertia,
@@ -1218,7 +1185,7 @@ class XPBDIntegrator:
                                 state_out.body_deltas
                             ],
                             outputs=[
-                                body_q_new,
+                                state_out.body_q,
                             ],
                             device=model.device)
 
@@ -1226,8 +1193,8 @@ class XPBDIntegrator:
                 wp.launch(kernel=update_body_velocities,
                         dim=model.body_count,
                         inputs=[
-                            body_q_new,
-                            body_q_prev,
+                            state_out.body_q,
+                            state_out.body_q_prev,
                             model.body_com,
                             dt
                         ],
@@ -1235,8 +1202,6 @@ class XPBDIntegrator:
                             state_out.body_qd
                         ],
                         device=model.device)
-
-                state_out.body_q = body_q_new
 
             state_out.particle_q = particle_q
             state_out.particle_qd = particle_qd
