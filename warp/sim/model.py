@@ -400,7 +400,7 @@ class Model:
             s.body_q.requires_grad = requires_grad
             s.body_qd.requires_grad = requires_grad
             s.body_f.requires_grad = requires_grad
-        
+
         return s
 
     def flatten(self):
@@ -1502,7 +1502,7 @@ class ModelBuilder:
         # add particles
         for v in vertices:
 
-            p = wp.quat_rotate(rot, v * scale) + pos
+            p = wp.quat_rotate(rot, v * scale) + np.array(pos)
 
             self.add_particle(p, vel, 0.0)
 
