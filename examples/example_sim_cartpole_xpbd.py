@@ -85,7 +85,7 @@ class Robot:
             self.renderer = wp.sim.render.SimRenderer(self.model, os.path.join(os.path.dirname(__file__), "outputs/example_sim_cartpole.usd"))
 
 
-    def run(self, render=True):
+    def run(self, render=True, plot=True):
 
         #---------------
         # run simulation
@@ -116,13 +116,24 @@ class Robot:
                 
         graph = wp.capture_end()
 
+        q_history = []
+        q_history.append(self.state.body_q.numpy().copy())
+        qd_history = []
+        qd_history.append(self.state.body_qd.numpy().copy())
+        delta_history = []
+        delta_history.append(self.state.body_deltas.numpy().copy())
 
         # simulate
         with wp.ScopedTimer("simulate", detailed=False, print=False, active=True, dict=profiler):
 
+            from tqdm import trange
             for f in range(0, self.episode_frames):
                 
                 wp.capture_launch(graph)
+                # for i in range(0, self.sim_substeps):
+                #     self.state.clear_forces()
+                #     self.state = self.integrator.simulate(self.model, self.state, self.state, self.sim_dt)
+                #     self.sim_time += self.sim_dt
                 self.sim_time += self.frame_dt
 
                 if (self.render):
@@ -138,6 +149,10 @@ class Robot:
 
                     self.renderer.save()
 
+                q_history.append(self.state.body_q.numpy().copy())
+                qd_history.append(self.state.body_qd.numpy().copy())
+                delta_history.append(self.state.body_deltas.numpy().copy())
+
             wp.synchronize()
 
  
@@ -145,6 +160,82 @@ class Robot:
         avg_steps_second = 1000.0*float(self.num_envs)/avg_time
 
         print(f"envs: {self.num_envs} steps/second {avg_steps_second} avg_time {avg_time}")
+
+        if plot:
+            import matplotlib.pyplot as plt
+            q_history = np.array(q_history)
+            qd_history = np.array(qd_history)
+            delta_history = np.array(delta_history)
+            
+            fig, ax = plt.subplots(3, 6, figsize=(10, 10))
+            fig.subplots_adjust(hspace=0.2, wspace=0.2)
+            ax[0,0].set_title("Cart Position")
+            ax[0,0].grid()
+            ax[1,0].set_title("Pole 1 Position")
+            ax[1,0].grid()
+            ax[2,0].set_title("Pole 2 Position")
+            ax[2,0].grid()
+
+            ax[0,1].set_title("Cart Orientation")
+            ax[0,1].grid()
+            ax[1,1].set_title("Pole 1 Orientation")
+            ax[1,1].grid()
+            ax[2,1].set_title("Pole 1 Orientation")
+            ax[2,1].grid()
+
+            ax[0,2].set_title("Cart Linear Velocity")
+            ax[0,2].grid()
+            ax[1,2].set_title("Pole 1 Linear Velocity")
+            ax[1,2].grid()
+            ax[2,2].set_title("Pole 2 Linear Velocity")
+            ax[2,2].grid()
+
+            ax[0,3].set_title("Cart Angular Velocity")
+            ax[0,3].grid()
+            ax[1,3].set_title("Pole 1 Angular Velocity")
+            ax[1,3].grid()
+            ax[2,3].set_title("Pole 2 Angular Velocity")
+            ax[2,3].grid()
+
+            ax[0,4].set_title("Cart Linear Delta")
+            ax[0,4].grid()
+            ax[1,4].set_title("Pole 1 Linear Delta")
+            ax[1,4].grid()
+            ax[2,4].set_title("Pole 2 Linear Delta")
+            ax[2,4].grid()
+
+            ax[0,5].set_title("Cart Angular Delta")
+            ax[0,5].grid()
+            ax[1,5].set_title("Pole 1 Angular Delta")
+            ax[1,5].grid()
+            ax[2,5].set_title("Pole 2 Angular Delta")
+            ax[2,5].grid()
+
+            ax[0,0].plot(q_history[:,1,:3])
+            ax[0,1].plot(q_history[:,1,3:])
+
+            ax[0,2].plot(qd_history[:,1,3:])
+            ax[0,3].plot(qd_history[:,1,:3])
+
+            ax[0,4].plot(delta_history[:,1,3:])
+            ax[0,5].plot(delta_history[:,1,:3])
+
+            if q_history.shape[1] > 2:
+                ax[1,0].plot(q_history[:,2,:3])
+                ax[1,1].plot(q_history[:,2,3:])
+                ax[1,2].plot(qd_history[:,2,3:])
+                ax[1,3].plot(qd_history[:,2,:3])
+                ax[1,4].plot(delta_history[:,2,3:])
+                ax[1,5].plot(delta_history[:,2,:3])
+            if q_history.shape[1] > 3:
+                ax[2,0].plot(q_history[:,3,:3])
+                ax[2,1].plot(q_history[:,3,3:])
+                ax[2,2].plot(qd_history[:,3,3:])
+                ax[2,3].plot(qd_history[:,3,:3])
+                ax[2,4].plot(delta_history[:,3,3:])
+                ax[2,5].plot(delta_history[:,3,:3])
+
+            plt.show()
 
         return 1000.0*float(self.num_envs)/avg_time
 
