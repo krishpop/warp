@@ -372,6 +372,7 @@ class Model:
         s.particle_f = None
 
         s.body_q = None
+        s.body_q_prev = None
         s.body_qd = None
         s.body_f = None
 
@@ -388,6 +389,7 @@ class Model:
         # articulations
         if (self.body_count):
             s.body_q = wp.clone(self.body_q)
+            s.body_q_prev = wp.clone(self.body_q)
             s.body_qd = wp.clone(self.body_qd)
             s.body_f = wp.zeros_like(self.body_qd)
 
@@ -398,6 +400,7 @@ class Model:
                 requires_grad=requires_grad)
 
             s.body_q.requires_grad = requires_grad
+            s.body_q_prev.requires_grad = requires_grad
             s.body_qd.requires_grad = requires_grad
             s.body_f.requires_grad = requires_grad
         
