@@ -100,6 +100,8 @@ add_builtin("length", input_types={"x": vec3}, value_type=float, group="Vector M
     doc="Compute the length of a 3d vector.")
 add_builtin("length", input_types={"x": vec4}, value_type=float, group="Vector Math",
     doc="Compute the length of a 4d vector.")
+add_builtin("length", input_types={"x": quat}, value_type=float, group="Vector Math",
+    doc="Compute the length of a quaternion.")
 add_builtin("normalize", input_types={"x": vec2}, value_type=vec2, group="Vector Math",
     doc="Compute the normalized value of x, if length(x) is 0 then the zero vector is returned.")
 add_builtin("normalize", input_types={"x": vec3}, value_type=vec3, group="Vector Math",
