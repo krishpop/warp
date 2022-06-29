@@ -27,19 +27,6 @@ wp.config.verify_fp = True
 wp.config.mode = "debug"
 wp.config.cache_kernels = True
 
-# clear cache
-import os, shutil
-folder = r'C:\Users\eric-\AppData\Local\NVIDIA Corporation\warp\Cache\0.2.2\bin'
-for filename in os.listdir(folder):
-    file_path = os.path.join(folder, filename)
-    try:
-        if os.path.isfile(file_path) or os.path.islink(file_path):
-            os.unlink(file_path)
-        elif os.path.isdir(file_path):
-            shutil.rmtree(file_path)
-    except Exception as e:
-        print('Failed to delete %s. Reason: %s' % (file_path, e))
-
 class Robot:
 
     frame_dt = 1.0/100.0
