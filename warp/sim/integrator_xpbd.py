@@ -759,7 +759,6 @@ def solve_body_joints(body_q: wp.array(dtype=wp.transform),
                 corr = wp.cross(n1, n2)
                 # print("corr")
                 # print(corr)
-                # angular_alpha_tilde = 0.4
                 angular_correction(
                     corr, pose_p, pose_c, m_inv_p, m_inv_c, I_inv_p, I_inv_c,
                     angular_alpha_tilde, angular_relaxation, deltas, id_p, id_c)
