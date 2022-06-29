@@ -375,6 +375,7 @@ class Model:
         s.body_q_prev = None
         s.body_qd = None
         s.body_f = None
+        s.body_deltas = None
 
         # particles
         if (self.particle_count):
