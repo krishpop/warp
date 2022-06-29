@@ -764,6 +764,30 @@ def solve_body_joints(body_q: wp.array(dtype=wp.transform),
                     corr, pose_p, pose_c, m_inv_p, m_inv_c, I_inv_p, I_inv_c,
                     angular_alpha_tilde, angular_relaxation, deltas, id_p, id_c)
 
+        # handle joint targets
+        target_ke = joint_target_ke[qd_start]
+        if target_ke > 0.0:
+            target_angle = joint_target[qd_start]
+            # find a perpendicular vector to joint axis
+            a = axis
+            # https://math.stackexchange.com/a/3582461
+            g = wp.sign(a[2])
+            h = a[2] + g
+            b = wp.vec3(g - a[0]*a[0]/h, -a[0]*a[1]/h, -a[0])
+            c = wp.normalize(wp.cross(a, b))
+            b = c
+            
+            q = wp.quat_from_axis_angle(a_p, target_angle)
+            b_target = wp.quat_rotate(q, wp.quat_rotate(q_p, b))
+            b2 = wp.quat_rotate(q_c, b)
+            # Eq. 21
+            d_target = wp.cross(b_target, b2)
+
+            target_compliance = 1.0 / target_ke / dt / dt
+            angular_correction(
+                d_target, pose_p, pose_c, m_inv_p, m_inv_c, I_inv_p, I_inv_c,
+                target_compliance, angular_relaxation, deltas, id_p, id_c)
+
     if (type == wp.sim.JOINT_FIXED) or (type == wp.sim.JOINT_PRISMATIC):
         # align the mutual orientations of the two bodies
         # Eq. 18-19
