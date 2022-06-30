@@ -376,6 +376,7 @@ class Model:
         s.body_qd = None
         s.body_f = None
         s.body_deltas = None
+        s.contact_lambda = None
 
         # particles
         if (self.particle_count):
@@ -523,6 +524,13 @@ class Model:
         self.contact_material = wp.array(mat, dtype=wp.int32, device=self.device)
 
         self.contact_count = len(body0)
+        # allocate Lagrange multipliers for contact constraints based on the
+        # updated number of contacts
+        state.contact_lambda = wp.zeros(
+            self.contact_count,
+            dtype=float,
+            device=self.device,
+            requires_grad=state.body_q.requires_grad)
 
 
 class ModelBuilder:
