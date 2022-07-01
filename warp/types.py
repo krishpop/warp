@@ -12,6 +12,7 @@ import struct
 import zlib
 import numpy as np
 
+from typing import Any
 from typing import Tuple
 from typing import TypeVar
 from typing import Generic
@@ -116,6 +117,14 @@ class void:
     def __init__(self):
         pass
 
+class float16:
+
+    _length_ = 1
+    _type_ = ctypes.c_uint16
+
+    def __init__(self, x=0.0):
+        self.value = x
+
 class float32:
 
     _length_ = 1
@@ -197,7 +206,7 @@ class uint64:
         self.value = x
 
                
-scalar_types = [int8, uint8, int16, uint16, int32, uint32, int64, uint64, float32, float64]
+scalar_types = [int8, uint8, int16, uint16, int32, uint32, int64, uint64, float16, float32, float64]
 vector_types = [vec2, vec3, vec4, mat22, mat33, mat44, quat, transform, spatial_vector, spatial_matrix]
 
 
@@ -213,6 +222,7 @@ np_dtype_to_warp_type = {
     np.dtype(np.uint64): uint64,
     np.dtype(np.byte): int8,
     np.dtype(np.ubyte): uint8,
+    np.dtype(np.float16): float16,
     np.dtype(np.float32): float32,
     np.dtype(np.float64): float64
 }
@@ -272,11 +282,13 @@ class array_t(ctypes.Structure):
 
     _fields_ = [("data", ctypes.c_uint64),
                 ("shape", ctypes.c_int32*ARRAY_MAX_DIMS),
+                ("strides", ctypes.c_int32*ARRAY_MAX_DIMS),
                 ("ndim", ctypes.c_int32)]
     
     def __init__(self):
         self.data = 0
         self.shape = (0,)*ARRAY_MAX_DIMS
+        self.strides = (0,)*ARRAY_MAX_DIMS
         self.ndim = 0       
         
 
@@ -297,10 +309,12 @@ def type_length(dtype):
         return dtype._length_
 
 def type_size_in_bytes(dtype):
-    if (dtype == float or dtype == int):
+    if (dtype == float or dtype == int or dtype == ctypes.c_float or dtype == ctypes.c_int32):
         return 4
-    else:
-        return dtype._length_*ctypes.sizeof(dtype._type_)
+    elif hasattr(dtype, "_type_"):
+        return getattr(dtype, "_length_", 1) * ctypes.sizeof(dtype._type_)
+    else:   
+        return 0
 
 def type_to_warp(dtype):
     if (dtype == float):
@@ -310,28 +324,33 @@ def type_to_warp(dtype):
     else:
         return dtype
 
-def type_typestr(ctype):
+def type_typestr(dtype):
    
-    if (ctype == ctypes.c_float):
+    if dtype == float16:
+        return "<f2"
+    elif dtype == float32:
         return "<f4"
-    elif (ctype == ctypes.c_double):
+    elif dtype == float64:
         return "<f8"
-    elif (ctype == ctypes.c_int8):
+    elif dtype == int8:
         return "b"
-    elif (ctype == ctypes.c_uint8):
+    elif dtype == uint8:
         return "B"
-    elif (ctype == ctypes.c_int16):
+    elif dtype == int16:
         return "<i2"
-    elif (ctype == ctypes.c_uint16):
+    elif dtype == uint16:
         return "<u2"
-    elif (ctype == ctypes.c_int32):
+    elif dtype == int32:
         return "<i4"
-    elif (ctype == ctypes.c_uint32):
+    elif dtype == uint32:
         return "<u4"
-    elif (ctype == ctypes.c_int64):
+    elif dtype == int64:
         return "<i8"
-    elif (ctype == ctypes.c_uint64):
+    elif dtype == uint64:
         return "<u8"
+    elif issubclass(dtype, ctypes.Array):
+        # vector types all currently float type
+        return "<f4"
     else:
         raise Exception("Unknown ctype")
 
@@ -373,11 +392,17 @@ def types_equal(a, b):
     else:
         return a == b
 
+def strides_from_shape(shape:Tuple, dtype):
+    lower_dims = np.array(shape+(1,))[1:]
+    # use 'C' (row-major) ordering by default
+    reverse_dim_prod = np.cumprod(lower_dims[::-1])[::-1]
+    return tuple(reverse_dim_prod * type_size_in_bytes(dtype))
+
 T = TypeVar('T')
 
 class array (Generic[T]):
 
-    def __init__(self, data=None, dtype: T=None, shape=None, length=0, ptr=None, capacity=0, device=None, copy=True, owner=True, ndim=None, requires_grad=False):
+    def __init__(self, data=None, dtype: T=None, shape=None, strides = None, length=0, ptr=None, capacity=0, device=None, copy=True, owner=True, ndim=None, requires_grad=False):
         """ Constructs a new Warp array object from existing data.
 
         When the ``data`` argument is a valid list, tuple, or ndarray the array will be constructed from this object's data.
@@ -393,6 +418,7 @@ class array (Generic[T]):
             data (Union[list, tuple, ndarray]) An object to construct the array from, can be a Tuple, List, or generally any type convertable to an np.array
             dtype (Union): One of the built-in types, e.g.: :class:`warp.mat33`, if dtype is None and data an ndarray then it will be inferred from the array data type
             shape (Tuple): Dimensions of the array
+            strides (Tuple): Number of bytes in each dimension between successive elements of the array
             length (int): Number of elements (rows) of the data type (deprecated, users should use `shape` argument)
             ptr (uint64): Address of an external memory address to alias (data should be None)
             capacity (int): Maximum size in bytes of the ptr allocation (data should be None)
@@ -404,6 +430,7 @@ class array (Generic[T]):
         """
 
         self.owner = False
+        self.grad = None
 
         if shape == None:
             shape = (length,)   
@@ -441,7 +468,7 @@ class array (Generic[T]):
 
             try:
                 # try to convert src array to destination type
-                arr = arr.astype(dtype=type_typestr(dtype._type_))
+                arr = arr.astype(dtype=type_typestr(dtype), copy=False)
             except:
                 raise RuntimeError(f"Could not convert input data with type {arr.dtype} to array with type {dtype._type_}")
             
@@ -454,6 +481,7 @@ class array (Generic[T]):
 
             ptr = arr.__array_interface__["data"][0]
             shape = arr.__array_interface__["shape"]
+            strides = arr.__array_interface__.get("strides", None)
 
             # Convert input shape to Warp
             if type_length(dtype) > 1:
@@ -475,6 +503,10 @@ class array (Generic[T]):
                     raise RuntimeError(f"Last dimensions of input array should match the specified data type, given shape {arr.shape}, expected last dimensions to match dtype shape {dtype._shape_}")
 
                 shape = leading_shape
+            
+                if strides is not None:
+                    strides = strides[0:-dtype_ndim]
+            
 
 
             if (device == "cpu" and copy == False):
@@ -483,6 +515,7 @@ class array (Generic[T]):
                 self.ptr = ptr
                 self.dtype=dtype
                 self.shape=shape
+                self.strides = strides
                 self.capacity=arr.size*type_size_in_bytes(dtype)
                 self.device = device
                 self.owner = False
@@ -497,7 +530,7 @@ class array (Generic[T]):
                 # otherwise, we must transfer to device memory
                 # create a host wrapper around the numpy array
                 # and a new destination array to copy it to
-                src = array(dtype=dtype, shape=shape, capacity=arr.size*type_size_in_bytes(dtype), ptr=ptr, device='cpu', copy=False, owner=False)
+                src = array(dtype=dtype, shape=shape, strides=strides, capacity=arr.size*type_size_in_bytes(dtype), ptr=ptr, device='cpu', copy=False, owner=False)
                 dest = empty(shape, dtype=dtype, device=device, requires_grad=requires_grad)
                 dest.owner = False
                 
@@ -514,6 +547,7 @@ class array (Generic[T]):
             
             # explicit construction from ptr to external memory
             self.shape = shape
+            self.strides = strides
             self.capacity = capacity
             self.dtype = dtype
             self.ptr = ptr
@@ -534,16 +568,25 @@ class array (Generic[T]):
         for d in self.shape:
             self.size *= d
 
-        # save flag, controls if gradients will be computed in by wp.Tape
-        self.requires_grad = requires_grad
+        # update byte strides and contiguous flag
+        contiguous_strides = strides_from_shape(self.shape, self.dtype)
+        if strides is None:
+            self.strides = contiguous_strides
+            self.is_contiguous = True
+        else:
+            self.strides = strides
+            self.is_contiguous = strides[:ndim] == contiguous_strides[:ndim]
 
         # store flat shape (including type shape)
         if dtype in vector_types:
             # vector type, flatten the dimensions into one tuple
             arr_shape = (*self.shape, *self.dtype._shape_)
+            dtype_strides =  strides_from_shape(self.dtype._shape_, self.dtype._type_) 
+            arr_strides = (*self.strides, *dtype_strides)
         else:
             # scalar type
             arr_shape = self.shape
+            arr_strides = self.strides
 
         # set up array interface access so we can treat this object as a numpy array
         if device == "cpu":
@@ -551,7 +594,8 @@ class array (Generic[T]):
             self.__array_interface__ = { 
                 "data": (self.ptr, False), 
                 "shape": arr_shape,  
-                "typestr": type_typestr(type_ctype(self.dtype)), 
+                "strides": arr_strides,  
+                "typestr": type_typestr(self.dtype), 
                 "version": 3 
             }
 
@@ -561,9 +605,15 @@ class array (Generic[T]):
             self.__cuda_array_interface__ = {
                 "data": (self.ptr, False),
                 "shape": arr_shape,
-                "typestr": type_typestr(type_ctype(self.dtype)),
+                "strides": arr_strides,
+                "typestr": type_typestr(self.dtype),
                 "version": 2
             }
+
+        # controls if gradients will be computed in by wp.Tape
+        # this will trigger allocation of a gradient array if it doesn't exist already
+        self.requires_grad = requires_grad
+
 
     def __del__(self):
         
@@ -608,13 +658,29 @@ class array (Generic[T]):
 
         for i in range(a.ndim):
             a.shape[i] = self.shape[i]
+            a.strides[i] = self.strides[i]
 
         return a        
+
+    def __setattr__(self, __name: str, __value: Any) -> None:
+
+        if __name == "requires_grad" and __value == True and self.grad == None:
+            self._alloc_grad()
+
+        return super().__setattr__(__name, __value)
+
+    def _alloc_grad(self):
+
+        from warp.context import zeros
+        self.grad = zeros(shape=self.shape, dtype=self.dtype, device=self.device, requires_grad=False)
 
 
     def zero_(self):
 
         from warp.context import runtime
+            
+        if not self.is_contiguous:
+            raise RuntimeError(f"Assigning to non-continuguous arrays is unsupported.")
 
         if (self.device == "cpu"):
             runtime.core.memset_host(ctypes.cast(self.ptr,ctypes.POINTER(ctypes.c_int)), ctypes.c_int(0), ctypes.c_size_t(self.size*type_size_in_bytes(self.dtype)))
@@ -622,6 +688,27 @@ class array (Generic[T]):
         if(self.device == "cuda"):
             runtime.core.memset_device(ctypes.cast(self.ptr,ctypes.POINTER(ctypes.c_int)), ctypes.c_int(0), ctypes.c_size_t(self.size*type_size_in_bytes(self.dtype)))
 
+
+    def fill_(self, value):
+
+        from warp.context import runtime
+            
+        if not self.is_contiguous:
+            raise RuntimeError(f"Assigning to non-continuguous arrays is unsupported.")
+
+        # convert value to array type
+        src_type = type_ctype(self.dtype)
+        src_value = src_type(value)
+
+        # cast to a 4-byte integer for memset
+        dest_ptr = ctypes.cast(ctypes.pointer(src_value), ctypes.POINTER(ctypes.c_int))
+        dest_value = dest_ptr.contents
+
+        if (self.device == "cpu"):
+            runtime.core.memset_host(ctypes.cast(self.ptr,ctypes.POINTER(ctypes.c_int)), dest_value, ctypes.c_size_t(self.size*type_size_in_bytes(self.dtype)))
+
+        if(self.device == "cuda"):
+            runtime.core.memset_device(ctypes.cast(self.ptr,ctypes.POINTER(ctypes.c_int)), dest_value, ctypes.c_size_t(self.size*type_size_in_bytes(self.dtype)))
 
     # equivalent to wrapping src data in an array and copying to self
     def assign(self, src):
@@ -729,14 +816,14 @@ class Mesh:
         if (points.device != indices.device):
             raise RuntimeError("Mesh points and indices must live on the same device")
 
-        if (points.dtype != vec3):
-            raise RuntimeError("Mesh points should be an array of type wp.vec3")
+        if (points.dtype != vec3 or not points.is_contiguous):
+            raise RuntimeError("Mesh points should be a contiguous array of type wp.vec3")
 
-        if (velocities and velocities.dtype != vec3):
-            raise RuntimeError("Mesh velocities should be an array of type wp.vec3")
+        if (velocities and (velocities.dtype != vec3 or not velocities.is_contiguous)):
+            raise RuntimeError("Mesh velocities should be a contiguous array of type wp.vec3")
 
-        if (indices.dtype != int32):
-            raise RuntimeError("Mesh indices should be an array of type wp.int32")
+        if (indices.dtype != int32 or not indices.is_contiguous):
+            raise RuntimeError("Mesh indices should be a contiguous array of type wp.int32")
 
 
         self.device = points.device

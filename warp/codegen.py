@@ -1037,7 +1037,7 @@ class Adjoint:
                     
                     for name, rhs in zip(names, out):
                         if (name in adj.symbols):
-                            if (rhs.type != adj.symbols[name].type):
+                            if not types_equal(rhs.type, adj.symbols[name].type):
                                 raise TypeError("Error, assigning to existing symbol {} ({}) with different type ({})".format(name, adj.symbols[name].type, rhs.type))
 
                         adj.symbols[name] = rhs
@@ -1185,7 +1185,6 @@ cpu_module_header = '''
 
 #define int(x) cast_int(x)
 #define adj_int(x, adj_x, adj_ret) adj_cast_int(x, adj_x, adj_ret)
-
 
 using namespace wp;
 

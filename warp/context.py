@@ -503,8 +503,8 @@ class Module:
             h.update(bytes(s, 'utf-8'))
        
         # # compile-time constants (global)
-        # if warp.types.constant._hash:
-        #     h.update(warp.constant._hash.digest())
+        if warp.types.constant._hash:
+            h.update(warp.constant._hash.digest())
 
         return h.digest()
 
@@ -538,7 +538,9 @@ class Module:
             build_path = warp.build.kernel_bin_dir
             gen_path = warp.build.kernel_gen_dir
 
-            hash_path = os.path.join(build_path, module_name + ".hash")
+            cpu_hash_path = os.path.join(build_path, module_name + ".cpu.hash")
+            cuda_hash_path = os.path.join(build_path, module_name + ".cuda.hash")
+
             module_path = os.path.join(build_path, module_name)
 
             ptx_path = module_path + ".ptx"
@@ -554,20 +556,29 @@ class Module:
             # test cache
             module_hash = self.hash_module()
 
-            if warp.config.cache_kernels and os.path.exists(hash_path):
 
-                f = open(hash_path, 'rb')
+            # check CPU cache
+            if build_cpu and warp.config.cache_kernels and os.path.exists(cpu_hash_path):
+
+                f = open(cpu_hash_path, 'rb')
                 cache_hash = f.read()
                 f.close()
 
                 if cache_hash == module_hash:
-                    
-                    if build_cpu and os.path.isfile(dll_path):
+                    if os.path.isfile(dll_path):
                         self.dll = warp.build.load_dll(dll_path)
                         if self.dll is not None:
                             return True
 
-                    if build_cuda and os.path.isfile(ptx_path):
+            # check GPU cache
+            if build_cuda and warp.config.cache_kernels and os.path.exists(cuda_hash_path):
+
+                f = open(cuda_hash_path, 'rb')
+                cache_hash = f.read()
+                f.close()
+
+                if cache_hash == module_hash:
+                    if os.path.isfile(ptx_path):
                         self.cuda = warp.build.load_cuda(ptx_path)
                         if self.cuda is not None:
                             return True
@@ -606,10 +617,17 @@ class Module:
                     with warp.utils.ScopedTimer("Compile CUDA", active=warp.config.verbose):
                         warp.build.build_cuda(cu_path, ptx_path, config=self.options["mode"])
 
-                # update cached output
-                f = open(hash_path, 'wb')
-                f.write(module_hash)
-                f.close()
+                # update cpu hash
+                if build_cpu:
+                    f = open(cpu_hash_path, 'wb')
+                    f.write(module_hash)
+                    f.close()
+
+                # update cuda hash
+                if build_cuda:
+                    f = open(cuda_hash_path, 'wb')
+                    f.write(module_hash)
+                    f.close()
 
             except Exception as e:
                 self.build_failed = True
@@ -824,6 +842,7 @@ class Runtime:
         # global tape
         self.tape = None
 
+
     def verify_device(self):
 
         if warp.config.verify_cuda:
@@ -949,7 +968,7 @@ def clone(src: warp.array) -> warp.array:
         A warp.array object representing the allocation
     """
 
-    dest = empty(len(src), dtype=src.dtype, device=src.device, requires_grad=src.requires_grad)
+    dest = empty(shape = src.shape, dtype=src.dtype, device=src.device, requires_grad=src.requires_grad)
     copy(dest, src)
 
     return dest
@@ -1149,6 +1168,8 @@ def synchronize():
 
     runtime.core.synchronize()
 
+    runtime.verify_device()
+
 
 def force_load():
     """Force all user-defined kernels to be compiled
@@ -1247,6 +1268,9 @@ def copy(dest: warp.array, src: warp.array, dest_offset: int = 0, src_offset: in
 
     if count == 0:
         return
+
+    if not dest.is_contiguous or not src.is_contiguous:
+        raise RuntimeError(f"Copying to or from a non-continuguous array is unsupported.")
 
     bytes_to_copy = count * warp.types.type_size_in_bytes(src.dtype)
 
@@ -1353,31 +1377,23 @@ def print_builtins(file):
     groups = {}
 
     for k, f in builtin_functions.items():
-        
-        g = None
 
-        if (isinstance(f, list)):
-            # assumes all overloads have the same group
-            g = f[0].group
-        else:
-            g = f.group
-
-        if (g not in groups):
-            groups[g] = []
+        # build dict of groups
+        if f.group not in groups:
+            groups[f.group] = []
         
-        groups[g].append(f)
+        # append all overloads to the group
+        for o in f.overloads:
+            groups[f.group].append(o)
 
     for k, g in groups.items():
         print("\n", file=file)
         print(k, file=file)
         print("---------------", file=file)
 
-        for f in g:            
-            if isinstance(f, list):
-                for x in f:
-                    print_function(x, file=file)
-            else:
-                print_function(f, file=file)
+        for f in g:
+            print_function(f, file=file)
+
 
 def export_stubs(file):
     """ Generates stub file for auto-complete of builtin functions"""
@@ -1392,7 +1408,7 @@ def export_stubs(file):
     print("from typing import overload", file=file)
 
     print("from warp.types import array, array2d, array3d, array4d, constant", file=file)
-    print("from warp.types import int8, uint8, int16, uint16, int32, uint32, int64, uint64, float32, float64", file=file)
+    print("from warp.types import int8, uint8, int16, uint16, int32, uint32, int64, uint64, float16, float32, float64", file=file)
     print("from warp.types import vec2, vec3, vec4, mat22, mat33, mat44, quat, transform, spatial_vector, spatial_matrix", file=file)
     print("from warp.types import mesh_query_aabb_t, hash_grid_query_t", file=file)
 
@@ -1486,5 +1502,4 @@ def init():
 
     if (runtime == None):
         runtime = Runtime()
-
 
