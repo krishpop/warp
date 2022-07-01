@@ -614,8 +614,8 @@ def apply_joint_torques(
     elif (type == wp.sim.JOINT_PRISMATIC):
         a_p = wp.transform_vector(X_wp, axis)
         f_total += act * a_p
-    else:
-        print("joint type not handled in apply_joint_torques")
+    # else:
+        # print("joint type not handled in apply_joint_torques")        
         
     # write forces
     if (id_p >= 0):
@@ -1133,8 +1133,8 @@ class XPBDIntegrator:
                  soft_body_relaxation=1.0,
                  joint_positional_relaxation=1.0,
                  joint_angular_relaxation=0.4,
-                 contact_normal_relaxation=0.99,
-                 contact_friction_relaxation=0.99):
+                 contact_normal_relaxation=0.8,
+                 contact_friction_relaxation=0.2):
 
         self.iterations = iterations
 
