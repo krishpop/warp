@@ -1056,7 +1056,7 @@ def solve_body_contact_velocities(
     ang = I_inv * wp.quat_rotate_inv(q1, wp.cross(r, p))
     ang = wp.quat_rotate(q1, ang)
 
-    wp.atomic_sub(deltas, c_body, wp.spatial_vector(ang, lin) * 0.1)
+    wp.atomic_sub(deltas, c_body, wp.spatial_vector(ang, lin) * 0.01)
     # wp.atomic_add(deltas, c_body, wp.spatial_vector(ang, lin) * 0.4)
     # wp.atomic_add(body_qd_out, c_body, wp.spatial_vector(ang, lin) * 0.1)
     # wp.atomic_add(body_qd_out, c_body, wp.spatial_vector(ang, lin))
@@ -1133,8 +1133,8 @@ class XPBDIntegrator:
                  soft_body_relaxation=1.0,
                  joint_positional_relaxation=1.0,
                  joint_angular_relaxation=0.4,
-                 contact_normal_relaxation=0.8,
-                 contact_friction_relaxation=0.2):
+                 contact_normal_relaxation=0.99,
+                 contact_friction_relaxation=0.99):
 
         self.iterations = iterations
 
