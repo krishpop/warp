@@ -780,9 +780,9 @@ def solve_body_joints(body_q: wp.array(dtype=wp.transform),
                 # angular_alpha_tilde = 0.0001 / dt / dt
                 # angular_relaxation = 0.5
                 # TODO fix this constraint
-                # angular_correction(
-                #     corr, pose_p, pose_c, m_inv_p, m_inv_c, I_inv_p, I_inv_c,
-                #     angular_alpha_tilde, angular_relaxation, deltas, id_p, id_c)
+                angular_correction(
+                    corr, pose_p, pose_c, m_inv_p, m_inv_c, I_inv_p, I_inv_c,
+                    angular_alpha_tilde, angular_relaxation, deltas, id_p, id_c)
 
         # handle joint targets
         target_ke = joint_target_ke[qd_start]
