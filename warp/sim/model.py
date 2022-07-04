@@ -376,7 +376,8 @@ class Model:
         s.body_qd = None
         s.body_f = None
         s.body_deltas = None
-        s.contact_lambda = None
+        s.contact_n_lambda = None
+        s.contact_t_lambda = None
 
         # particles
         if (self.particle_count):
@@ -526,7 +527,12 @@ class Model:
         self.contact_count = len(body0)
         # allocate Lagrange multipliers for contact constraints based on the
         # updated number of contacts
-        state.contact_lambda = wp.zeros(
+        state.contact_n_lambda = wp.zeros(
+            self.contact_count,
+            dtype=float,
+            device=self.device,
+            requires_grad=state.body_q.requires_grad)
+        state.contact_t_lambda = wp.zeros(
             self.contact_count,
             dtype=float,
             device=self.device,
@@ -724,6 +730,8 @@ class ModelBuilder:
             "joint_target_ke",
             "joint_target_kd",
             "joint_target",
+            "joint_linear_compliance",
+            "joint_angular_compliance",
             "shape_transform",
             "shape_geo_type",
             "shape_geo_scale",
