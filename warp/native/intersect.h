@@ -253,6 +253,17 @@ CUDA_CALLABLE inline int max_dim(vec3 a)
 	return longest_axis(vec3(x, y, z));
 }
 
+// computes the difference of products a*b - c*d using 
+// FMA instructions for improved numerical precision
+CUDA_CALLABLE inline float diff_product(float a, float b, float c, float d) 
+{
+    float cd = c * d;
+    float diff = fmaf(a, b, -cd);
+    float error = fmaf(-c, d, cd);
+
+    return diff + error;
+}
+
 // http://jcgt.org/published/0002/01/05/
 CUDA_CALLABLE inline bool intersect_ray_tri_woop(const vec3& p, const vec3& dir, const vec3& a, const vec3& b, const vec3& c, float& t, float& u, float& v, float& sign, vec3* normal)
 {
@@ -286,9 +297,9 @@ CUDA_CALLABLE inline bool intersect_ray_tri_woop(const vec3& p, const vec3& dir,
 	const float Cx = C[kx] - Sx*C[kz];
 	const float Cy = C[ky] - Sy*C[kz];
 		
-	float U = Cx*By - Cy*Bx;
-	float V = Ax*Cy - Ay*Cx;
-	float W = Bx*Ay - By*Ax;
+    float U = diff_product(Cx, By, Cy, Bx);
+    float V = diff_product(Ax, Cy, Ay, Cx);
+    float W = diff_product(Bx, Ay, By, Ax);
 
 	if (U == 0.0f || V == 0.0f || W == 0.0f) 
 	{
@@ -304,12 +315,16 @@ CUDA_CALLABLE inline bool intersect_ray_tri_woop(const vec3& p, const vec3& dir,
 	}
 
 	if ((U<0.0f || V<0.0f || W<0.0f) &&	(U>0.0f || V>0.0f || W>0.0f)) 
-		return false;
+    {
+        return false;
+    }
 
 	float det = U+V+W;
 
 	if (det == 0.0f) 
+    {
 		return false;
+    }
 
 	const float Az = Sz*A[kz];
 	const float Bz = Sz*B[kz];
@@ -318,7 +333,9 @@ CUDA_CALLABLE inline bool intersect_ray_tri_woop(const vec3& p, const vec3& dir,
 
 	int det_sign = sign_mask(det);
 	if (xorf(T,det_sign) < 0.0f)// || xorf(T,det_sign) > hit.t * xorf(det, det_sign)) // early out if hit.t is specified
+    {
 		return false;
+    }
 
 	const float rcpDet = 1.0f/det;
 	u = U*rcpDet;
@@ -662,16 +679,16 @@ CUDA_CALLABLE inline void adj_closest_point_to_triangle(
     float32 adj_3 = 0;
     float32 adj_4 = 0;
     float32 adj_5 = 0;
-    bool adj_6 = 0;
-    bool adj_7 = 0;
-    bool adj_8 = 0;
+    //bool adj_6 = 0;
+    //bool adj_7 = 0;
+    //bool adj_8 = 0;
     float32 adj_9 = 0;
     vec2 adj_10 = 0;
     vec3 adj_11 = 0;
     float32 adj_12 = 0;
     float32 adj_13 = 0;
-    bool adj_14 = 0;
-    bool adj_15 = 0;
+    //bool adj_14 = 0;
+    //bool adj_15 = 0;
     bool adj_16 = 0;
     vec2 adj_17 = 0;
     vec2 adj_18 = 0;
@@ -680,9 +697,9 @@ CUDA_CALLABLE inline void adj_closest_point_to_triangle(
     float32 adj_21 = 0;
     float32 adj_22 = 0;
     float32 adj_23 = 0;
-    bool adj_24 = 0;
-    bool adj_25 = 0;
-    bool adj_26 = 0;
+    //bool adj_24 = 0;
+    //bool adj_25 = 0;
+    //bool adj_26 = 0;
     bool adj_27 = 0;
     float32 adj_28 = 0;
     vec2 adj_29 = 0;
@@ -690,8 +707,8 @@ CUDA_CALLABLE inline void adj_closest_point_to_triangle(
     vec3 adj_31 = 0;
     float32 adj_32 = 0;
     float32 adj_33 = 0;
-    bool adj_34 = 0;
-    bool adj_35 = 0;
+    //bool adj_34 = 0;
+    //bool adj_35 = 0;
     bool adj_36 = 0;
     vec2 adj_37 = 0;
     vec2 adj_38 = 0;
@@ -700,9 +717,9 @@ CUDA_CALLABLE inline void adj_closest_point_to_triangle(
     float32 adj_41 = 0;
     float32 adj_42 = 0;
     float32 adj_43 = 0;
-    bool adj_44 = 0;
-    bool adj_45 = 0;
-    bool adj_46 = 0;
+    //bool adj_44 = 0;
+    //bool adj_45 = 0;
+    //bool adj_46 = 0;
     bool adj_47 = 0;
     float32 adj_48 = 0;
     vec2 adj_49 = 0;
@@ -715,11 +732,11 @@ CUDA_CALLABLE inline void adj_closest_point_to_triangle(
     float32 adj_56 = 0;
     float32 adj_57 = 0;
     float32 adj_58 = 0;
-    bool adj_59 = 0;
+    //bool adj_59 = 0;
     float32 adj_60 = 0;
-    bool adj_61 = 0;
+    //bool adj_61 = 0;
     float32 adj_62 = 0;
-    bool adj_63 = 0;
+    //bool adj_63 = 0;
     bool adj_64 = 0;
     float32 adj_65 = 0;
     vec2 adj_66 = 0;

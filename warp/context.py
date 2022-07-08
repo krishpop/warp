@@ -281,14 +281,15 @@ class Kernel:
 
 # decorator to register function, @func
 def func(f):
+    name = warp.codegen.make_func_name(f)
 
     m = get_module(f.__module__)
-    func = Function(func=f, key=f.__name__, namespace="", module=m, value_func=None)   # value_type not known yet, will be inferred during Adjoint.build()
+    func = Function(func=f, key=name, namespace="", module=m, value_func=None)   # value_type not known yet, will be inferred during Adjoint.build()
 
     # if the function already exists in the module
     # then add an overload and return original
     for x in m.functions:
-        if x.key == f.__name__:
+        if x.key == name:
             x.add_overload(func)
             return x
 
@@ -299,9 +300,18 @@ def func(f):
 def kernel(f):
     
     m = get_module(f.__module__)
-    k = Kernel(func=f, key=f.__name__, module=m)
+    k = Kernel(func=f, key=warp.codegen.make_func_name(f), module=m)
 
     return k
+
+
+# decorator to register struct, @struct
+def struct(c):
+
+    m = get_module(c.__module__)
+    s = warp.codegen.Struct(cls=c, key=c.__name__, module=m)
+
+    return s
 
 
 builtin_functions = {}
@@ -367,7 +377,7 @@ class ModuleBuilder:
             self.build_function(func)
 
         # build all kernel entry points
-        for kernel in module.kernels:
+        for kernel in module.kernels.values():
             self.build_kernel(kernel)
 
 
@@ -402,13 +412,16 @@ class ModuleBuilder:
     def codegen_cpu(self):
 
         cpp_source = ""
-        cu_source = ""
+
+        # code-gen structs
+        for struct in self.module.structs:
+            cpp_source += warp.codegen.codegen_struct(struct)
 
         # code-gen all imported functions
         for func in self.functions.keys():
             cpp_source += warp.codegen.codegen_func(func.adj, device="cpu")
 
-        for kernel in self.module.kernels:
+        for kernel in self.module.kernels.values():
 
             # each kernel gets an entry point in the module
             cpp_source += warp.codegen.codegen_kernel(kernel, device="cpu")
@@ -423,11 +436,15 @@ class ModuleBuilder:
 
         cu_source = ""
 
+        # code-gen structs
+        for struct in self.module.structs:
+            cu_source += warp.codegen.codegen_struct(struct)
+
         # code-gen all imported functions
         for func in self.functions.keys():
             cu_source += warp.codegen.codegen_func(func.adj, device="cuda") 
 
-        for kernel in self.module.kernels:
+        for kernel in self.module.kernels.values():
 
             cu_source += warp.codegen.codegen_kernel(kernel, device="cuda")
             cu_source += warp.codegen.codegen_module(kernel, device="cuda")
@@ -448,9 +465,10 @@ class Module:
 
         self.name = name
 
-        self.kernels = []
+        self.kernels = {}
         self.functions = []
         self.constants = []
+        self.structs = []
 
         self.dll = None
         self.cuda = None
@@ -460,23 +478,24 @@ class Module:
         self.options = {"max_unroll": 16,
                         "mode": warp.config.mode}
 
+    def register_struct(self, struct):
+        self.structs.append(struct)
+
     def register_kernel(self, kernel):
 
-        if kernel.key in self.kernels:
-            
-            # if kernel is replacing an old one then assume it has changed and 
-            # force a rebuild / reload of the dynamic library 
-            if (self.dll):
-                warp.build.unload_dll(self.dll)
+        # if kernel is replacing an old one then assume it has changed and 
+        # force a rebuild / reload of the dynamic library 
+        if (self.dll):
+            warp.build.unload_dll(self.dll)
 
-            if (self.cuda):
-                runtime.core.cuda_unload_module(self.cuda)
-                
-            self.dll = None
-            self.cuda = None
+        if (self.cuda):
+            runtime.core.cuda_unload_module(self.cuda)
+            
+        self.dll = None
+        self.cuda = None
 
         # register new kernel
-        self.kernels.append(kernel)
+        self.kernels[kernel.key] = kernel
 
 
     def register_function(self, func):
@@ -487,13 +506,18 @@ class Module:
         
         h = hashlib.sha256()
 
+        # struct source
+        for struct in self.structs:
+            s = inspect.getsource(struct.cls)
+            h.update(bytes(s, 'utf-8'))
+
         # functions source
         for func in self.functions:
             s = func.adj.source
             h.update(bytes(s, 'utf-8'))
             
         # kernel source
-        for kernel in self.kernels:
+        for kernel in self.kernels.values():
             s = kernel.adj.source
             h.update(bytes(s, 'utf-8'))
 
@@ -547,7 +571,9 @@ class Module:
 
             module_path = os.path.join(build_path, module_name)
 
-            ptx_path = module_path + ".ptx"
+            cuda_arch = runtime.core.cuda_get_device_arch()
+
+            ptx_path = module_path + f"_sm{cuda_arch}.ptx"
 
             if (os.name == 'nt'):
                 dll_path = module_path + ".dll"
@@ -619,7 +645,7 @@ class Module:
 
                 if build_cuda:
                     with warp.utils.ScopedTimer("Compile CUDA", active=warp.config.verbose):
-                        warp.build.build_cuda(cu_path, ptx_path, config=self.options["mode"], verify_fp=warp.config.verify_fp)
+                        warp.build.build_cuda(cu_path, cuda_arch, ptx_path, config=self.options["mode"], verify_fp=warp.config.verify_fp)
 
                 # update cpu hash
                 if build_cpu:
@@ -786,8 +812,9 @@ class Runtime:
         self.core.cuda_get_stream.restype = ctypes.c_void_p
         self.core.cuda_graph_end_capture.restype = ctypes.c_void_p
         self.core.cuda_get_device_name.restype = ctypes.c_char_p
+        self.core.cuda_get_device_arch.restype = ctypes.c_int
 
-        self.core.cuda_compile_program.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_bool, ctypes.c_bool, ctypes.c_bool, ctypes.c_char_p]
+        self.core.cuda_compile_program.argtypes = [ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_bool, ctypes.c_bool, ctypes.c_bool, ctypes.c_char_p]
         self.core.cuda_compile_program.restype = ctypes.c_size_t
 
         self.core.cuda_load_module.argtypes = [ctypes.c_char_p]
@@ -1090,6 +1117,10 @@ def launch(kernel, dim: Tuple[int], inputs:List, outputs:List=[], adj_inputs:Lis
                             raise RuntimeError(f"Error launching kernel '{kernel.key}', trying to launch on device='{device}', but input array for argument '{arg_name}' is on device={a.device}.")
                         
                         params.append(a.__ctype__())
+
+                elif (isinstance(arg_type, warp.codegen.Struct)):
+                    assert a is not None
+                    params.append(a._c_struct_)
 
                 # try to convert to a value type (vec3, mat33, etc)
                 elif issubclass(arg_type, ctypes.Array):

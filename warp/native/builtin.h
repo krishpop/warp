@@ -26,9 +26,10 @@
 
 #if !defined(__CUDACC__)
     #define CUDA_CALLABLE
-
+    #define CUDA_CALLABLE_DEVICE
 #else
     #define CUDA_CALLABLE __host__ __device__ 
+    #define CUDA_CALLABLE_DEVICE __device__
 #endif
 
 #ifdef WP_VERIFY_FP
@@ -102,16 +103,26 @@ typedef half float16;
 
 CUDA_CALLABLE inline half float_to_half(float x)
 {
+#if __CUDA_ARCH__ >= 700
     half h;
     asm("{  cvt.rn.f16.f32 %0, %1;}\n" : "=h"(h.u) : "f"(x));  
     return h;
+#else
+    // fp16 not supported
+    return half();
+#endif
 }
 
 CUDA_CALLABLE inline float half_to_float(half x)
 {
+#if __CUDA_ARCH__ >= 700
     float val;
     asm("{  cvt.f32.f16 %0, %1;}\n" : "=f"(val) : "h"(x.u));
     return val;
+#else
+    // fp16 not supported
+    return 0.0f;
+#endif
 }
 
 #else
@@ -275,7 +286,6 @@ inline CUDA_CALLABLE void adj_sign(int x, int adj_x, int& adj_ret) { }
 inline CUDA_CALLABLE void adj_clamp(int x, int a, int b, int& adj_x, int& adj_a, int& adj_b, int adj_ret) { }
 inline CUDA_CALLABLE void adj_floordiv(int a, int b, int& adj_a, int& adj_b, int adj_ret) { }
 
-
 // basic ops for float types
 inline CUDA_CALLABLE float mul(float a, float b) { return a*b; }
 inline CUDA_CALLABLE float div(float a, float b)
@@ -315,6 +325,33 @@ inline CUDA_CALLABLE float log(float a)
 #endif
     return logf(a);
 }
+
+inline CUDA_CALLABLE float log2(float a) 
+{
+#if FP_CHECK
+    if (!isfinite(a) || a < 0.0f)
+    {
+        printf("%s:%d log2(%f)\n", __FILE__, __LINE__, a);
+        assert(0);
+    }
+#endif
+
+    return log2f(a);    
+}
+inline CUDA_CALLABLE float log10(float a) 
+{
+#if FP_CHECK
+    if (!isfinite(a) || a < 0.0f)
+    {
+        printf("%s:%d log10(%f)\n", __FILE__, __LINE__, a);
+        assert(0);
+    }
+#endif
+
+    return log10f(a); 
+}
+
+
 inline CUDA_CALLABLE float exp(float a)
 {
     float result = expf(a);
@@ -423,6 +460,33 @@ inline CUDA_CALLABLE void adj_log(float a, float& adj_a, float adj_ret)
     }
 #endif
 }
+
+inline CUDA_CALLABLE void adj_log2(float a, float& adj_a, float adj_ret) 
+{ 
+    adj_a += (1.f/a)*(1.f/log(2.f))*adj_ret; 
+    
+#if FP_CHECK
+    if (!isfinite(adj_a))
+    {
+        printf("%s:%d - adj_log2(%f, %f, %f)\n", __FILE__, __LINE__, a, adj_a, adj_ret);
+        assert(0);
+    }
+#endif    
+}
+
+inline CUDA_CALLABLE void adj_log10(float a, float& adj_a, float adj_ret)
+{
+    adj_a += (1.f/a)*(1.f/log(10.f))*adj_ret; 
+    
+#if FP_CHECK
+    if (!isfinite(adj_a))
+    {
+        printf("%s:%d - adj_log10(%f, %f, %f)\n", __FILE__, __LINE__, a, adj_a, adj_ret);
+        assert(0);
+    }
+#endif
+}
+
 inline CUDA_CALLABLE void adj_exp(float a, float& adj_a, float adj_ret) { adj_a += exp(a)*adj_ret; }
 inline CUDA_CALLABLE void adj_pow(float a, float b, float& adj_a, float& adj_b, float adj_ret)
 { 
@@ -760,7 +824,7 @@ inline CUDA_CALLABLE int tid()
 #endif
 }
 
-inline CUDA_CALLABLE void tid(int& i, int& j)
+inline CUDA_CALLABLE_DEVICE void tid(int& i, int& j)
 {
     const int index = tid();
 
@@ -771,7 +835,7 @@ inline CUDA_CALLABLE void tid(int& i, int& j)
     j = index%n;
 }
 
-inline CUDA_CALLABLE void tid(int& i, int& j, int& k)
+inline CUDA_CALLABLE_DEVICE void tid(int& i, int& j, int& k)
 {
     const int index = tid();
 
@@ -784,7 +848,7 @@ inline CUDA_CALLABLE void tid(int& i, int& j, int& k)
     k = index%o;
 }
 
-inline CUDA_CALLABLE void tid(int& i, int& j, int& k, int& l)
+inline CUDA_CALLABLE_DEVICE void tid(int& i, int& j, int& k, int& l)
 {
     const int index = tid();
 
@@ -830,7 +894,7 @@ inline CUDA_CALLABLE float16 atomic_add(float16* buf, float16 value)
    
     half r = 0.0;
 
-    #if __CUDA_ARCH__ 
+    #if __CUDA_ARCH__ >= 700
 
         asm volatile ("{ atom.add.noftz.f16 %0,[%1],%2; }\n"
                     : "=h"(r.u)
@@ -877,6 +941,14 @@ namespace wp
 {
 
 
+// define scalar multiplication in reverse order i.e.: s*M, individual types just implement M*s
+template <typename T>
+T mul(float s, const T& x) { return mul(x, s); }
+
+template <typename T>
+void adj_mul(float s, const T& x, float& adj_s, T& adj_x, const T& adj_ret) { adj_mul(x, s, adj_x, adj_s, adj_ret); }
+
+
 // dot for scalar types just to make some templated compile for scalar/vector
 inline CUDA_CALLABLE float dot(float a, float b) { return mul(a, b); }
 inline CUDA_CALLABLE void dot(float a, float b, float& adj_a, float& adj_b, float adj_ret) { return adj_mul(a, b, adj_a, adj_b, adj_ret); }
@@ -887,6 +959,13 @@ CUDA_CALLABLE inline T lerp(const T& a, const T& b, float t)
 {
     return a*(1.0-t) + b*t;
 }
+
+template <>
+CUDA_CALLABLE inline float16 lerp(const float16& a, const float16& b, float t)
+{
+    return float(a)*(1.0-t) + float(b)*t;
+}
+
 
 template <typename T>
 CUDA_CALLABLE inline void adj_lerp(const T& a, const T& b, float t, T& adj_a, T& adj_b, float& adj_t, const T& adj_ret)
