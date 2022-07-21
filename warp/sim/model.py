@@ -17,6 +17,8 @@ import numpy as np
 
 from typing import Tuple
 from typing import List
+
+from warp.types import Volume
 Vec3 = List[float]
 Vec4 = List[float]
 Quat = List[float]
@@ -585,6 +587,7 @@ class ModelBuilder:
         self.shape_geo_scale = []
         self.shape_geo_src = []
         self.shape_materials = []
+        self.shape_volumes = []
 
         # geometry
         self.geo_meshes = []
@@ -1005,6 +1008,7 @@ class ModelBuilder:
                        pos: Vec3=(0.0, 0.0, 0.0),
                        rot: Quat=(0.0, 0.0, 0.0, 1.0),
                        mesh: Mesh=None,
+                       volume: Volume=None,
                        scale: Vec3=(1.0, 1.0, 1.0),
                        density: float=1000.0,
                        ke: float=1.e+5,
@@ -1028,9 +1032,9 @@ class ModelBuilder:
         """
 
 
-        self._add_shape(body, pos, rot, GEO_MESH, (scale[0], scale[1], scale[2], 0.0), mesh, density, ke, kd, kf, mu)
+        self._add_shape(body, pos, rot, GEO_MESH, (scale[0], scale[1], scale[2], 0.0), mesh, density, ke, kd, kf, mu, volume=volume)
 
-    def _add_shape(self, body , pos, rot, type, scale, src, density, ke, kd, kf, mu):
+    def _add_shape(self, body, pos, rot, type, scale, src, density, ke, kd, kf, mu, volume=None):
         self.shape_body.append(body)
         self.shape_transform.append(wp.transform(pos, rot))
         self.shape_geo_type.append(type.val)
@@ -1041,6 +1045,8 @@ class ModelBuilder:
         (m, I) = self._compute_shape_mass(type, scale, src, density)
 
         self._update_body_mass(body, m, I, np.array(pos), np.array(rot))
+
+        self.shape_volumes.append(volume)
 
     # particles
     def add_particle(self, pos : Vec3, vel : Vec3, mass : float) -> int:
@@ -1817,13 +1823,18 @@ class ModelBuilder:
 
         # build list of ids for geometry sources (meshes, sdfs)
         shape_geo_id = []
+        mesh_num_points = []
         for geo in self.shape_geo_src:
             if (geo):
                 shape_geo_id.append(geo.finalize(device=device))
+                # TODO remove this
+                mesh_num_points.append(len(geo.vertices))
             else:
                 shape_geo_id.append(-1)
+                mesh_num_points.append(0)
 
         m.shape_geo_id = wp.array(shape_geo_id, dtype=wp.uint64, device=device)
+        m.mesh_num_points = mesh_num_points
         m.shape_geo_scale = wp.array(self.shape_geo_scale, dtype=wp.vec3, device=device)
         m.shape_materials = wp.array(self.shape_materials, dtype=wp.vec4, device=device)
 
@@ -1916,13 +1927,25 @@ class ModelBuilder:
 
         # contacts
         m.soft_contact_max = 64*1024
-
         m.soft_contact_count = wp.zeros(1, dtype=wp.int32, device=device)
         m.soft_contact_particle = wp.zeros(m.soft_contact_max, dtype=int, device=device)
         m.soft_contact_body = wp.zeros(m.soft_contact_max, dtype=int, device=device)
         m.soft_contact_body_pos = wp.zeros(m.soft_contact_max, dtype=wp.vec3, device=device)
         m.soft_contact_body_vel = wp.zeros(m.soft_contact_max, dtype=wp.vec3, device=device)
         m.soft_contact_normal = wp.zeros(m.soft_contact_max, dtype=wp.vec3, device=device)
+
+        m.rigid_contact_max = 64*1024
+        m.rigid_contact_count = wp.zeros(1, dtype=wp.int32, device=device)
+        m.rigid_contact_particle = wp.zeros(m.rigid_contact_max, dtype=int, device=device)
+        m.rigid_contact_body_a = wp.zeros(m.rigid_contact_max, dtype=int, device=device)
+        m.rigid_contact_body_a_pos = wp.zeros(m.rigid_contact_max, dtype=wp.vec3, device=device)
+        m.rigid_contact_body_a_vel = wp.zeros(m.rigid_contact_max, dtype=wp.vec3, device=device)
+        m.rigid_contact_body_b = wp.zeros(m.rigid_contact_max, dtype=int, device=device)
+        m.rigid_contact_body_b_pos = wp.zeros(m.rigid_contact_max, dtype=wp.vec3, device=device)
+        m.rigid_contact_body_b_vel = wp.zeros(m.rigid_contact_max, dtype=wp.vec3, device=device)
+        m.rigid_contact_normal = wp.zeros(m.rigid_contact_max, dtype=wp.vec3, device=device)
+        m.rigid_contact_material = wp.zeros(m.rigid_contact_max, dtype=wp.vec4, device=device)
+        m.rigid_contact_margin = 0.0
 
         # counts
         m.particle_count = len(self.particle_q)
@@ -1946,6 +1969,10 @@ class ModelBuilder:
         # store refs to geometry
         m.geo_meshes = self.geo_meshes
         m.geo_sdfs = self.geo_sdfs
+
+        # store volumes in model to keep the references alive when ModelBuilder gets destroyed
+        m.shape_volumes = self.shape_volumes
+        m.shape_volume_id = wp.array([v.id for v in m.shape_volumes], dtype=wp.uint64, device=device)
 
         # enable ground plane
         m.ground = True
