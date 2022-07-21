@@ -120,6 +120,11 @@ class WarpMenu:
                 lambda _, value: self._on_scene_menu_click(menu_common.SCENE_WAVE),
                 toggle=False, value=False
             )
+            self._scene_MARCHING_menu_item = editor_menu.add_item(
+                f"Window/{menu_common.SCENE_MARCHING_MENU_ITEM}", 
+                lambda _, value: self._on_scene_menu_click(menu_common.SCENE_MARCHING),
+                toggle=False, value=False
+            )            
             self._scene_BROWSE_menu_item = editor_menu.add_item(
                 f"Window/{menu_common.SCENE_BROWSE_MENU_ITEM}", 
                 lambda _, value: self._on_browse_scenes_click(),
@@ -174,7 +179,7 @@ class WarpMenu:
 
         timeline = omni.timeline.get_timeline_interface()
         if timeline.is_playing() and self._example is not None:
-            with wp.ScopedCudaGuard():
+            with wp.ScopedDevice("cuda:0"):
                 self._example.update()
                 self._example.render(is_live=self._is_live)
 
@@ -190,7 +195,7 @@ class WarpMenu:
         if self._example is not None:
             stage = omni.usd.get_context().get_stage()
             stage.GetRootLayer().Clear()
-            with wp.ScopedCudaGuard():
+            with wp.ScopedDevice("cuda:0"):
                 self._example.init(stage)
                 self._example.render(is_live=self._is_live)
 
@@ -228,7 +233,7 @@ class WarpMenu:
                 log_error("Example missing render() function")
                 return
 
-            with wp.ScopedCudaGuard():
+            with wp.ScopedDevice("cuda:0"):
                 self._example.init(stage)
                 self._example.render(is_live=self._is_live)
 

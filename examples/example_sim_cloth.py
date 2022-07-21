@@ -31,8 +31,6 @@ class Example:
 
     def __init__(self, stage):
 
-        self.device = wp.get_preferred_device()
-
         self.sim_width = 64
         self.sim_height = 32
 
@@ -42,7 +40,7 @@ class Example:
         self.sim_frames = int(self.sim_duration*self.sim_fps)
         self.sim_dt = (1.0/self.sim_fps)/self.sim_substeps
         self.sim_time = 0.0
-        self.sim_use_graph = (self.device == "cuda")
+        self.sim_use_graph = wp.get_device().is_cuda
  
         builder = wp.sim.ModelBuilder()
 
@@ -55,7 +53,10 @@ class Example:
             cell_x=0.1, 
             cell_y=0.1, 
             mass=0.1, 
-            fix_left=True)
+            fix_left=True,
+            tri_ke=1.e+3,
+            tri_ka=1.e+3,
+            tri_kd=1.e+1)
 
         usd_stage = Usd.Stage.Open(os.path.join(os.path.dirname(__file__), "assets/bunny.usd"))
         usd_geom = UsdGeom.Mesh(usd_stage.GetPrimAtPath("/bunny/bunny"))
@@ -75,12 +76,8 @@ class Example:
             kd=1.e+2,
             kf=1.e+1)
 
-        self.model = builder.finalize(device=self.device)
+        self.model = builder.finalize()
         self.model.ground = True
-        self.model.tri_ke = 1.e+3
-        self.model.tri_ka = 1.e+3
-        self.model.tri_kb = 1.0
-        self.model.tri_kd = 1.e+1
         self.model.soft_contact_kd = 1.e+2
 
         self.integrator = wp.sim.SemiImplicitIntegrator()
