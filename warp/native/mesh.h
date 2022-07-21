@@ -40,6 +40,19 @@ CUDA_CALLABLE inline Mesh mesh_get(uint64_t id)
 }
 
 
+CUDA_CALLABLE inline int mesh_get_num_points(uint64_t id)
+{
+	Mesh mesh = mesh_get(id);
+	return mesh.num_points;
+}
+
+CUDA_CALLABLE inline int mesh_get_num_faces(uint64_t id)
+{
+	Mesh mesh = mesh_get(id);
+	return mesh.num_tris;
+}
+
+
 CUDA_CALLABLE inline float distance_to_aabb_sq(const vec3& p, const vec3& lower, const vec3& upper)
 {
 	vec3 cp = closest_point_to_aabb(p, lower, upper);

@@ -433,11 +433,17 @@ add_builtin("intersect_tri_tri", input_types={"v0": vec3, "v1": vec3, "v2": vec3
 add_builtin("mesh_eval_face_normal", input_types={"id": uint64, "face": int}, value_type=vec3, group="Geometry",
     doc="""Evaluates the face normal the mesh given a face index.""")
 
+add_builtin("mesh_get_num_points", input_types={"id": uint64}, value_type=int, group="Geometry",
+    doc="""Returns the number of points of the mesh given its index.""")
+    
+add_builtin("mesh_get_num_faces", input_types={"id": uint64}, value_type=int, group="Geometry",
+    doc="""Returns the number of faces of the mesh given its index.""")
+
 add_builtin("mesh_get_point", input_types={"id": uint64, "index": int}, value_type=vec3, group="Geometry",
-    doc="""Returns the point of the mesh given a index.""")
+    doc="""Returns the point of the mesh given its index.""")
 
 add_builtin("mesh_get_velocity", input_types={"id": uint64, "index": int}, value_type=vec3, group="Geometry",
-    doc="""Returns the velocity of the mesh given a index.""")
+    doc="""Returns the velocity of the mesh given its index.""")
 
 add_builtin("mesh_get_index", input_types={"id": uint64, "index": int}, value_type=int, group="Geometry",
     doc="""Returns the point-index of the mesh given a face-vertex index.""")
