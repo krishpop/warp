@@ -35,6 +35,9 @@ typedef CUresult CUDAAPI cuModuleGetFunction_t(CUfunction *hfunc, CUmodule hmod,
 
 typedef CUresult CUDAAPI cuLaunchKernel_t(CUfunction f, unsigned int gridDimX, unsigned int gridDimY, unsigned int gridDimZ, unsigned int blockDimX, unsigned int blockDimY, unsigned int blockDimZ, unsigned int sharedMemBytes, CUstream hStream, void **kernelParams, void **extra);
 
+typedef CUresult CUDAAPI cuGetErrorName_t(CUresult error, const char** pStr);
+typedef CUresult CUDAAPI cuGetErrorString_t(CUresult error, const char** pStr);
+
 static cuInit_t* cuInit_f;
 static cuCtxGetCurrent_t* cuCtxGetCurrent_f;
 static cuCtxSetCurrent_t* cuCtxSetCurrent_f;
@@ -43,6 +46,9 @@ static cuModuleUnload_t* cuModuleUnload_f;
 static cuModuleLoadDataEx_t* cuModuleLoadDataEx_f;
 static cuModuleGetFunction_t* cuModuleGetFunction_f;
 static cuLaunchKernel_t* cuLaunchKernel_f;
+
+static cuGetErrorName_t* cuGetErrorName_f;
+static cuGetErrorString_t* cuGetErrorString_f;
 
 //static cuCtxCreate_t* cuCtxCreate_f;
 //static cuCtxDestroy_t* cuCtxDestroy_f;
@@ -76,6 +82,9 @@ int cuda_init()
     cuModuleLoadDataEx_f = (cuModuleLoadDataEx_t*)GetProcAddress(hCudaDriver, "cuModuleLoadDataEx");
     cuModuleGetFunction_f = (cuModuleGetFunction_t*)GetProcAddress(hCudaDriver, "cuModuleGetFunction");
     cuLaunchKernel_f = (cuLaunchKernel_t*)GetProcAddress(hCudaDriver, "cuLaunchKernel");
+
+    cuGetErrorName_f = (cuGetErrorName_t*)GetProcAddress(hCudaDriver, "cuGetErrorName");
+    cuGetErrorString_f = (cuGetErrorString_t*)GetProcAddress(hCudaDriver, "cuGetErrorString");
 
     if (cuInit_f == NULL)
         return -1;
@@ -411,7 +420,13 @@ void* cuda_load_module(const char* path)
     CUmodule module = NULL;
     CUresult res = cuModuleLoadDataEx_f(&module, buf, 2, options, optionVals);
     if (res != CUDA_SUCCESS) {
-        printf("Warp: Loading PTX module failed with error: %d\n", res);
+        const char *error_name = NULL;
+        cuGetErrorName_f(res, &error_name);
+        error_name = error_name ? error_name : "unknown";
+        const char *error_string = NULL;
+        cuGetErrorString_f(res, &error_string);
+        error_string = error_string ? error_string : "Unknown error";
+        printf("Warp: Loading PTX module failed with error code %d (%s): %s\n", res, error_name, error_string);
         // print error log
         fprintf(stderr, "PTX linker error:\n%s\n", error_log);
     }
