@@ -961,6 +961,135 @@ def eval_soft_contacts(
         wp.atomic_add(body_f, body_index, wp.spatial_vector(t_total, f_total))
 
 
+@wp.kernel
+def eval_rigid_contacts(
+    body_q: wp.array(dtype=wp.transform),
+    body_qd: wp.array(dtype=wp.spatial_vector),
+    body_com: wp.array(dtype=wp.vec3),
+    shape_materials: wp.array(dtype=wp.vec4),
+    contact_count: wp.array(dtype=int),
+    contact_body0: wp.array(dtype=int),
+    contact_body1: wp.array(dtype=int),
+    contact_point0: wp.array(dtype=wp.vec3),
+    contact_point1: wp.array(dtype=wp.vec3),
+    contact_normal: wp.array(dtype=wp.vec3),
+    contact_distance: wp.array(dtype=float),
+    contact_margin: wp.array(dtype=float),
+    contact_material0: wp.array(dtype=int),
+    contact_material1: wp.array(dtype=int),
+    # outputs
+    body_f: wp.array(dtype=wp.spatial_vector)):
+
+    tid = wp.tid()
+
+    count = contact_count[0]
+    if (tid >= count):
+        return
+        
+    body_a = contact_body0[tid]
+    body_b = contact_body1[tid]
+
+    # body position in world space
+    bx_a = wp.vec3(0.0)    
+    bx_b = wp.vec3(0.0)
+    if (body_a >= 0):
+        X_wb_a = body_q[body_a]
+        X_com_a = body_com[body_a]
+        bx_a = wp.transform_point(X_wb_a, contact_point0[tid])
+        r_a = bx_a - wp.transform_point(X_wb_a, X_com_a)
+
+    if (body_b >= 0):
+        X_wb_b = body_q[body_b]
+        X_com_b = body_com[body_b]    
+        bx_b = wp.transform_point(X_wb_b, contact_point1[tid])
+        r_b = bx_b - wp.transform_point(X_wb_b, X_com_b)
+    
+    n = contact_normal[tid]
+    d = contact_distance[tid]
+    if (d == 0.0):
+        d = -wp.dot(n, bx_b-bx_a) - contact_margin[tid]
+
+    # print("c")
+    # print(c)
+    # print("d")
+    # print(d)
+    
+    if (d >= 0.0):
+        return
+
+
+    # compute contact point velocity
+    bv_a = wp.vec3(0.0)
+    bv_b = wp.vec3(0.0)
+    if (body_a >= 0):
+        body_v_s_a = body_qd[body_a]    
+        body_w_a = wp.spatial_top(body_v_s_a)
+        body_v_a = wp.spatial_bottom(body_v_s_a)
+        bv_a = body_v_a + wp.cross(body_w_a, r_a)
+
+    if (body_b >= 0):
+        body_v_s_b = body_qd[body_b]    
+        body_w_b = wp.spatial_top(body_v_s_b)
+        body_v_b = wp.spatial_bottom(body_v_s_b)
+        bv_b = body_v_b + wp.cross(body_w_b, r_b)
+
+    # relative velocity
+    v = bv_b - bv_a
+
+    # decompose relative velocity
+    vn = wp.dot(n, v)
+    vt = v - n * vn
+
+    # surface parameter tensor layout (ke, kd, kf, mu)
+    # XXX use average contact material
+    mat_nonzero = 0
+    mat = wp.vec4(0.0)
+    if (contact_material0[tid] >= 0):
+        mat_nonzero += 1
+        mat = shape_materials[contact_material0[tid]]
+    if (contact_material1[tid] >= 0):
+        mat_nonzero += 1
+        mat = shape_materials[contact_material1[tid]]
+    if (mat_nonzero > 0):
+        mat = mat / float(mat_nonzero)
+
+    ke = mat[0]       # restitution coefficient
+    kd = mat[1]       # damping coefficient
+    kf = mat[2]       # friction coefficient
+    mu = mat[3]       # coulomb friction
+    
+    # contact elastic
+    fn = n * d * ke
+
+    # contact damping
+    fd = n * wp.min(vn, 0.0) * kd
+
+    # viscous friction
+    # ft = vt*kf
+
+    # Coulomb friction (box)
+    # lower = mu * c * ke
+    # upper = 0.0 - lower
+
+    # vx = wp.clamp(wp.dot(wp.vec3(kf, 0.0, 0.0), vt), lower, upper)
+    # vz = wp.clamp(wp.dot(wp.vec3(0.0, 0.0, kf), vt), lower, upper)
+
+    # ft = wp.vec3(vx, 0.0, vz)
+
+    # Coulomb friction (smooth, but gradients are numerically unstable around |vt| = 0)
+    ft = wp.normalize(vt)*wp.min(kf*wp.length(vt), abs(mu*d*ke))
+
+    f_total = fn + (fd + ft)
+    # t_total = wp.cross(r, f_total)
+
+    # print("apply contact force")
+    # print(f_total)
+
+    if (body_a >= 0):
+        wp.atomic_sub(body_f, body_a, wp.spatial_vector(wp.cross(r_a, f_total), f_total))
+    if (body_b >= 0):
+        wp.atomic_add(body_f, body_b, wp.spatial_vector(wp.cross(r_b, f_total), f_total))
+
 
 @wp.kernel
 def eval_body_contacts(body_q: wp.array(dtype=wp.transform),
@@ -1512,19 +1641,65 @@ def compute_forces(model, state, particle_f, body_f):
                   outputs=[particle_f],
                   device=model.device)
 
-    if (model.body_count and model.contact_count > 0 and model.ground):
+    if (model.body_count and model.ground):
 
-        wp.launch(kernel=eval_body_contacts,
-                  dim=model.contact_count,
+        # wp.launch(kernel=eval_body_contacts,
+        #           dim=model.contact_count,
+        #           inputs=[
+        #               state.body_q,
+        #               state.body_qd,
+        #               model.body_com,
+        #               model.contact_body0,
+        #               model.contact_point0,
+        #               model.contact_dist,
+        #               model.contact_material,
+        #               model.shape_materials
+        #           ],
+        #           outputs=[
+        #               body_f
+        #           ],
+        #           device=model.device)
+        wp.launch(kernel=eval_rigid_contacts,
+                  dim=model.ground_contact_dim,
                   inputs=[
                       state.body_q,
                       state.body_qd,
                       model.body_com,
-                      model.contact_body0,
-                      model.contact_point0,
-                      model.contact_dist,
-                      model.contact_material,
-                      model.shape_materials
+                      model.shape_materials,
+                      model.ground_contact_count,
+                      model.ground_contact_body0,
+                      model.ground_contact_body1,
+                      model.ground_contact_point0,
+                      model.ground_contact_point1,
+                      model.ground_contact_normal,
+                      model.ground_contact_distance,
+                      model.ground_contact_margin,
+                      model.ground_contact_material0,
+                      model.ground_contact_material1,
+                  ],
+                  outputs=[
+                      body_f
+                  ],
+                  device=model.device)
+
+    if (model.body_count):
+        wp.launch(kernel=eval_rigid_contacts,
+                  dim=model.rigid_contact_max,
+                  inputs=[
+                      state.body_q,
+                      state.body_qd,
+                      model.body_com,
+                      model.shape_materials,
+                      model.rigid_contact_count,
+                      model.rigid_contact_body0,
+                      model.rigid_contact_body1,
+                      model.rigid_contact_point0,
+                      model.rigid_contact_point1,
+                      model.rigid_contact_normal,
+                      model.rigid_contact_distance,
+                      model.rigid_contact_margin,
+                      model.rigid_contact_material0,
+                      model.rigid_contact_material1,
                   ],
                   outputs=[
                       body_f

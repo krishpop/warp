@@ -1,0 +1,282 @@
+# Copyright (c) 2022 NVIDIA CORPORATION.  All rights reserved.
+# NVIDIA CORPORATION and its licensors retain all intellectual property
+# and proprietary rights in and to this software, related documentation
+# and any modifications thereto.  Any use, reproduction, disclosure or
+# distribution of this software and related documentation without an express
+# license agreement from NVIDIA CORPORATION is strictly prohibited.
+
+###########################################################################
+# Example NanoVDB
+#
+# Shows how to implement a particle simulation with collision against
+# a NanoVDB signed-distance field. In this example the NanoVDB field
+# is created offline in Houdini. The particle kernel uses the Warp
+# wp.volume_sample_f() method to compute the SDF and normal at a point.
+#
+###########################################################################
+
+import os
+import math
+
+import numpy as np
+import warp as wp
+
+wp.config.verify_fp = True
+wp.config.mode = 'release'
+
+import warp.sim
+import warp.sim.render
+
+from tqdm import trange
+
+use_meshio = True
+if use_meshio:
+    import meshio
+else:
+    import openmesh
+
+wp.init()
+
+@wp.func
+def volume_grad(volume: wp.uint64,
+                p: wp.vec3):
+    
+    eps = 1.0
+    q = wp.volume_world_to_index(volume, p)
+
+    # compute gradient of the SDF using finite differences
+    dx = wp.volume_sample_f(volume, q + wp.vec3(eps, 0.0, 0.0), wp.Volume.LINEAR) - wp.volume_sample_f(volume, q - wp.vec3(eps, 0.0, 0.0), wp.Volume.LINEAR)
+    dy = wp.volume_sample_f(volume, q + wp.vec3(0.0, eps, 0.0), wp.Volume.LINEAR) - wp.volume_sample_f(volume, q - wp.vec3(0.0, eps, 0.0), wp.Volume.LINEAR)
+    dz = wp.volume_sample_f(volume, q + wp.vec3(0.0, 0.0, eps), wp.Volume.LINEAR) - wp.volume_sample_f(volume, q - wp.vec3(0.0, 0.0, eps), wp.Volume.LINEAR)
+
+    return wp.normalize(wp.vec3(dx, dy, dz))
+
+@wp.kernel
+def simulate(positions: wp.array(dtype=wp.vec3),
+            velocities: wp.array(dtype=wp.vec3),
+            volume: wp.uint64,
+            restitution: float,
+            margin: float,
+            dt: float):
+    
+    
+    tid = wp.tid()
+
+    x = positions[tid]
+    v = velocities[tid]
+
+    v = v + wp.vec3(0.0, 0.0, -980.0)*dt - v*0.1*dt
+    xpred = x + v*dt
+    xpred_local = wp.volume_world_to_index(volume, xpred)
+    
+    d = wp.volume_sample_f(volume, xpred_local, wp.Volume.LINEAR)
+
+    if (d < margin):
+        
+        n = volume_grad(volume, xpred)
+        err = d - margin
+
+        # mesh collision
+        xpred = xpred - n*err
+
+
+    # ground collision
+    if (xpred[2] < 0.0):
+        xpred = wp.vec3(xpred[0], xpred[1], 0.0)
+
+    # pbd update
+    v = (xpred - x)*(1.0/dt)
+    x = xpred
+
+    positions[tid] = x
+    velocities[tid] = v
+
+class Example:
+
+    def load_volume(self, filename):
+        file = open(filename, "rb")
+        return wp.Volume.load_from_nvdb(file, device=self.device)
+
+    def load_mesh(self, filename):
+        if use_meshio:
+            m = meshio.read(filename)
+            mesh_points = np.array(m.points)
+            mesh_indices = np.array(m.cells[0].data, dtype=np.int32).flatten()
+        else:
+            m = openmesh.read_trimesh(filename)
+            mesh_points = np.array(m.points())
+            mesh_indices = np.array(m.face_vertex_indices(), dtype=np.int32).flatten()
+        return wp.sim.Mesh(mesh_points, mesh_indices)
+
+    def __init__(self, stage):
+
+        self.sim_steps = 500
+        self.sim_dt = 1.0/120.0
+        self.sim_substeps = 5
+
+        self.sim_time = 0.0
+        self.sim_timers = {}
+        self.sim_render = True
+
+        self.sim_restitution = 0.0
+        self.sim_margin = 15.0
+
+        self.device = "cpu" # wp.get_preferred_device()
+
+        model_name = "icosphere"
+
+        bowl_volume = self.load_volume(os.path.join(os.path.dirname(__file__), f"assets/bowl.nvdb"))
+        bowl_mesh = self.load_mesh(os.path.join(os.path.dirname(__file__), f"assets/bowl.obj"))
+
+        body1_volume = self.load_volume(os.path.join(os.path.dirname(__file__), f"assets/{model_name}.nvdb"))
+        body1_mesh = self.load_mesh(os.path.join(os.path.dirname(__file__), f"assets/{model_name}.obj"))
+
+        body2_volume = self.load_volume(os.path.join(os.path.dirname(__file__), f"assets/{model_name}.nvdb"))
+        body2_mesh = self.load_mesh(os.path.join(os.path.dirname(__file__), f"assets/{model_name}.obj"))
+
+        body3_volume = self.load_volume(os.path.join(os.path.dirname(__file__), f"assets/{model_name}.nvdb"))
+        body3_mesh = self.load_mesh(os.path.join(os.path.dirname(__file__), f"assets/{model_name}.obj"))
+
+        builder = wp.sim.ModelBuilder()
+
+        b1 = builder.add_body(
+            origin=wp.transform((-0.8, 1.7, -0.8), wp.quat_identity())
+        )
+        builder.add_shape_mesh(
+            body=b1,
+            mesh=body1_mesh,
+            volume=body1_volume,
+            pos=(0.0, 0.0, 0.0),
+            scale=(1.0, 1.0, 1.0),
+            ke=1e6,
+            kd=0.0,
+            kf=0.0, # 1e1, 
+            density=1e2,
+        )
+
+        axis = np.array((0.2, 0.1, 0.7))
+        axis = axis/np.linalg.norm(axis)
+        b2 = builder.add_body(
+            origin=wp.transform((0.5, 1.8, 0.6), wp.quat_from_axis_angle(axis, -math.pi/2.0)))
+        builder.add_shape_mesh(
+            body=b2,
+            mesh=body2_mesh,
+            volume=body2_volume,
+            pos=(0.0, 0.0, 0.0),
+            scale=(1.0, 1.0, 1.0),
+            ke=1e6,  
+            kd=0.0,
+            kf=0.0, # 1e1,
+            density=1e2,
+        )
+
+        # axis = np.array((0.2, 0.8, 0.17))
+        # axis = axis/np.linalg.norm(axis)
+        # b3 = builder.add_body(
+        #     origin=wp.transform((0.0, 4.2, -0.3), wp.quat_from_axis_angle(axis, -math.pi/2.0)))
+        # builder.add_shape_mesh(
+        #     body=b3,
+        #     mesh=body3_mesh,
+        #     volume=body3_volume,
+        #     pos=(0.0, 0.0, 0.0),
+        #     scale=(1.0, 1.0, 1.0),
+        #     ke=1e6,
+        #     kd=1e2,
+        #     kf=0.0, # 1e1,
+        #     density=1e3,
+        # )
+
+        bowl = builder.add_body(
+            origin=wp.transform((0.0, 1.0, 0.0), wp.quat_from_axis_angle((0.0, 1.0, 0.0), math.pi))
+        )
+        builder.add_shape_mesh(
+            body=bowl,
+            mesh=bowl_mesh,
+            volume=bowl_volume,
+            pos=(0.0, 0.0, 0.0),
+            scale=(1.0, 1.0, 1.0),
+            ke=1e6,
+            kd=0.0, # 1e2,
+            kf=0.0, # 1e1,
+            density=1e3,
+        )
+
+
+        self.model = builder.finalize(self.device)
+        self.model.ground = True
+
+        # self.integrator = wp.sim.XPBDIntegrator(iterations=5, contact_normal_relaxation=0.01, contact_friction_relaxation=0.02)
+        self.integrator = wp.sim.SemiImplicitIntegrator()
+        self.state = self.model.state()
+
+        # one time collide for ground contact
+        with wp.ScopedTimer("collide", active=True):
+            self.model.collide(self.state)
+
+        self.renderer = wp.sim.render.SimRenderer(self.model, stage)
+
+        self.points_a = []
+        self.points_b = []
+        self.max_contact_count = 1000
+
+    def update(self):
+
+        with wp.ScopedTimer("simulate", active=False):
+            
+            for i in range(self.sim_substeps):
+                self.state.clear_forces()
+                wp.sim.collide(self.model, self.state)
+
+                
+                if i == 0:                    
+                    qs = self.state.body_q.numpy()
+                    rigid_contact_count = self.model.rigid_contact_count.numpy()[0]
+                    self.max_contact_count = max(self.max_contact_count, rigid_contact_count)
+
+                    # print(f"rigid_contact_count: {rigid_contact_count}")
+
+                    self.points_a = np.zeros((self.max_contact_count, 3))
+                    self.points_b = np.zeros((self.max_contact_count, 3))
+
+                    body_a = self.model.rigid_contact_body0.numpy()[:rigid_contact_count]
+                    body_b = self.model.rigid_contact_body1.numpy()[:rigid_contact_count]
+
+                    if rigid_contact_count > 0:
+                        contact_points_a = self.model.rigid_contact_point0.numpy()
+                        self.points_a[:rigid_contact_count] = [wp.transform_point(qs[body], wp.vec3(*contact_points_a[i])) for i, body in enumerate(body_a)]
+
+                        contact_points_b = self.model.rigid_contact_point1.numpy()
+                        self.points_b[:rigid_contact_count] = [wp.transform_point(qs[body], wp.vec3(*contact_points_b[i])) for i, body in enumerate(body_b)]
+
+                    self.render()
+
+
+                self.state = self.integrator.simulate(self.model, self.state, self.state, self.sim_dt/self.sim_substeps)   
+
+
+    def render(self, is_live=False):
+
+        with wp.ScopedTimer("render", active=False):
+            time = 0.0 if is_live else self.sim_time
+
+            self.renderer.begin_frame(time)
+            self.renderer.render(self.state)
+
+            self.renderer.render_points("contact_points_a", np.array(self.points_a), radius=0.05)
+            self.renderer.render_points("contact_points_b", np.array(self.points_b), radius=0.05)
+
+            self.renderer.end_frame()
+        
+        self.sim_time += self.sim_dt
+
+if __name__ == '__main__':
+    stage_path = os.path.join(os.path.dirname(__file__), "outputs/example_rigid_sdf_contact.usd")
+
+    example = Example(stage_path)
+    # example.render()
+
+    for i in trange(example.sim_steps):
+        example.update()
+        # example.render()
+
+    example.renderer.save()
