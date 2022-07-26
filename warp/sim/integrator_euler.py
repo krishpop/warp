@@ -1034,7 +1034,7 @@ def eval_rigid_contacts(
         bv_b = body_v_b + wp.cross(body_w_b, r_b)
 
     # relative velocity
-    v = bv_b - bv_a
+    v = bv_a - bv_b
 
     # decompose relative velocity
     vn = wp.dot(n, v)
@@ -1068,7 +1068,7 @@ def eval_rigid_contacts(
     # ft = vt*kf
 
     # Coulomb friction (box)
-    # lower = mu * c * ke
+    # lower = mu * d * ke
     # upper = 0.0 - lower
 
     # vx = wp.clamp(wp.dot(wp.vec3(kf, 0.0, 0.0), vt), lower, upper)
