@@ -678,7 +678,7 @@ def solve_body_joints(body_q: wp.array(dtype=wp.transform),
     if (id_p >= 0):
         pose_p = body_q[id_p]
         X_wp = pose_p * X_wp
-        com_p = body_com[id_p]                
+        com_p = body_com[id_p]
         m_inv_p = body_inv_m[id_p]
         I_inv_p = body_inv_I[id_p]
     r_p = wp.transform_get_translation(X_wp) - wp.transform_point(pose_p, com_p)
@@ -903,44 +903,77 @@ def solve_body_contact_positions(
     body_com: wp.array(dtype=wp.vec3),
     body_m_inv: wp.array(dtype=float),
     body_I_inv: wp.array(dtype=wp.mat33),
-    contact_body: wp.array(dtype=int),
-    contact_point: wp.array(dtype=wp.vec3),
-    contact_dist: wp.array(dtype=float),
-    contact_mat: wp.array(dtype=int),
-    materials: wp.array(dtype=wp.vec4),
+    contact_count: wp.array(dtype=int),
+    contact_body0: wp.array(dtype=int),
+    contact_body1: wp.array(dtype=int),
+    contact_point0: wp.array(dtype=wp.vec3),
+    contact_point1: wp.array(dtype=wp.vec3),
+    contact_normal: wp.array(dtype=wp.vec3),
+    contact_distance: wp.array(dtype=float),
+    contact_margin: wp.array(dtype=float),
+    contact_material0: wp.array(dtype=int),
+    contact_material1: wp.array(dtype=int),
+    shape_materials: wp.array(dtype=wp.vec4),
     normal_relaxation: float,
     friction_relaxation: float,
     deltas: wp.array(dtype=wp.spatial_vector),
     contact_n_lambda: wp.array(dtype=float),
     contact_t_lambda: wp.array(dtype=float)
 ):
-
+    
     tid = wp.tid()
 
-    c_body = contact_body[tid]
-    c_point = contact_point[tid]
-    c_dist = contact_dist[tid]
-    c_mat = contact_mat[tid]
+    count = contact_count[0]
+    if (tid >= count):
+        return
+        
+    body_a = contact_body0[tid]
+    body_b = contact_body1[tid]
 
-    X_new = body_q_new[c_body]
-    X_prev = body_q_prev[c_body]
+    # body position in world space
+    bx_a = wp.vec3(0.0)    
+    bx_b = wp.vec3(0.0)
+    m_inv_a = 0.0
+    m_inv_b = 0.0
+    I_inv_a = wp.mat33(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    I_inv_b = wp.mat33(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    diff_bx = wp.vec3(0.0)
 
-    n = wp.vec3(0.0, 1.0, 0.0)
+    if (body_a >= 0):
+        X_wb_a = body_q_new[body_a]
+        X_com_a = body_com[body_a]
+        bx_a = wp.transform_point(X_wb_a, contact_point0[tid])
+        r_a = bx_a - wp.transform_point(X_wb_a, X_com_a)
+        m_inv_a = body_m_inv[body_a]
+        I_inv_a = body_I_inv[body_a]
+        diff_bx = wp.transform_point(body_q_prev[body_a], contact_point0[tid]) - bx_a
 
-    # transform point to world space
-    p_new = wp.transform_point(X_new, c_point) - n * c_dist # add on 'thickness' of shape, e.g.: radius of sphere/capsule
-    p_prev = wp.transform_point(X_prev, c_point) - n * c_dist # add on 'thickness' of shape, e.g.: radius of sphere/capsule
-
-    # moment arm around center of mass
-    r_new = p_new - wp.transform_point(X_new, body_com[c_body])
-    r_prev = p_prev - wp.transform_point(X_prev, body_com[c_body])
-
-    # ground penetration depth
-    d = wp.dot(n, p_new)
-
+    if (body_b >= 0):
+        X_wb_b = body_q_new[body_b]
+        X_com_b = body_com[body_b]    
+        bx_b = wp.transform_point(X_wb_b, contact_point1[tid])
+        r_b = bx_b - wp.transform_point(X_wb_b, X_com_b)
+        m_inv_b = body_m_inv[body_b]
+        I_inv_b = body_I_inv[body_b]
+        diff_bx = wp.transform_point(body_q_prev[body_b], contact_point1[tid]) - bx_b
     
-    # hard coded surface parameter tensor layout (ke, kd, kf, mu)
-    mat = materials[c_mat]
+    n = contact_normal[tid]
+    d = contact_distance[tid]
+    if (d == 0.0):
+        d = -wp.dot(n, bx_b-bx_a) - contact_margin[tid]
+
+    # surface parameter tensor layout (ke, kd, kf, mu)
+    # XXX use average contact material
+    mat_nonzero = 0
+    mat = wp.vec4(0.0)
+    if (contact_material0[tid] >= 0):
+        mat_nonzero += 1
+        mat = shape_materials[contact_material0[tid]]
+    if (contact_material1[tid] >= 0):
+        mat_nonzero += 1
+        mat = shape_materials[contact_material1[tid]]
+    if (mat_nonzero > 0):
+        mat = mat / float(mat_nonzero)
 
     ke = mat[0]       # restitution coefficient
     kd = mat[1]       # damping coefficient
@@ -950,35 +983,28 @@ def solve_body_contact_positions(
     if d < 0.0:
         # print("contact!")
         dx = -d * n
-        m_inv = body_m_inv[c_body]
-        I_inv = body_I_inv[c_body]
-        # correct_body(dx, r_new, X_new, I_inv, False, deltas, c_body)
-        null_tf = wp.transform_identity()
-        null_inv_mass = 0.0
-        null_inv_I = wp.mat33(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+        
         lambda_n = contact_n_lambda[tid]
-        p_n = positional_correction(dx, r_new, r_new, X_new, null_tf, m_inv,
-                              null_inv_mass, I_inv, null_inv_I,
-                              0.0, normal_relaxation, lambda_n, 0.0, deltas, c_body, -1)
+        p_n = positional_correction(dx, r_a, r_b, X_wb_a, X_wb_b, m_inv_a,
+                              m_inv_b, I_inv_a, I_inv_b,
+                              0.0, normal_relaxation, lambda_n, 0.0, deltas, body_a, body_b)
         lambda_n += wp.length(p_n)
         contact_n_lambda[tid] = lambda_n
 
         # handle static friction (Eq. 27-28)
-        dp = p_prev - p_new
+        dp = diff_bx
         dpt = dp - wp.dot(dp, n) * n
         max_lambda = lambda_n * mu
         # print("max_lambda")
         # print(max_lambda)
         lambda_t = contact_t_lambda[tid]
-        p_t = positional_correction(dpt, r_new, r_new, X_new, null_tf, m_inv,
-                              null_inv_mass, I_inv, null_inv_I,
-                              0.0, friction_relaxation, lambda_t, max_lambda, deltas, c_body, -1)
+        p_t = positional_correction(dpt, r_a, r_b, X_wb_a, X_wb_b, m_inv_a,
+                              m_inv_b, I_inv_a, I_inv_b,
+                              0.0, friction_relaxation, lambda_t, max_lambda, deltas, body_a, body_b)
 
         # Eq. 14
         lambda_t += wp.length(p_t)
         contact_t_lambda[tid] = lambda_t
-    # else:
-    #     contact_lambda[tid] = 0.0
 
 
 @wp.kernel
@@ -988,40 +1014,88 @@ def solve_body_contact_velocities(
     body_com: wp.array(dtype=wp.vec3),
     body_m_inv: wp.array(dtype=float),
     body_I_inv: wp.array(dtype=wp.mat33),
-    contact_body: wp.array(dtype=int),
-    contact_point: wp.array(dtype=wp.vec3),
-    contact_dist: wp.array(dtype=float),
-    contact_mat: wp.array(dtype=int),
+    contact_count: wp.array(dtype=int),
+    contact_body0: wp.array(dtype=int),
+    contact_body1: wp.array(dtype=int),
+    contact_point0: wp.array(dtype=wp.vec3),
+    contact_point1: wp.array(dtype=wp.vec3),
+    contact_normal: wp.array(dtype=wp.vec3),
+    contact_distance: wp.array(dtype=float),
+    contact_margin: wp.array(dtype=float),
+    contact_material0: wp.array(dtype=int),
+    contact_material1: wp.array(dtype=int),
+    shape_materials: wp.array(dtype=wp.vec4),
     contact_n_lambda: wp.array(dtype=float),
-    materials: wp.array(dtype=wp.vec4),
     dt: float,
     deltas: wp.array(dtype=wp.spatial_vector)
 ):
 
     tid = wp.tid()
 
-    c_body = contact_body[tid]
-    c_point = contact_point[tid]
-    c_dist = contact_dist[tid]
-    c_mat = contact_mat[tid]
+    count = contact_count[0]
+    if (tid >= count):
+        return
+        
+    body_a = contact_body0[tid]
+    body_b = contact_body1[tid]
 
-    tf = body_q[c_body]
+    # body position in world space
+    bx_a = wp.vec3(0.0)    
+    bx_b = wp.vec3(0.0)
+    m_inv_a = 0.0
+    m_inv_b = 0.0
+    I_inv_a = wp.mat33(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    I_inv_b = wp.mat33(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    diff_bx = wp.vec3(0.0)
 
-    n = wp.vec3(0.0, 1.0, 0.0)
+    if (body_a >= 0):
+        X_wb_a = body_q[body_a]
+        X_com_a = body_com[body_a]
+        bx_a = wp.transform_point(X_wb_a, contact_point0[tid])
+        r_a = bx_a - wp.transform_point(X_wb_a, X_com_a)
+        m_inv_a = body_m_inv[body_a]
+        I_inv_a = body_I_inv[body_a]
+
+    if (body_b >= 0):
+        X_wb_b = body_q[body_b]
+        X_com_b = body_com[body_b]    
+        bx_b = wp.transform_point(X_wb_b, contact_point1[tid])
+        r_b = bx_b - wp.transform_point(X_wb_b, X_com_b)
+        m_inv_b = body_m_inv[body_b]
+        I_inv_b = body_I_inv[body_b]
+
+    n = contact_normal[tid]
+    d = contact_distance[tid]
+    if (d == 0.0):
+        d = -wp.dot(n, bx_b-bx_a) - contact_margin[tid]
+
+    # tf = body_q[c_body]
+
+    n = contact_normal[tid]
 
     # transform point to world space
-    p = wp.transform_point(tf, c_point) - n * c_dist # add on 'thickness' of shape, e.g.: radius of sphere/capsule
+    p = bx_a  #  wp.transform_point(tf, c_point) - n * c_dist # add on 'thickness' of shape, e.g.: radius of sphere/capsule
    
     # moment arm around center of mass
-    r = p - wp.transform_point(tf, body_com[c_body])
+    r = r_a  # p - wp.transform_point(tf, body_com[c_body])
 
     # ground penetration depth
     # d = wp.dot(n, p)
     # if d > 0.0:
     #     return
     
-    # hard coded surface parameter tensor layout (ke, kd, kf, mu)
-    mat = materials[c_mat]
+    # surface parameter tensor layout (ke, kd, kf, mu)
+    # XXX use average contact material
+    mat_nonzero = 0
+    mat = wp.vec4(0.0)
+    if (contact_material0[tid] >= 0):
+        mat_nonzero += 1
+        mat = shape_materials[contact_material0[tid]]
+    if (contact_material1[tid] >= 0):
+        mat_nonzero += 1
+        mat = shape_materials[contact_material1[tid]]
+    if (mat_nonzero > 0):
+        mat = mat / float(mat_nonzero)
 
     ke = mat[0]       # restitution coefficient
     kd = mat[1]       # damping coefficient
@@ -1029,8 +1103,8 @@ def solve_body_contact_velocities(
     mu = mat[3]       # coulomb friction
 
     # if d < 0.0:
-    v0 = wp.spatial_bottom(body_qd[c_body])
-    w0 = wp.spatial_top(body_qd[c_body])
+    v0 = wp.spatial_bottom(body_qd[body_a])
+    w0 = wp.spatial_top(body_qd[body_a])
 
     # contact point velocity
     v = v0 + wp.cross(w0, r)        # this is body velocity cross offset, so it's the velocity of the contact point.
@@ -1058,13 +1132,13 @@ def solve_body_contact_velocities(
     # apply velocity correction (Eq. 33)
     n = wp.normalize(dv)
 
-    q1 = wp.transform_get_rotation(tf)
+    q1 = wp.transform_get_rotation(X_wb_a)
 
     # Eq. 2-3 (make sure to project into the frame of the body)
     r1xn = wp.quat_rotate_inv(q1, wp.cross(r, n))
 
-    m_inv = body_m_inv[c_body]
-    I_inv = body_I_inv[c_body]
+    m_inv = body_m_inv[body_a]
+    I_inv = body_I_inv[body_a]
     w1 = m_inv + wp.dot(r1xn, I_inv * r1xn)
     w2 = 0.0
     w = w1 + w2
@@ -1081,7 +1155,10 @@ def solve_body_contact_velocities(
     ang = I_inv * wp.quat_rotate_inv(q1, wp.cross(r, p))
     ang = wp.quat_rotate(q1, ang) * 0.25
 
-    wp.atomic_add(deltas, c_body, wp.spatial_vector(ang, lin))
+    if (body_a >= 0):
+        wp.atomic_add(deltas, body_a, wp.spatial_vector(ang, lin))
+    
+    wp.atomic_add(deltas, body_a, wp.spatial_vector(ang, lin))
     # wp.atomic_add(deltas, c_body, wp.spatial_vector(ang, lin) * 0.4)
     # wp.atomic_add(body_qd_out, c_body, wp.spatial_vector(ang, lin) * 0.1)
     # wp.atomic_add(body_qd_out, c_body, wp.spatial_vector(ang, lin))
@@ -1352,30 +1429,65 @@ class XPBDIntegrator:
                               ],
                               device=model.device)
 
-                    
-                    if (model.contact_count):
+                    if (model.ground):
                         wp.launch(kernel=solve_body_contact_positions,
-                                dim=model.contact_count,
-                                inputs=[
-                                    state_out.body_q,
-                                    state_out.body_q_prev,
-                                    model.body_com,
-                                    model.body_inv_mass,
-                                    model.body_inv_inertia,
-                                    model.contact_body0,
-                                    model.contact_point0,
-                                    model.contact_dist,
-                                    model.contact_material,
-                                    model.shape_materials,
-                                    self.contact_normal_relaxation,
-                                    self.contact_friction_relaxation,
-                                ],
-                                outputs=[
-                                    state_out.body_deltas,
-                                    state_out.contact_n_lambda,
-                                    state_out.contact_t_lambda
-                                ],
-                                device=model.device)
+                            dim=model.ground_contact_dim,
+                            inputs=[
+                                state_out.body_q,
+                                state_out.body_q_prev,
+                                model.body_com,
+                                model.body_inv_mass,
+                                model.body_inv_inertia,
+                                model.ground_contact_count,
+                                model.ground_contact_body0,
+                                model.ground_contact_body1,
+                                model.ground_contact_point0,
+                                model.ground_contact_point1,
+                                model.ground_contact_normal,
+                                model.ground_contact_distance,
+                                model.ground_contact_margin,
+                                model.ground_contact_material0,
+                                model.ground_contact_material1,
+                                model.shape_materials,
+                                self.contact_normal_relaxation,
+                                self.contact_friction_relaxation,
+                            ],
+                            outputs=[
+                                state_out.body_deltas,
+                                model.ground_contact_n_lambda,
+                                model.ground_contact_t_lambda
+                            ],
+                            device=model.device)
+                    
+                    # if (model.contact_count):
+                    wp.launch(kernel=solve_body_contact_positions,
+                            dim=model.rigid_contact_max,
+                            inputs=[
+                                state_out.body_q,
+                                state_out.body_q_prev,
+                                model.body_com,
+                                model.body_inv_mass,
+                                model.body_inv_inertia,
+                                model.rigid_contact_count,
+                                model.rigid_contact_body0,
+                                model.rigid_contact_body1,
+                                model.rigid_contact_point0,
+                                model.rigid_contact_point1,
+                                model.rigid_contact_normal,
+                                model.rigid_contact_distance,
+                                model.rigid_contact_margin,
+                                model.rigid_contact_material0,
+                                model.rigid_contact_material1,
+                                model.shape_materials,
+                                self.contact_normal_relaxation,
+                                self.contact_friction_relaxation,
+                            ],
+                            outputs=[
+                                state_out.body_deltas,
+                                model.rigid_contact_n_lambda,
+                                model.rigid_contact_t_lambda
+                            ],
+                            device=model.device)
 
                     # apply updates
                     wp.launch(kernel=apply_body_delta_positions,
@@ -1408,10 +1520,10 @@ class XPBDIntegrator:
                         ],
                         device=model.device)
 
-                if (model.contact_count > 0 and model.ground):
-                    state_out.body_deltas.zero_()
+                state_out.body_deltas.zero_()
+                if (model.ground):
                     wp.launch(kernel=solve_body_contact_velocities,
-                            dim=model.contact_count,
+                            dim=model.ground_contact_dim,
                             inputs=[
                                 state_out.body_q,
                                 # state_out.body_q_prev,
@@ -1419,12 +1531,18 @@ class XPBDIntegrator:
                                 model.body_com,
                                 model.body_inv_mass,
                                 model.body_inv_inertia,
-                                model.contact_body0,
-                                model.contact_point0,
-                                model.contact_dist,
-                                model.contact_material,
-                                state_out.contact_n_lambda,
+                                model.ground_contact_count,
+                                model.ground_contact_body0,
+                                model.ground_contact_body1,
+                                model.ground_contact_point0,
+                                model.ground_contact_point1,
+                                model.ground_contact_normal,
+                                model.ground_contact_distance,
+                                model.ground_contact_margin,
+                                model.ground_contact_material0,
+                                model.ground_contact_material1,
                                 model.shape_materials,
+                                model.ground_contact_n_lambda,
                                 dt 
                             ],
                             outputs=[
@@ -1432,16 +1550,44 @@ class XPBDIntegrator:
                             ],
                             device=model.device)
 
-                    wp.launch(kernel=apply_body_delta_velocities,
-                            dim=model.body_count,
-                            inputs=[
-                                state_out.body_qd,
-                                state_out.body_deltas,
-                            ],
-                            outputs=[
-                                state_out.body_qd
-                            ],
-                            device=model.device)
+                wp.launch(kernel=solve_body_contact_velocities,
+                        dim=model.rigid_contact_max,
+                        inputs=[
+                            state_out.body_q,
+                            # state_out.body_q_prev,
+                            state_out.body_qd,
+                            model.body_com,
+                            model.body_inv_mass,
+                            model.body_inv_inertia,
+                            model.rigid_contact_count,
+                            model.rigid_contact_body0,
+                            model.rigid_contact_body1,
+                            model.rigid_contact_point0,
+                            model.rigid_contact_point1,
+                            model.rigid_contact_normal,
+                            model.rigid_contact_distance,
+                            model.rigid_contact_margin,
+                            model.rigid_contact_material0,
+                            model.rigid_contact_material1,
+                            model.shape_materials,
+                            model.rigid_contact_n_lambda,
+                            dt 
+                        ],
+                        outputs=[
+                            state_out.body_deltas
+                        ],
+                        device=model.device)
+
+                wp.launch(kernel=apply_body_delta_velocities,
+                        dim=model.body_count,
+                        inputs=[
+                            state_out.body_qd,
+                            state_out.body_deltas,
+                        ],
+                        outputs=[
+                            state_out.body_qd
+                        ],
+                        device=model.device)
 
             state_out.particle_q = particle_q
             state_out.particle_qd = particle_qd

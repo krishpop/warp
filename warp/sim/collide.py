@@ -542,7 +542,7 @@ def create_mesh_sdf_contacts(
         
         # print("retrieved")
 
-        if False:
+        if True:
 
             # transform point to world space   
             volume = shape_volume_id[shape_b]
@@ -572,7 +572,7 @@ def create_mesh_sdf_contacts(
             sign = float(0.0)
 
             # print("mesh query point")
-            res = wp.mesh_query_point(mesh_b, query_b_local/geo_scale_b[0], 0.5, sign, face_index, face_u, face_v)
+            res = wp.mesh_query_point(mesh_b, query_b_local/geo_scale_b[0], 0.25, sign, face_index, face_u, face_v)
             # print("done")
             if (res):
 
@@ -590,7 +590,7 @@ def create_mesh_sdf_contacts(
                 # print("query successful")
                 # print(d)
 
-        rigid_contact_margin = 0.05
+        rigid_contact_margin = 0.0001
 
 
         if (d < rigid_contact_margin):
@@ -696,9 +696,9 @@ def collide(model, state):
     shape_geo_id = model.shape_geo_id.numpy()
     for shape_a in range(model.shape_count-1):
         # TODO figure out how to call built-in function from outside warp kernel
-        # point_count = model.mesh_num_points[shape_a]
+        point_count = model.mesh_num_points[shape_a]
         # point_count = 10 # XXX just for testing !!!!!
-        point_count = wp.mesh_get_num_points(shape_geo_id[shape_a])
+        # point_count = wp.mesh_get_num_points(shape_geo_id[shape_a])
         # point_count = 500
         # point_count = 1
         for shape_b in range(shape_a+1, model.shape_count):
