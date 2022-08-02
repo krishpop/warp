@@ -990,12 +990,14 @@ def eval_rigid_contacts(
     body_b = contact_body1[tid]
 
     # body position in world space
-    bx_a = wp.vec3(0.0)    
+    bx_a = -margin * n  
     bx_b = wp.vec3(0.0)
+    margin = contact_margin[tid]
+    n = contact_normal[tid]
     if (body_a >= 0):
         X_wb_a = body_q[body_a]
         X_com_a = body_com[body_a]
-        bx_a = wp.transform_point(X_wb_a, contact_point0[tid])
+        bx_a = wp.transform_point(X_wb_a, contact_point0[tid]) - margin * n
         r_a = bx_a - wp.transform_point(X_wb_a, X_com_a)
 
     if (body_b >= 0):
@@ -1004,10 +1006,9 @@ def eval_rigid_contacts(
         bx_b = wp.transform_point(X_wb_b, contact_point1[tid])
         r_b = bx_b - wp.transform_point(X_wb_b, X_com_b)
     
-    n = contact_normal[tid]
     d = contact_distance[tid]
     if (d == 0.0):
-        d = -wp.dot(n, bx_b-bx_a) - contact_margin[tid]
+        d = -wp.dot(n, bx_b-bx_a)
 
     # print("c")
     # print(c)
@@ -1059,10 +1060,10 @@ def eval_rigid_contacts(
     mu = mat[3]       # coulomb friction
     
     # contact elastic
-    fn = n * d * ke
+    fn = d * ke
 
     # contact damping
-    fd = n * wp.min(vn, 0.0) * kd
+    fd = wp.min(vn, 0.0) * kd * wp.step(d)
 
     # viscous friction
     # ft = vt*kf
@@ -1077,9 +1078,11 @@ def eval_rigid_contacts(
     # ft = wp.vec3(vx, 0.0, vz)
 
     # Coulomb friction (smooth, but gradients are numerically unstable around |vt| = 0)
-    ft = wp.normalize(vt)*wp.min(kf*wp.length(vt), abs(mu*d*ke))
+    # ft = wp.normalize(vt)*wp.min(kf*wp.length(vt), abs(mu*d*ke))
+    ft = wp.normalize(vt)*wp.min(kf*wp.length(vt), 0.0 - mu*(fn + fd))
 
-    f_total = fn + (fd + ft)
+    # f_total = fn + (fd + ft)
+    f_total = n * (fn + fd) + ft
     # t_total = wp.cross(r, f_total)
 
     # print("apply contact force")
