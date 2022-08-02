@@ -991,9 +991,9 @@ def eval_rigid_contacts(
 
     # body position in world space
     margin = contact_margin[tid]
+    n = contact_normal[tid]
     bx_a = -margin * n  
     bx_b = wp.vec3(0.0)
-    n = contact_normal[tid]
     if (body_a >= 0):
         X_wb_a = body_q[body_a]
         X_com_a = body_com[body_a]
