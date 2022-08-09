@@ -462,11 +462,11 @@ class Model:
             body0.append(b0)
             body1.append(b1)
             point.append(wp.transform_point(t, np.array(p0)))
-            dist.append(d)
+            dist.append(0.0)
             mat0.append(m0)
             mat1.append(m1)
             normal.append(self.ground_plane[:3])
-            margin.append(self.ground_plane[3])
+            margin.append(self.ground_plane[3] + d)
 
         # pull shape data back to CPU 
         shape_transform = self.shape_transform.to("cpu").numpy()
@@ -1857,6 +1857,7 @@ class ModelBuilder:
 
             # state (initial)
             m.particle_q = wp.array(self.particle_q, dtype=wp.vec3)
+            m.particle_q_original = wp.array(self.particle_q, dtype=wp.vec3)
             m.particle_qd = wp.array(self.particle_qd, dtype=wp.vec3)
             m.particle_mass = wp.array(self.particle_mass, dtype=wp.float32)
             m.particle_inv_mass = wp.array(particle_inv_mass, dtype=wp.float32)

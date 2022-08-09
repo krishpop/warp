@@ -542,7 +542,7 @@ def create_mesh_sdf_contacts(
         
         # print("retrieved")
 
-        if True:
+        if False:
 
             # transform point to world space   
             volume = shape_volume_id[shape_b]
