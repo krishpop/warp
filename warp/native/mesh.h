@@ -304,10 +304,7 @@ CUDA_CALLABLE inline bool mesh_query_ray(uint64_t id, const vec3& start, const v
 	stack[0] = mesh.bvh.root;
 	int count = 1;
 
-	vec3 rcp_dir = vec3(
-		dir.x != 0.0f ? 1.0f/dir.x : 0.0f,
-		dir.y != 0.0f ? 1.0f/dir.y : 0.0f,
-		dir.z != 0.0f ? 1.0f/dir.z : 0.0f);
+	vec3 rcp_dir = vec3(1.0f/dir.x, 1.0f/dir.y, 1.0f/dir.z);
 
 	float min_t = max_t;
 	int min_face;
