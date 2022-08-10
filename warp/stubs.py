@@ -354,6 +354,20 @@ def normalize(x: quat) -> quat:
    ...
 
 @overload
+def length_sq(x: vec2) -> float:
+   """
+   Compute the squared length of a 2d vector.
+   """
+   ...
+
+@overload
+def length_sq (x: vec3) -> float:
+   """
+   Compute the squared length of a 3d vector.
+   """
+   ...
+
+@overload
 def transpose(m: mat22) -> mat22:
    """
    Return the transpose of the matrix m
