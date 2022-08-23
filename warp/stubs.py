@@ -438,6 +438,27 @@ def determinant(m: mat44) -> float:
    ...
 
 @overload
+def trace(m: mat22) -> float:
+   """
+   Return the trace of the matrix m
+   """
+   ...
+
+@overload
+def trace(m: mat33) -> float:
+   """
+   Return the trace of the matrix m
+   """
+   ...
+
+@overload
+def trace(m: mat44) -> float:
+   """
+   Return the trace of the matrix m
+   """
+   ...
+
+@overload
 def diag(d: vec2) -> mat22:
    """
    Returns a matrix with the components of the vector d on the diagonal
