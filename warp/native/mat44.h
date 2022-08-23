@@ -473,6 +473,19 @@ inline CUDA_CALLABLE void adj_determinant(const mat44& m, mat44& adj_m, float ad
 
 }
 
+inline CUDA_CALLABLE float trace(const mat44& m)
+{
+    return m.data[0][0] + m.data[1][1] + m.data[2][2] + m.data[3][3];
+}
+
+inline CUDA_CALLABLE void adj_trace(const mat44& m, mat44& adj_m, float adj_ret)
+{
+    adj_m.data[0][0] += adj_ret;
+    adj_m.data[1][1] += adj_ret;
+    adj_m.data[2][2] += adj_ret;
+    adj_m.data[3][3] += adj_ret;
+}
+
 inline CUDA_CALLABLE mat44 inverse(const mat44& m)
 {
     // adapted from USD GfMatrix4f::Inverse()
