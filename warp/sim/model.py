@@ -274,6 +274,7 @@ class Model:
         self.shape_geo_src = None
         self.shape_geo_scale = None
         self.shape_materials = None
+        self.shape_contact_thickness = None
 
         self.spring_indices = None
         self.spring_rest_length = None
@@ -328,8 +329,6 @@ class Model:
         self.edge_count = 0
         self.spring_count = 0
         self.ground_contact_dim = 0
-
-        self.gravity = np.array((0.0, -9.80665, 0.0))
 
         self.soft_contact_distance = 0.1
         self.soft_contact_margin = 0.2
@@ -453,20 +452,24 @@ class Model:
         body1 = []
         point = []
         dist = []
-        mat0 = []
-        mat1 = []
+        shape0 = []
+        shape1 = []
         normal = []
         margin = []
 
-        def add_contact(b0, b1, t, p0, d, m0, m1):
+        ground_plane = self.ground_plane.numpy()
+
+        def add_contact(b0, b1, t, p0, d, s0, s1):
             body0.append(b0)
             body1.append(b1)
-            point.append(wp.transform_point(t, np.array(p0)))
+            # TODO reactivate?
+            # point.append(wp.transform_point(t, np.array(p0)))
+            point.append(p0)
             dist.append(0.0)
-            mat0.append(m0)
-            mat1.append(m1)
-            normal.append(self.ground_plane[:3])
-            margin.append(self.ground_plane[3] + d)
+            shape0.append(s0)
+            shape1.append(s1)
+            normal.append(ground_plane[:3])
+            margin.append(d)
 
         # pull shape data back to CPU 
         shape_transform = self.shape_transform.to("cpu").numpy()
@@ -524,27 +527,30 @@ class Model:
         with wp.ScopedDevice(self.device):
 
             self.ground_contact_dim = len(body0)
-            self.ground_contact_count = wp.array([len(body0)], dtype=wp.int32)
+            # self.ground_contact_count = wp.array([len(body0)], dtype=wp.int32)
             self.ground_contact_body0 = wp.array(body0, dtype=wp.int32)
-            self.ground_contact_body1 = wp.array(body1, dtype=wp.int32)
-            self.ground_contact_point0 = wp.array(point, dtype=wp.vec3)
-            self.ground_contact_point1 = wp.zeros(len(body0), dtype=wp.vec3)
-            self.ground_contact_normal = wp.array(normal, dtype=wp.vec3)
-            self.ground_contact_distance = wp.array(dist, dtype=wp.float32)
-            self.ground_contact_margin = wp.array(margin, dtype=wp.float32)
-            self.ground_contact_material0 = wp.array(mat0, dtype=wp.int32)
-            self.ground_contact_material1 = wp.array(mat1, dtype=wp.int32)
+            # self.ground_contact_body1 = wp.array(body1, dtype=wp.int32)
+            self.ground_contact_ref = wp.array(point, dtype=wp.vec3)
+            # self.ground_contact_offset0 = wp.zeros(len(point), dtype=wp.vec3)
+            # self.ground_contact_offset1 = wp.zeros(len(point), dtype=wp.vec3)
+            # self.ground_contact_point0 = wp.array(point, dtype=wp.vec3)
+            # self.ground_contact_point1 = wp.array(point, dtype=wp.vec3)
+            # self.ground_contact_normal = wp.array(normal, dtype=wp.vec3)
+            # self.ground_contact_distance = wp.array(dist, dtype=wp.float32)
+            # self.ground_contact_margin = wp.array(margin, dtype=wp.float32)
+            self.ground_contact_shape0 = wp.array(shape0, dtype=wp.int32)
+            # self.ground_contact_shape1 = wp.array(shape1, dtype=wp.int32)
 
             # allocate Lagrange multipliers for contact constraints based on the
             # updated number of contacts
-            self.ground_contact_n_lambda = wp.zeros(
-                self.ground_contact_dim,
-                dtype=float,
-                requires_grad=state.body_q.requires_grad)
-            self.ground_contact_t_lambda = wp.zeros(
-                self.ground_contact_dim,
-                dtype=float,
-                requires_grad=state.body_q.requires_grad)
+            # self.ground_contact_n_lambda = wp.zeros(
+            #     self.ground_contact_dim,
+            #     dtype=float,
+            #     requires_grad=state.body_q.requires_grad)
+            # self.ground_contact_t_lambda = wp.zeros(
+            #     self.ground_contact_dim,
+            #     dtype=float,
+            #     requires_grad=state.body_q.requires_grad)
 
 
 class ModelBuilder:
@@ -590,7 +596,7 @@ class ModelBuilder:
     default_edge_kd = 0.0
 
     
-    def __init__(self):
+    def __init__(self, upvector=(0.0, 1.0, 0.0), gravity=-9.80665):
 
         # particles
         self.particle_q = []
@@ -604,6 +610,7 @@ class ModelBuilder:
         self.shape_geo_scale = []
         self.shape_geo_src = []
         self.shape_materials = []
+        self.shape_contact_thickness = []
         self.shape_volumes = []
 
         # geometry
@@ -681,6 +688,9 @@ class ModelBuilder:
         self.joint_count = 0
         self.joint_dof_count = 0
         self.joint_coord_count = 0
+
+        self.upvector = upvector
+        self.gravity = gravity
         
 
     # an articulation is a set of contiguous bodies bodies from articulation_start[i] to articulation_start[i+1]
@@ -759,6 +769,7 @@ class ModelBuilder:
             "shape_geo_scale",
             "shape_geo_src",
             "shape_materials",
+            "shape_contact_thickness"
         ]
 
         for attr in rigid_articulation_attrs:
@@ -960,7 +971,7 @@ class ModelBuilder:
 
         """
 
-        self._add_shape(body, pos, rot, GEO_SPHERE, (radius, 0.0, 0.0, 0.0), None, density, ke, kd, kf, mu)
+        self._add_shape(body, pos, rot, GEO_SPHERE, (radius, 0.0, 0.0, 0.0), None, density, ke, kd, kf, mu, thickness=radius)
 
     def add_shape_box(self,
                       body : int,
@@ -1020,7 +1031,7 @@ class ModelBuilder:
 
         """
 
-        self._add_shape(body, pos, rot, GEO_CAPSULE, (radius, half_width, 0.0, 0.0), None, density, ke, kd, kf, mu)
+        self._add_shape(body, pos, rot, GEO_CAPSULE, (radius, half_width, 0.0, 0.0), None, density, ke, kd, kf, mu, thickness=radius)
 
     def add_shape_mesh(self,
                        body: int,
@@ -1033,7 +1044,8 @@ class ModelBuilder:
                        ke: float=1.e+5,
                        kd: float=1000.0,
                        kf: float=1000.0,
-                       mu: float=0.5):
+                       mu: float=0.5,
+                       contact_thickness=0.0):
         """Adds a triangle mesh collision shape to a body.
 
         Args:
@@ -1051,15 +1063,16 @@ class ModelBuilder:
         """
 
 
-        self._add_shape(body, pos, rot, GEO_MESH, (scale[0], scale[1], scale[2], 0.0), mesh, density, ke, kd, kf, mu, volume=volume)
+        self._add_shape(body, pos, rot, GEO_MESH, (scale[0], scale[1], scale[2], 0.0), mesh, density, ke, kd, kf, mu, thickness=contact_thickness, volume=volume)
 
-    def _add_shape(self, body, pos, rot, type, scale, src, density, ke, kd, kf, mu, volume=None):
+    def _add_shape(self, body, pos, rot, type, scale, src, density, ke, kd, kf, mu, thickness=0.0, volume=None):
         self.shape_body.append(body)
         self.shape_transform.append(wp.transform(pos, rot))
         self.shape_geo_type.append(type.val)
         self.shape_geo_scale.append((scale[0], scale[1], scale[2]))
         self.shape_geo_src.append(src)
         self.shape_materials.append((ke, kd, kf, mu))
+        self.shape_contact_thickness.append(thickness)
 
         (m, I) = self._compute_shape_mass(type, scale, src, density)
 
@@ -1886,6 +1899,7 @@ class ModelBuilder:
             m.mesh_num_points = mesh_num_points
             m.shape_geo_scale = wp.array(self.shape_geo_scale, dtype=wp.vec3, device=device)
             m.shape_materials = wp.array(self.shape_materials, dtype=wp.vec4, device=device)
+            m.shape_contact_thickness = wp.array(self.shape_contact_thickness, dtype=wp.float32, device=device)
 
             #---------------------
             # springs
@@ -1978,7 +1992,6 @@ class ModelBuilder:
 
             # contacts
             m.soft_contact_max = 64*1024
-
             m.soft_contact_count = wp.zeros(1, dtype=wp.int32)
             m.soft_contact_particle = wp.zeros(m.soft_contact_max, dtype=int)
             m.soft_contact_body = wp.zeros(m.soft_contact_max, dtype=int)
@@ -1986,17 +1999,21 @@ class ModelBuilder:
             m.soft_contact_body_vel = wp.zeros(m.soft_contact_max, dtype=wp.vec3)
             m.soft_contact_normal = wp.zeros(m.soft_contact_max, dtype=wp.vec3)
 
-            m.rigid_contact_max = 64*1024            
+            m.rigid_contact_max = 8*1024            
             m.rigid_contact_count = wp.zeros(1, dtype=wp.int32)
             m.rigid_contact_body0 = wp.zeros(m.rigid_contact_max, dtype=wp.int32)
             m.rigid_contact_body1 = wp.zeros(m.rigid_contact_max, dtype=wp.int32)
             m.rigid_contact_point0 = wp.zeros(m.rigid_contact_max, dtype=wp.vec3)
             m.rigid_contact_point1 = wp.zeros(m.rigid_contact_max, dtype=wp.vec3)
+            m.rigid_contact_offset0 = wp.zeros(m.rigid_contact_max, dtype=wp.vec3)
+            m.rigid_contact_offset1 = wp.zeros(m.rigid_contact_max, dtype=wp.vec3)
             m.rigid_contact_normal = wp.zeros(m.rigid_contact_max, dtype=wp.vec3)
-            m.rigid_contact_distance = wp.zeros(m.rigid_contact_max, dtype=wp.float32)
             m.rigid_contact_margin = wp.zeros(m.rigid_contact_max, dtype=wp.float32)
-            m.rigid_contact_material0 = wp.zeros(m.rigid_contact_max, dtype=wp.int32)
-            m.rigid_contact_material1 = wp.zeros(m.rigid_contact_max, dtype=wp.int32)
+            m.rigid_contact_shape0 = wp.zeros(m.rigid_contact_max, dtype=wp.int32)
+            m.rigid_contact_shape1 = wp.zeros(m.rigid_contact_max, dtype=wp.int32)
+            m.rigid_active_contact_point0 = wp.zeros(m.rigid_contact_max, dtype=wp.vec3)
+            m.rigid_active_contact_point1 = wp.zeros(m.rigid_contact_max, dtype=wp.vec3)
+            m.rigid_active_contact_distance = wp.zeros(m.rigid_contact_max, dtype=wp.float32)
 
             m.rigid_contact_n_lambda = wp.zeros(
                 m.rigid_contact_max,
@@ -2006,20 +2023,9 @@ class ModelBuilder:
                 m.rigid_contact_max,
                 dtype=float,
                 requires_grad=m.body_q.requires_grad)
-            
-            # m.rigid_contact_max = 64*1024
-            # m.rigid_contact_count = wp.zeros(1, dtype=wp.int32)
-            # m.rigid_contact_particle = wp.zeros(m.rigid_contact_max, dtype=int)
-            # m.rigid_contact_body_a = wp.zeros(m.rigid_contact_max, dtype=int)
-            # m.rigid_contact_body_a_pos = wp.zeros(m.rigid_contact_max, dtype=wp.vec3)
-            # m.rigid_contact_body_a_vel = wp.zeros(m.rigid_contact_max, dtype=wp.vec3)
-            # m.rigid_contact_body_b = wp.zeros(m.rigid_contact_max, dtype=int)
-            # m.rigid_contact_body_b_pos = wp.zeros(m.rigid_contact_max, dtype=wp.vec3)
-            # m.rigid_contact_body_b_vel = wp.zeros(m.rigid_contact_max, dtype=wp.vec3)
-            # m.rigid_contact_normal = wp.zeros(m.rigid_contact_max, dtype=wp.vec3)
-            # m.rigid_contact_distance = wp.zeros(m.rigid_contact_max, dtype=wp.float32)
-            # m.rigid_contact_material = wp.zeros(m.rigid_contact_max, dtype=wp.vec4)
-            # m.rigid_contact_margin = 0.0
+
+            # number of contact constraints per rigid body (used for scaling the constraint contributions)
+            m.contact_inv_weight = wp.zeros(len(self.body_q), dtype=wp.float32)
 
             # counts
             m.particle_count = len(self.particle_q)
@@ -2034,8 +2040,6 @@ class ModelBuilder:
             
             m.joint_dof_count = self.joint_dof_count
             m.joint_coord_count = self.joint_coord_count
-
-            m.contact_count = 0
             
             # hash-grid for particle interactions
             m.particle_grid = wp.HashGrid(128, 128, 128)
@@ -2050,7 +2054,8 @@ class ModelBuilder:
 
             # enable ground plane
             m.ground = True
-            m.ground_plane = np.array((0.0, 1.0, 0.0, 0.0))
+            m.ground_plane = wp.array((*self.upvector, 0.0), dtype=wp.float32, device=device)
+            m.gravity = np.array(self.upvector) * self.gravity
 
             m.enable_tri_collisions = False
 
