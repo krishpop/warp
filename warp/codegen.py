@@ -204,7 +204,9 @@ class Adjoint:
         adj.filename = inspect.getsourcefile(func) or "unknown source file"
 
         # build AST
-        adj.tree = ast.parse(adj.source)                
+        adj.tree = ast.parse(adj.source)
+
+        adj.fun_name = adj.tree.body[0].name
 
         # parse argument types
         adj.arg_types = typing.get_type_hints(func)
@@ -246,7 +248,15 @@ class Adjoint:
             adj.symbols[a.label] = a
 
         # recursively evaluate function body
-        adj.eval(adj.tree.body[0])
+        try:
+            adj.eval(adj.tree.body[0])
+        except Exception as e:
+            try:
+                msg = f"Error while parsing function {adj.fun_name} at {adj.filename}:{adj.lineno+adj.fun_lineno}:\n"
+                ex, data, traceback = sys.exc_info()
+                e = ex("".join([msg] + list(data.args))).with_traceback(traceback)
+            finally:
+                raise e
 
         for a in adj.args:
             if isinstance(a.type, Struct):
