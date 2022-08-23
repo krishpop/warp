@@ -967,16 +967,16 @@ def eval_rigid_contacts(
     body_qd: wp.array(dtype=wp.spatial_vector),
     body_com: wp.array(dtype=wp.vec3),
     shape_materials: wp.array(dtype=wp.vec4),
+    shape_thickness: wp.array(dtype=float),
     contact_count: wp.array(dtype=int),
     contact_body0: wp.array(dtype=int),
     contact_body1: wp.array(dtype=int),
     contact_point0: wp.array(dtype=wp.vec3),
     contact_point1: wp.array(dtype=wp.vec3),
     contact_normal: wp.array(dtype=wp.vec3),
-    contact_distance: wp.array(dtype=float),
     contact_margin: wp.array(dtype=float),
-    contact_material0: wp.array(dtype=int),
-    contact_material1: wp.array(dtype=int),
+    contact_shape0: wp.array(dtype=int),
+    contact_shape1: wp.array(dtype=int),
     # outputs
     body_f: wp.array(dtype=wp.spatial_vector)):
 
@@ -985,30 +985,48 @@ def eval_rigid_contacts(
     count = contact_count[0]
     if (tid >= count):
         return
+
+    # surface parameter tensor layout (ke, kd, kf, mu)
+    # XXX use average contact material
+    mat_nonzero = 0
+    mat = wp.vec4(0.0)
+    thickness_a = 0.0
+    thickness_b = 0.0
+    shape_a = contact_shape0[tid]
+    shape_b = contact_shape1[tid]
+    if (shape_a >= 0):
+        mat_nonzero += 1
+        mat = shape_materials[shape_a]
+        thickness_a = shape_thickness[shape_a]
+    if (shape_b >= 0):
+        mat_nonzero += 1
+        mat = shape_materials[shape_b]
+        thickness_b = shape_thickness[shape_b]
+    if (mat_nonzero > 0):
+        mat = mat / float(mat_nonzero)
         
     body_a = contact_body0[tid]
     body_b = contact_body1[tid]
 
     # body position in world space
-    margin = contact_margin[tid]
     n = contact_normal[tid]
-    bx_a = -margin * n  
-    bx_b = wp.vec3(0.0)
+    bx_a = contact_point0[tid]
+    bx_b = contact_point1[tid]
+    # print(bx_a)
     if (body_a >= 0):
         X_wb_a = body_q[body_a]
         X_com_a = body_com[body_a]
-        bx_a = wp.transform_point(X_wb_a, contact_point0[tid]) - margin * n
+        bx_a = wp.transform_point(X_wb_a, bx_a) - thickness_a * n
         r_a = bx_a - wp.transform_point(X_wb_a, X_com_a)
 
     if (body_b >= 0):
         X_wb_b = body_q[body_b]
         X_com_b = body_com[body_b]    
-        bx_b = wp.transform_point(X_wb_b, contact_point1[tid])
+        # TODO verify sign of thickness offset
+        bx_b = wp.transform_point(X_wb_b, bx_b) + thickness_b * n
         r_b = bx_b - wp.transform_point(X_wb_b, X_com_b)
     
-    d = contact_distance[tid]
-    if (d == 0.0):
-        d = -wp.dot(n, bx_b-bx_a)
+    d = -wp.dot(n, bx_b-bx_a)
 
     # print("c")
     # print(c)
@@ -1037,22 +1055,11 @@ def eval_rigid_contacts(
     # relative velocity
     v = bv_a - bv_b
 
+    # print(v)
+
     # decompose relative velocity
     vn = wp.dot(n, v)
     vt = v - n * vn
-
-    # surface parameter tensor layout (ke, kd, kf, mu)
-    # XXX use average contact material
-    mat_nonzero = 0
-    mat = wp.vec4(0.0)
-    if (contact_material0[tid] >= 0):
-        mat_nonzero += 1
-        mat = shape_materials[contact_material0[tid]]
-    if (contact_material1[tid] >= 0):
-        mat_nonzero += 1
-        mat = shape_materials[contact_material1[tid]]
-    if (mat_nonzero > 0):
-        mat = mat / float(mat_nonzero)
 
     ke = mat[0]       # restitution coefficient
     kd = mat[1]       # damping coefficient
@@ -1119,7 +1126,7 @@ def eval_body_contacts(body_q: wp.array(dtype=wp.transform),
     w = wp.spatial_top(v_wc)
     v = wp.spatial_bottom(v_wc)
 
-    n = vec3(0.0, 1.0, 0.0)
+    n = wp.vec3(0.0, 1.0, 0.0)
 
     # transform point to world space
     cp = wp.transform_point(X_wb, c_point) - n * c_dist # add on 'thickness' of shape, e.g.: radius of sphere/capsule
@@ -1644,48 +1651,8 @@ def compute_forces(model, state, particle_f, body_f):
                   outputs=[particle_f],
                   device=model.device)
 
-    if (model.body_count and model.ground):
-
-        # wp.launch(kernel=eval_body_contacts,
-        #           dim=model.contact_count,
-        #           inputs=[
-        #               state.body_q,
-        #               state.body_qd,
-        #               model.body_com,
-        #               model.contact_body0,
-        #               model.contact_point0,
-        #               model.contact_dist,
-        #               model.contact_material,
-        #               model.shape_materials
-        #           ],
-        #           outputs=[
-        #               body_f
-        #           ],
-        #           device=model.device)
-        wp.launch(kernel=eval_rigid_contacts,
-                  dim=model.ground_contact_dim,
-                  inputs=[
-                      state.body_q,
-                      state.body_qd,
-                      model.body_com,
-                      model.shape_materials,
-                      model.ground_contact_count,
-                      model.ground_contact_body0,
-                      model.ground_contact_body1,
-                      model.ground_contact_point0,
-                      model.ground_contact_point1,
-                      model.ground_contact_normal,
-                      model.ground_contact_distance,
-                      model.ground_contact_margin,
-                      model.ground_contact_material0,
-                      model.ground_contact_material1,
-                  ],
-                  outputs=[
-                      body_f
-                  ],
-                  device=model.device)
-
     if (model.body_count):
+
         wp.launch(kernel=eval_rigid_contacts,
                   dim=model.rigid_contact_max,
                   inputs=[
@@ -1693,23 +1660,21 @@ def compute_forces(model, state, particle_f, body_f):
                       state.body_qd,
                       model.body_com,
                       model.shape_materials,
+                      model.shape_contact_thickness,
                       model.rigid_contact_count,
                       model.rigid_contact_body0,
                       model.rigid_contact_body1,
                       model.rigid_contact_point0,
                       model.rigid_contact_point1,
                       model.rigid_contact_normal,
-                      model.rigid_contact_distance,
                       model.rigid_contact_margin,
-                      model.rigid_contact_material0,
-                      model.rigid_contact_material1,
+                      model.rigid_contact_shape0,
+                      model.rigid_contact_shape1,
                   ],
                   outputs=[
                       body_f
                   ],
                   device=model.device)
-
-    if (model.body_count):
 
         wp.launch(kernel=eval_body_joints,
                   dim=model.body_count,
