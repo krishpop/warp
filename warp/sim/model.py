@@ -1999,7 +1999,7 @@ class ModelBuilder:
             m.soft_contact_body_vel = wp.zeros(m.soft_contact_max, dtype=wp.vec3)
             m.soft_contact_normal = wp.zeros(m.soft_contact_max, dtype=wp.vec3)
 
-            m.rigid_contact_max = 8*1024            
+            m.rigid_contact_max = 64*1024            
             m.rigid_contact_count = wp.zeros(1, dtype=wp.int32)
             m.rigid_contact_body0 = wp.zeros(m.rigid_contact_max, dtype=wp.int32)
             m.rigid_contact_body1 = wp.zeros(m.rigid_contact_max, dtype=wp.int32)
