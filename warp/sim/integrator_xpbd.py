@@ -2000,26 +2000,26 @@ class XPBDIntegrator:
                 state_out.body_f.zero_()
                 state_out.body_q_prev.assign(state_in.body_q)
 
-                # wp.launch(
-                #     kernel=apply_joint_torques,
-                #     dim=model.joint_count,
-                #     inputs=[
-                #         state_in.body_q,
-                #         model.body_com,
-                #         model.joint_q_start,
-                #         model.joint_qd_start,
-                #         model.joint_type,
-                #         model.joint_parent,
-                #         model.joint_child,
-                #         model.joint_X_p,
-                #         model.joint_X_c,
-                #         model.joint_axis,
-                #         model.joint_act,
-                #     ],
-                #     outputs=[
-                #         state_out.body_f
-                #     ],
-                #     device=model.device)
+                wp.launch(
+                    kernel=apply_joint_torques,
+                    dim=model.joint_count,
+                    inputs=[
+                        state_in.body_q,
+                        model.body_com,
+                        model.joint_q_start,
+                        model.joint_qd_start,
+                        model.joint_type,
+                        model.joint_parent,
+                        model.joint_child,
+                        model.joint_X_p,
+                        model.joint_X_c,
+                        model.joint_axis,
+                        model.joint_act,
+                    ],
+                    outputs=[
+                        state_out.body_f
+                    ],
+                    device=model.device)
 
                 wp.launch(
                     kernel=integrate_bodies,
