@@ -716,6 +716,9 @@ add_builtin("index", input_types={"a": mat33, "i": int, "j": int}, value_type=fl
 add_builtin("index", input_types={"a": mat44, "i": int}, value_type=vec4,  group="Utility")
 add_builtin("index", input_types={"a": mat44, "i": int, "j": int}, value_type=float,  group="Utility")
 
+add_builtin("index", input_types={"a": transform, "i": int}, value_type=float,  group="Utility")
+add_builtin("index", input_types={"a": spatial_vector, "i": int}, value_type=float,  group="Utility")
+
 
 for t in scalar_types + vector_types:
     add_builtin("expect_eq", input_types={"arg1": t, "arg2": t}, value_type=None, doc="Prints an error to stdout if arg1 and arg2 are not equal", group="Utility")
