@@ -139,6 +139,13 @@ add_builtin("determinant", input_types={"m": mat33}, value_type=float, group="Ve
     doc="Return the determinant of the matrix m")
 add_builtin("determinant", input_types={"m": mat44}, value_type=float, group="Vector Math",
     doc="Return the determinant of the matrix m")
+    
+add_builtin("trace", input_types={"m": mat22}, value_type=float, group="Vector Math",
+    doc="Return the trace of the matrix m")
+add_builtin("trace", input_types={"m": mat33}, value_type=float, group="Vector Math",
+    doc="Return the trace of the matrix m")
+add_builtin("trace", input_types={"m": mat44}, value_type=float, group="Vector Math",
+    doc="Return the trace of the matrix m")
 
 add_builtin("diag", input_types={"d": vec2}, value_type=mat22, group="Vector Math",
     doc="Returns a matrix with the components of the vector d on the diagonal")
