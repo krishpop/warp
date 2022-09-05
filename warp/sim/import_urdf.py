@@ -196,7 +196,7 @@ def parse_urdf(
 
         lower = -1.e+3
         upper = 1.e+3
-        damping = 0.0
+        joint_damping = damping
 
         # limits
         if joint.limit:
@@ -205,10 +205,10 @@ def parse_urdf(
             if joint.limit.upper != None:
                 upper = joint.limit.upper
 
-        # damping
+        # overwrite damping if defined in URDF
         if joint.dynamics:
             if joint.dynamics.damping:
-                damping = joint.dynamics.damping
+                joint_damping = joint.dynamics.damping
 
         if density == 0.0:
             com = urdfpy.matrix_to_xyz_rpy(robot.link_map[joint.child].inertial.origin)[0:3]
@@ -231,7 +231,7 @@ def parse_urdf(
             joint_limit_ke=limit_ke,
             joint_limit_kd=limit_kd,
             joint_target_ke=stiffness,
-            joint_target_kd=damping,
+            joint_target_kd=joint_damping,
             joint_armature=armature,
             com=com,
             I_m=I_m,
