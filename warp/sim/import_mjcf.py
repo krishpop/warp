@@ -168,7 +168,9 @@ def parse_mjcf(
                 joint_limit_kd=limit_kd,
                 joint_target_ke=joint_stiffness,
                 joint_target_kd=joint_damping,
-                joint_armature=joint_armature[0])
+                joint_armature=joint_armature[0],
+                body_name=body_name,
+                joint_name=joint_name)
             
         #-----------------
         # add shapes
