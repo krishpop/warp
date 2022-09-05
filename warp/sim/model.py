@@ -654,6 +654,7 @@ class ModelBuilder:
         self.body_com = []
         self.body_q = []
         self.body_qd = []
+        self.body_name = []
 
         # rigid joints
         self.joint_parent = []         # index of the parent body                      (constant)
@@ -665,6 +666,7 @@ class ModelBuilder:
         self.joint_qd = []
 
         self.joint_type = []
+        self.joint_name = []
         self.joint_armature = []
         self.joint_target_ke = []
         self.joint_target_kd = []
@@ -747,11 +749,13 @@ class ModelBuilder:
             "body_com",
             "body_q",
             "body_qd",
+            "body_name",
             "joint_type",
             "joint_X_p",
             "joint_X_c",
             "joint_armature",
             "joint_axis",
+            "joint_name",
             "joint_q",
             "joint_qd",
             "joint_act",
@@ -791,6 +795,7 @@ class ModelBuilder:
         joint_type : wp.constant=JOINT_FREE,
         joint_target_ke: float=0.0,
         joint_target_kd: float=0.0,
+        joint_target: float=None,
         joint_limit_ke: float=100.0,
         joint_limit_kd: float=10.0,
         joint_limit_lower: float=-1.e+3,
@@ -802,7 +807,9 @@ class ModelBuilder:
         joint_angular_compliance: float=0.0,
         com: Vec3=np.zeros(3),
         I_m: Mat33=np.zeros((3, 3)), 
-        m: float=0.0) -> int:
+        m: float=0.0,
+        body_name: str=None,
+        joint_name: str=None) -> int:
 
         """Adds a rigid body to the model.
 
@@ -836,12 +843,15 @@ class ModelBuilder:
         self.body_q.append(origin)
         self.body_qd.append(wp.spatial_vector())
 
+        self.body_name.append(body_name or f"body {child}")
+
         # joint data
         self.joint_type.append(joint_type.val)
         self.joint_parent.append(parent)
         self.joint_child.append(child)
         self.joint_X_p.append(joint_xform)
         self.joint_X_c.append(joint_xform_child)
+        self.joint_name.append(body_name or f"joint {self.joint_count}")
 
         self.joint_armature.append(joint_armature)
         self.joint_axis.append(np.array(joint_axis))
@@ -879,6 +889,8 @@ class ModelBuilder:
         joint_limit_upper = np.resize(np.atleast_1d(joint_limit_upper), dof_count)
         joint_twist_lower = np.resize(np.atleast_1d(joint_twist_lower), dof_count)
         joint_twist_upper = np.resize(np.atleast_1d(joint_twist_upper), dof_count)
+        if joint_target is not None:
+            joint_target = np.resize(np.atleast_1d(joint_target), dof_count)
        
         for i in range(coord_count):
             self.joint_q.append(0.0)
@@ -894,7 +906,13 @@ class ModelBuilder:
             self.joint_twist_upper.append(joint_twist_upper[i])
             self.joint_target_ke.append(joint_target_ke[i])
             self.joint_target_kd.append(joint_target_kd[i])
-            self.joint_target.append(0.0)
+            if joint_target is not None:
+                self.joint_target.append(joint_target[i])
+            else:
+                if joint_limit_lower[i] > 0.0 or joint_limit_upper[i] < 0.0:
+                    self.joint_target.append(0.5 * (joint_limit_lower[i] + joint_limit_upper[i]))
+                else:
+                    self.joint_target.append(0.0)
             
         self.joint_linear_compliance.append(joint_linear_compliance)
         self.joint_angular_compliance.append(joint_angular_compliance)
@@ -1955,6 +1973,7 @@ class ModelBuilder:
             m.body_mass = wp.array(self.body_mass, dtype=wp.float32)
             m.body_inv_mass = wp.array(body_inv_mass, dtype=wp.float32)
             m.body_com = wp.array(self.body_com, dtype=wp.vec3)
+            m.body_name = self.joint_name
 
             # model
             m.joint_count = self.joint_count
@@ -1966,6 +1985,7 @@ class ModelBuilder:
             m.joint_axis = wp.array(self.joint_axis, dtype=wp.vec3)
             m.joint_q = wp.array(self.joint_q, dtype=float)
             m.joint_qd = wp.array(self.joint_qd, dtype=float)
+            m.joint_name = self.joint_name
 
             # dynamics properties
             m.joint_armature = wp.array(self.joint_armature, dtype=wp.float32)
