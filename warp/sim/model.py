@@ -851,7 +851,7 @@ class ModelBuilder:
         self.joint_child.append(child)
         self.joint_X_p.append(joint_xform)
         self.joint_X_c.append(joint_xform_child)
-        self.joint_name.append(body_name or f"joint {self.joint_count}")
+        self.joint_name.append(joint_name or f"joint {self.joint_count}")
 
         self.joint_armature.append(joint_armature)
         self.joint_axis.append(np.array(joint_axis))
@@ -1973,7 +1973,7 @@ class ModelBuilder:
             m.body_mass = wp.array(self.body_mass, dtype=wp.float32)
             m.body_inv_mass = wp.array(body_inv_mass, dtype=wp.float32)
             m.body_com = wp.array(self.body_com, dtype=wp.vec3)
-            m.body_name = self.joint_name
+            m.body_name = self.body_name
 
             # model
             m.joint_count = self.joint_count
