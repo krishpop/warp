@@ -117,7 +117,8 @@ def parse_urdf(
         shape_kf=1.e+2,
         shape_mu=0.25,
         limit_ke=100.0,
-        limit_kd=10.0):
+        limit_kd=10.0,
+        parse_visuals_as_colliders=False):
 
     robot = urdfpy.URDF.load(filename)
 
@@ -136,6 +137,11 @@ def parse_urdf(
         I_m = np.zeros((3, 3))
         m = 0.0
 
+    if parse_visuals_as_colliders:
+        colliders = robot.links[0].visuals
+    else:
+        colliders = robot.links[0].collisions
+
     # add base
     if floating:
         root = builder.add_body(origin=wp.transform_identity(),
@@ -144,7 +150,9 @@ def parse_urdf(
                                 joint_armature=armature,
                                 com=com,
                                 I_m=I_m,
-                                m=m)
+                                m=m,
+                                body_name=robot.base_link.name,
+                                joint_name="floating_base")
 
         # set dofs to transform
         start = builder.joint_q_start[root]
@@ -158,14 +166,16 @@ def parse_urdf(
         builder.joint_q[start + 5] = xform.q[2]
         builder.joint_q[start + 6] = xform.q[3]
         urdf_add_collision(
-            builder, root, robot.links[0].collisions, density, shape_ke, shape_kd, shape_kf, shape_mu)
+            builder, root, colliders, density, shape_ke, shape_kd, shape_kf, shape_mu)
     else:
         root = builder.add_body(origin=wp.transform_identity(),
                                 parent=-1,
                                 joint_xform=xform,
-                                joint_type=wp.sim.JOINT_FIXED)
+                                joint_type=wp.sim.JOINT_FIXED,
+                                body_name=robot.base_link.name,
+                                joint_name="fixed_base")
         urdf_add_collision(
-            builder, root, robot.links[0].collisions, 0.0, shape_ke, shape_kd, shape_kf, shape_mu)
+            builder, root, colliders, 0.0, shape_ke, shape_kd, shape_kf, shape_mu)
 
     link_index[robot.links[0].name] = root
 
@@ -235,11 +245,18 @@ def parse_urdf(
             joint_armature=armature,
             com=com,
             I_m=I_m,
-            m=m)
+            m=m,
+            joint_name=joint.name,
+            body_name=joint.parent)
+
+        if parse_visuals_as_colliders:
+            child_colliders = robot.link_map[joint.child].visuals
+        else:
+            child_colliders = robot.link_map[joint.child].collisions
 
         # add collisions
         urdf_add_collision(
-            builder, link, robot.link_map[joint.child].collisions, density, shape_ke, shape_kd, shape_kf, shape_mu)
+            builder, link, child_colliders, density, shape_ke, shape_kd, shape_kf, shape_mu)
 
         # add ourselves to the index
         link_index[joint.child] = link
