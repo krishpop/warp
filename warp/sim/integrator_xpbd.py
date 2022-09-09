@@ -1749,7 +1749,7 @@ def solve_body_joints(body_q: wp.array(dtype=wp.transform),
             print("Warning: ball joints with position limits or target stiffness are not yet supported!")
     else:
         for dim in range(3):
-            err = errs[dim]
+            err = 0.0
          
             lower = lower_ang_limits[dim]
             upper = upper_ang_limits[dim]
@@ -1757,19 +1757,17 @@ def solve_body_joints(body_q: wp.array(dtype=wp.transform),
             compliance = angular_compliance
             damping = 0.0
             if wp.abs(target_ang_ke[dim]) > 0.0:
-                err -= target_ang[dim]
+                err = errs[dim] - target_ang[dim]
                 compliance = 1.0 / wp.abs(target_ang_ke[dim])
                 damping = wp.abs(target_ang_kd[dim])
-            if err < lower:
+            if errs[dim] < lower:
                 err = errs[dim] - lower
                 compliance = angular_compliance
                 damping = 0.0
-            elif err > upper:
+            elif errs[dim] > upper:
                 err = errs[dim] - upper
                 compliance = angular_compliance
                 damping = 0.0
-            else:
-                err = 0.0
 
             if wp.abs(err) > 1e-9:
                 # analytic gradients of swing-twist decomposition
@@ -2723,6 +2721,141 @@ def update_body_velocities(
 
     qd_out[tid] = wp.spatial_vector(omega, v)
 
+@wp.func
+def velocity_at_point(
+    qd: wp.spatial_vector,
+    r: wp.vec3
+):
+    return wp.cross(wp.spatial_top(qd), r) + wp.spatial_bottom(qd)
+
+@wp.kernel
+def apply_rigid_restitution(
+    body_q: wp.array(dtype=wp.transform),
+    body_qd: wp.array(dtype=wp.spatial_vector),
+    body_q_prev: wp.array(dtype=wp.transform),
+    body_qd_prev: wp.array(dtype=wp.spatial_vector),
+    body_com: wp.array(dtype=wp.vec3),
+    body_m_inv: wp.array(dtype=float),
+    body_I_inv: wp.array(dtype=wp.mat33),
+    contact_count: wp.array(dtype=int),
+    contact_body0: wp.array(dtype=int),
+    contact_body1: wp.array(dtype=int),
+    contact_point0: wp.array(dtype=wp.vec3),
+    contact_point1: wp.array(dtype=wp.vec3),
+    contact_offset0: wp.array(dtype=wp.vec3),
+    contact_offset1: wp.array(dtype=wp.vec3),
+    contact_normal: wp.array(dtype=wp.vec3),
+    active_contact_distance: wp.array(dtype=float),
+    contact_inv_weight: wp.array(dtype=float),
+    dt: float,
+    gravity: wp.vec3,
+    # outputs
+    deltas: wp.array(dtype=wp.spatial_vector),
+):
+    tid = wp.tid()
+
+    count = contact_count[0]
+    if (tid >= count):
+        return
+    d = active_contact_distance[tid]
+    if d >= 0.0:
+        return
+    
+    restitution = 0.8
+    if (restitution <= 0.0):
+        return
+        
+    body_a = contact_body0[tid]
+    body_b = contact_body1[tid]
+
+    n = contact_normal[tid]
+    
+    m_inv_a = 0.0
+    m_inv_b = 0.0
+    I_inv_a = wp.mat33(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    I_inv_b = wp.mat33(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    # center of mass
+    com_a = wp.vec3(0.0)
+    com_b = wp.vec3(0.0)
+    # body to world transform
+    X_wb_a_prev = wp.transform_identity()
+    X_wb_b_prev = wp.transform_identity()
+    # previous velocity at contact points
+    v_a = wp.vec3(0.0)
+    v_b = wp.vec3(0.0)
+    # new velocity at contact points
+    v_a_new = wp.vec3(0.0)
+    v_b_new = wp.vec3(0.0)
+    # inverse mass used to compute the impulse
+    inv_mass = 0.0
+
+    if (body_a >= 0):
+        X_wb_a_prev = body_q_prev[body_a]
+        X_wb_a = body_q[body_a]
+        com_a = body_com[body_a]
+        m_inv_a = body_m_inv[body_a]
+        I_inv_a = body_I_inv[body_a]
+
+    if (body_b >= 0):
+        X_wb_b_prev = body_q_prev[body_b]
+        X_wb_b = body_q[body_b]
+        com_b = body_com[body_b]
+        m_inv_b = body_m_inv[body_b]
+        I_inv_b = body_I_inv[body_b]
+
+    
+    r_a_local = contact_point0[tid] + contact_offset0[tid]
+    r_b_local = contact_point1[tid] + contact_offset1[tid]
+    r_a = wp.transform_vector(X_wb_a_prev, r_a_local)
+    r_b = wp.transform_vector(X_wb_b_prev, r_b_local)
+    # r_a = wp.transform_point(X_wb_a_prev, r_a_local) - wp.transform_vector(X_wb_a_prev, com_a)
+    # r_b = wp.transform_point(X_wb_b_prev, r_b_local) - wp.transform_vector(X_wb_b_prev, com_b)
+    
+    if (body_a >= 0):
+        v_a = velocity_at_point(body_qd_prev[body_a], r_a) + gravity*dt
+        v_a_new = velocity_at_point(body_qd[body_a], r_a)
+        q_a = wp.transform_get_rotation(X_wb_a_prev)
+        # q_a = wp.transform_get_rotation(X_wb_a)
+        rxn = wp.quat_rotate_inv(q_a, wp.cross(r_a, n))
+        inv_mass += contact_inv_weight[body_a] * (m_inv_a + wp.dot(rxn, I_inv_a * rxn))
+        # inv_mass += (m_inv_a + wp.dot(rxn, I_inv_a * rxn))
+    if (body_b >= 0):
+        v_b = velocity_at_point(body_qd_prev[body_b], r_b) + gravity*dt
+        v_b_new = velocity_at_point(body_qd[body_b], r_b)
+        q_b = wp.transform_get_rotation(X_wb_b_prev)
+        # q_b = wp.transform_get_rotation(X_wb_b)
+        rxn = wp.quat_rotate_inv(q_b, wp.cross(r_b, n))
+        inv_mass += contact_inv_weight[body_b] * (m_inv_b + wp.dot(rxn, I_inv_b * rxn))
+        # inv_mass += (m_inv_b + wp.dot(rxn, I_inv_b * rxn))
+
+
+    kBounceThreshold = 1e-5  # treat collisions with relative velocity below this as inelastic
+
+    relVelOld = wp.dot(n, v_a - v_b)
+    # print("relvel")
+    # print(v_a - v_b)
+    # print(relVelOld)
+
+    if (wp.abs(relVelOld) < kBounceThreshold):
+        # print("relVelOld < kBounceThreshold")
+        return
+
+    relVelNew = wp.dot(n, v_a_new - v_b_new)
+    j = -(relVelNew + restitution*relVelOld)/inv_mass    
+    p = n*j
+    if (body_a >= 0):
+        q_a = wp.transform_get_rotation(X_wb_a)
+        rxp = wp.quat_rotate_inv(q_a, wp.cross(r_a, p))
+        dq = wp.quat_rotate(q_a, I_inv_a * rxp)
+        wp.atomic_add(deltas, body_a, wp.spatial_vector(dq, m_inv_a*p))
+
+    if (body_b >= 0):
+        q_b = wp.transform_get_rotation(X_wb_b)
+        rxp = wp.quat_rotate_inv(q_b, wp.cross(r_b, p))
+        dq = wp.quat_rotate(q_b, I_inv_b * rxp)
+        wp.atomic_sub(deltas, body_b, wp.spatial_vector(dq, m_inv_b*p))
+
+
 class XPBDIntegrator:
     """A implicit integrator using XPBD
 
@@ -2859,6 +2992,7 @@ class XPBDIntegrator:
             if (model.body_count):
                 state_out.body_f.zero_()
                 state_out.body_q_prev.assign(state_in.body_q)
+                state_out.body_qd_prev.assign(state_in.body_qd)
 
                 wp.launch(
                     kernel=apply_joint_torques,
@@ -3103,6 +3237,35 @@ class XPBDIntegrator:
                         device=model.device)
 
                 # state_out.body_deltas.zero_()
+                # wp.launch(kernel=apply_rigid_restitution,
+                #         dim=model.rigid_contact_max,
+                #         inputs=[
+                #             state_out.body_q,
+                #             state_out.body_qd,
+                #             state_out.body_q_prev,
+                #             state_out.body_qd_prev,
+                #             model.body_com,
+                #             model.body_inv_mass,
+                #             model.body_inv_inertia,
+                #             model.rigid_contact_count,
+                #             model.rigid_contact_body0,
+                #             model.rigid_contact_body1,
+                #             model.rigid_contact_point0,
+                #             model.rigid_contact_point1,
+                #             model.rigid_contact_offset0,
+                #             model.rigid_contact_offset1,
+                #             model.rigid_contact_normal,
+                #             model.rigid_active_contact_distance,
+                #             model.contact_inv_weight,
+                #             dt,
+                #             model.gravity
+                #         ],
+                #         outputs=[
+                #             state_out.body_deltas,
+                #         ],
+                #         device=model.device)
+
+                # state_out.body_deltas.zero_()
                 # if (model.ground):
                 #     wp.launch(kernel=solve_body_contact_velocities,
                 #             dim=model.ground_contact_dim,
@@ -3160,16 +3323,16 @@ class XPBDIntegrator:
                 #         ],
                 #         device=model.device)
 
-                # wp.launch(kernel=apply_body_delta_velocities,
-                #         dim=model.body_count,
-                #         inputs=[
-                #             state_out.body_qd,
-                #             state_out.body_deltas,
-                #         ],
-                #         outputs=[
-                #             state_out.body_qd
-                #         ],
-                #         device=model.device)
+                wp.launch(kernel=apply_body_delta_velocities,
+                        dim=model.body_count,
+                        inputs=[
+                            state_out.body_qd,
+                            state_out.body_deltas,
+                        ],
+                        outputs=[
+                            state_out.body_qd
+                        ],
+                        device=model.device)
 
             state_out.particle_q = particle_q
             state_out.particle_qd = particle_qd
