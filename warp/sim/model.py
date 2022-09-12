@@ -44,6 +44,16 @@ JOINT_FREE = wp.constant(4)
 JOINT_COMPOUND = wp.constant(5)
 JOINT_UNIVERSAL = wp.constant(6)
 
+# Material properties pertaining to rigid shape contact dynamics
+@wp.struct
+class ShapeContactMaterial:
+    ke: wp.array(dtype=float)  # The contact elastic stiffness
+    kd: wp.array(dtype=float)  # The contact damping stiffness
+    kf: wp.array(dtype=float)  # The contact friction stiffness
+    mu: wp.array(dtype=float)  # The coefficient of friction
+    restitution: wp.array(dtype=float)  # The coefficient of restitution
+
+
 class Mesh:
     """Describes a triangle collision mesh for simulation
 
@@ -465,8 +475,6 @@ class Model:
         def add_contact(b0, b1, t, p0, d, s0, s1):
             body0.append(b0)
             body1.append(b1)
-            # TODO reactivate?
-            # point.append(wp.transform_point(t, np.array(p0)))
             point.append(p0)
             dist.append(0.0)
             shape0.append(s0)
@@ -528,32 +536,10 @@ class Model:
 
         # send to wp
         with wp.ScopedDevice(self.device):
-
             self.ground_contact_dim = len(body0)
-            # self.ground_contact_count = wp.array([len(body0)], dtype=wp.int32)
             self.ground_contact_body0 = wp.array(body0, dtype=wp.int32)
-            # self.ground_contact_body1 = wp.array(body1, dtype=wp.int32)
             self.ground_contact_ref = wp.array(point, dtype=wp.vec3)
-            # self.ground_contact_offset0 = wp.zeros(len(point), dtype=wp.vec3)
-            # self.ground_contact_offset1 = wp.zeros(len(point), dtype=wp.vec3)
-            # self.ground_contact_point0 = wp.array(point, dtype=wp.vec3)
-            # self.ground_contact_point1 = wp.array(point, dtype=wp.vec3)
-            # self.ground_contact_normal = wp.array(normal, dtype=wp.vec3)
-            # self.ground_contact_distance = wp.array(dist, dtype=wp.float32)
-            # self.ground_contact_margin = wp.array(margin, dtype=wp.float32)
             self.ground_contact_shape0 = wp.array(shape0, dtype=wp.int32)
-            # self.ground_contact_shape1 = wp.array(shape1, dtype=wp.int32)
-
-            # allocate Lagrange multipliers for contact constraints based on the
-            # updated number of contacts
-            # self.ground_contact_n_lambda = wp.zeros(
-            #     self.ground_contact_dim,
-            #     dtype=float,
-            #     requires_grad=state.body_q.requires_grad)
-            # self.ground_contact_t_lambda = wp.zeros(
-            #     self.ground_contact_dim,
-            #     dtype=float,
-            #     requires_grad=state.body_q.requires_grad)
 
 
 class ModelBuilder:
@@ -598,6 +584,14 @@ class ModelBuilder:
     default_edge_ke = 100.0
     default_edge_kd = 0.0
 
+    # Default shape contact material properties
+    default_shape_ke = 1.e+5
+    default_shape_kd = 1000.0
+    default_shape_kf = 1000.0
+    default_shape_mu = 0.5
+    default_shape_restitution = 0.8
+    default_shape_density = 1000.0
+
     
     def __init__(self, upvector=(0.0, 1.0, 0.0), gravity=-9.80665):
 
@@ -612,7 +606,11 @@ class ModelBuilder:
         self.shape_geo_type = []
         self.shape_geo_scale = []
         self.shape_geo_src = []
-        self.shape_materials = []
+        self.shape_material_ke = []
+        self.shape_material_kd = []
+        self.shape_material_kf = []
+        self.shape_material_mu = []
+        self.shape_material_restitution = []
         self.shape_contact_thickness = []
         self.shape_volumes = []
 
@@ -775,7 +773,11 @@ class ModelBuilder:
             "shape_geo_type",
             "shape_geo_scale",
             "shape_geo_src",
-            "shape_materials",
+            "shape_material_ke",
+            "shape_material_kd",
+            "shape_material_kf",
+            "shape_material_mu",
+            "shape_material_restitution",
             "shape_contact_thickness"
         ]
 
@@ -790,12 +792,12 @@ class ModelBuilder:
     # register a rigid body and return its index.
     def add_body(
         self, 
-        origin : Transform, 
-        parent : int=-1,
-        joint_xform : Transform=wp.transform(),    # transform of joint in parent space
+        origin: Transform, 
+        parent: int=-1,
+        joint_xform: Transform=wp.transform(),    # transform of joint in parent space
         joint_xform_child: Transform=wp.transform(),
-        joint_axis : Vec3=(0.0, 0.0, 0.0),
-        joint_type : wp.constant=JOINT_FREE,
+        joint_axis: Vec3=(0.0, 0.0, 0.0),
+        joint_type: wp.constant=JOINT_FREE,
         joint_target_ke: float=0.0,
         joint_target_kd: float=0.0,
         joint_target: float=None,
@@ -963,7 +965,13 @@ class ModelBuilder:
         return len(self.muscle_start)-1
 
     # shapes
-    def add_shape_plane(self, plane: Vec4=(0.0, 1.0, 0.0, 0.0), ke: float=1.e+5, kd: float=1000.0, kf: float=1000.0, mu: float=0.5):
+    def add_shape_plane(self,
+                        plane: Vec4=(0.0, 1.0, 0.0, 0.0),
+                        ke: float=default_shape_ke,
+                        kd: float=default_shape_kd,
+                        kf: float=default_shape_kf,
+                        mu: float=default_shape_mu,
+                        restitution: float=default_shape_restitution):
         """Adds a plane collision shape
 
         Args:
@@ -972,11 +980,22 @@ class ModelBuilder:
             kd: The contact damping stiffness
             kf: The contact friction stiffness
             mu: The coefficient of friction
+            restitution: The coefficient of restitution
 
         """
-        self._add_shape(-1, (0.0, 0.0, 0.0), (0.0, 0.0, 0.0), GEO_PLANE, plane, None, 0.0, ke, kd, kf, mu)
+        self._add_shape(-1, (0.0, 0.0, 0.0), (0.0, 0.0, 0.0), GEO_PLANE, plane, None, 0.0, ke, kd, kf, mu, restitution)
 
-    def add_shape_sphere(self, body, pos: Vec3=(0.0, 0.0, 0.0), rot: Quat=(0.0, 0.0, 0.0, 1.0), radius: float=1.0, density: float=1000.0, ke: float=1.e+5, kd: float=1000.0, kf: float=1000.0, mu: float=0.5):
+    def add_shape_sphere(self,
+                         body,
+                         pos: Vec3=(0.0, 0.0, 0.0),
+                         rot: Quat=(0.0, 0.0, 0.0, 1.0),
+                         radius: float=1.0,
+                         density: float=default_shape_density,
+                         ke: float=default_shape_ke,
+                         kd: float=default_shape_kd,
+                         kf: float=default_shape_kf,
+                         mu: float=default_shape_mu,
+                         restitution: float=default_shape_restitution):
         """Adds a sphere collision shape to a body.
 
         Args:
@@ -989,10 +1008,11 @@ class ModelBuilder:
             kd: The contact damping stiffness
             kf: The contact friction stiffness
             mu: The coefficient of friction
+            restitution: The coefficient of restitution
 
         """
 
-        self._add_shape(body, pos, rot, GEO_SPHERE, (radius, 0.0, 0.0, 0.0), None, density, ke, kd, kf, mu, thickness=radius)
+        self._add_shape(body, pos, rot, GEO_SPHERE, (radius, 0.0, 0.0, 0.0), None, density, ke, kd, kf, mu, restitution, thickness=radius)
 
     def add_shape_box(self,
                       body : int,
@@ -1001,11 +1021,13 @@ class ModelBuilder:
                       hx: float=0.5,
                       hy: float=0.5,
                       hz: float=0.5,
-                      density: float=1000.0,
-                      ke: float=1.e+5,
-                      kd: float=1000.0,
-                      kf: float=1000.0,
-                      mu: float=0.5):
+                      density: float=default_shape_density,
+                      ke: float=default_shape_ke,
+                      kd: float=default_shape_kd,
+                      kf: float=default_shape_kf,
+                      mu: float=default_shape_mu,
+                      restitution: float=default_shape_restitution,
+                      contact_thickness: float=0.0):
         """Adds a box collision shape to a body.
 
         Args:
@@ -1020,10 +1042,12 @@ class ModelBuilder:
             kd: The contact damping stiffness
             kf: The contact friction stiffness
             mu: The coefficient of friction
+            restitution: The coefficient of restitution
+            contact_thickness: Radius around the box to be used for contact mechanics
 
         """
 
-        self._add_shape(body, pos, rot, GEO_BOX, (hx, hy, hz, 0.0), None, density, ke, kd, kf, mu)
+        self._add_shape(body, pos, rot, GEO_BOX, (hx, hy, hz, 0.0), None, density, ke, kd, kf, mu, restitution, thickness=contact_thickness)
 
     def add_shape_capsule(self,
                           body: int,
@@ -1031,11 +1055,12 @@ class ModelBuilder:
                           rot: Quat=(0.0, 0.0, 0.0, 1.0),
                           radius: float=1.0,
                           half_width: float=0.5,
-                          density: float=1000.0,
-                          ke: float=1.e+5,
-                          kd: float=1000.0,
-                          kf: float=1000.0,
-                          mu: float=0.5):
+                          density: float=default_shape_density,
+                          ke: float=default_shape_ke,
+                          kd: float=default_shape_kd,
+                          kf: float=default_shape_kf,
+                          mu: float=default_shape_mu,
+                          restitution: float=default_shape_restitution):
         """Adds a capsule collision shape to a body.
 
         Args:
@@ -1049,10 +1074,11 @@ class ModelBuilder:
             kd: The contact damping stiffness
             kf: The contact friction stiffness
             mu: The coefficient of friction
+            restitution: The coefficient of restitution
 
         """
 
-        self._add_shape(body, pos, rot, GEO_CAPSULE, (radius, half_width, 0.0, 0.0), None, density, ke, kd, kf, mu, thickness=radius)
+        self._add_shape(body, pos, rot, GEO_CAPSULE, (radius, half_width, 0.0, 0.0), None, density, ke, kd, kf, mu, restitution, thickness=radius)
 
     def add_shape_mesh(self,
                        body: int,
@@ -1061,12 +1087,13 @@ class ModelBuilder:
                        mesh: Mesh=None,
                        volume: Volume=None,
                        scale: Vec3=(1.0, 1.0, 1.0),
-                       density: float=1000.0,
-                       ke: float=1.e+5,
-                       kd: float=1000.0,
-                       kf: float=1000.0,
-                       mu: float=0.5,
-                       contact_thickness=0.0):
+                       density: float=default_shape_density,
+                       ke: float=default_shape_ke,
+                       kd: float=default_shape_kd,
+                       kf: float=default_shape_kf,
+                       mu: float=default_shape_mu,
+                       restitution: float=default_shape_restitution,
+                       contact_thickness: float=0.0):
         """Adds a triangle mesh collision shape to a body.
 
         Args:
@@ -1080,19 +1107,25 @@ class ModelBuilder:
             kd: The contact damping stiffness
             kf: The contact friction stiffness
             mu: The coefficient of friction
+            restitution: The coefficient of restitution
+            contact_thickness: The thickness of the contact surface around the shape
 
         """
 
 
-        self._add_shape(body, pos, rot, GEO_MESH, (scale[0], scale[1], scale[2], 0.0), mesh, density, ke, kd, kf, mu, thickness=contact_thickness, volume=volume)
+        self._add_shape(body, pos, rot, GEO_MESH, (scale[0], scale[1], scale[2], 0.0), mesh, density, ke, kd, kf, mu, restitution, thickness=contact_thickness, volume=volume)
 
-    def _add_shape(self, body, pos, rot, type, scale, src, density, ke, kd, kf, mu, thickness=0.0, volume=None):
+    def _add_shape(self, body, pos, rot, type, scale, src, density, ke, kd, kf, mu, restitution, thickness=0.0, volume=None):
         self.shape_body.append(body)
         self.shape_transform.append(wp.transform(pos, rot))
         self.shape_geo_type.append(type.val)
         self.shape_geo_scale.append((scale[0], scale[1], scale[2]))
         self.shape_geo_src.append(src)
-        self.shape_materials.append((ke, kd, kf, mu))
+        self.shape_material_ke.append(ke)
+        self.shape_material_kd.append(kd)
+        self.shape_material_kf.append(kf)
+        self.shape_material_mu.append(mu)
+        self.shape_material_restitution.append(restitution)
         self.shape_contact_thickness.append(thickness)
 
         (m, I) = self._compute_shape_mass(type, scale, src, density)
@@ -1919,7 +1952,12 @@ class ModelBuilder:
             m.shape_geo_id = wp.array(shape_geo_id, dtype=wp.uint64, device=device)
             m.mesh_num_points = mesh_num_points
             m.shape_geo_scale = wp.array(self.shape_geo_scale, dtype=wp.vec3, device=device)
-            m.shape_materials = wp.array(self.shape_materials, dtype=wp.vec4, device=device)
+            m.shape_materials = ShapeContactMaterial()
+            m.shape_materials.ke = wp.array(self.shape_material_ke, dtype=wp.float32, device=device)
+            m.shape_materials.kd = wp.array(self.shape_material_kd, dtype=wp.float32, device=device)
+            m.shape_materials.kf = wp.array(self.shape_material_kf, dtype=wp.float32, device=device)
+            m.shape_materials.mu = wp.array(self.shape_material_mu, dtype=wp.float32, device=device)
+            m.shape_materials.restitution = wp.array(self.shape_material_restitution, dtype=wp.float32, device=device)
             m.shape_contact_thickness = wp.array(self.shape_contact_thickness, dtype=wp.float32, device=device)
 
             #---------------------

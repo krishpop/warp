@@ -28,6 +28,7 @@ def parse_mjcf(
     contact_kd=100.0,
     contact_kf=100.0,
     contact_mu=0.5,
+    contact_restitution=0.5,
     limit_ke=10000.0,
     limit_kd=1000.0,
     armature=0.0,
@@ -195,7 +196,8 @@ def parse_mjcf(
                     ke=contact_ke,
                     kd=contact_kd,
                     kf=contact_kf,
-                    mu=contact_mu)
+                    mu=contact_mu,
+                    restitution=contact_restitution)
 
             elif (geom_type == "capsule"):
 
@@ -233,7 +235,8 @@ def parse_mjcf(
                     ke=contact_ke,
                     kd=contact_kd,
                     kf=contact_kf,
-                    mu=contact_mu)
+                    mu=contact_mu,
+                    restitution=contact_restitution)
                 
             else:
                 print("Type: " + geom_type + " unsupported")
