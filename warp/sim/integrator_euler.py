@@ -15,6 +15,7 @@ import time
 
 import numpy as np
 import warp as wp
+from warp.sim.model import ShapeContactMaterial
 
 from . optimizer import Optimizer
 from . particles import eval_particle_forces
@@ -966,7 +967,7 @@ def eval_rigid_contacts(
     body_q: wp.array(dtype=wp.transform),
     body_qd: wp.array(dtype=wp.spatial_vector),
     body_com: wp.array(dtype=wp.vec3),
-    shape_materials: wp.array(dtype=wp.vec4),
+    shape_materials: ShapeContactMaterial,
     shape_thickness: wp.array(dtype=float),
     contact_count: wp.array(dtype=int),
     contact_body0: wp.array(dtype=int),
@@ -986,24 +987,35 @@ def eval_rigid_contacts(
     if (tid >= count):
         return
 
-    # surface parameter tensor layout (ke, kd, kf, mu)
-    # XXX use average contact material
+    # use average contact material properties    
+    ke = 0.0       # restitution coefficient
+    kd = 0.0       # damping coefficient
+    kf = 0.0       # friction coefficient
+    mu = 0.0       # coulomb friction
     mat_nonzero = 0
-    mat = wp.vec4(0.0)
     thickness_a = 0.0
     thickness_b = 0.0
     shape_a = contact_shape0[tid]
     shape_b = contact_shape1[tid]
     if (shape_a >= 0):
         mat_nonzero += 1
-        mat = shape_materials[shape_a]
+        ke += shape_materials.ke[shape_a]
+        kd += shape_materials.kd[shape_a]
+        kf += shape_materials.kf[shape_a]
+        mu += shape_materials.mu[shape_a]
         thickness_a = shape_thickness[shape_a]
     if (shape_b >= 0):
         mat_nonzero += 1
-        mat = shape_materials[shape_b]
+        ke += shape_materials.ke[shape_b]
+        kd += shape_materials.kd[shape_b]
+        kf += shape_materials.kf[shape_b]
+        mu += shape_materials.mu[shape_b]
         thickness_b = shape_thickness[shape_b]
     if (mat_nonzero > 0):
-        mat = mat / float(mat_nonzero)
+        ke = ke / float(mat_nonzero)
+        kd = kd / float(mat_nonzero)
+        kf = kf / float(mat_nonzero)
+        mu = mu / float(mat_nonzero)
         
     body_a = contact_body0[tid]
     body_b = contact_body1[tid]
@@ -1060,11 +1072,6 @@ def eval_rigid_contacts(
     # decompose relative velocity
     vn = wp.dot(n, v)
     vt = v - n * vn
-
-    ke = mat[0]       # restitution coefficient
-    kd = mat[1]       # damping coefficient
-    kf = mat[2]       # friction coefficient
-    mu = mat[3]       # coulomb friction
     
     # contact elastic
     fn = d * ke
@@ -1254,7 +1261,12 @@ def quat_decompose(q: wp.quat):
 
     # https://www.sedris.org/wg8home/Documents/WG80485.pdf
     phi = wp.atan2(R[1, 2], R[2, 2])
-    theta = wp.asin(-R[0, 2])
+    sinp = -R[0, 2]
+    if wp.abs(sinp) >= 1.0:
+        theta = 1.57079632679 * wp.sign(sinp)
+        print("wp.abs(sinp) >= 1.0")
+    else:
+        theta = wp.asin(-R[0, 2])
     psi = wp.atan2(R[0, 1], R[0, 0])
 
     return -wp.vec3(phi, theta, psi)
@@ -1493,6 +1505,8 @@ def eval_body_joints(body_q: wp.array(dtype=wp.transform),
         t_total += eval_joint_force(angles[1], wp.dot(wp.quat_rotate(q_w, axis_1), w_err), joint_target[qd_start+1], joint_target_ke[qd_start+1],joint_target_kd[qd_start+1], joint_act[qd_start+1], joint_limit_lower[qd_start+1], joint_limit_upper[qd_start+1], joint_limit_ke[qd_start+1], joint_limit_kd[qd_start+1], wp.quat_rotate(q_w, axis_1))
         
         # last axis (fixed)
+        # if angles[2] < -1e-3:
+            # XXX prevent numerical instability at singularity
         t_total += eval_joint_force(angles[2], wp.dot(wp.quat_rotate(q_w, axis_2), w_err), 0.0, joint_attach_ke, joint_attach_kd*angular_damping_scale, 0.0, 0.0, 0.0, 0.0, 0.0, wp.quat_rotate(q_w, axis_2))
 
         f_total += x_err*joint_attach_ke + v_err*joint_attach_kd
