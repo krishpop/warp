@@ -466,23 +466,24 @@ def update_rigid_ground_contacts(
     p_ref = wp.transform_point(X_ws, contact_point_ref[tid])
     c = ground_plane[3]  # ground plane offset
     d = wp.dot(p_ref, n) - c
-    index = wp.atomic_add(contact_count, 0, 1)
-    contact_point0[index] = wp.transform_point(X_bw, p_ref)
-    # project contact point onto ground plane
-    contact_point1[index] = p_ref - n*d
-    # print(d-thickness)
-    # if (d < thickness + 1e-2):
-    #     # print("ground contact")
-    #     wp.atomic_add(contact_inv_weight, rigid_body[index], 1.0)
-    contact_body0[index] = body
-    contact_body1[index] = -1
-    # TODO transform offset by X_co?
-    contact_offset0[index] = wp.transform_vector(X_bw, -thickness * n)
-    contact_offset1[index] = wp.vec3(0.0)
-    contact_normal[index] = n
-    contact_shape0[index] = shape
-    contact_shape1[index] = -1
-    contact_margin[index] = thickness
+    if (d < thickness):
+        index = wp.atomic_add(contact_count, 0, 1)
+        contact_point0[index] = wp.transform_point(X_bw, p_ref)
+        # project contact point onto ground plane
+        contact_point1[index] = p_ref - n*d
+        # print(d-thickness)
+        # if (d < thickness + 1e-2):
+        #     # print("ground contact")
+        #     wp.atomic_add(contact_inv_weight, rigid_body[index], 1.0)
+        contact_body0[index] = body
+        contact_body1[index] = -1
+        # TODO transform offset by X_co?
+        contact_offset0[index] = wp.transform_vector(X_bw, -thickness * n)
+        contact_offset1[index] = wp.vec3(0.0)
+        contact_normal[index] = n
+        contact_shape0[index] = shape
+        contact_shape1[index] = -1
+        contact_margin[index] = thickness
 
 
 @wp.kernel
