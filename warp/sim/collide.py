@@ -597,7 +597,8 @@ def create_mesh_sdf_contacts(
         
         # print("retrieved")
 
-        if False:
+        # toggle between volume- or mesh-based collision
+        if True:
 
             # transform point to world space   
             volume = shape_volume_id[shape_b]
@@ -722,7 +723,7 @@ def create_mesh_sdf_contacts(
 
                 contact_margin[index] = margin
 
-def collide(model, state):
+def collide(model, state, experimental_sdf_collision=False):
 
     # clear old count
     model.soft_contact_count.zero_()
@@ -785,52 +786,46 @@ def collide(model, state):
             ],
             device=model.device
         )
-        # wp.synchronize()
-        # print("Contacts after:", model.ground_contact_point0.numpy())
 
     
-    
-    # shape_geo_id = model.shape_geo_id.numpy()
-    # for shape_a in range(model.shape_count-1):
-    #     # TODO figure out how to call built-in function from outside warp kernel
-    #     point_count = model.mesh_num_points[shape_a]
-    #     # point_count = 10 # XXX just for testing !!!!!
-    #     # point_count = wp.mesh_get_num_points(shape_geo_id[shape_a])
-    #     # point_count = 500
-    #     # point_count = 1
-    #     for shape_b in range(shape_a+1, model.shape_count):
-    #         # print(f'colliding {shape_a} {shape_b}')
-    #         wp.launch(
-    #             kernel=create_mesh_sdf_contacts,
-    #             dim=point_count,
-    #             inputs=[
-    #                 shape_a,
-    #                 shape_b,
-    #                 state.body_q,
-    #                 model.shape_transform,
-    #                 model.shape_body,
-    #                 model.shape_geo_type, 
-    #                 model.shape_geo_id,
-    #                 model.shape_volume_id,
-    #                 model.shape_geo_scale,
-    #                 model.shape_contact_thickness,
-    #                 model.rigid_contact_max,
-    #             ],
-    #             # outputs
-    #             outputs=[
-    #                 model.rigid_contact_count,
-    #                 model.rigid_contact_body0,
-    #                 model.rigid_contact_body1,
-    #                 model.rigid_contact_point0,
-    #                 model.rigid_contact_point1,
-    #                 model.rigid_contact_offset0,
-    #                 model.rigid_contact_offset1,
-    #                 model.rigid_contact_normal,
-    #                 model.rigid_contact_shape0,
-    #                 model.rigid_contact_shape1,
-    #                 model.rigid_contact_margin,
-    #             ],
-    #             device=model.device)
-
-
-    # wp.synchronize()  # TODO remove
+    if experimental_sdf_collision:
+        for shape_a in range(model.shape_count-1):
+            # TODO figure out how to call built-in function from outside warp kernel
+            point_count = model.mesh_num_points[shape_a]
+            # point_count = 10 # XXX just for testing !!!!!
+            # point_count = wp.mesh_get_num_points(shape_geo_id[shape_a])
+            # point_count = 500
+            # point_count = 1
+            for shape_b in range(shape_a+1, model.shape_count):
+                # print(f'colliding {shape_a} {shape_b}')
+                wp.launch(
+                    kernel=create_mesh_sdf_contacts,
+                    dim=point_count,
+                    inputs=[
+                        shape_a,
+                        shape_b,
+                        state.body_q,
+                        model.shape_transform,
+                        model.shape_body,
+                        model.shape_geo_type, 
+                        model.shape_geo_id,
+                        model.shape_volume_id,
+                        model.shape_geo_scale,
+                        model.shape_contact_thickness,
+                        model.rigid_contact_max,
+                    ],
+                    # outputs
+                    outputs=[
+                        model.rigid_contact_count,
+                        model.rigid_contact_body0,
+                        model.rigid_contact_body1,
+                        model.rigid_contact_point0,
+                        model.rigid_contact_point1,
+                        model.rigid_contact_offset0,
+                        model.rigid_contact_offset1,
+                        model.rigid_contact_normal,
+                        model.rigid_contact_shape0,
+                        model.rigid_contact_shape1,
+                        model.rigid_contact_margin,
+                    ],
+                    device=model.device)
