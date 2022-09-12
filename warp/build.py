@@ -132,7 +132,7 @@ def build_cuda(cu_path, arch, ptx_path, config="release", force=False, verify_fp
     inc_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "native").encode('utf-8')
     ptx_path = ptx_path.encode('utf-8')
 
-    err = warp.context.runtime.core.cuda_compile_program(src, arch, inc_path, False, warp.config.verbose, verify_fp, ptx_path)    
+    err = warp.context.runtime.core.cuda_compile_program(src, arch, inc_path, config=="debug", warp.config.verbose, verify_fp, ptx_path)    
     if (err):
         raise Exception("CUDA build failed")
 
@@ -252,7 +252,7 @@ def build_dll(cpp_path, cu_path, dll_path, config="release", verify_fp=False, fo
                 cuda_cmd = f'"{cuda_home}/bin/nvcc" --compiler-options=/MTd,/Zi,/Od -g -G -O0 -D_DEBUG -D_ITERATOR_DEBUG_LEVEL=0 -I"{native_dir}" -I"{nanovdb_home}" -line-info {gencode_opts} -DWP_CUDA -o "{cu_out}" -c "{cu_path}"'
 
             elif (config == "release"):
-                cuda_cmd = f'"{cuda_home}/bin/nvcc" -O3 {gencode_opts}  -I"{native_dir}" -I"{nanovdb_home}" --use_fast_math -DWP_CUDA -o "{cu_out}" -c "{cu_path}"'
+                cuda_cmd = f'"{cuda_home}/bin/nvcc" -O3 {gencode_opts}  -I"{native_dir}" -I"{nanovdb_home}" --use_fast_math -DNDEBUG -DWP_CUDA -o "{cu_out}" -c "{cu_path}"'
 
             with ScopedTimer("build_cuda", active=warp.config.verbose):
                 run_cmd(cuda_cmd)
@@ -299,7 +299,7 @@ def build_dll(cpp_path, cu_path, dll_path, config="release", verify_fp=False, fo
                 cuda_cmd = f'"{cuda_home}/bin/nvcc" -g -G -O0 --compiler-options -fPIC -D_DEBUG -D_ITERATOR_DEBUG_LEVEL=0 -line-info {gencode_opts} -DWP_CUDA -I"{native_dir}" -o "{cu_out}" -c "{cu_path}"'
 
             elif (config == "release"):
-                cuda_cmd = f'"{cuda_home}/bin/nvcc" -O3 --compiler-options -fPIC {gencode_opts} --use_fast_math -DWP_CUDA -I"{native_dir}" -o "{cu_out}" -c "{cu_path}"'
+                cuda_cmd = f'"{cuda_home}/bin/nvcc" -O3 --compiler-options -fPIC {gencode_opts} -DNDEBUG --use_fast_math -DWP_CUDA -I"{native_dir}" -o "{cu_out}" -c "{cu_path}"'
 
             with ScopedTimer("build_cuda", active=warp.config.verbose):
                 run_cmd(cuda_cmd)
