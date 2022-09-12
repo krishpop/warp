@@ -466,7 +466,7 @@ def update_rigid_ground_contacts(
     p_ref = wp.transform_point(X_ws, contact_point_ref[tid])
     c = ground_plane[3]  # ground plane offset
     d = wp.dot(p_ref, n) - c
-    if (d < thickness):
+    if (d < thickness + 1e-3):
         index = wp.atomic_add(contact_count, 0, 1)
         contact_point0[index] = wp.transform_point(X_bw, p_ref)
         # project contact point onto ground plane
