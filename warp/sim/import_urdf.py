@@ -20,7 +20,7 @@ import warp as wp
 from warp.sim.model import Mesh
 
 
-def urdf_add_collision(builder, link, collisions, density, shape_ke, shape_kd, shape_kf, shape_mu):
+def urdf_add_collision(builder, link, collisions, density, shape_ke, shape_kd, shape_kf, shape_mu, shape_restitution):
 
     # add geometry
     for collision in collisions:
@@ -44,7 +44,8 @@ def urdf_add_collision(builder, link, collisions, density, shape_ke, shape_kd, s
                 ke=shape_ke,
                 kd=shape_kd,
                 kf=shape_kf,
-                mu=shape_mu)
+                mu=shape_mu,
+                restitution=shape_restitution)
 
         if geo.sphere:
             builder.add_shape_sphere(
@@ -56,7 +57,8 @@ def urdf_add_collision(builder, link, collisions, density, shape_ke, shape_kd, s
                 ke=shape_ke,
                 kd=shape_kd,
                 kf=shape_kf,
-                mu=shape_mu)
+                mu=shape_mu,
+                restitution=shape_restitution)
 
         if geo.cylinder:
 
@@ -73,7 +75,8 @@ def urdf_add_collision(builder, link, collisions, density, shape_ke, shape_kd, s
                 ke=shape_ke,
                 kd=shape_kd,
                 kf=shape_kf,
-                mu=shape_mu)
+                mu=shape_mu,
+                restitution=shape_restitution)
 
         if geo.mesh:
 
@@ -100,7 +103,8 @@ def urdf_add_collision(builder, link, collisions, density, shape_ke, shape_kd, s
                     ke=shape_ke,
                     kd=shape_kd,
                     kf=shape_kf,
-                    mu=shape_mu)
+                    mu=shape_mu,
+                    restitution=shape_restitution)
 
 
 def parse_urdf(
@@ -116,6 +120,7 @@ def parse_urdf(
         shape_kd=1.e+3,
         shape_kf=1.e+2,
         shape_mu=0.25,
+        shape_restitution=0.5,
         limit_ke=100.0,
         limit_kd=10.0,
         parse_visuals_as_colliders=False):
@@ -166,7 +171,7 @@ def parse_urdf(
         builder.joint_q[start + 5] = xform.q[2]
         builder.joint_q[start + 6] = xform.q[3]
         urdf_add_collision(
-            builder, root, colliders, density, shape_ke, shape_kd, shape_kf, shape_mu)
+            builder, root, colliders, density, shape_ke, shape_kd, shape_kf, shape_mu, shape_restitution)
     else:
         root = builder.add_body(origin=wp.transform_identity(),
                                 parent=-1,
@@ -175,7 +180,7 @@ def parse_urdf(
                                 body_name=robot.base_link.name,
                                 joint_name="fixed_base")
         urdf_add_collision(
-            builder, root, colliders, 0.0, shape_ke, shape_kd, shape_kf, shape_mu)
+            builder, root, colliders, 0.0, shape_ke, shape_kd, shape_kf, shape_mu, shape_restitution)
 
     link_index[robot.links[0].name] = root
 
@@ -256,7 +261,7 @@ def parse_urdf(
 
         # add collisions
         urdf_add_collision(
-            builder, link, child_colliders, density, shape_ke, shape_kd, shape_kf, shape_mu)
+            builder, link, child_colliders, density, shape_ke, shape_kd, shape_kf, shape_mu, shape_restitution)
 
         # add ourselves to the index
         link_index[joint.child] = link
