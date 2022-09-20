@@ -111,7 +111,7 @@ def create_soft_contacts(
     shape_geo_type: wp.array(dtype=int), 
     shape_geo_id: wp.array(dtype=wp.uint64),
     shape_geo_scale: wp.array(dtype=wp.vec3),
-    soft_contact_margin: float,
+    soft_contact_thickness: float,
     #outputs,
     soft_contact_count: wp.array(dtype=int),
     soft_contact_particle: wp.array(dtype=int),
@@ -174,7 +174,7 @@ def create_soft_contacts(
         face_v = float(0.0)
         sign = float(0.0)
 
-        if (wp.mesh_query_point(mesh, x_local/geo_scale[0], soft_contact_margin, sign, face_index, face_u, face_v)):
+        if (wp.mesh_query_point(mesh, x_local/geo_scale[0], soft_contact_thickness, sign, face_index, face_u, face_v)):
 
             shape_p = wp.mesh_eval_position(mesh, face_index, face_u, face_v)
             shape_v = wp.mesh_eval_velocity(mesh, face_index, face_u, face_v)
@@ -188,7 +188,7 @@ def create_soft_contacts(
             v = shape_v
 
 
-    if (d < soft_contact_margin):
+    if (d < soft_contact_thickness):
 
         index = wp.atomic_add(soft_contact_count, 0, 1) 
 
@@ -235,7 +235,7 @@ def volume_grad(volume: wp.uint64,
 #     shape_volume_id: wp.array(dtype=wp.uint64),
 #     shape_geo_scale: wp.array(dtype=wp.vec3),
 #     shape_materials: wp.array(dtype=wp.vec4),
-#     rigid_contact_margin: float,
+#     rigid_contact_thickness: float,
 #     #outputs,
 #     rigid_contact_count: wp.array(dtype=int),
 #     rigid_contact_body_a: wp.array(dtype=int),
@@ -368,10 +368,10 @@ def volume_grad(volume: wp.uint64,
 #             # print("query successful")
 #             # print(d)
 
-#         rigid_contact_margin = 0.01
+#         rigid_contact_thickness = 0.01
 
 
-#         if (d < rigid_contact_margin):
+#         if (d < rigid_contact_thickness):
 
 #             index = wp.atomic_add(rigid_contact_count, 0, 1) 
 #             # print("contact")
@@ -386,7 +386,7 @@ def volume_grad(volume: wp.uint64,
 #             if (index < rigid_contact_max):
 
 #                 # n = wp.transform_vector(X_so, n)
-#                 err = d - rigid_contact_margin
+#                 err = d - rigid_contact_thickness
 
 #                 # mesh collision
 #                 # compute point at the surface of volume b
@@ -439,6 +439,7 @@ def update_rigid_ground_contacts(
     contact_point_ref: wp.array(dtype=wp.vec3),
     ground_contact_shape: wp.array(dtype=int),
     shape_contact_thickness: wp.array(dtype=float),
+    rigid_contact_margin: float,
     #outputs
     contact_count: wp.array(dtype=int),
     contact_body0: wp.array(dtype=int),
@@ -450,7 +451,7 @@ def update_rigid_ground_contacts(
     contact_normal: wp.array(dtype=wp.vec3),
     contact_shape0: wp.array(dtype=int),    
     contact_shape1: wp.array(dtype=int),
-    contact_margin: wp.array(dtype=float)
+    contact_thickness: wp.array(dtype=float)
 ):
     tid = wp.tid()
     body = rigid_body[tid]
@@ -466,7 +467,7 @@ def update_rigid_ground_contacts(
     p_ref = wp.transform_point(X_ws, contact_point_ref[tid])
     c = ground_plane[3]  # ground plane offset
     d = wp.dot(p_ref, n) - c
-    if (d < thickness + 1e-3):
+    if (d < thickness + rigid_contact_margin):
         index = wp.atomic_add(contact_count, 0, 1)
         contact_point0[index] = wp.transform_point(X_bw, p_ref)
         # project contact point onto ground plane
@@ -483,7 +484,7 @@ def update_rigid_ground_contacts(
         contact_normal[index] = n
         contact_shape0[index] = shape
         contact_shape1[index] = -1
-        contact_margin[index] = thickness
+        contact_thickness[index] = thickness
 
 
 @wp.kernel
@@ -499,6 +500,7 @@ def create_mesh_sdf_contacts(
     shape_geo_scale: wp.array(dtype=wp.vec3),
     shape_contact_thickness: wp.array(dtype=float),
     contact_max: int,
+    rigid_contact_margin: float,
     #outputs
     contact_count: wp.array(dtype=int),
     contact_body0: wp.array(dtype=int),
@@ -510,7 +512,7 @@ def create_mesh_sdf_contacts(
     contact_normal: wp.array(dtype=wp.vec3),
     contact_shape0: wp.array(dtype=int),    
     contact_shape1: wp.array(dtype=int),
-    contact_margin: wp.array(dtype=float)):
+    contact_thickness: wp.array(dtype=float)):
     
     tid = wp.tid()           
 
@@ -647,13 +649,13 @@ def create_mesh_sdf_contacts(
                 # print("query successful")
                 # print(d)
 
-        # rigid_contact_margin = 0.0 #0.0001
+        # rigid_contact_thickness = 0.0 #0.0001
         thickness_a = shape_contact_thickness[shape_a]
         thickness_b = shape_contact_thickness[shape_b]
-        margin = thickness_a + thickness_b
+        thickness = thickness_a + thickness_b
 
 
-        if (d < margin):
+        if (d < thickness + rigid_contact_margin):
         # if (True):
 
             index = wp.atomic_add(contact_count, 0, 1) 
@@ -670,7 +672,7 @@ def create_mesh_sdf_contacts(
 
 
                 # n = wp.transform_vector(X_so, n)
-                err = d - margin
+                err = d - thickness
                 # err = d
 
                 # mesh collision
@@ -722,7 +724,7 @@ def create_mesh_sdf_contacts(
                 contact_shape0[index] = shape_a
                 contact_shape1[index] = shape_b
 
-                contact_margin[index] = margin
+                contact_thickness[index] = thickness
 
 def collide(model, state, experimental_sdf_collision=False):
 
@@ -742,7 +744,7 @@ def collide(model, state, experimental_sdf_collision=False):
                 model.shape_geo_type, 
                 model.shape_geo_id,
                 model.shape_geo_scale,
-                model.soft_contact_margin,
+                model.soft_contact_thickness,
                 model.soft_contact_count,
                 model.soft_contact_particle,
                 model.soft_contact_body,
@@ -771,6 +773,7 @@ def collide(model, state, experimental_sdf_collision=False):
                 model.ground_contact_ref,
                 model.ground_contact_shape0,
                 model.shape_contact_thickness,
+                model.rigid_contact_margin,
             ],
             outputs=[
                 model.rigid_contact_count,
@@ -783,7 +786,7 @@ def collide(model, state, experimental_sdf_collision=False):
                 model.rigid_contact_normal,
                 model.rigid_contact_shape0,
                 model.rigid_contact_shape1,
-                model.rigid_contact_margin,
+                model.rigid_contact_thickness,
             ],
             device=model.device
         )
@@ -814,6 +817,7 @@ def collide(model, state, experimental_sdf_collision=False):
                         model.shape_geo_scale,
                         model.shape_contact_thickness,
                         model.rigid_contact_max,
+                        model.rigid_contact_margin,
                     ],
                     # outputs
                     outputs=[
@@ -827,6 +831,6 @@ def collide(model, state, experimental_sdf_collision=False):
                         model.rigid_contact_normal,
                         model.rigid_contact_shape0,
                         model.rigid_contact_shape1,
-                        model.rigid_contact_margin,
+                        model.rigid_contact_thickness,
                     ],
                     device=model.device)

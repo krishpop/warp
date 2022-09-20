@@ -706,6 +706,10 @@ class ModelBuilder:
 
         self.upvector = upvector
         self.gravity = gravity
+
+        # contacts to be generated within the given distance margin to be generated at
+        # every simulation substep (can be 0 if only one PBD solver iteration is used)
+        self.rigid_contact_margin = 0.1
         
 
     # an articulation is a set of contiguous bodies bodies from articulation_start[i] to articulation_start[i+1]
@@ -2066,7 +2070,7 @@ class ModelBuilder:
             # contacts
             m.allocate_soft_contacts(64*1024)
 
-            m.rigid_contact_max = 8*64*1024            
+            m.rigid_contact_max = 8*64*1024   # TODO let this be influenced by number of environments         
             m.rigid_contact_count = wp.zeros(1, dtype=wp.int32)
             m.rigid_contact_body0 = wp.zeros(m.rigid_contact_max, dtype=wp.int32)
             m.rigid_contact_body1 = wp.zeros(m.rigid_contact_max, dtype=wp.int32)
@@ -2075,12 +2079,13 @@ class ModelBuilder:
             m.rigid_contact_offset0 = wp.zeros(m.rigid_contact_max, dtype=wp.vec3)
             m.rigid_contact_offset1 = wp.zeros(m.rigid_contact_max, dtype=wp.vec3)
             m.rigid_contact_normal = wp.zeros(m.rigid_contact_max, dtype=wp.vec3)
-            m.rigid_contact_margin = wp.zeros(m.rigid_contact_max, dtype=wp.float32)
+            m.rigid_contact_thickness = wp.zeros(m.rigid_contact_max, dtype=wp.float32)
             m.rigid_contact_shape0 = wp.zeros(m.rigid_contact_max, dtype=wp.int32)
             m.rigid_contact_shape1 = wp.zeros(m.rigid_contact_max, dtype=wp.int32)
             m.rigid_active_contact_point0 = wp.zeros(m.rigid_contact_max, dtype=wp.vec3)
             m.rigid_active_contact_point1 = wp.zeros(m.rigid_contact_max, dtype=wp.vec3)
             m.rigid_active_contact_distance = wp.zeros(m.rigid_contact_max, dtype=wp.float32)
+            m.rigid_contact_margin = self.rigid_contact_margin
 
             m.rigid_contact_n_lambda = wp.zeros(
                 m.rigid_contact_max,
