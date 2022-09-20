@@ -95,6 +95,16 @@ def integrate_bodies(body_q: wp.array(dtype=wp.transform),
     w1 = wp.quat_rotate(r0, wb + inv_inertia * tb * dt)
     r1 = wp.normalize(r0 + wp.quat(w1, 0.0) * r0 * 0.5 * dt)
 
+    # TODO apply angular damping
+    w1 *= 1.0 - 0.05*dt
+
+    # max_v = 0.001
+    # if wp.length(v1) > max_v:
+    #     v1 = max_v * wp.normalize(v1)
+    # max_w = 0.0005
+    # if wp.length(w1) > max_w:
+    #     w1 = max_w * wp.normalize(w1)
+
     # angular damping, todo: expose
     # w1 = w1*(1.0-0.1*dt)
 
@@ -1814,7 +1824,7 @@ def solve_body_joints(body_q: wp.array(dtype=wp.transform),
 #     contact_point1: wp.array(dtype=wp.vec3),
 #     contact_normal: wp.array(dtype=wp.vec3),
 #     contact_distance: wp.array(dtype=float),
-#     contact_margin: wp.array(dtype=float),
+#     contact_thickness: wp.array(dtype=float),
 #     contact_shape0: wp.array(dtype=int),
 #     contact_shape1: wp.array(dtype=int),
 #     shape_materials: wp.array(dtype=wp.vec4),
@@ -1835,7 +1845,7 @@ def solve_body_joints(body_q: wp.array(dtype=wp.transform),
 #     body_b = contact_body1[tid]
 
 #     # body position in world space
-#     margin = contact_margin[tid]
+#     margin = contact_thickness[tid]
 #     n = contact_normal[tid]
 #     bx_a = -margin * n  
 #     bx_b = wp.vec3(0.0)
@@ -2174,7 +2184,7 @@ def update_body_contact_weights(
     contact_point0: wp.array(dtype=wp.vec3),
     contact_point1: wp.array(dtype=wp.vec3),
     contact_normal: wp.array(dtype=wp.vec3),
-    contact_margin: wp.array(dtype=float),
+    contact_thickness: wp.array(dtype=float),
     contact_shape0: wp.array(dtype=int),
     contact_shape1: wp.array(dtype=int),
     shape_X_co: wp.array(dtype=wp.transform),
@@ -2195,7 +2205,7 @@ def update_body_contact_weights(
     body_b = contact_body1[tid]
 
     # body position in world space
-    margin = contact_margin[tid]
+    margin = contact_thickness[tid]
     n = contact_normal[tid]
     bx_a = contact_point0[tid]
     bx_b = contact_point1[tid]
@@ -2217,6 +2227,7 @@ def update_body_contact_weights(
     
     n = contact_normal[tid]
     d = -wp.dot(n, bx_b-bx_a) - margin
+    active_contact_distance[tid] = d
 
     if d < 0.0:
         if (body_a >= 0):
@@ -2225,7 +2236,6 @@ def update_body_contact_weights(
             wp.atomic_add(contact_inv_weight, body_b, 1.0)
         active_contact_point0[tid] = bx_a
         active_contact_point1[tid] = bx_b
-        active_contact_distance[tid] = d
 
 
 @wp.kernel
@@ -2243,7 +2253,7 @@ def solve_body_contact_positions(
     contact_offset0: wp.array(dtype=wp.vec3),
     contact_offset1: wp.array(dtype=wp.vec3),
     contact_normal: wp.array(dtype=wp.vec3),
-    contact_margin: wp.array(dtype=float),
+    contact_thickness: wp.array(dtype=float),
     contact_shape0: wp.array(dtype=int),
     contact_shape1: wp.array(dtype=int),
     active_contact_point0: wp.array(dtype=wp.vec3),
@@ -2254,6 +2264,7 @@ def solve_body_contact_positions(
     contact_inv_weight: wp.array(dtype=float),
     relaxation: float,
     dt: float,
+    max_penetration: float,
     # outputs
     deltas: wp.array(dtype=wp.spatial_vector),
     contact_n_lambda: wp.array(dtype=float),
@@ -2271,10 +2282,6 @@ def solve_body_contact_positions(
     body_a = contact_body0[tid]
     body_b = contact_body1[tid]
 
-    # body position in world space
-    margin = contact_margin[tid]
-    # print("margin")
-    # print(margin)
     n = contact_normal[tid]
     
     m_inv_a = 0.0
@@ -2386,7 +2393,10 @@ def solve_body_contact_positions(
     # relaxation = 1.0 / wp.min(weight_a, weight_b)
     # relaxation = 0.6
 
-
+    if d >= 0.0:
+        return
+    # limit penetration to prevent extreme constraint deltas
+    d = wp.max(max_penetration, d)
     lambda_n = compute_contact_constraint_delta(
         d, X_wb_a, X_wb_b, m_inv_a, m_inv_b, I_inv_a, I_inv_b,
         -n, n, angular_a, angular_b, inv_weight_a, inv_weight_b, relaxation, dt)
@@ -2520,7 +2530,7 @@ def solve_body_contact_velocities(
     contact_point1: wp.array(dtype=wp.vec3),
     contact_normal: wp.array(dtype=wp.vec3),
     contact_distance: wp.array(dtype=float),
-    contact_margin: wp.array(dtype=float),
+    contact_thickness: wp.array(dtype=float),
     contact_shape0: wp.array(dtype=int),
     contact_shape1: wp.array(dtype=int),
     shape_materials: wp.array(dtype=wp.vec4),
@@ -2543,9 +2553,9 @@ def solve_body_contact_velocities(
     body_b = contact_body1[tid]
 
     # body position in world space
-    margin = contact_margin[tid]
+    thickness = contact_thickness[tid]
     n = contact_normal[tid]
-    bx_a = -margin * n  
+    bx_a = -thickness * n  
     bx_b = wp.vec3(0.0)
     m_inv_a = 0.0
     m_inv_b = 0.0
@@ -2883,7 +2893,8 @@ class XPBDIntegrator:
                  joint_angular_relaxation=0.4,
                  contact_normal_relaxation=1.0,
                  contact_friction_relaxation=1.0,
-                 contact_con_weighting=True):
+                 contact_con_weighting=True,
+                 max_rigid_contact_penetration=-0.1):
 
         self.iterations = iterations
 
@@ -2896,6 +2907,11 @@ class XPBDIntegrator:
         self.contact_friction_relaxation = contact_friction_relaxation
 
         self.contact_con_weighting = contact_con_weighting
+
+        # maximum penetration depth to be used for contact handling in order
+        # to clip the contact impulse to reasonable levels in case of strong
+        # interpenetrations between rigid bodies (has to be a value < 0)
+        self.max_rigid_contact_penetration = max_rigid_contact_penetration
 
     def simulate(self, model, state_in, state_out, dt):
 
@@ -3103,7 +3119,6 @@ class XPBDIntegrator:
                                 device=model.device)
 
                     # Solve rigid contact constraints
-
                     if (model.rigid_contact_max and model.body_count):
                         model.contact_inv_weight.zero_()
                         model.rigid_active_contact_distance.zero_()
@@ -3118,7 +3133,7 @@ class XPBDIntegrator:
                                 model.rigid_contact_point0,
                                 model.rigid_contact_point1,
                                 model.rigid_contact_normal,
-                                model.rigid_contact_margin,
+                                model.rigid_contact_thickness,
                                 model.rigid_contact_shape0,
                                 model.rigid_contact_shape1,
                                 model.shape_transform
@@ -3150,7 +3165,7 @@ class XPBDIntegrator:
                                 model.rigid_contact_offset0,
                                 model.rigid_contact_offset1,
                                 model.rigid_contact_normal,
-                                model.rigid_contact_margin,
+                                model.rigid_contact_thickness,
                                 model.rigid_contact_shape0,
                                 model.rigid_contact_shape1,
                                 model.rigid_active_contact_point0,
@@ -3160,7 +3175,8 @@ class XPBDIntegrator:
                                 model.shape_transform,
                                 model.contact_inv_weight,
                                 self.contact_normal_relaxation,
-                                dt
+                                dt,
+                                self.max_rigid_contact_penetration,
                             ],
                             outputs=[
                                 state_out.body_deltas,
@@ -3183,7 +3199,7 @@ class XPBDIntegrator:
                     #             model.rigid_contact_point1,
                     #             model.rigid_contact_normal,
                     #             model.rigid_contact_distance,
-                    #             model.rigid_contact_margin,
+                    #             model.rigid_contact_thickness,
                     #             model.rigid_contact_shape0,
                     #             model.rigid_contact_shape1,
                     #             model.shape_materials,
@@ -3283,7 +3299,7 @@ class XPBDIntegrator:
                 #                 model.ground_contact_point1,
                 #                 model.ground_contact_normal,
                 #                 model.ground_contact_distance,
-                #                 model.ground_contact_margin,
+                #                 model.ground_contact_thickness,
                 #                 model.ground_contact_shape0,
                 #                 model.ground_contact_shape1,
                 #                 model.shape_materials,
@@ -3311,7 +3327,7 @@ class XPBDIntegrator:
                 #             model.rigid_contact_point1,
                 #             model.rigid_contact_normal,
                 #             model.rigid_contact_distance,
-                #             model.rigid_contact_margin,
+                #             model.rigid_contact_thickness,
                 #             model.rigid_contact_shape0,
                 #             model.rigid_contact_shape1,
                 #             model.shape_materials,
