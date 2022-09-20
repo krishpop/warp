@@ -2567,7 +2567,7 @@ def solve_body_contact_velocities(
     if (body_a >= 0):
         X_wb_a = body_q[body_a]
         X_com_a = body_com[body_a]
-        bx_a = wp.transform_point(X_wb_a, contact_point0[tid]) - margin * n
+        bx_a = wp.transform_point(X_wb_a, contact_point0[tid]) - thickness * n
         r_a = bx_a - wp.transform_point(X_wb_a, X_com_a)
         m_inv_a = body_m_inv[body_a]
         I_inv_a = body_I_inv[body_a]        
