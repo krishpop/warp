@@ -2104,7 +2104,6 @@ class ModelBuilder:
             m.rigid_active_contact_point0 = wp.zeros(m.rigid_contact_max, dtype=wp.vec3)
             m.rigid_active_contact_point1 = wp.zeros(m.rigid_contact_max, dtype=wp.vec3)
             m.rigid_active_contact_distance = wp.zeros(m.rigid_contact_max, dtype=wp.float32)
-            m.rigid_contact_n_lambda = wp.zeros(m.rigid_contact_max, dtype=float, requires_grad=m.body_q.requires_grad)
             # number of contact constraints per rigid body (used for scaling the constraint contributions)
             m.rigid_contact_inv_weight = wp.zeros(len(self.body_q), dtype=wp.float32)
             m.rigid_contact_margin = self.rigid_contact_margin            

@@ -1318,7 +1318,6 @@ def solve_body_contact_positions(
     contact_rolling_friction: float,
     # outputs
     deltas: wp.array(dtype=wp.spatial_vector),
-    contact_n_lambda: wp.array(dtype=float),
 ):
     
     tid = wp.tid()
@@ -1484,8 +1483,6 @@ def solve_body_contact_positions(
         wp.atomic_sub(deltas, body_a, wp.spatial_vector(ang_delta_a, lin_delta_a))
     if (body_b >= 0):
         wp.atomic_sub(deltas, body_b, wp.spatial_vector(ang_delta_b, lin_delta_b))
-
-    wp.atomic_add(contact_n_lambda, tid, lambda_n)
 
 
 @wp.kernel
@@ -1964,7 +1961,6 @@ class XPBDIntegrator:
                             ],
                             outputs=[
                                 state_out.body_deltas,
-                                model.rigid_contact_n_lambda,
                             ],
                             device=model.device)
 
@@ -2001,7 +1997,6 @@ class XPBDIntegrator:
                         ],
                         device=model.device)
 
-                state_out.body_deltas.zero_()
                 # TODO can we apply this to state_out.body_qd directly?
                 wp.launch(kernel=apply_rigid_restitution,
                         dim=model.rigid_contact_max,
@@ -2030,20 +2025,20 @@ class XPBDIntegrator:
                             dt,
                         ],
                         outputs=[
-                            state_out.body_deltas,
+                            state_out.body_qd,
                         ],
                         device=model.device)
 
-                wp.launch(kernel=apply_body_delta_velocities,
-                        dim=model.body_count,
-                        inputs=[
-                            state_out.body_qd,
-                            state_out.body_deltas,
-                        ],
-                        outputs=[
-                            state_out.body_qd
-                        ],
-                        device=model.device)
+                # wp.launch(kernel=apply_body_delta_velocities,
+                #         dim=model.body_count,
+                #         inputs=[
+                #             state_out.body_qd,
+                #             state_out.body_deltas,
+                #         ],
+                #         outputs=[
+                #             state_out.body_qd
+                #         ],
+                #         device=model.device)
 
             state_out.particle_q = particle_q
             state_out.particle_qd = particle_qd
