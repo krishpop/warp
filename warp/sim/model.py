@@ -606,6 +606,7 @@ class ModelBuilder:
 
     
     def __init__(self, upvector=(0.0, 1.0, 0.0), gravity=-9.80665):
+        self.num_envs = 0
 
         # particles
         self.particle_q = []
@@ -710,6 +711,12 @@ class ModelBuilder:
         # contacts to be generated within the given distance margin to be generated at
         # every simulation substep (can be 0 if only one PBD solver iteration is used)
         self.rigid_contact_margin = 0.1
+        # torsional friction coefficient (only considered by XPBD so far)
+        self.rigid_contact_torsional_friction = 0.5
+        # rolling friction coefficient (only considered by XPBD so far)
+        self.rigid_contact_rolling_friction = 0.001
+        # treat collisions with relative velocity below this as inelastic
+        self.rigid_contact_bounce_threshold = 1e-5
         
 
     # an articulation is a set of contiguous bodies bodies from articulation_start[i] to articulation_start[i+1]
@@ -724,12 +731,13 @@ class ModelBuilder:
     def add_articulation(self):
         self.articulation_start.append(self.joint_count)
     
-    def add_rigid_articulation(self, articulation, xform=None):
+    def add_rigid_articulation(self, articulation, xform=None, update_num_env_count=True):
         """Copies a rigid articulation from `articulation`, another `ModelBuilder`.
         
         Args:
             articulation: a model builder to add rigid articulation from.
-            xform: root position of this body (overrides that in the articulation_builder)
+            xform: root position of this body (overrides that in the articulation_builder).
+            update_num_env_count: if True, the number of environments is incremented by 1.
         """
 
         if xform is not None:
@@ -803,6 +811,9 @@ class ModelBuilder:
         self.joint_count += articulation.joint_count
         self.joint_dof_count += articulation.joint_dof_count
         self.joint_coord_count += articulation.joint_coord_count
+
+        if update_num_env_count:
+            self.num_envs += 1
 
 
     # register a rigid body and return its index.
@@ -1907,6 +1918,8 @@ class ModelBuilder:
             A model object.
         """
 
+        self.num_envs = max(1, self.num_envs)
+
         # construct particle inv masses
         particle_inv_mass = []
         
@@ -2076,7 +2089,7 @@ class ModelBuilder:
             # contacts
             m.allocate_soft_contacts(64*1024)
 
-            m.rigid_contact_max = 8*64*1024   # TODO let this be influenced by number of environments         
+            m.rigid_contact_max = self.num_envs * 256      
             m.rigid_contact_count = wp.zeros(1, dtype=wp.int32)
             m.rigid_contact_body0 = wp.zeros(m.rigid_contact_max, dtype=wp.int32)
             m.rigid_contact_body1 = wp.zeros(m.rigid_contact_max, dtype=wp.int32)
@@ -2091,19 +2104,13 @@ class ModelBuilder:
             m.rigid_active_contact_point0 = wp.zeros(m.rigid_contact_max, dtype=wp.vec3)
             m.rigid_active_contact_point1 = wp.zeros(m.rigid_contact_max, dtype=wp.vec3)
             m.rigid_active_contact_distance = wp.zeros(m.rigid_contact_max, dtype=wp.float32)
-            m.rigid_contact_margin = self.rigid_contact_margin
-
-            m.rigid_contact_n_lambda = wp.zeros(
-                m.rigid_contact_max,
-                dtype=float,
-                requires_grad=m.body_q.requires_grad)
-            m.rigid_contact_t_lambda = wp.zeros(
-                m.rigid_contact_max,
-                dtype=float,
-                requires_grad=m.body_q.requires_grad)
-
+            m.rigid_contact_n_lambda = wp.zeros(m.rigid_contact_max, dtype=float, requires_grad=m.body_q.requires_grad)
             # number of contact constraints per rigid body (used for scaling the constraint contributions)
-            m.contact_inv_weight = wp.zeros(len(self.body_q), dtype=wp.float32)
+            m.rigid_contact_inv_weight = wp.zeros(len(self.body_q), dtype=wp.float32)
+            m.rigid_contact_margin = self.rigid_contact_margin            
+            m.rigid_contact_torsional_friction = self.rigid_contact_torsional_friction
+            m.rigid_contact_rolling_friction = self.rigid_contact_rolling_friction
+            m.rigid_contact_bounce_threshold = self.rigid_contact_bounce_threshold
 
             # counts
             m.particle_count = len(self.particle_q)

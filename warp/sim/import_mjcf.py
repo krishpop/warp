@@ -137,7 +137,7 @@ def parse_mjcf(
                 if (joint.attrib["type"] != "hinge"):
                     print("Compound joints must all be hinges")
 
-                joint_name = joint.attrib["name"],
+                joint_name = joint.attrib["name"]
                 joint_pos = parse_vec(joint, "pos", (0.0, 0.0, 0.0))
                 joint_range = parse_vec(joint, "range", (-3.0, 3.0))
                 joint_lower.append(np.deg2rad(joint_range[0]))

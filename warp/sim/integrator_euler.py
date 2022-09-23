@@ -17,8 +17,10 @@ import numpy as np
 import warp as wp
 from warp.sim.model import ShapeContactMaterial
 
-from . optimizer import Optimizer
-from . particles import eval_particle_forces
+from .optimizer import Optimizer
+from .particles import eval_particle_forces
+from .collide import triangle_closest_point_barycentric
+from .utils import quat_decompose, quat_twist
 
 
 @wp.kernel
@@ -58,7 +60,9 @@ def integrate_bodies(body_q: wp.array(dtype=wp.transform),
                      inv_m: wp.array(dtype=float),
                      inv_I: wp.array(dtype=wp.mat33),
                      gravity: wp.vec3,
+                     angular_damping: float,
                      dt: float,
+                     # outputs
                      body_q_new: wp.array(dtype=wp.transform),
                      body_qd_new: wp.array(dtype=wp.spatial_vector)):
 
@@ -101,8 +105,8 @@ def integrate_bodies(body_q: wp.array(dtype=wp.transform),
     w1 = wp.quat_rotate(r0, wb + inv_inertia * tb * dt)
     r1 = wp.normalize(r0 + wp.quat(w1, 0.0) * r0 * 0.5 * dt)
 
-    # angular damping, todo: expose
-    w1 = w1*(1.0-0.1*dt)
+    # angular damping
+    w1 *= 1.0 - angular_damping*dt
 
     body_q_new[tid] = wp.transform(x1 - wp.quat_rotate(r1, body_com[tid]), r1)
     body_qd_new[tid] = wp.spatial_vector(w1, v1)
@@ -294,53 +298,6 @@ def eval_triangles(x: wp.array(dtype=wp.vec3),
     wp.atomic_sub(f, j, f1)
     wp.atomic_sub(f, k, f2)
 
-
-@wp.func
-def triangle_closest_point_barycentric(a: wp.vec3, b: wp.vec3, c: wp.vec3, p: wp.vec3):
-    ab = b - a
-    ac = c - a
-    ap = p - a
-
-    d1 = wp.dot(ab, ap)
-    d2 = wp.dot(ac, ap)
-
-    if (d1 <= 0.0 and d2 <= 0.0):
-        return vec3(1.0, 0.0, 0.0)
-
-    bp = p - b
-    d3 = wp.dot(ab, bp)
-    d4 = wp.dot(ac, bp)
-
-    if (d3 >= 0.0 and d4 <= d3):
-        return vec3(0.0, 1.0, 0.0)
-
-    vc = d1 * d4 - d3 * d2
-    v = d1 / (d1 - d3)
-    if (vc <= 0.0 and d1 >= 0.0 and d3 <= 0.0):
-        return vec3(1.0 - v, v, 0.0)
-
-    cp = p - c
-    d5 = dot(ab, cp)
-    d6 = dot(ac, cp)
-
-    if (d6 >= 0.0 and d5 <= d6):
-        return vec3(0.0, 0.0, 1.0)
-
-    vb = d5 * d2 - d1 * d6
-    w = d2 / (d2 - d6)
-    if (vb <= 0.0 and d2 >= 0.0 and d6 <= 0.0):
-        return vec3(1.0 - w, 0.0, w)
-
-    va = d3 * d6 - d5 * d4
-    w = (d4 - d3) / ((d4 - d3) + (d5 - d6))
-    if (va <= 0.0 and (d4 - d3) >= 0.0 and (d5 - d6) >= 0.0):
-        return vec3(0.0, w, 1.0 - w)
-
-    denom = 1.0 / (va + vb + vc)
-    v = vb * denom
-    w = vc * denom
-
-    return vec3(1.0 - v - w, v, w)
 
 # @wp.func
 # def triangle_closest_point(a: wp.vec3, b: wp.vec3, c: wp.vec3, p: wp.vec3):
@@ -976,7 +933,6 @@ def eval_rigid_contacts(
     contact_point0: wp.array(dtype=wp.vec3),
     contact_point1: wp.array(dtype=wp.vec3),
     contact_normal: wp.array(dtype=wp.vec3),
-    contact_margin: wp.array(dtype=float),
     contact_shape0: wp.array(dtype=int),
     contact_shape1: wp.array(dtype=int),
     # outputs
@@ -1025,7 +981,6 @@ def eval_rigid_contacts(
     n = contact_normal[tid]
     bx_a = contact_point0[tid]
     bx_b = contact_point1[tid]
-    # print(bx_a)
     if (body_a >= 0):
         X_wb_a = body_q[body_a]
         X_com_a = body_com[body_a]
@@ -1034,17 +989,11 @@ def eval_rigid_contacts(
 
     if (body_b >= 0):
         X_wb_b = body_q[body_b]
-        X_com_b = body_com[body_b]    
-        # TODO verify sign of thickness offset
+        X_com_b = body_com[body_b]
         bx_b = wp.transform_point(X_wb_b, bx_b) + thickness_b * n
         r_b = bx_b - wp.transform_point(X_wb_b, X_com_b)
     
     d = -wp.dot(n, bx_b-bx_a)
-
-    # print("c")
-    # print(c)
-    # print("d")
-    # print(d)
     
     if (d >= 0.0):
         return
@@ -1187,90 +1136,6 @@ def eval_body_contacts(body_q: wp.array(dtype=wp.transform),
     t_total = wp.cross(r, f_total)
 
     wp.atomic_sub(body_f, c_body, wp.spatial_vector(t_total, f_total))
-
-# # Frank & Park definition 3.20, pg 100
-@wp.func
-def transform_twist(t: wp.transform, x: wp.spatial_vector):
-
-    q = transform_get_rotation(t)
-    p = transform_get_translation(t)
-
-    w = spatial_top(x)
-    v = spatial_bottom(x)
-
-    w = quat_rotate(q, w)
-    v = quat_rotate(q, v) + cross(p, w)
-
-    return wp.spatial_vector(w, v)
-
-
-@wp.func
-def transform_wrench(t: wp.transform, x: wp.spatial_vector):
-
-    q = transform_get_rotation(t)
-    p = transform_get_translation(t)
-
-    w = spatial_top(x)
-    v = spatial_bottom(x)
-
-    v = quat_rotate(q, v)
-    w = quat_rotate(q, w) + cross(p, v)
-
-    return wp.spatial_vector(w, v)
-
-
-# computes adj_t^-T*I*adj_t^-1 (tensor change of coordinates), Frank & Park, section 8.2.3, pg 290
-@wp.func
-def transform_inertia(t: wp.transform, I: wp.spatial_matrix):
-
-    t_inv = transform_inverse(t)
-
-    q = transform_get_rotation(t_inv)
-    p = transform_get_translation(t_inv)
-
-    r1 = quat_rotate(q, vec3(1.0, 0.0, 0.0))
-    r2 = quat_rotate(q, vec3(0.0, 1.0, 0.0))
-    r3 = quat_rotate(q, vec3(0.0, 0.0, 1.0))
-
-    R = mat33(r1, r2, r3)
-    S = mul(skew(p), R)
-
-    T = spatial_adjoint(R, S)
-    
-    return mul(mul(transpose(T), I), T)
-
-
-# returns the twist around an axis
-@wp.func
-def quat_twist(axis: wp.vec3, q: wp.quat):
-    
-    # project imaginary part onto axis
-    a = wp.vec3(q[0], q[1], q[2])
-    a = wp.dot(a, axis)*axis
-
-    return wp.normalize(wp.quat(a[0], a[1], a[2], q[3]))
-
-
-# decompose a quaternion into a sequence of 3 rotations around x,y',z' respectively, i.e.: q = q_z''q_y'q_x
-@wp.func
-def quat_decompose(q: wp.quat):
-
-    R = wp.mat33(
-            wp.quat_rotate(q, wp.vec3(1.0, 0.0, 0.0)),
-            wp.quat_rotate(q, wp.vec3(0.0, 1.0, 0.0)),
-            wp.quat_rotate(q, wp.vec3(0.0, 0.0, 1.0)))
-
-    # https://www.sedris.org/wg8home/Documents/WG80485.pdf
-    phi = wp.atan2(R[1, 2], R[2, 2])
-    sinp = -R[0, 2]
-    if wp.abs(sinp) >= 1.0:
-        theta = 1.57079632679 * wp.sign(sinp)
-        print("wp.abs(sinp) >= 1.0")
-    else:
-        theta = wp.asin(-R[0, 2])
-    psi = wp.atan2(R[0, 1], R[0, 0])
-
-    return -wp.vec3(phi, theta, psi)
 
 
 @wp.func
@@ -1682,7 +1547,6 @@ def compute_forces(model, state, particle_f, body_f):
                       model.rigid_contact_point0,
                       model.rigid_contact_point1,
                       model.rigid_contact_normal,
-                      model.rigid_contact_margin,
                       model.rigid_contact_shape0,
                       model.rigid_contact_shape1,
                   ],
@@ -1832,8 +1696,8 @@ class SemiImplicitIntegrator:
 
     """
 
-    def __init__(self):
-        pass
+    def __init__(self, angular_damping=0.05):
+        self.angular_damping = angular_damping
 
 
     def simulate(self, model, state_in, state_out, dt):
@@ -1869,6 +1733,7 @@ class SemiImplicitIntegrator:
                         model.body_inv_mass,
                         model.body_inv_inertia,
                         model.gravity,
+                        self.angular_damping,
                         dt,
                     ],
                     outputs=[
