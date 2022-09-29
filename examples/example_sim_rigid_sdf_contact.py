@@ -288,7 +288,7 @@ if __name__ == '__main__':
     delta_history = []
     delta_history.append(example.state.body_deltas.numpy().copy())
     num_con_history = []
-    num_con_history.append(example.model.contact_inv_weight.numpy().copy())
+    num_con_history.append(example.model.rigid_contact_inv_weight.numpy().copy())
 
     if example.use_cuda_graphs:
         wp.capture_begin()
@@ -305,7 +305,7 @@ if __name__ == '__main__':
         q_history.append(example.state.body_q.numpy().copy())
         qd_history.append(example.state.body_qd.numpy().copy())
         delta_history.append(example.state.body_deltas.numpy().copy())
-        num_con_history.append(example.model.contact_inv_weight.numpy().copy())
+        num_con_history.append(example.model.rigid_contact_inv_weight.numpy().copy())
 
     example.renderer.save()
 
