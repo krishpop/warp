@@ -482,7 +482,7 @@ class Model:
         normal = []
         margin = []
 
-        ground_plane = self.ground_plane.numpy()
+        ground_plane = np.array(self.ground_plane)
 
         def add_contact(b0, b1, t, p0, d, s0, s1):
             body0.append(b0)
@@ -1994,6 +1994,7 @@ class ModelBuilder:
             m.shape_materials.mu = wp.array(self.shape_material_mu, dtype=wp.float32, device=device)
             m.shape_materials.restitution = wp.array(self.shape_material_restitution, dtype=wp.float32, device=device)
             m.shape_contact_thickness = wp.array(self.shape_contact_thickness, dtype=wp.float32, device=device)
+            m.has_restitution = np.any(np.array(self.shape_material_restitution) > 0.0)
 
             #---------------------
             # springs
@@ -2104,6 +2105,7 @@ class ModelBuilder:
             m.rigid_active_contact_point0 = wp.zeros(m.rigid_contact_max, dtype=wp.vec3)
             m.rigid_active_contact_point1 = wp.zeros(m.rigid_contact_max, dtype=wp.vec3)
             m.rigid_active_contact_distance = wp.zeros(m.rigid_contact_max, dtype=wp.float32)
+            m.rigid_active_contact_distance_prev = wp.zeros(m.rigid_contact_max, dtype=wp.float32)
             # number of contact constraints per rigid body (used for scaling the constraint contributions)
             m.rigid_contact_inv_weight = wp.zeros(len(self.body_q), dtype=wp.float32)
             m.rigid_contact_margin = self.rigid_contact_margin            
@@ -2138,7 +2140,7 @@ class ModelBuilder:
 
             # enable ground plane
             m.ground = True
-            m.ground_plane = wp.array((*self.upvector, 0.0), dtype=wp.float32, device=device)
+            m.ground_plane = wp.vec4(*self.upvector, 0.0, device=device)
             m.gravity = np.array(self.upvector) * self.gravity
 
             m.enable_tri_collisions = False
