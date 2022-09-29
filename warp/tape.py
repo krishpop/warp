@@ -141,7 +141,8 @@ class Tape:
             if a not in self.const_gradients:
                 if isinstance(g, wp.codegen.StructInstance):
                     for name in g._struct_.vars:
-                        getattr(g, name).zero_()
+                        if isinstance(a._struct_.vars[name].type, wp.array):
+                            getattr(g, name).zero_()
                 else:
                     g.zero_()
 
