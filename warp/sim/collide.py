@@ -147,7 +147,7 @@ def create_soft_contacts(
     shape_geo_type: wp.array(dtype=int), 
     shape_geo_id: wp.array(dtype=wp.uint64),
     shape_geo_scale: wp.array(dtype=wp.vec3),
-    soft_contact_thickness: float,
+    margin: float,
     #outputs,
     soft_contact_count: wp.array(dtype=int),
     soft_contact_particle: wp.array(dtype=int),
@@ -210,7 +210,7 @@ def create_soft_contacts(
         face_v = float(0.0)
         sign = float(0.0)
 
-        if (wp.mesh_query_point(mesh, x_local/geo_scale[0], soft_contact_thickness, sign, face_index, face_u, face_v)):
+        if (wp.mesh_query_point(mesh, x_local/geo_scale[0], margin, sign, face_index, face_u, face_v)):
 
             shape_p = wp.mesh_eval_position(mesh, face_index, face_u, face_v)
             shape_v = wp.mesh_eval_velocity(mesh, face_index, face_u, face_v)
@@ -224,7 +224,7 @@ def create_soft_contacts(
             v = shape_v
 
 
-    if (d < soft_contact_thickness):
+    if (d < margin):
 
         index = wp.atomic_add(soft_contact_count, 0, 1) 
 
@@ -468,7 +468,7 @@ def volume_grad(volume: wp.uint64,
 
 @wp.kernel
 def update_rigid_ground_contacts(
-    ground_plane: wp.array(dtype=float),
+    ground_plane: wp.vec4,
     rigid_body: wp.array(dtype=int),
     body_q: wp.array(dtype=wp.transform),
     shape_X_co: wp.array(dtype=wp.transform),
@@ -559,15 +559,6 @@ def create_mesh_sdf_contacts(
     X_so_b = wp.transform_multiply(X_sc_b, X_co_b)
     X_os_b = wp.transform_inverse(X_so_b)
 
-
-    # X_so_a = X_sc_a
-    # X_so_b = X_sc_b
-
-
-
-
-    
-
     # geo description
     geo_type_a = shape_geo_type[shape_a]
     geo_scale_a = shape_geo_scale[shape_a]
@@ -626,19 +617,11 @@ def create_mesh_sdf_contacts(
 
         d = float(0.0)
 
-        
-        # print("retrieved")
-
         # toggle between volume- or mesh-based collision
-        if True:
-
+        if False:
             # transform point to world space   
             volume = shape_volume_id[shape_b]
             p_vol_local = wp.volume_world_to_index(volume, query_b_local) #* 0.2
-            # p_vol_local = p_vol * 5.0
-
-            # print("p_vol_local")
-            # print(p_vol_local)
             
             # print("query volume")
             # print(volume)
@@ -646,109 +629,57 @@ def create_mesh_sdf_contacts(
             # print("query volume grad")
             n = volume_grad(volume, query_b_local)
             shape_p = query_b_local
-            # print("done")
 
             # print("d")
             # print(d)
 
         else:
 
-            # print(d)
             face_index = int(0)
             face_u = float(0.0)  
             face_v = float(0.0)
             sign = float(0.0)
 
-            # print("mesh query point")
             res = wp.mesh_query_point(mesh_b, query_b_local/geo_scale_b[0], 0.15, sign, face_index, face_u, face_v)
-            # print("done")
+
             if (res):
-
                 shape_p = wp.mesh_eval_position(mesh_b, face_index, face_u, face_v)
-                # shape_v = wp.mesh_eval_velocity(mesh_b, face_index, face_u, face_v)
-
                 shape_p = shape_p*geo_scale_b[0]
-                # shape_v = shape_v*geo_scale_b[0]
 
                 delta = query_b_local-shape_p
                 d = wp.length(delta)*sign
                 n = wp.normalize(delta)*sign
-                # v = shape_v
-
-                # print("query successful")
-                # print(d)
 
         # rigid_contact_thickness = 0.0 #0.0001
         thickness_a = shape_contact_thickness[shape_a]
         thickness_b = shape_contact_thickness[shape_b]
         thickness = thickness_a + thickness_b
 
-
         if (d < thickness + rigid_contact_margin):
-        # if (True):
-
-            index = wp.atomic_add(contact_count, 0, 1) 
-            # print("contact")
-            # print(d)
-            # print(n)
-            # print(sign)
-
-            # print("rigids")
-            # print(rigid_a)
-            # print(rigid_b)
+            # increment contact count
+            index = wp.atomic_add(contact_count, 0, 1)
 
             if (index < contact_max):
-
-
-                # n = wp.transform_vector(X_so, n)
                 err = d - thickness
-                # err = d
 
                 # mesh collision
                 # compute point at the surface of volume b
                 body_b_pos = shape_p - n*err
-                # body_b_pos = shape_p + n*err
-                # body_b_pos = query_b_local
-                # xpred = xpred - n*d
-                # body_b_pos = shape_p
 
-                body_b_pos_world = wp.transform_point(X_so_b, body_b_pos)
-                # body_a_pos = p_mesh # wp.transform_point(X_os_a, body_b_pos_world)
-
-                # contact_offset0[index] = wp.transform_point(wp.transform_inverse(X_os_a), body_a_pos)
-                # contact_offset1[index] = wp.transform_point(wp.transform_inverse(X_os_b), body_b_pos)
+                # offset by contact thickness to be used in PBD contact friction constraints
                 contact_offset0[index] = wp.transform_vector(wp.transform_inverse(X_os_a), -thickness_a * n)
                 contact_offset1[index] = wp.transform_vector(wp.transform_inverse(X_os_b), -thickness_b * n)
 
-                # compute contact point in body local space
-                # body_a_pos = wp.transform_point(X_co_a, xpred)
-                # body_a_vel = wp.transform_vector(X_co_a, v)
-
-
+                # assign contact points in body local spaces
                 contact_body0[index] = rigid_a
                 contact_point0[index] = body_a_pos
-
-                # TODO verify
-                # qd_b = body_qd[rigid_b]
-                # v_b = wp.spatial_bottom(qd_b)
-                # w_b = wp.spatial_top(qd_b)
-                # p_b = wp.transform_get_translation(X_sc_b)
-                # q_b = wp.transform_get_rotation(X_sc_b)
-                # b_vel = v_b + wp.cross(w_b, body_b_pos)
                 
                 contact_body1[index] = rigid_b
                 contact_point1[index] = body_b_pos
 
                 # convert n to world frame
                 n = wp.transform_vector(X_so_b, n)
-                # n = wp.transform_vector(X_os_b, n)
-                # print(n)
                 contact_normal[index] = n
-
-                # mat_a = shape_materials[shape_a]
-                # mat_b = shape_materials[shape_b]
-                # # XXX use average of both colliding materials
-                # contact_material[index] = 0.5 * (mat_a + mat_b)
                 
                 contact_shape0[index] = shape_a
                 contact_shape1[index] = shape_b
@@ -773,16 +704,17 @@ def collide(model, state, experimental_sdf_collision=False):
                 model.shape_geo_type, 
                 model.shape_geo_id,
                 model.shape_geo_scale,
-                model.soft_contact_thickness,
+                model.soft_contact_margin,
+            ],
+            outputs = [
                 model.soft_contact_count,
                 model.soft_contact_particle,
                 model.soft_contact_body,
                 model.soft_contact_body_pos,
                 model.soft_contact_body_vel,
                 model.soft_contact_normal,
-                model.soft_contact_max],
-                # outputs
-            outputs=[],
+                model.soft_contact_max
+            ],
             device=model.device)
 
     # clear old count
@@ -823,12 +755,7 @@ def collide(model, state, experimental_sdf_collision=False):
     
     if experimental_sdf_collision:
         for shape_a in range(model.shape_count-1):
-            # TODO figure out how to call built-in function from outside warp kernel
             point_count = model.mesh_num_points[shape_a]
-            # point_count = 10 # XXX just for testing !!!!!
-            # point_count = wp.mesh_get_num_points(shape_geo_id[shape_a])
-            # point_count = 500
-            # point_count = 1
             for shape_b in range(shape_a+1, model.shape_count):
                 # print(f'colliding {shape_a} {shape_b}')
                 wp.launch(
