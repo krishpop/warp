@@ -360,7 +360,7 @@ class Model:
 
         self.device = wp.get_device(device)
 
-    def state(self, requires_grad=False) -> State:
+    def state(self, requires_grad=False, require_contact_grads=False) -> State:
         """Returns a state object for the model
 
         The returned state will be initialized with the initial configuration given in
@@ -415,6 +415,37 @@ class Model:
             s.body_qd.requires_grad = requires_grad
             s.body_qd_prev.requires_grad = requires_grad
             s.body_f.requires_grad = requires_grad
+
+            if (require_contact_grads):
+                s.rigid_contact_count = wp.clone(self.rigid_contact_count)
+                s.rigid_contact_body0 = wp.clone(self.rigid_contact_body0)
+                s.rigid_contact_body1 = wp.clone(self.rigid_contact_body1)
+                s.rigid_contact_point0 = wp.clone(self.rigid_contact_point0)
+                s.rigid_contact_point0.requires_grad = True
+                s.rigid_contact_point1 = wp.clone(self.rigid_contact_point1)
+                s.rigid_contact_point1.requires_grad = True
+                s.rigid_contact_offset0 = wp.clone(self.rigid_contact_offset0)
+                s.rigid_contact_offset0.requires_grad = True
+                s.rigid_contact_offset1 = wp.clone(self.rigid_contact_offset1)
+                s.rigid_contact_offset1.requires_grad = True
+                s.rigid_contact_normal = wp.clone(self.rigid_contact_normal)
+                s.rigid_contact_normal.requires_grad = True
+                s.rigid_contact_shape0 = wp.clone(self.rigid_contact_shape0)
+                s.rigid_contact_shape0.requires_grad = True
+                s.rigid_contact_shape1 = wp.clone(self.rigid_contact_shape1)
+                s.rigid_contact_shape1.requires_grad = True
+                s.rigid_contact_thickness = wp.clone(self.rigid_contact_thickness)
+                s.rigid_contact_thickness.requires_grad = True
+                s.rigid_active_contact_point0 = wp.clone(self.rigid_active_contact_point0)
+                s.rigid_active_contact_point0.requires_grad = True
+                s.rigid_active_contact_point1 = wp.clone(self.rigid_active_contact_point1)
+                s.rigid_active_contact_point1.requires_grad = True
+                s.rigid_active_contact_distance = wp.clone(self.rigid_active_contact_distance)
+                s.rigid_active_contact_distance.requires_grad = True
+                s.rigid_active_contact_distance_prev = wp.clone(self.rigid_active_contact_distance_prev)
+                s.rigid_active_contact_distance_prev.requires_grad = True
+                s.rigid_contact_inv_weight = wp.clone(self.rigid_contact_inv_weight)
+                s.rigid_contact_inv_weight.requires_grad = True
 
         return s
 
@@ -2140,7 +2171,7 @@ class ModelBuilder:
 
             # enable ground plane
             m.ground = True
-            m.ground_plane = wp.vec4(*self.upvector, 0.0, device=device)
+            m.ground_plane = wp.array([*self.upvector, 0.0], dtype=wp.float32, device=device)
             m.gravity = np.array(self.upvector) * self.gravity
 
             m.enable_tri_collisions = False
