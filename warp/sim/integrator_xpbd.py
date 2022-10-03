@@ -1633,7 +1633,7 @@ def apply_rigid_restitution(
     j = -(rel_vel_new + restitution*rel_vel_old)
     # j = -(rel_vel_new + restitution*rel_vel_old) / inv_mass    
     p = n*j
-    print(rel_vel_new)
+    # print(rel_vel_new)
     if (body_a >= 0):
         q_a = wp.transform_get_rotation(X_wb_a)
         rxp = wp.quat_rotate_inv(q_a, wp.cross(r_a, p))
