@@ -922,8 +922,6 @@ inline bool CUDA_CALLABLE isfinite(float x)
 #include "mesh.h"
 #include "svd.h"
 #include "hashgrid.h"
-#include "rand.h"
-#include "noise.h"
 #include "volume.h"
 #include "range.h"
 
@@ -1171,4 +1169,6 @@ inline CUDA_CALLABLE void adj_expect_near(const T& actual, const T& expected, co
 
 // include array.h so we have the print, isfinite functions for the inner array types defined
 #include "array.h"
+#include "rand.h"
+#include "noise.h"
 #include "matnn.h"
