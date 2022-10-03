@@ -121,17 +121,22 @@ class CubeSlopeSim:
         self.loss = wp.zeros(self.num_envs*3, dtype=wp.float32,
                              device=self.device, requires_grad=True)
 
-        # self.states = []
-        if compute_grad or len(self.states) == 0:
-            for t in trange(self.episode_frames*self.sim_substeps+1, desc="Allocating states"):
-                if t > 0 and not compute_grad:
-                    self.states.append(self.states[0])
-                else:
-                    self.states.append(self.model.state(
+        # TODO avoid these reallocations during normal forward pass
+        # if compute_grad or len(self.states) == 0:
+        #     self.states = []
+        #     for t in trange(self.episode_frames*self.sim_substeps+1, desc="Allocating states"):
+        #         if t > 0 and not compute_grad:
+        #             self.states.append(self.states[0])
+        #         else:
+        #             self.states.append(self.model.state(
+        #                 requires_grad=compute_grad, require_contact_grads=compute_grad))
+        # else:
+        #     self.states[0] = self.model.state(
+        #         requires_grad=False, require_contact_grads=False)
+        self.states = []
+        for t in trange(self.episode_frames*self.sim_substeps+1, desc="Allocating states"):
+            self.states.append(self.model.state(
                         requires_grad=compute_grad, require_contact_grads=compute_grad))
-        else:
-            self.states[0] = self.model.state(
-                requires_grad=False, require_contact_grads=False)
 
         self.model.body_mass.requires_grad = True
         self.model.body_inertia.requires_grad = True
@@ -253,17 +258,9 @@ torch.manual_seed(seed)
 param = torch.tensor([1 / 10.0]).repeat(1, 1).view(1, 1)
 
 
-def f(x):
-    return robot.forward(torch.tensor(x).view(1, 1), compute_grad=False)[0].item()
-
-
-print("finite difference:", derivative(f, param.item(), dx=1e-5, order=7))
-
-
 _, autodiff_mass = robot.forward(param)
 print("autodiff:", autodiff_mass)
-# eps = 1e-4
-# l_plus, _ = robot.forward(param+eps, compute_grad=False)
-# l_minus, _ = robot.forward(param-eps, compute_grad=False)
-# fd_mass = (l_plus-l_minus)/(2*eps)
-# print("finite difference:", fd_mass)
+
+def f(x):
+    return robot.forward(torch.tensor(x).view(1, 1), compute_grad=False)[0].item()
+print("finite difference:", derivative(f, param.item(), dx=1e-4, order=7))
