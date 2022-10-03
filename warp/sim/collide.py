@@ -719,6 +719,8 @@ def collide(model, state, experimental_sdf_collision=False):
 
     # clear old count
     model.rigid_contact_count.zero_()
+    if (hasattr(state, "rigid_contact_count")):
+        state.rigid_contact_count.zero_()
 
     if (model.ground and model.body_count):
 

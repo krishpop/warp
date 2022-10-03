@@ -513,7 +513,7 @@ class Model:
         normal = []
         margin = []
 
-        ground_plane = np.array(self.ground_plane)
+        ground_plane = self.ground_plane.numpy()
 
         def add_contact(b0, b1, t, p0, d, s0, s1):
             body0.append(b0)

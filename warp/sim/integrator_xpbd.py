@@ -1573,8 +1573,6 @@ def apply_rigid_restitution(
         
     body_a = contact_body0[tid]
     body_b = contact_body1[tid]
-
-    n = contact_normal[tid]
     
     m_inv_a = 0.0
     m_inv_b = 0.0
@@ -1609,20 +1607,21 @@ def apply_rigid_restitution(
     r_a = wp.transform_vector(X_wb_a_prev, r_a_local)
     r_b = wp.transform_vector(X_wb_b_prev, r_b_local)
     
+    n = contact_normal[tid]
     if (body_a >= 0):
         v_a = velocity_at_point(body_qd_prev[body_a], r_a) + gravity*dt
         v_a_new = velocity_at_point(body_qd[body_a], r_a)
         q_a = wp.transform_get_rotation(X_wb_a_prev)
         rxn = wp.quat_rotate_inv(q_a, wp.cross(r_a, n))
-        inv_mass += contact_inv_weight[body_a] * (m_inv_a + wp.dot(rxn, I_inv_a * rxn))
-        # inv_mass += (m_inv_a + wp.dot(rxn, I_inv_a * rxn))
+        # inv_mass += contact_inv_weight[body_a] * (m_inv_a + wp.dot(rxn, I_inv_a * rxn))
+        inv_mass += (m_inv_a + wp.dot(rxn, I_inv_a * rxn))
     if (body_b >= 0):
         v_b = velocity_at_point(body_qd_prev[body_b], r_b) + gravity*dt
         v_b_new = velocity_at_point(body_qd[body_b], r_b)
         q_b = wp.transform_get_rotation(X_wb_b_prev)
         rxn = wp.quat_rotate_inv(q_b, wp.cross(r_b, n))
-        inv_mass += contact_inv_weight[body_b] * (m_inv_b + wp.dot(rxn, I_inv_b * rxn))
-        # inv_mass += (m_inv_b + wp.dot(rxn, I_inv_b * rxn))
+        # inv_mass += contact_inv_weight[body_b] * (m_inv_b + wp.dot(rxn, I_inv_b * rxn))
+        inv_mass += (m_inv_b + wp.dot(rxn, I_inv_b * rxn))
 
     rel_vel_old = wp.dot(n, v_a - v_b)
 
@@ -1631,22 +1630,23 @@ def apply_rigid_restitution(
         return
 
     rel_vel_new = wp.dot(n, v_a_new - v_b_new)
-    # j = -(rel_vel_new + restitution*rel_vel_old)
-    j = -(rel_vel_new + restitution*rel_vel_old) / inv_mass    
+    j = -(rel_vel_new + restitution*rel_vel_old)
+    # j = -(rel_vel_new + restitution*rel_vel_old) / inv_mass    
     p = n*j
+    print(rel_vel_new)
     if (body_a >= 0):
         q_a = wp.transform_get_rotation(X_wb_a)
         rxp = wp.quat_rotate_inv(q_a, wp.cross(r_a, p))
         dq = wp.quat_rotate(q_a, I_inv_a * rxp)
-        wp.atomic_add(deltas, body_a, wp.spatial_vector(dq, m_inv_a/contact_inv_weight[body_a]*p))
-        # wp.atomic_add(deltas, body_a, wp.spatial_vector(dq, p / contact_inv_weight[body_a]))
+        # wp.atomic_add(deltas, body_a, wp.spatial_vector(dq, m_inv_a/contact_inv_weight[body_a]*p))
+        wp.atomic_add(deltas, body_a, wp.spatial_vector(dq, p / contact_inv_weight[body_a]))
 
     if (body_b >= 0):
         q_b = wp.transform_get_rotation(X_wb_b)
         rxp = wp.quat_rotate_inv(q_b, wp.cross(r_b, p))
         dq = wp.quat_rotate(q_b, I_inv_b * rxp)
-        wp.atomic_sub(deltas, body_b, wp.spatial_vector(dq, m_inv_b/contact_inv_weight[body_b]*p))
-        # wp.atomic_sub(deltas, body_b, wp.spatial_vector(dq, p / contact_inv_weight[body_b]))
+        # wp.atomic_sub(deltas, body_b, wp.spatial_vector(dq, m_inv_b/contact_inv_weight[body_b]*p))
+        wp.atomic_sub(deltas, body_b, wp.spatial_vector(dq, p / contact_inv_weight[body_b]))
 
 
 class XPBDIntegrator:
@@ -1929,6 +1929,10 @@ class XPBDIntegrator:
                             ],
                             device=model.device)
 
+                        if (i == 0):
+                            # remember the contacts from the first iteration
+                            model.rigid_active_contact_distance_prev.assign(model.rigid_active_contact_distance)
+
                         if (not self.contact_con_weighting):
                             model.rigid_contact_inv_weight.fill_(1.0)
 
@@ -1997,48 +2001,48 @@ class XPBDIntegrator:
                         ],
                         device=model.device)
 
-                # TODO can we apply this to state_out.body_qd directly?
-                wp.launch(kernel=apply_rigid_restitution,
-                        dim=model.rigid_contact_max,
-                        inputs=[
-                            state_out.body_q,
-                            state_out.body_qd,
-                            state_out.body_q_prev,
-                            state_out.body_qd_prev,
-                            model.body_inv_mass,
-                            model.body_inv_inertia,
-                            model.rigid_contact_count,
-                            model.rigid_contact_body0,
-                            model.rigid_contact_body1,
-                            model.rigid_contact_point0,
-                            model.rigid_contact_point1,
-                            model.rigid_contact_offset0,
-                            model.rigid_contact_offset1,
-                            model.rigid_contact_normal,
-                            model.rigid_contact_shape0,
-                            model.rigid_contact_shape1,
-                            model.shape_materials,
-                            model.rigid_active_contact_distance,
-                            model.rigid_contact_inv_weight,
-                            model.gravity,
-                            model.rigid_contact_bounce_threshold,
-                            dt,
-                        ],
-                        outputs=[
-                            state_out.body_qd,
-                        ],
-                        device=model.device)
+                if (model.has_restitution):
+                    wp.launch(kernel=apply_rigid_restitution,
+                            dim=model.rigid_contact_max,
+                            inputs=[
+                                state_out.body_q,
+                                state_out.body_qd,
+                                state_out.body_q_prev,
+                                state_out.body_qd_prev,
+                                model.body_inv_mass,
+                                model.body_inv_inertia,
+                                model.rigid_contact_count,
+                                model.rigid_contact_body0,
+                                model.rigid_contact_body1,
+                                model.rigid_contact_point0,
+                                model.rigid_contact_point1,
+                                model.rigid_contact_offset0,
+                                model.rigid_contact_offset1,
+                                model.rigid_contact_normal,
+                                model.rigid_contact_shape0,
+                                model.rigid_contact_shape1,
+                                model.shape_materials,
+                                model.rigid_active_contact_distance_prev,
+                                model.rigid_contact_inv_weight,
+                                model.gravity,
+                                model.rigid_contact_bounce_threshold,
+                                dt,
+                            ],
+                            outputs=[
+                                state_out.body_deltas,
+                            ],
+                            device=model.device)
 
-                # wp.launch(kernel=apply_body_delta_velocities,
-                #         dim=model.body_count,
-                #         inputs=[
-                #             state_out.body_qd,
-                #             state_out.body_deltas,
-                #         ],
-                #         outputs=[
-                #             state_out.body_qd
-                #         ],
-                #         device=model.device)
+                    wp.launch(kernel=apply_body_delta_velocities,
+                            dim=model.body_count,
+                            inputs=[
+                                state_out.body_qd,
+                                state_out.body_deltas,
+                            ],
+                            outputs=[
+                                state_out.body_qd
+                            ],
+                            device=model.device)
 
             state_out.particle_q = particle_q
             state_out.particle_qd = particle_qd
