@@ -263,4 +263,4 @@ print("autodiff:", autodiff_mass)
 
 def f(x):
     return robot.forward(torch.tensor(x).view(1, 1), compute_grad=False)[0].item()
-print("finite difference:", derivative(f, param.item(), dx=1e-4, order=7))
+print("finite difference:", derivative(f, param.item(), dx=1e-5, order=7))
