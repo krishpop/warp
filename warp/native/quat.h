@@ -275,7 +275,7 @@ inline CUDA_CALLABLE void adj_quat_from_axis_angle(const vec3& axis, float angle
 
 inline CUDA_CALLABLE void adj_quat_rpy(float roll, float pitch, float yaw, float& adj_roll, float& adj_pitch, float& adj_yaw, const quat& adj_ret)
 {
-    // todo
+    printf("todo: adj_quat_rpy\n");
 }
 
 inline CUDA_CALLABLE void adj_quat_identity(const quat& adj_ret)
@@ -451,7 +451,7 @@ inline CUDA_CALLABLE void adj_quat_to_matrix(const quat& q, quat& adj_q, mat33& 
 
 inline CUDA_CALLABLE void adj_quat_from_matrix(const mat33& m, mat33& adj_m, const quat& adj_ret)
 {
-    // TODO
+    printf("todo: adj_quat_from_matrix\n");
 }
 
 } // namespace wp
