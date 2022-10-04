@@ -59,7 +59,7 @@ def integrate_bodies(body_q: wp.array(dtype=wp.transform),
                      I: wp.array(dtype=wp.mat33),
                      inv_m: wp.array(dtype=float),
                      inv_I: wp.array(dtype=wp.mat33),
-                     gravity: wp.vec3,
+                     gravity: wp.array(dtype=float),
                      angular_damping: float,
                      dt: float,
                      # outputs
@@ -95,7 +95,8 @@ def integrate_bodies(body_q: wp.array(dtype=wp.transform),
     x_com = x0 + wp.quat_rotate(r0, body_com[tid])
  
     # linear part
-    v1 = v0 + (f0 * inv_mass + gravity * wp.nonzero(inv_mass)) * dt
+    g = wp.vec3(gravity[0], gravity[1], gravity[2])
+    v1 = v0 + (f0 * inv_mass + g * wp.nonzero(inv_mass)) * dt
     x1 = x_com + v1 * dt
  
     # angular part (compute in body frame)
