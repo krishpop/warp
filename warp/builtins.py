@@ -104,6 +104,14 @@ add_builtin("length", input_types={"x": vec4}, value_type=float, group="Vector M
     doc="Compute the length of a 4d vector.")
 add_builtin("length", input_types={"x": quat}, value_type=float, group="Vector Math",
     doc="Compute the length of a quaternion.")
+add_builtin("length_sq", input_types={"x": vec2}, value_type=float, group="Vector Math",
+    doc="Compute the squared length of a 2d vector.")
+add_builtin("length_sq", input_types={"x": vec3}, value_type=float, group="Vector Math",
+    doc="Compute the squared length of a 3d vector.")
+add_builtin("length_sq", input_types={"x": vec4}, value_type=float, group="Vector Math",
+    doc="Compute the squared length of a 4d vector.")
+add_builtin("length_sq", input_types={"x": quat}, value_type=float, group="Vector Math",
+    doc="Compute the squared length of a quaternion.")
 add_builtin("normalize", input_types={"x": vec2}, value_type=vec2, group="Vector Math",
     doc="Compute the normalized value of x, if length(x) is 0 then the zero vector is returned.")
 add_builtin("normalize", input_types={"x": vec3}, value_type=vec3, group="Vector Math",
@@ -112,10 +120,6 @@ add_builtin("normalize", input_types={"x": vec4}, value_type=vec4, group="Vector
     doc="Compute the normalized value of x, if length(x) is 0 then the zero vector is returned.")
 add_builtin("normalize", input_types={"x": quat}, value_type=quat, group="Vector Math",
     doc="Compute the normalized value of x, if length(x) is 0 then the zero quat is returned.")
-add_builtin("length_sq", input_types={"x": vec2}, value_type=float, group="Vector Math",
-    doc="Compute the squared length of a 2d vector.")
-add_builtin("length_sq", input_types={"x": vec3}, value_type=float, group="Vector Math",
-    doc="Compute the squared length of a 3d vector.")
 
 add_builtin("transpose", input_types={"m": mat22}, value_type=mat22, group="Vector Math",
     doc="Return the transpose of the matrix m")
@@ -139,7 +143,7 @@ add_builtin("determinant", input_types={"m": mat33}, value_type=float, group="Ve
     doc="Return the determinant of the matrix m")
 add_builtin("determinant", input_types={"m": mat44}, value_type=float, group="Vector Math",
     doc="Return the determinant of the matrix m")
-    
+
 add_builtin("trace", input_types={"m": mat22}, value_type=float, group="Vector Math",
     doc="Return the trace of the matrix m")
 add_builtin("trace", input_types={"m": mat33}, value_type=float, group="Vector Math",
