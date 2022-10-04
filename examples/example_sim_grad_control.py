@@ -131,9 +131,9 @@ class RigidBodySimulator:
 
     def warp_step(self, q, qd, tau, q_next, qd_next, requires_grad=False):
         if requires_grad:
-            ground = self.model.ground
-            self.model = self.builder.finalize(self.device)
-            self.model.ground = ground
+            # ground = self.model.ground
+            # self.model = self.builder.finalize(self.device)
+            # self.model.ground = ground
 
             self.model.joint_act.requires_grad = True
             self.model.body_q.requires_grad = True
