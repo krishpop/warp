@@ -416,50 +416,69 @@ class Model:
             s.body_qd_prev.requires_grad = requires_grad
             s.body_f.requires_grad = requires_grad
 
-            if (require_contact_grads):
-                s.rigid_contact_count = wp.clone(self.rigid_contact_count)
-                s.rigid_contact_body0 = wp.clone(self.rigid_contact_body0)
-                s.rigid_contact_body1 = wp.clone(self.rigid_contact_body1)
-                s.rigid_contact_point0 = wp.clone(self.rigid_contact_point0)
-                s.rigid_contact_point0.requires_grad = True
-                s.rigid_contact_point1 = wp.clone(self.rigid_contact_point1)
-                s.rigid_contact_point1.requires_grad = True
-                s.rigid_contact_offset0 = wp.clone(self.rigid_contact_offset0)
-                s.rigid_contact_offset0.requires_grad = True
-                s.rigid_contact_offset1 = wp.clone(self.rigid_contact_offset1)
-                s.rigid_contact_offset1.requires_grad = True
-                s.rigid_contact_normal = wp.clone(self.rigid_contact_normal)
-                s.rigid_contact_normal.requires_grad = True
-                s.rigid_contact_shape0 = wp.clone(self.rigid_contact_shape0)
-                s.rigid_contact_shape0.requires_grad = True
-                s.rigid_contact_shape1 = wp.clone(self.rigid_contact_shape1)
-                s.rigid_contact_shape1.requires_grad = True
-                s.rigid_contact_thickness = wp.clone(self.rigid_contact_thickness)
-                s.rigid_contact_thickness.requires_grad = True
-                s.rigid_active_contact_point0 = wp.clone(self.rigid_active_contact_point0)
-                s.rigid_active_contact_point0.requires_grad = True
-                s.rigid_active_contact_point1 = wp.clone(self.rigid_active_contact_point1)
-                s.rigid_active_contact_point1.requires_grad = True
-                s.rigid_active_contact_distance = wp.clone(self.rigid_active_contact_distance)
-                s.rigid_active_contact_distance.requires_grad = True
-                s.rigid_active_contact_distance_prev = wp.clone(self.rigid_active_contact_distance_prev)
-                s.rigid_active_contact_distance_prev.requires_grad = True
-                s.rigid_contact_inv_weight = wp.clone(self.rigid_contact_inv_weight)
-                s.rigid_contact_inv_weight.requires_grad = True
+            # if (require_contact_grads):
+            #     s.rigid_contact_count = wp.clone(self.rigid_contact_count)
+            #     s.rigid_contact_body0 = wp.clone(self.rigid_contact_body0)
+            #     s.rigid_contact_body1 = wp.clone(self.rigid_contact_body1)
+            #     s.rigid_contact_point0 = wp.clone(self.rigid_contact_point0)
+            #     s.rigid_contact_point0.requires_grad = True
+            #     s.rigid_contact_point1 = wp.clone(self.rigid_contact_point1)
+            #     s.rigid_contact_point1.requires_grad = True
+            #     s.rigid_contact_offset0 = wp.clone(self.rigid_contact_offset0)
+            #     s.rigid_contact_offset0.requires_grad = True
+            #     s.rigid_contact_offset1 = wp.clone(self.rigid_contact_offset1)
+            #     s.rigid_contact_offset1.requires_grad = True
+            #     s.rigid_contact_normal = wp.clone(self.rigid_contact_normal)
+            #     s.rigid_contact_normal.requires_grad = True
+            #     s.rigid_contact_shape0 = wp.clone(self.rigid_contact_shape0)
+            #     s.rigid_contact_shape0.requires_grad = True
+            #     s.rigid_contact_shape1 = wp.clone(self.rigid_contact_shape1)
+            #     s.rigid_contact_shape1.requires_grad = True
+            #     s.rigid_contact_thickness = wp.clone(self.rigid_contact_thickness)
+            #     s.rigid_contact_thickness.requires_grad = True
+            #     s.rigid_active_contact_point0 = wp.clone(self.rigid_active_contact_point0)
+            #     s.rigid_active_contact_point0.requires_grad = True
+            #     s.rigid_active_contact_point1 = wp.clone(self.rigid_active_contact_point1)
+            #     s.rigid_active_contact_point1.requires_grad = True
+            #     s.rigid_active_contact_distance = wp.clone(self.rigid_active_contact_distance)
+            #     s.rigid_active_contact_distance.requires_grad = True
+            #     s.rigid_active_contact_distance_prev = wp.clone(self.rigid_active_contact_distance_prev)
+            #     s.rigid_active_contact_distance_prev.requires_grad = True
+            #     s.rigid_contact_inv_weight = wp.clone(self.rigid_contact_inv_weight)
+            #     s.rigid_contact_inv_weight.requires_grad = True
 
         return s
 
-    def allocate_soft_contacts(self, count):
-        
-        self.soft_contact_max = count
-        self.soft_contact_count = wp.zeros(1, dtype=wp.int32)
-        self.soft_contact_particle = wp.zeros(self.soft_contact_max, dtype=int)
-        self.soft_contact_body = wp.zeros(self.soft_contact_max, dtype=int)
-        self.soft_contact_body_pos = wp.zeros(self.soft_contact_max, dtype=wp.vec3)
-        self.soft_contact_body_vel = wp.zeros(self.soft_contact_max, dtype=wp.vec3)
-        self.soft_contact_normal = wp.zeros(self.soft_contact_max, dtype=wp.vec3)
+    def allocate_soft_contacts(self, count=None):        
+        if count is not None:
+            self.soft_contact_max = count
+        self.soft_contact_count = wp.zeros(1, dtype=wp.int32, device=self.device)
+        self.soft_contact_particle = wp.zeros(self.soft_contact_max, dtype=int, device=self.device)
+        self.soft_contact_body = wp.zeros(self.soft_contact_max, dtype=int, device=self.device)
+        self.soft_contact_body_pos = wp.zeros(self.soft_contact_max, dtype=wp.vec3, device=self.device)
+        self.soft_contact_body_vel = wp.zeros(self.soft_contact_max, dtype=wp.vec3, device=self.device)
+        self.soft_contact_normal = wp.zeros(self.soft_contact_max, dtype=wp.vec3, device=self.device)
 
-
+    def allocate_rigid_contacts(self, count=None):
+        if count is not None:
+            self.rigid_contact_max = count
+        self.rigid_contact_count = wp.zeros(1, dtype=wp.int32, device=self.device)
+        self.rigid_contact_body0 = wp.zeros(self.rigid_contact_max, dtype=wp.int32, device=self.device)
+        self.rigid_contact_body1 = wp.zeros(self.rigid_contact_max, dtype=wp.int32, device=self.device)
+        self.rigid_contact_point0 = wp.zeros(self.rigid_contact_max, dtype=wp.vec3, device=self.device)
+        self.rigid_contact_point1 = wp.zeros(self.rigid_contact_max, dtype=wp.vec3, device=self.device)
+        self.rigid_contact_offset0 = wp.zeros(self.rigid_contact_max, dtype=wp.vec3, device=self.device)
+        self.rigid_contact_offset1 = wp.zeros(self.rigid_contact_max, dtype=wp.vec3, device=self.device)
+        self.rigid_contact_normal = wp.zeros(self.rigid_contact_max, dtype=wp.vec3, device=self.device)
+        self.rigid_contact_thickness = wp.zeros(self.rigid_contact_max, dtype=wp.float32, device=self.device)
+        self.rigid_contact_shape0 = wp.zeros(self.rigid_contact_max, dtype=wp.int32, device=self.device)
+        self.rigid_contact_shape1 = wp.zeros(self.rigid_contact_max, dtype=wp.int32, device=self.device)
+        self.rigid_active_contact_point0 = wp.zeros(self.rigid_contact_max, dtype=wp.vec3, device=self.device)
+        self.rigid_active_contact_point1 = wp.zeros(self.rigid_contact_max, dtype=wp.vec3, device=self.device)
+        self.rigid_active_contact_distance = wp.zeros(self.rigid_contact_max, dtype=wp.float32, device=self.device)
+        self.rigid_active_contact_distance_prev = wp.zeros(self.rigid_contact_max, dtype=wp.float32, device=self.device)
+        # number of contact constraints per rigid body (used for scaling the constraint contributions)
+        self.rigid_contact_inv_weight = wp.zeros(len(self.body_q), dtype=wp.float32, device=self.device)
 
     def flatten(self):
         """Returns a list of Tensors stored by the model
@@ -2119,26 +2138,8 @@ class ModelBuilder:
             m.articulation_start = wp.array(self.articulation_start, dtype=int)
 
             # contacts
-            m.allocate_soft_contacts(64*1024)
-
-            m.rigid_contact_max = self.num_envs * 256      
-            m.rigid_contact_count = wp.zeros(1, dtype=wp.int32)
-            m.rigid_contact_body0 = wp.zeros(m.rigid_contact_max, dtype=wp.int32)
-            m.rigid_contact_body1 = wp.zeros(m.rigid_contact_max, dtype=wp.int32)
-            m.rigid_contact_point0 = wp.zeros(m.rigid_contact_max, dtype=wp.vec3)
-            m.rigid_contact_point1 = wp.zeros(m.rigid_contact_max, dtype=wp.vec3)
-            m.rigid_contact_offset0 = wp.zeros(m.rigid_contact_max, dtype=wp.vec3)
-            m.rigid_contact_offset1 = wp.zeros(m.rigid_contact_max, dtype=wp.vec3)
-            m.rigid_contact_normal = wp.zeros(m.rigid_contact_max, dtype=wp.vec3)
-            m.rigid_contact_thickness = wp.zeros(m.rigid_contact_max, dtype=wp.float32)
-            m.rigid_contact_shape0 = wp.zeros(m.rigid_contact_max, dtype=wp.int32)
-            m.rigid_contact_shape1 = wp.zeros(m.rigid_contact_max, dtype=wp.int32)
-            m.rigid_active_contact_point0 = wp.zeros(m.rigid_contact_max, dtype=wp.vec3)
-            m.rigid_active_contact_point1 = wp.zeros(m.rigid_contact_max, dtype=wp.vec3)
-            m.rigid_active_contact_distance = wp.zeros(m.rigid_contact_max, dtype=wp.float32)
-            m.rigid_active_contact_distance_prev = wp.zeros(m.rigid_contact_max, dtype=wp.float32)
-            # number of contact constraints per rigid body (used for scaling the constraint contributions)
-            m.rigid_contact_inv_weight = wp.zeros(len(self.body_q), dtype=wp.float32)
+            m.allocate_soft_contacts(64*1024)            
+            m.allocate_rigid_contacts(self.num_envs * 4096)
             m.rigid_contact_margin = self.rigid_contact_margin            
             m.rigid_contact_torsional_friction = self.rigid_contact_torsional_friction
             m.rigid_contact_rolling_friction = self.rigid_contact_rolling_friction
@@ -2172,7 +2173,8 @@ class ModelBuilder:
             # enable ground plane
             m.ground = True
             m.ground_plane = wp.array([*self.upvector, 0.0], dtype=wp.float32, device=device)
-            m.gravity = np.array(self.upvector) * self.gravity
+            # m.gravity = np.array(self.upvector) * self.gravity
+            m.gravity = wp.array([*(np.array(self.upvector) * self.gravity)], dtype=wp.float32, device=device)
 
             m.enable_tri_collisions = False
 
