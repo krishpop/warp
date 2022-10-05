@@ -139,9 +139,9 @@ class Tape:
 
         for a, g in self.gradients.items():
             if a not in self.const_gradients:
-                if isinstance(g, wp.codegen.StructInstance):
+                if isinstance(a, wp.codegen.StructInstance):
                     for name in g._struct_.vars:
-                        if isinstance(a._struct_.vars[name].type, wp.array):
+                        if isinstance(g._struct_.vars[name].type, wp.array):
                             getattr(g, name).zero_()
                 else:
                     g.zero_()

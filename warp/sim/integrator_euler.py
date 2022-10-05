@@ -59,7 +59,7 @@ def integrate_bodies(body_q: wp.array(dtype=wp.transform),
                      I: wp.array(dtype=wp.mat33),
                      inv_m: wp.array(dtype=float),
                      inv_I: wp.array(dtype=wp.mat33),
-                     gravity: wp.vec3,
+                     gravity: wp.array(dtype=float),
                      angular_damping: float,
                      dt: float,
                      # outputs
@@ -95,7 +95,8 @@ def integrate_bodies(body_q: wp.array(dtype=wp.transform),
     x_com = x0 + wp.quat_rotate(r0, body_com[tid])
  
     # linear part
-    v1 = v0 + (f0 * inv_mass + gravity * wp.nonzero(inv_mass)) * dt
+    g = wp.vec3(gravity[0], gravity[1], gravity[2])
+    v1 = v0 + (f0 * inv_mass + g * wp.nonzero(inv_mass)) * dt
     x1 = x_com + v1 * dt
  
     # angular part (compute in body frame)
@@ -1057,87 +1058,6 @@ def eval_rigid_contacts(
     if (body_b >= 0):
         wp.atomic_add(body_f, body_b, wp.spatial_vector(wp.cross(r_b, f_total), f_total))
 
-
-@wp.kernel
-def eval_body_contacts(body_q: wp.array(dtype=wp.transform),
-                       body_qd: wp.array(dtype=wp.spatial_vector),
-                       body_com: wp.array(dtype=wp.vec3),
-                       contact_body: wp.array(dtype=int),
-                       contact_point: wp.array(dtype=wp.vec3),
-                       contact_dist: wp.array(dtype=float),
-                       contact_mat: wp.array(dtype=int),
-                       materials: wp.array(dtype=wp.vec4),
-                       body_f: wp.array(dtype=wp.spatial_vector)):
-
-    tid = wp.tid()
-
-    c_body = contact_body[tid]
-    c_point = contact_point[tid]
-    c_dist = contact_dist[tid]
-    c_mat = contact_mat[tid]
-
-    X_wb = body_q[c_body]
-    v_wc = body_qd[c_body]
-
-    # unpack spatial twist
-    w = wp.spatial_top(v_wc)
-    v = wp.spatial_bottom(v_wc)
-
-    n = wp.vec3(0.0, 1.0, 0.0)
-
-    # transform point to world space
-    cp = wp.transform_point(X_wb, c_point) - n * c_dist # add on 'thickness' of shape, e.g.: radius of sphere/capsule
-
-    # moment arm around center of mass
-    r = cp - wp.transform_point(X_wb, body_com[c_body])
-
-    # contact point velocity
-    dpdt = v + wp.cross(w, r)     
-
-    # check ground contact
-    c = wp.dot(n, cp)
-
-    if (c > 0.0):
-        return
-
-    # hard coded surface parameter tensor layout (ke, kd, kf, mu)
-    mat = materials[c_mat]
-
-    ke = mat[0]       # restitution coefficient
-    kd = mat[1]       # damping coefficient
-    kf = mat[2]       # friction coefficient
-    mu = mat[3]       # coulomb friction
-
-    vn = wp.dot(n, dpdt)     
-    vt = dpdt - n * vn       
-
-    # normal force
-    fn = c * ke    
-
-    # damping force
-    fd = wp.min(vn, 0.0) * kd * wp.step(c)       # again, velocity into the ground, negative
-
-    # viscous friction
-    #ft = vt*kf
-
-    # # Coulomb friction (box)
-    # lower = mu * (fn + fd)   # negative
-    # upper = 0.0 - lower      # positive, workaround for no unary ops
-
-    # vx = wp.clamp(wp.dot(vec3(kf, 0.0, 0.0), vt), lower, upper)
-    # vz = wp.clamp(wp.dot(vec3(0.0, 0.0, kf), vt), lower, upper)
-
-    # ft = wp.vec3(vx, 0.0, vz) * wp.step(c)
-
-    # Coulomb friction (smooth, but gradients are numerically unstable around |vt| = 0)
-    ft = wp.normalize(vt)*wp.min(kf*wp.length(vt), 0.0 - mu*(fn + fd))
-
-    f_total = n * (fn + fd) + ft
-    t_total = wp.cross(r, f_total)
-
-    wp.atomic_sub(body_f, c_body, wp.spatial_vector(t_total, f_total))
-
-
 @wp.func
 def eval_joint_force(q: float,
                      qd: float,
@@ -1533,6 +1453,29 @@ def compute_forces(model, state, particle_f, body_f):
 
     if (model.body_count):
 
+        if (hasattr(state, "rigid_contact_count")):
+            contact_vars = [
+                state.rigid_contact_count,
+                state.rigid_contact_body0,
+                state.rigid_contact_body1,
+                state.rigid_contact_point0,
+                state.rigid_contact_point1,
+                state.rigid_contact_normal,
+                state.rigid_contact_shape0,
+                state.rigid_contact_shape1,
+            ]
+        else:
+            contact_vars = [
+                model.rigid_contact_count,
+                model.rigid_contact_body0,
+                model.rigid_contact_body1,
+                model.rigid_contact_point0,
+                model.rigid_contact_point1,
+                model.rigid_contact_normal,
+                model.rigid_contact_shape0,
+                model.rigid_contact_shape1,
+            ]
+
         wp.launch(kernel=eval_rigid_contacts,
                   dim=model.rigid_contact_max,
                   inputs=[
@@ -1541,14 +1484,7 @@ def compute_forces(model, state, particle_f, body_f):
                       model.body_com,
                       model.shape_materials,
                       model.shape_contact_thickness,
-                      model.rigid_contact_count,
-                      model.rigid_contact_body0,
-                      model.rigid_contact_body1,
-                      model.rigid_contact_point0,
-                      model.rigid_contact_point1,
-                      model.rigid_contact_normal,
-                      model.rigid_contact_shape0,
-                      model.rigid_contact_shape1,
+                      *contact_vars
                   ],
                   outputs=[
                       body_f

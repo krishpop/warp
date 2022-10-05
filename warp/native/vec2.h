@@ -320,7 +320,7 @@ inline CUDA_CALLABLE void adj_length(vec2 a, vec2& adj_a, const float adj_ret)
 
 inline CUDA_CALLABLE void adj_length_sq(vec2 a, vec2& adj_a, const float adj_ret)
 {
-    adj_a += 2.0f * normalize(a)*adj_ret;
+    adj_a += 2.0f*a*adj_ret;
 
 #if FP_CHECK
     if (!isfinite(adj_a))
