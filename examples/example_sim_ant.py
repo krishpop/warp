@@ -91,7 +91,8 @@ class Robot:
         self.model.joint_attach_ke *= 32.0
         self.model.joint_attach_kd *= 4.0
 
-        self.integrator = wp.sim.SemiImplicitIntegrator()
+        # self.integrator = wp.sim.SemiImplicitIntegrator()
+        self.integrator = wp.sim.XPBDIntegrator()
 
         #-----------------------
         # set up Usd renderer
@@ -125,6 +126,7 @@ class Robot:
         # simulate
         for i in range(0, self.sim_substeps):
             self.state.clear_forces()
+            wp.sim.collide(self.model, self.state)
             self.state = self.integrator.simulate(self.model, self.state, self.state, self.sim_dt)
             self.sim_time += self.sim_dt
                 
