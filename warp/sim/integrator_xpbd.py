@@ -2002,7 +2002,7 @@ class XPBDIntegrator:
                         ],
                         device=model.device)
 
-                if (model.has_restitution):
+                if (False and model.has_restitution):
                     wp.launch(kernel=apply_rigid_restitution,
                             dim=model.rigid_contact_max,
                             inputs=[
