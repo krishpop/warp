@@ -8,32 +8,7 @@
 import warp as wp
 from .model import ShapeContactMaterial
 from .utils import velocity_at_point
-from .integrator_euler import integrate_bodies
-
-
-@wp.kernel
-def integrate_particles(x: wp.array(dtype=wp.vec3),
-                        v: wp.array(dtype=wp.vec3),
-                        f: wp.array(dtype=wp.vec3),
-                        w: wp.array(dtype=float),
-                        gravity: wp.vec3,
-                        dt: float,
-                        x_new: wp.array(dtype=wp.vec3),
-                        v_new: wp.array(dtype=wp.vec3)):
-
-    tid = wp.tid()
-
-    x0 = x[tid]
-    v0 = v[tid]
-    f0 = f[tid]
-    inv_mass = w[tid]
-
-    # simple semi-implicit Euler. v1 = v0 + a dt, x1 = x0 + v1 dt
-    v1 = v0 + (f0 * inv_mass + gravity * wp.step(0.0 - inv_mass)) * dt
-    x1 = x0 + v1 * dt
-
-    x_new[tid] = x1
-    v_new[tid] = v1
+from .integrator_euler import integrate_bodies, integrate_particles
 
 @wp.kernel
 def solve_springs(x: wp.array(dtype=wp.vec3),

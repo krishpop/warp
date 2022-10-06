@@ -28,7 +28,7 @@ def integrate_particles(x: wp.array(dtype=wp.vec3),
                         v: wp.array(dtype=wp.vec3),
                         f: wp.array(dtype=wp.vec3),
                         w: wp.array(dtype=float),
-                        gravity: wp.vec3,
+                        gravity: wp.array(dtype=float),
                         dt: float,
                         x_new: wp.array(dtype=wp.vec3),
                         v_new: wp.array(dtype=wp.vec3)):
@@ -41,8 +41,9 @@ def integrate_particles(x: wp.array(dtype=wp.vec3),
 
     inv_mass = w[tid]
 
+    g = wp.vec3(gravity[0], gravity[1], gravity[2])
     # simple semi-implicit Euler. v1 = v0 + a dt, x1 = x0 + v1 dt
-    v1 = v0 + (f0 * inv_mass + gravity * wp.step(0.0 - inv_mass)) *dt
+    v1 = v0 + (f0 * inv_mass + g * wp.step(0.0 - inv_mass)) *dt
     x1 = x0 + v1 * dt
 
     x_new[tid] = x1
@@ -782,7 +783,7 @@ def eval_tetrahedra(x: wp.array(dtype=wp.vec3),
 
 
 @wp.kernel
-def eval_contacts(particle_x: wp.array(dtype=wp.vec3), particle_v: wp.array(dtype=wp.vec3), ke: float, kd: float, kf: float, mu: float, offset: float, ground: wp.vec4, f: wp.array(dtype=wp.vec3)):
+def eval_contacts(particle_x: wp.array(dtype=wp.vec3), particle_v: wp.array(dtype=wp.vec3), ke: float, kd: float, kf: float, mu: float, offset: float, ground: wp.array(dtype=float), f: wp.array(dtype=wp.vec3)):
 
     tid = wp.tid()           
 
