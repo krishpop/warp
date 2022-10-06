@@ -368,6 +368,20 @@ def length_sq (x: vec3) -> float:
    ...
 
 @overload
+def length_sq (x: vec4) -> float:
+   """
+   Compute the squared length of a 4d vector.
+   """
+   ...
+
+@overload
+def length_sq (x: quat) -> float:
+   """
+   Compute the squared length of a quaternion.
+   """
+   ...
+
+@overload
 def transpose(m: mat22) -> mat22:
    """
    Return the transpose of the matrix m
