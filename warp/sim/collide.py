@@ -134,7 +134,12 @@ def capsule_sdf_grad(radius: float, half_width: float, p: wp.vec3):
         
     return wp.normalize(wp.vec3(0.0, p[1], p[2]))
 
-
+@wp.func
+def plane_sdf(width: float, length: float, p: wp.vec3):
+    # SDF for a quad in the xz plane
+    d = wp.max(wp.abs(p[0]) - width, wp.abs(p[2]) - length)
+    d = wp.max(d, abs(p[1]))
+    return d
 
 
 @wp.kernel
@@ -181,7 +186,7 @@ def create_soft_contacts(
     geo_type = shape_geo_type[shape_index]
     geo_scale = shape_geo_scale[shape_index]
 
-   # evaluate shape sdf
+    # evaluate shape sdf
     d = 1.e+6 
     n = wp.vec3()
     v = wp.vec3()
@@ -241,6 +246,11 @@ def create_soft_contacts(
             soft_contact_body_vel[index] = body_vel
             soft_contact_particle[index] = particle_index
             soft_contact_normal[index] = world_normal
+
+    # GEO_PLANE (5)
+    if (geo_type == 5):
+        d = plane_sdf(geo_scale[0], geo_scale[1], x_local)
+        n = wp.vec3(0.0, 1.0, 0.0)
 
 
 @wp.func
@@ -719,39 +729,8 @@ def collide(model, state, experimental_sdf_collision=False):
 
     # clear old count
     model.rigid_contact_count.zero_()
-    if (hasattr(state, "rigid_contact_count")):
-        state.rigid_contact_count.zero_()
 
     if (model.ground and model.body_count):
-
-        if (hasattr(state, "rigid_contact_count")):
-            contact_outputs = [
-                state.rigid_contact_count,
-                state.rigid_contact_body0,
-                state.rigid_contact_body1,
-                state.rigid_contact_point0,
-                state.rigid_contact_point1,
-                state.rigid_contact_offset0,
-                state.rigid_contact_offset1,
-                state.rigid_contact_normal,
-                state.rigid_contact_shape0,
-                state.rigid_contact_shape1,
-                state.rigid_contact_thickness,
-            ]
-        else:
-            contact_outputs = [
-                model.rigid_contact_count,
-                model.rigid_contact_body0,
-                model.rigid_contact_body1,
-                model.rigid_contact_point0,
-                model.rigid_contact_point1,
-                model.rigid_contact_offset0,
-                model.rigid_contact_offset1,
-                model.rigid_contact_normal,
-                model.rigid_contact_shape0,
-                model.rigid_contact_shape1,
-                model.rigid_contact_thickness,
-            ]
         # print("Contacts before:", model.ground_contact_point0.numpy())
         # print(model.ground_contact_ref.numpy())
         wp.launch(
@@ -767,7 +746,19 @@ def collide(model, state, experimental_sdf_collision=False):
                 model.shape_contact_thickness,
                 model.rigid_contact_margin,
             ],
-            outputs=contact_outputs,
+            outputs=[
+                model.rigid_contact_count,
+                model.rigid_contact_body0,
+                model.rigid_contact_body1,
+                model.rigid_contact_point0,
+                model.rigid_contact_point1,
+                model.rigid_contact_offset0,
+                model.rigid_contact_offset1,
+                model.rigid_contact_normal,
+                model.rigid_contact_shape0,
+                model.rigid_contact_shape1,
+                model.rigid_contact_thickness,
+            ],
             device=model.device
         )
 

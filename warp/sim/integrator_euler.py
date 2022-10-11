@@ -1637,7 +1637,7 @@ class SemiImplicitIntegrator:
         self.angular_damping = angular_damping
 
 
-    def simulate(self, model, state_in, state_out, dt):
+    def simulate(self, model, state_in, state_out, dt, requires_grad=False):
 
         with wp.ScopedTimer("simulate", False):
 
@@ -1815,7 +1815,7 @@ class VariationalImplicitIntegrator:
         # allocate temporary space for evaluating particle forces
         self.particle_f = wp.zeros(model.particle_count, dtype=wp.vec3, device=model.device)
 
-    def simulate(self, model, state_in, state_out, dt): 
+    def simulate(self, model, state_in, state_out, dt, requires_grad=False): 
 
         if (state_in is state_out):
             raise RuntimeError("Implicit integrators require state objects to not alias each other")
