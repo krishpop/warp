@@ -62,10 +62,14 @@ class StructInstance:
     def __setattr__(self, name, value):
         assert name in self._struct_.vars, "invalid struct member variable {}".format(name)
         if isinstance(self._struct_.vars[name].type, array):
-            # wp.array
-            assert isinstance(value, array)
-            assert value.dtype == self._struct_.vars[name].type.dtype, "assign to struct member variable {} failed, expected type {}, got type {}".format(name, self._struct_.vars[name].type.dtype, value.dtype)
-            setattr(self._c_struct_, name, value.__ctype__())
+            if value is None:
+                # create array with null pointer
+                setattr(self._c_struct_, name, array_t())
+            else:                    
+                # wp.array
+                assert isinstance(value, array)
+                assert value.dtype == self._struct_.vars[name].type.dtype, "assign to struct member variable {} failed, expected type {}, got type {}".format(name, self._struct_.vars[name].type.dtype, value.dtype)
+                setattr(self._c_struct_, name, value.__ctype__())
         elif issubclass(self._struct_.vars[name].type, ctypes.Array):
             # array type e.g. vec3
             setattr(self._c_struct_, name, self._struct_.vars[name].type(*value))
