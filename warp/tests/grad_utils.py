@@ -519,6 +519,7 @@ def check_backward_pass(func: Callable, plotting: Literal["matplotlib", "plotly"
             except nx.NetworkXNoPath:
                 print(f"Error: there is no computation path from {node_labels[x.ptr]} to {node_labels[y.ptr]}")
 
+    import matplotlib as mpl
     import matplotlib.pyplot as plt
     # pos = nx.spring_layout(G, k=1.5, seed=42)
     pos = nx.nx_agraph.graphviz_layout(G, prog='neato', args='-Grankdir="LR" -Gnodesep="5" -Granksep="10"')
@@ -533,19 +534,21 @@ def check_backward_pass(func: Callable, plotting: Literal["matplotlib", "plotly"
         else:
             node_colors.append("lightgray")
 
+    handles = [
+        mpl.patches.Patch(color="salmon", label="multiple overrides"),
+        mpl.patches.Patch(color="lightskyblue", label="requires grad"),
+        mpl.patches.Patch(color="lightgray", label="no grad"),
+        mpl.patches.Patch(color="yellow", label="kernel"),
+    ]
+    plt.legend(handles=handles)
+
     default_draw_args = dict(alpha=0.9, edgecolors="black", linewidths=0.5, node_size=1000)
     # first draw kernels
     nx.draw_networkx_nodes(G, pos, nodelist=list(kernel_nodes), node_color='yellow', node_shape='s', **default_draw_args)
     # then draw arrays
     nx.draw_networkx_nodes(G, pos, nodelist=list(array_nodes), node_color=node_colors, **default_draw_args)
     nx.draw_networkx_labels(G, pos, labels=node_labels, font_size=8, bbox=dict(facecolor='white', alpha=0.8, edgecolor='none', pad=0.5))
-    # nx.draw(
-    #     G, pos, edge_color='black', width=1, linewidths=1,
-    #     node_size=500,
-    #     node_color=node_colors,
-    #     alpha=0.9,
-    #     labels=node_labels
-    # )
+
     nx.draw_networkx_edges(G, pos, edgelist=G.edges(), arrows=True, edge_color='black', node_size=1000)
     nx.draw_networkx_edge_labels(
         G, pos,
