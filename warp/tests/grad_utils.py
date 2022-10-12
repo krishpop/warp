@@ -132,7 +132,8 @@ def kernel_jacobian(kernel: wp.Kernel, dim: int, inputs: List[wp.array], outputs
         np_out = out.numpy()
         out_shape = np_out.shape
         np_out = np_out.flatten()
-        limit = min(max_outputs_per_var, len(np_out)) if max_outputs_per_var > 0 else len(np_out)
+        limit = min(max_outputs_per_var, len(np_out)
+                    ) if max_outputs_per_var > 0 else len(np_out)
         for j in range(limit):
             out.grad = wp.array(onehot(len(np_out), j).reshape(
                 out_shape), dtype=out.dtype, device=out.device)
@@ -185,7 +186,8 @@ def kernel_jacobian_fd(kernel: wp.Kernel, dim: int, inputs: List[wp.array], outp
         np_in = input.numpy().copy()
         in_shape = np_in.shape
         np_in = np_in.flatten()
-        limit = min(max_fd_dims_per_var, len(np_in)) if max_fd_dims_per_var > 0 else len(np_in)
+        limit = min(max_fd_dims_per_var, len(np_in)
+                    ) if max_fd_dims_per_var > 0 else len(np_in)
         for j in range(limit):
             np_in[j] += eps
             diff_inputs[input_id] = wp.array(np_in.reshape(
@@ -282,8 +284,10 @@ def check_kernel_jacobian(kernel: Callable, dim: Tuple[int], inputs: List, outpu
         mean_rel_error = np.mean(rel_diff)
         return mean_rel_error
 
-    jac_ad, ad_in, ad_out = kernel_jacobian(kernel, dim, inputs, outputs, max_outputs_per_var=max_outputs_per_var)
-    jac_fd = kernel_jacobian_fd(kernel, dim, inputs, outputs, eps=eps, max_fd_dims_per_var=max_fd_dims_per_var)
+    jac_ad, ad_in, ad_out = kernel_jacobian(
+        kernel, dim, inputs, outputs, max_outputs_per_var=max_outputs_per_var)
+    jac_fd = kernel_jacobian_fd(
+        kernel, dim, inputs, outputs, eps=eps, max_fd_dims_per_var=max_fd_dims_per_var)
     # assert_np_equal(jac_ad, jac_fd, tol=tol)
     result = np.allclose(jac_ad, jac_fd, atol=atol, rtol=rtol)
     max_abs_error, max_abs_error_idx = compute_max_abs_error(jac_ad, jac_fd)
@@ -404,14 +408,15 @@ def make_struct_of_arrays(xs):
         insert(x, total)
     return total
 
-def check_backward_pass(func: Callable, plotting: Literal["matplotlib", "plotly", "none"] = "plotly", track_inputs=[], track_outputs=[], track_input_names=[], track_output_names=[]):
+
+def check_backward_pass(func: Callable, visualize_graph=True, plotting: Literal["matplotlib", "plotly", "none"] = "plotly", track_inputs=[], track_outputs=[], track_input_names=[], track_output_names=[]):
     """
     Checks that the backward pass of a function involving Warp kernel launches.
     """
     tape = wp.Tape()
     with tape:
         func()
-    
+
     def add_to_struct_of_arrays(d, target):
         for k, v in d.items():
             if isinstance(v, dict):
@@ -426,23 +431,42 @@ def check_backward_pass(func: Callable, plotting: Literal["matplotlib", "plotly"
     node_labels = {}
     edge_labels = {}
     kernel_launch_count = defaultdict(int)
-    manipulated_nodes = defaultdict(list)  # array -> list of kernels that modify it
+    # array -> list of kernels that modify it
+    manipulated_nodes = defaultdict(list)
     kernel_nodes = set()
     array_nodes = set()
+
+    input_output_ptr = set()
+    for input in track_inputs:
+        input_output_ptr.add(input.ptr)
+    for output in track_outputs:
+        input_output_ptr.add(output.ptr)
+
+    def add_node(G, x, name):
+        nonlocal node_labels
+        if x.ptr in node_labels:
+            if x.ptr not in input_output_ptr:
+                # update name unless it is an input/output array
+                node_labels[x.ptr] = name
+            return
+        nondifferentiable = (x.dtype in [
+                             wp.int8, wp.uint8, wp.int16, wp.uint16, wp.int32, wp.uint32, wp.int64, wp.uint64])
+        G.add_node(x.ptr, name=name, requires_grad=x.requires_grad,
+                   is_kernel=False, nondifferentiable=nondifferentiable)
+        node_labels[x.ptr] = name
+
     for i, x in enumerate(track_inputs):
         if i < len(track_input_names):
             name = track_input_names[i]
         else:
             name = f"input_{i}"
-        G.add_node(x.ptr, name=name, requires_grad=x.requires_grad, is_kernel=False)
-        node_labels[x.ptr] = name
+        add_node(G, x, name)
     for i, x in enumerate(track_outputs):
         if i < len(track_output_names):
             name = track_output_names[i]
         else:
             name = f"output_{i}"
-        G.add_node(x.ptr, name=name, requires_grad=x.requires_grad, is_kernel=False)
-        node_labels[x.ptr] = name
+        add_node(G, x, name)
     for launch in tape.launches:
         kernel, dim, inputs, outputs, device = tuple(launch)
         kernel_name = f"{kernel.key}:{kernel_launch_count[kernel.key]}"
@@ -454,45 +478,35 @@ def check_backward_pass(func: Callable, plotting: Literal["matplotlib", "plotly"
         for id, x in enumerate(inputs):
             name = kernel.adj.args[id].label
             if isinstance(x, wp.array):
-                if x.ptr not in node_labels:
-                    G.add_node(x.ptr, name=name, requires_grad=x.requires_grad, is_kernel=False)
-                    node_labels[x.ptr] = name
+                add_node(G, x, name)
                 input_arrays.append(x.ptr)
             elif isinstance(x, wp.codegen.StructInstance):
                 for varname in x._struct_.vars:
                     var = getattr(x, varname)
                     if isinstance(var, wp.array):
-                        if var.ptr not in node_labels:
-                            G.add_node(var.ptr, name=f"{name}.{varname}", requires_grad=var.requires_grad, is_kernel=False)
-                            node_labels[var.ptr] = f"{name}.{varname}"
+                        add_node(G, var, f"{name}.{varname}")
                         input_arrays.append(var.ptr)
         output_arrays = []
         for id, x in enumerate(outputs):
             name = kernel.adj.args[id + len(inputs)].label
             if isinstance(x, wp.array):
-                if x.ptr not in node_labels:
-                    G.add_node(x.ptr, name=name, requires_grad=x.requires_grad, is_kernel=False)
-                    node_labels[x.ptr] = name
+                add_node(G, x, name)
                 output_arrays.append(x.ptr)
             elif isinstance(x, wp.codegen.StructInstance):
                 for varname in x._struct_.vars:
                     var = getattr(x, varname)
                     if isinstance(var, wp.array):
-                        if var.ptr not in node_labels:
-                            G.add_node(var.ptr, name=f"{name}.{varname}", requires_grad=var.requires_grad, is_kernel=False)
-                            node_labels[var.ptr] = f"{name}.{varname}"
+                        add_node(G, var, f"{name}.{varname}")
                         output_arrays.append(var.ptr)
         for input_x in input_arrays:
-            G.add_edge(input_x, kernel_name) 
+            G.add_edge(input_x, kernel_name)
         for output_x in output_arrays:
             # track how many kernels modify each array
-            manipulated_nodes[output_x].append(kernel.key)     
-            G.add_edge(kernel_name, output_x)       
-            # for input_x in input_arrays:
-            #     G.add_edge(input_x, output_x)
-            #     edge_labels[(input_x, x.ptr)] = {"kernel": kernel.key, "launch": kernel_launch_count[kernel.key]}
-                        
+            manipulated_nodes[output_x].append(kernel.key)
+            G.add_edge(kernel_name, output_x)
+
         kernel_launch_count[kernel.key] += 1
+
     for x in node_labels:
         if x not in kernel_nodes:
             array_nodes.add(x)
@@ -504,61 +518,80 @@ def check_backward_pass(func: Callable, plotting: Literal["matplotlib", "plotly"
                 all_differentiable = True
                 for path in paths:
                     # XXX all arrays up until the last one have to be differentiable
-                    if not all([G.nodes[i]["requires_grad"] for i in path[:-1]]):
-                        print(f"Warning: nondifferentiable node on path from {node_labels[x.ptr]} to {node_labels[y.ptr]} via [{' -> '.join([node_labels[p] for p in path])}].")
-                        print(f"Nondifferentiable array(s): {[node_labels[p] for p in path if not G.nodes[p]['requires_grad']]}")
+                    if not all([G.nodes[i]["requires_grad"] or G.nodes[i]["nondifferentiable"] for i in path[:-1]]):
+                        print(
+                            f"Warning: nondifferentiable node on path from {node_labels[x.ptr]} to {node_labels[y.ptr]} via [{' -> '.join([node_labels[p] for p in path])}].")
+                        print(
+                            f"Nondifferentiable array(s): [{', '.join([node_labels[p] for p in path if not G.nodes[p]['requires_grad']])}]")
                         all_differentiable = False
                 if all_differentiable:
-                    many_overwrites = [node for node in path if len(manipulated_nodes[node]) > 1]
+                    many_overwrites = set(node for node in path if len(
+                        manipulated_nodes[node]) > 1)
                     if len(many_overwrites) > 0:
-                        print(f"Warning: multiple kernels manipulate array(s) on path from {node_labels[x.ptr]} to {node_labels[y.ptr]}.")
+                        print(
+                            f"Warning: multiple kernels manipulate array(s) on path from {node_labels[x.ptr]} to {node_labels[y.ptr]}.")
                         for node in many_overwrites:
-                            print(f"\tArray {node_labels[node]} is manipulated by kernels [{', '.join([kernel for kernel in manipulated_nodes[node]])}].")
+                            print(
+                                f"\tArray {node_labels[node]} is manipulated by kernels [{', '.join([kernel for kernel in manipulated_nodes[node]])}].")
                     else:
-                        print(f"Path from {node_labels[x.ptr]} to {node_labels[y.ptr]} is differentiable.")
+                        print(
+                            f"Path from {node_labels[x.ptr]} to {node_labels[y.ptr]} is differentiable.")
             except nx.NetworkXNoPath:
-                print(f"Error: there is no computation path from {node_labels[x.ptr]} to {node_labels[y.ptr]}")
+                print(
+                    f"Error: there is no computation path from {node_labels[x.ptr]} to {node_labels[y.ptr]}")
 
-    import matplotlib as mpl
-    import matplotlib.pyplot as plt
-    # pos = nx.spring_layout(G, k=1.5, seed=42)
-    pos = nx.nx_agraph.graphviz_layout(G, prog='neato', args='-Grankdir="LR" -Gnodesep="5" -Granksep="10"')
-    # pos = nx.spring_layout(G, seed=42, pos=pos, iterations=1)
-    plt.figure()
-    node_colors = []
-    for x in array_nodes:
-        if len(manipulated_nodes[x]) > 1:
-            node_colors.append("salmon")
-        elif G.nodes[x]["requires_grad"]:
-            node_colors.append("lightskyblue")
-        else:
-            node_colors.append("lightgray")
+    if visualize_graph:
+        import matplotlib as mpl
+        import matplotlib.pyplot as plt
 
-    handles = [
-        mpl.patches.Patch(color="salmon", label="multiple overwrites"),
-        mpl.patches.Patch(color="lightskyblue", label="requires grad"),
-        mpl.patches.Patch(color="lightgray", label="no grad"),
-        mpl.patches.Patch(color="yellow", label="kernel"),
-    ]
-    plt.legend(handles=handles)
+        try:
+            pos = nx.nx_agraph.graphviz_layout(
+                G, prog='neato', args='-Grankdir="LR" -Gnodesep="5" -Granksep="10"')
+            # pos = nx.spring_layout(G, seed=42, pos=pos, iterations=1)
+        except:
+            print(
+                "Warning: could not use graphviz to layout graph. Falling back to spring layout.")
+            print("To get better layouts, install graphviz and pygraphviz.")
+            pos = nx.spring_layout(G)
 
-    default_draw_args = dict(alpha=0.9, edgecolors="black", linewidths=0.5, node_size=1000)
-    # first draw kernels
-    nx.draw_networkx_nodes(G, pos, nodelist=list(kernel_nodes), node_color='yellow', node_shape='s', **default_draw_args)
-    # then draw arrays
-    nx.draw_networkx_nodes(G, pos, nodelist=list(array_nodes), node_color=node_colors, **default_draw_args)
-    nx.draw_networkx_labels(G, pos, labels=node_labels, font_size=8, bbox=dict(facecolor='white', alpha=0.8, edgecolor='none', pad=0.5))
+        plt.figure()
+        array_nodes = list(array_nodes)
+        kernel_nodes = list(kernel_nodes)
+        node_colors = []
+        for x in array_nodes:
+            if len(manipulated_nodes[x]) > 1:
+                node_colors.append("salmon")
+            elif G.nodes[x]["requires_grad"]:
+                node_colors.append("lightskyblue")
+            else:
+                node_colors.append("lightgray")
 
-    nx.draw_networkx_edges(G, pos, edgelist=G.edges(), arrows=True, edge_color='black', node_size=1000)
-    nx.draw_networkx_edge_labels(
-        G, pos,
-        edge_labels={uv: f"{d['kernel']}:{d['launch']}" for uv, d in edge_labels.items()},
-        font_color='darkslategray'
-    )
-    plt.axis('off')
-    plt.show()
+        handles = [
+            mpl.patches.Patch(color="salmon", label="multiple overwrites"),
+            mpl.patches.Patch(color="lightskyblue", label="requires grad"),
+            mpl.patches.Patch(color="lightgray", label="no grad"),
+            mpl.patches.Patch(color="yellow", label="kernel"),
+        ]
+        plt.legend(handles=handles)
 
-                
+        default_draw_args = dict(
+            alpha=0.9, edgecolors="black", linewidths=0.5, node_size=1000)
+        # first draw kernels
+        nx.draw_networkx_nodes(G, pos, nodelist=kernel_nodes, node_color='yellow', node_shape='s', **default_draw_args)
+        # then draw arrays
+        nx.draw_networkx_nodes(G, pos, nodelist=array_nodes, node_color=node_colors, **default_draw_args)
+        nx.draw_networkx_labels(G, pos, labels=node_labels, font_size=8, bbox=dict(facecolor='white', alpha=0.8, edgecolor='none', pad=0.5))
+
+        nx.draw_networkx_edges(G, pos, edgelist=G.edges(), arrows=True, edge_color='black', node_size=1000)
+        nx.draw_networkx_edge_labels(
+            G, pos,
+            edge_labels={
+                uv: f"{d['kernel']}:{d['launch']}" for uv, d in edge_labels.items()},
+            font_color='darkslategray'
+        )
+        plt.axis('off')
+        plt.show()
+
     stats = {}
     kernel_names = set()
     manipulated_vars = {}
@@ -585,7 +618,8 @@ def check_backward_pass(func: Callable, plotting: Literal["matplotlib", "plotly"
             return s.replace('parent', 'pärent')
 
         kernel_id = f"{kernel.key}{kernel_launch_count[kernel.key]}"
-        chart_code.append(f"{kernel_id}[[{sanitize_name(kernel.key)}]]:::kernel;")
+        chart_code.append(
+            f"{kernel_id}[[{sanitize_name(kernel.key)}]]:::kernel;")
         kernel_launch_count[kernel.key] += 1
 
         input_nodes = []
@@ -609,7 +643,8 @@ def check_backward_pass(func: Callable, plotting: Literal["matplotlib", "plotly"
                     output_nodes.append(f"a{x.ptr}")
                     if x.ptr in manipulated_vars:
                         chart_vars[x.ptr] = f"a{x.ptr}([{name}]):::problem;"
-                        print(f"WARNING: variable {name} (0x{x.ptr}) requires grad and is manipulated by kernels {kernel.key} and {manipulated_vars[x.ptr]}.")
+                        print(
+                            f"WARNING: variable {name} (0x{x.ptr}) requires grad and is manipulated by kernels {kernel.key} and {manipulated_vars[x.ptr]}.")
                         problematic_vars.add(f"a{x.ptr}")
                     else:
                         chart_vars[x.ptr] = f"a{x.ptr}([{name}]):::grad;"
@@ -632,16 +667,17 @@ def check_backward_pass(func: Callable, plotting: Literal["matplotlib", "plotly"
                 chart_code.append(f"{kernel_id} --> {node};")
         chart_code.append("end")
 
-    chart_code.append("classDef kernel fill:#222,color:#fff,stroke:#333,stroke-width:4px")
+    chart_code.append(
+        "classDef kernel fill:#222,color:#fff,stroke:#333,stroke-width:4px")
     chart_code.append("classDef grad fill:#efe,stroke:#060")
     chart_code.append("classDef nograd fill:#ffe,stroke:#630")
     chart_code.append("classDef problem fill:#f65,color:#900,stroke:#900")
     chart_code.append("class a fill:#fff,stroke:#000")
 
     chart = "%%{init: {'flowchart': { 'curve': 'curve' }, 'theme': 'base', 'themeVariables': { 'primaryColor': '#ffeedd'}}}%%\n"
-    chart += "flowchart LR;\n" 
-    chart += "\n".join([f"\t{line}" for line in chart_vars.values()]) 
-    chart += "\n" 
+    chart += "flowchart LR;\n"
+    chart += "\n".join([f"\t{line}" for line in chart_vars.values()])
+    chart += "\n"
     chart += "\n".join([f"\t{line}" for line in chart_code])
 
     # print(chart)
@@ -703,27 +739,29 @@ def check_backward_pass(func: Callable, plotting: Literal["matplotlib", "plotly"
         app = Dash(__name__, external_stylesheets=external_stylesheets)
 
         kernel_names = sorted(list(kernel_names))
-        
+
         colors = px.colors.qualitative.Dark24
 
         app.layout = html.Div([
-            dcc.Store(id='appstate', data={"kernel": kernel_names[0], "mode": "jacobian"}),
+            dcc.Store(id='appstate', data={
+                      "kernel": kernel_names[0], "mode": "jacobian"}),
             html.Div([
                 dcc.Dropdown(
-                    options=[{"label": name, "value": name} for name in kernel_names],
+                    options=[{"label": name, "value": name}
+                             for name in kernel_names],
                     value=kernel_names[0],
                     placeholder="Select a kernel",
                     id="kernel-dropdown",
                 ),
-                ], style={'width': '49%', 'display': 'inline-block'}),
-                html.Div([
-                    dcc.Tabs(id="mode-selector", value="jacobian", children=[
-                        dcc.Tab(label="Jacobian", value="jacobian"),
-                        dcc.Tab(label="Sensitivity", value="sensitivity"),
-                        dcc.Tab(label="Accuracy", value="accuracy"),
-                    ])
-                ], style={'width': '49%', 'display': 'inline-block'}),
-                html.Div(id='view-content')
+            ], style={'width': '49%', 'display': 'inline-block'}),
+            html.Div([
+                dcc.Tabs(id="mode-selector", value="jacobian", children=[
+                    dcc.Tab(label="Jacobian", value="jacobian"),
+                    dcc.Tab(label="Sensitivity", value="sensitivity"),
+                    dcc.Tab(label="Accuracy", value="accuracy"),
+                ])
+            ], style={'width': '49%', 'display': 'inline-block'}),
+            html.Div(id='view-content')
         ])
 
         @app.callback(Output('appstate', 'data'), Input('kernel-dropdown', 'value'), Input('mode-selector', 'value'), State('appstate', 'data'))
@@ -733,7 +771,7 @@ def check_backward_pass(func: Callable, plotting: Literal["matplotlib", "plotly"
             if mode is not None:
                 data["mode"] = mode
             return data
-        
+
         @app.callback(Output('view-content', 'children'), Input('appstate', 'data'), State('appstate', 'data'))
         def update_view(arg, data):
             print("selection:", data)
@@ -743,11 +781,15 @@ def check_backward_pass(func: Callable, plotting: Literal["matplotlib", "plotly"
             if selected_mode == "jacobian":
                 fig = make_subplots(
                     rows=1, cols=3,
-                    subplot_titles=["AD Jacobian", "FD Jacobian", "Difference"],
+                    subplot_titles=["AD Jacobian",
+                                    "FD Jacobian", "Difference"],
                 )
-                fig.add_trace(px.imshow(selected_stats["ad"][0]).data[0], row=1, col=1)
-                fig.add_trace(px.imshow(selected_stats["fd"][0]).data[0], row=1, col=2)
-                fig.add_trace(px.imshow(selected_stats["ad"][0]-selected_stats["fd"][0]).data[0], row=1, col=3)
+                fig.add_trace(
+                    px.imshow(selected_stats["ad"][0]).data[0], row=1, col=1)
+                fig.add_trace(
+                    px.imshow(selected_stats["fd"][0]).data[0], row=1, col=2)
+                fig.add_trace(px.imshow(
+                    selected_stats["ad"][0]-selected_stats["fd"][0]).data[0], row=1, col=3)
                 fig.update_layout(coloraxis=dict(colorscale='RdBu_r'))
             else:
                 selected_stat_items = selected_stats.items()
@@ -766,7 +808,7 @@ def check_backward_pass(func: Callable, plotting: Literal["matplotlib", "plotly"
                     row = dim // ncols + 1
                     col = dim % ncols + 1
                     fig.add_trace(go.Scatter(
-                        y=stat["total"], name="total", line=dict(color="#000000"), legendgroup='group0', showlegend=(dim==0)), row=row, col=col)
+                        y=stat["total"], name="total", line=dict(color="#000000"), legendgroup='group0', showlegend=(dim == 0)), row=row, col=col)
                     fig.update_yaxes(type="log", row=row, col=col)
                     for i, (key, value) in enumerate(stat["individual"].items()):
                         label = "{0} → {1}".format(key[0], key[1])
