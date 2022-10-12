@@ -230,12 +230,6 @@ def apply_deltas(x_orig: wp.array(dtype=wp.vec3),
     x_out[tid] = x_new
     v_out[tid] = v_new
 
-    # clear constraint deltas
-    delta[tid] = wp.vec3(0.0)
-
-
-
-
 
 @wp.func
 def positional_correction(
@@ -1683,23 +1677,16 @@ class XPBDIntegrator:
 
         with wp.ScopedTimer("simulate", False):
 
-            particle_q = None
-            particle_qd = None
+            # ----------------------------
+            # handle particles
 
             if (model.particle_count):
+
                 particle_q = wp.zeros_like(state_in.particle_q)
                 particle_qd = wp.zeros_like(state_in.particle_qd)
 
                 # alloc particle force buffer
                 state_out.particle_f.zero_()
-
-            if (not self.contact_con_weighting):
-                model.rigid_contact_inv_weight.zero_()
-
-            # ----------------------------
-            # integrate particles
-
-            if (model.particle_count):
                 wp.launch(kernel=integrate_particles,
                           dim=model.particle_count,
                           inputs=[
@@ -1715,47 +1702,67 @@ class XPBDIntegrator:
                               particle_qd],
                           device=model.device)
 
-            for i in range(self.iterations):
+                for i in range(self.iterations):
 
-                # damped springs
-                if (model.spring_count):
+                    # damped springs
+                    if (model.spring_count):
 
-                    wp.launch(kernel=solve_springs,
-                              dim=model.spring_count,
-                              inputs=[
-                                  state_in.particle_q,
-                                  state_in.particle_qd,
-                                  model.particle_inv_mass,
-                                  model.spring_indices,
-                                  model.spring_rest_length,
-                                  model.spring_stiffness,
-                                  model.spring_damping,
-                                  dt
-                              ],
-                              outputs=[state_out.particle_f],
-                              device=model.device)
+                        if requires_grad:
+                            deltas = wp.clone(state_out.particle_f)
+                        else:
+                            deltas = state_out.particle_f
 
-                # tetrahedral FEM
-                if (model.tet_count):
+                        wp.launch(kernel=solve_springs,
+                                dim=model.spring_count,
+                                inputs=[
+                                    state_in.particle_q,
+                                    state_in.particle_qd,
+                                    model.particle_inv_mass,
+                                    model.spring_indices,
+                                    model.spring_rest_length,
+                                    model.spring_stiffness,
+                                    model.spring_damping,
+                                    dt
+                                ],
+                                outputs=[deltas],
+                                device=model.device)
+                        
+                        state_out.particle_f = deltas
 
-                    wp.launch(kernel=solve_tetrahedra,
-                              dim=model.tet_count,
-                              inputs=[
-                                  particle_q,
-                                  particle_qd,
-                                  model.particle_inv_mass,
-                                  model.tet_indices,
-                                  model.tet_poses,
-                                  model.tet_activations,
-                                  model.tet_materials,
-                                  dt,
-                                  self.soft_body_relaxation
-                              ],
-                              outputs=[state_out.particle_f],
-                              device=model.device)
+                    # tetrahedral FEM
+                    if (model.tet_count):
 
-                if (model.particle_count):
+                        if requires_grad:
+                            deltas = wp.clone(state_out.particle_f)
+                        else:
+                            deltas = state_out.particle_f
+
+                        wp.launch(kernel=solve_tetrahedra,
+                                dim=model.tet_count,
+                                inputs=[
+                                    particle_q,
+                                    particle_qd,
+                                    model.particle_inv_mass,
+                                    model.tet_indices,
+                                    model.tet_poses,
+                                    model.tet_activations,
+                                    model.tet_materials,
+                                    dt,
+                                    self.soft_body_relaxation
+                                ],
+                                outputs=[deltas],
+                                device=model.device)
+                        
+                        state_out.particle_f = deltas
+
                     # apply updates
+                    if requires_grad:
+                        new_particle_q = wp.clone(particle_q)
+                        new_particle_qd = wp.clone(particle_qd)
+                    else:
+                        new_particle_q = particle_q
+                        new_particle_qd = particle_qd
+
                     wp.launch(kernel=apply_deltas,
                             dim=model.particle_count,
                             inputs=[state_in.particle_q,
@@ -1763,13 +1770,18 @@ class XPBDIntegrator:
                                     particle_q,
                                     state_out.particle_f,
                                     dt],
-                            outputs=[particle_q,
-                                    particle_qd],
+                            outputs=[new_particle_q,
+                                    new_particle_qd],
                             device=model.device)
 
-            # rigid bodies
-            # ----------------------------
+                    particle_q = new_particle_q
+                    particle_qd = new_particle_qd
+                    
+                state_out.particle_q = particle_q
+                state_out.particle_qd = particle_qd
 
+            # handle rigid bodies
+            # ----------------------------
             if (model.body_count):
                 if requires_grad:
                     state_out.body_q_prev = state_in.body_q
@@ -1826,13 +1838,8 @@ class XPBDIntegrator:
                     ],
                     device=model.device)
 
-
-                # -------------------------------------
-                # integrate bodies
-
                 for i in range(self.iterations):
                     # print(f"### iteration {i} / {self.iterations-1}")
-                    # state_out.body_deltas.zero_()
 
                     if requires_grad:
                         out_body_q = wp.clone(state_out.body_q)
@@ -1906,8 +1913,8 @@ class XPBDIntegrator:
                         if requires_grad:
                             rigid_contact_inv_weight = wp.zeros_like(model.rigid_contact_inv_weight)
                             rigid_active_contact_distance = wp.zeros_like(model.rigid_active_contact_distance)
-                            rigid_active_contact_point0 = wp.zeros_like(model.rigid_active_contact_point0)
-                            rigid_active_contact_point1 = wp.zeros_like(model.rigid_active_contact_point1)
+                            rigid_active_contact_point0 = wp.empty_like(model.rigid_active_contact_point0, requires_grad=True)
+                            rigid_active_contact_point1 = wp.empty_like(model.rigid_active_contact_point1, requires_grad=True)
                         else:         
                             rigid_contact_inv_weight = model.rigid_contact_inv_weight
                             rigid_active_contact_distance = model.rigid_active_contact_distance
@@ -2081,8 +2088,5 @@ class XPBDIntegrator:
                                 state_out.body_qd
                             ],
                             device=model.device)
-
-            state_out.particle_q = particle_q
-            state_out.particle_qd = particle_qd
 
             return state_out
