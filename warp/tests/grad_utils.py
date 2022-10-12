@@ -509,10 +509,10 @@ def check_backward_pass(func: Callable, plotting: Literal["matplotlib", "plotly"
                         print(f"Nondifferentiable array(s): {[node_labels[p] for p in path if not G.nodes[p]['requires_grad']]}")
                         all_differentiable = False
                 if all_differentiable:
-                    many_overrides = [node for node in path if len(manipulated_nodes[node]) > 1]
-                    if len(many_overrides) > 0:
+                    many_overwrites = [node for node in path if len(manipulated_nodes[node]) > 1]
+                    if len(many_overwrites) > 0:
                         print(f"Warning: multiple kernels manipulate array(s) on path from {node_labels[x.ptr]} to {node_labels[y.ptr]}.")
-                        for node in many_overrides:
+                        for node in many_overwrites:
                             print(f"\tArray {node_labels[node]} is manipulated by kernels [{', '.join([kernel for kernel in manipulated_nodes[node]])}].")
                     else:
                         print(f"Path from {node_labels[x.ptr]} to {node_labels[y.ptr]} is differentiable.")
@@ -535,7 +535,7 @@ def check_backward_pass(func: Callable, plotting: Literal["matplotlib", "plotly"
             node_colors.append("lightgray")
 
     handles = [
-        mpl.patches.Patch(color="salmon", label="multiple overrides"),
+        mpl.patches.Patch(color="salmon", label="multiple overwrites"),
         mpl.patches.Patch(color="lightskyblue", label="requires grad"),
         mpl.patches.Patch(color="lightgray", label="no grad"),
         mpl.patches.Patch(color="yellow", label="kernel"),
