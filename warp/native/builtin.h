@@ -567,16 +567,15 @@ inline CUDA_CALLABLE void adj_acos(float x, float& adj_x, float adj_ret)
 {
     float d = sqrt(1.0f-x*x);
 #if FP_CHECK
-    adj_x -= (1.0f/d)*adj_ret;
-    if (!isfinite(d) || !isfinite(adj_x))
+    if (!isfinite(d) || !isfinite(adj_x) || d == 0.0f)
     {
-        printf("%s:%d - adj_acos(%f, %f, %f)\n", __FILE__, __LINE__, x, adj_x, adj_ret);        
+        float unguarded_adj_x = adj_x - (1.0f/d)*adj_ret;
+        printf("%s:%d - adj_acos(%f, %f, %f)\n", __FILE__, __LINE__, x, unguarded_adj_x, adj_ret);        
         assert(0);
     }
-#else    
+#endif   
     if (d > 0.0f)
         adj_x -= (1.0f/d)*adj_ret;
-#endif
 }
 
 inline CUDA_CALLABLE void adj_asin(float x, float& adj_x, float adj_ret)
