@@ -94,8 +94,12 @@ def simulate(positions: wp.array(dtype=wp.vec3),
 class Example:
 
     def load_volume(self, filename):
-        file = open(filename, "rb")
-        return wp.Volume.load_from_nvdb(file, device=self.device)
+        if os.path.exists(filename):
+            file = open(filename, "rb")
+            return wp.Volume.load_from_nvdb(file, device=self.device)
+        else:
+            print("Could not find NVDB volume at {}, skipping.".format(filename))
+            return None
 
     def load_mesh(self, filename):
         if use_meshio:
