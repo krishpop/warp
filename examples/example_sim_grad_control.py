@@ -297,18 +297,19 @@ class RigidBodySimulator:
         Simulates for the set number of substeps and returns the next state in maximal and (optional) generalized coordinates [body_q_next, body_qd_next, joint_q_next, joint_qd_next].
         """
         if requires_grad:
-            # ground = self.model.ground
-            # self.model = self.builder.finalize(self.device)
-            # self.model.ground = ground
-            # self.requires_grad = requires_grad
-            for name, var in self.model.__dict__.items():
-                if isinstance(var, wp.array):
-                    var.requires_grad = requires_grad
-            self.model.shape_materials.ke.requires_grad = requires_grad
-            self.model.shape_materials.kd.requires_grad = requires_grad
-            self.model.shape_materials.kf.requires_grad = requires_grad
-            self.model.shape_materials.mu.requires_grad = requires_grad
-            self.model.shape_materials.restitution.requires_grad = requires_grad
+            self.model.joint_act.requires_grad = True
+        #     # ground = self.model.ground
+        #     # self.model = self.builder.finalize(self.device)
+        #     # self.model.ground = ground
+        #     # self.requires_grad = requires_grad
+        #     # for name, var in self.model.__dict__.items():
+        #     #     if isinstance(var, wp.array):
+        #     #         var.requires_grad = requires_grad
+        #     self.model.shape_materials.ke.requires_grad = requires_grad
+        #     self.model.shape_materials.kd.requires_grad = requires_grad
+        #     self.model.shape_materials.kf.requires_grad = requires_grad
+        #     self.model.shape_materials.mu.requires_grad = requires_grad
+        #     self.model.shape_materials.restitution.requires_grad = requires_grad
         states = [self.model.state(requires_grad=requires_grad) for _ in range(self.sim_substeps+1)]
 
         if check_diffs:
@@ -360,7 +361,8 @@ class RigidBodySimulator:
         XXX The forward kinematics and inverse kinematics projection steps may lead to known numerical issues where the
         32-bit floating point precision is not sufficient to represent the state updates, leading to a damped/frozen system.
         """
-        # if requires_grad:
+        if requires_grad:
+            self.model.joint_act.requires_grad = True
         #     ground = self.model.ground
         #     self.model = self.builder.finalize(self.device)
         #     self.model.ground = ground
@@ -573,17 +575,17 @@ print("q:  ", q)
 print("qd: ", qd)
 print("tau:", tau)
 
-# q = wp.array(q, dtype=wp.transform, device=sim.device, requires_grad=True)
-# qd = wp.array(qd, dtype=wp.spatial_vector, device=sim.device, requires_grad=True)
-# tau = sim.model.joint_act
-# tau.requires_grad = True
-# out_q = wp.zeros_like(q)
-# out_qd = wp.zeros_like(qd)
-# check_backward_pass(
-#     lambda: sim.warp_step_maximal(q, qd, tau, out_q, out_qd, requires_grad=True),
-#     track_inputs=[q, qd, tau], track_outputs=[out_q, out_qd])
-# import sys
-# sys.exit(0)
+q = wp.array(q, dtype=wp.transform, device=sim.device, requires_grad=True)
+qd = wp.array(qd, dtype=wp.spatial_vector, device=sim.device, requires_grad=True)
+tau = wp.clone(sim.model.joint_act)
+tau.requires_grad = True
+out_q = wp.zeros_like(q)
+out_qd = wp.zeros_like(qd)
+check_backward_pass(
+    lambda: sim.warp_step_maximal(q, qd, tau, out_q, out_qd, requires_grad=True),
+    track_inputs=[q, qd, tau], track_outputs=[out_q, out_qd])
+import sys
+sys.exit(0)
 
 
 if use_maximal:
