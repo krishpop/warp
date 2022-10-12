@@ -1302,6 +1302,8 @@ class Adjoint:
 # code generation
 
 cpu_module_header = '''
+bool WARP_FORWARD_MODE = true;
+
 #include "../native/builtin.h"
 
 // avoid namespacing of float type for casting to float type, this is to avoid wp::float(x), which is not valid in C++
@@ -1316,6 +1318,8 @@ using namespace wp;
 '''
 
 cuda_module_header = '''
+__device__ bool WARP_FORWARD_MODE = true;
+
 #include "../native/builtin.h"
 
 // avoid namespacing of float type for casting to float type, this is to avoid wp::float(x), which is not valid in C++
@@ -1372,6 +1376,7 @@ cuda_kernel_template = '''
 
 extern "C" __global__ void {name}_cuda_kernel_forward({forward_args})
 {{
+    WARP_FORWARD_MODE = true;
     int _idx = blockDim.x * blockIdx.x + threadIdx.x;
     if (_idx >= dim.size) 
         return;
@@ -1383,6 +1388,7 @@ extern "C" __global__ void {name}_cuda_kernel_forward({forward_args})
 
 extern "C" __global__ void {name}_cuda_kernel_backward({reverse_args})
 {{
+    WARP_FORWARD_MODE = false;
     int _idx = blockDim.x * blockIdx.x + threadIdx.x;
     if (_idx >= dim.size) 
         return;
@@ -1434,6 +1440,7 @@ extern "C" {{
 // Python CPU entry points
 WP_API void {name}_cpu_forward({forward_args})
 {{
+    WARP_FORWARD_MODE = true;
     set_launch_bounds(dim);
 
     for (int i=0; i < dim.size; ++i)
@@ -1446,6 +1453,7 @@ WP_API void {name}_cpu_forward({forward_args})
 
 WP_API void {name}_cpu_backward({reverse_args})
 {{
+    WARP_FORWARD_MODE = false;
     set_launch_bounds(dim);
 
     for (int i=0; i < dim.size; ++i)
