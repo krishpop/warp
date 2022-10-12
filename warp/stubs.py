@@ -1309,6 +1309,14 @@ def index(a: mat44, i: int32, j: int32) -> float:
    ...
 
 @overload
+def inc_index(a: array[Any], tid: int32, idx_limit: int32) -> int32:
+   """
+   Atomically increment index array ``value`` and keep track of the given thread ID mapping to this index, so that the backward pass can reuse the same index.
+   If the index is greater than ``idx_limit`` then the returned index will be -1.
+   """
+   ...
+
+@overload
 def expect_eq(arg1: int8, arg2: int8):
    """
    Prints an error to stdout if arg1 and arg2 are not equal

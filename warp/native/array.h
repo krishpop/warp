@@ -309,6 +309,23 @@ template<typename T> inline CUDA_CALLABLE void store(const array_t<T>& buf, int 
     index(buf, i, j, k, l) = value;
 }
 
+template<typename T> inline CUDA_CALLABLE T inc_index(const array_t<T>& buf, int tid, T idx_limit) {
+    if (WARP_FORWARD_MODE) {
+        T next = atomic_add(buf.data, T(1));
+        if (next < idx_limit) {
+            store(buf, tid+1, next);
+            return next;
+        }
+        store(buf, tid+1, T(-1));
+        return T(-1);
+    }
+    return index(buf, tid+1);
+}
+
+template<typename T> inline CUDA_CALLABLE void adj_inc_index(const array_t<T>& buf, int tid, T idx_limit, const array_t<T>& adj_buf, int& adj_tid, const T& adj_idx_limit, const T& adj_output) {
+    
+}
+
 
 // for float and vector types this is just an alias for an atomic add
 template <typename T>
