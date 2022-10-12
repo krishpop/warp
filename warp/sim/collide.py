@@ -486,6 +486,7 @@ def update_rigid_ground_contacts(
     ground_contact_shape: wp.array(dtype=int),
     shape_contact_thickness: wp.array(dtype=float),
     rigid_contact_margin: float,
+    rigid_contact_max: int,
     #outputs
     contact_count: wp.array(dtype=int),
     contact_body0: wp.array(dtype=int),
@@ -513,17 +514,18 @@ def update_rigid_ground_contacts(
     d = wp.dot(p_ref, n) - c
     if (d < thickness + rigid_contact_margin):
         index = wp.atomic_add(contact_count, 0, 1)
-        contact_point0[index] = wp.transform_point(X_bw, p_ref)
-        # project contact point onto ground plane
-        contact_point1[index] = p_ref - n*d
-        contact_body0[index] = body
-        contact_body1[index] = -1
-        contact_offset0[index] = wp.transform_vector(X_bw, -thickness * n)
-        contact_offset1[index] = wp.vec3(0.0)
-        contact_normal[index] = n
-        contact_shape0[index] = shape
-        contact_shape1[index] = -1
-        contact_thickness[index] = thickness
+        if (index < rigid_contact_max):
+            contact_point0[index] = wp.transform_point(X_bw, p_ref)
+            # project contact point onto ground plane
+            contact_point1[index] = p_ref - n*d
+            contact_body0[index] = body
+            contact_body1[index] = -1
+            contact_offset0[index] = wp.transform_vector(X_bw, -thickness * n)
+            contact_offset1[index] = wp.vec3(0.0)
+            contact_normal[index] = n
+            contact_shape0[index] = shape
+            contact_shape1[index] = -1
+            contact_thickness[index] = thickness
 
 
 @wp.kernel
@@ -745,6 +747,7 @@ def collide(model, state, experimental_sdf_collision=False):
                 model.ground_contact_shape0,
                 model.shape_contact_thickness,
                 model.rigid_contact_margin,
+                model.rigid_contact_max,
             ],
             outputs=[
                 model.rigid_contact_count,
