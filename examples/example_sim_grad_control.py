@@ -21,7 +21,7 @@ from typing import List
 import numpy as np
 
 import warp as wp
-# wp.config.mode = "debug"
+wp.config.mode = "debug"
 import warp.sim
 import warp.sim.render
 from warp.tests.grad_utils import *
@@ -82,7 +82,7 @@ class RigidBodySimulator:
     sim_time = 0.0
     render_time = 0.0
 
-    use_single_cartpole = False
+    use_single_cartpole = True
 
     def __init__(self, render=False, num_envs=1, device='cpu'):
 
@@ -211,7 +211,7 @@ class RigidBodySimulator:
         # finalize model
         self.model = builder.finalize(device)
         self.builder = builder
-        self.model.ground = False
+        self.model.ground = True
 
         if self.use_single_cartpole:
             self.model.joint_attach_ke = 40000.0
@@ -230,8 +230,8 @@ class RigidBodySimulator:
             self.model.collide(self.state)
 
         self.solve_iterations = 1
-        self.integrator = wp.sim.XPBDIntegrator(self.solve_iterations, contact_con_weighting=False)
-        # self.integrator = wp.sim.SemiImplicitIntegrator()
+        # self.integrator = wp.sim.XPBDIntegrator(self.solve_iterations, contact_con_weighting=False)
+        self.integrator = wp.sim.SemiImplicitIntegrator()
         # from warp.sim.diff_xpbd import DifferentiableXPBDIntegrator
         # self.integrator = DifferentiableXPBDIntegrator(iterations=self.solve_iterations, contact_con_weighting=False)
         
@@ -298,13 +298,13 @@ class RigidBodySimulator:
         """
         if requires_grad:
             self.model.joint_act.requires_grad = True
-        #     # ground = self.model.ground
-        #     # self.model = self.builder.finalize(self.device)
-        #     # self.model.ground = ground
-        #     # self.requires_grad = requires_grad
-        #     # for name, var in self.model.__dict__.items():
-        #     #     if isinstance(var, wp.array):
-        #     #         var.requires_grad = requires_grad
+            # ground = self.model.ground
+            # self.model = self.builder.finalize(self.device)
+            # self.model.ground = ground
+            self.requires_grad = requires_grad
+            for name, var in self.model.__dict__.items():
+                if isinstance(var, wp.array):
+                    var.requires_grad = requires_grad
         #     self.model.shape_materials.ke.requires_grad = requires_grad
         #     self.model.shape_materials.kd.requires_grad = requires_grad
         #     self.model.shape_materials.kf.requires_grad = requires_grad
@@ -316,8 +316,8 @@ class RigidBodySimulator:
             model_before = self.builder.finalize(self.device)
 
         # assign maximal state coordinates        
-        wp.launch(inplace_assign_transform, dim=self.dof_q, inputs=[body_q], outputs=[states[0].body_q], device=self.device)
-        wp.launch(inplace_assign_spatial_vector, dim=self.dof_qd, inputs=[body_qd], outputs=[states[0].body_qd], device=self.device)
+        wp.launch(inplace_assign_transform, dim=self.num_bodies, inputs=[body_q], outputs=[states[0].body_q], device=self.device)
+        wp.launch(inplace_assign_spatial_vector, dim=self.num_bodies, inputs=[body_qd], outputs=[states[0].body_qd], device=self.device)
 
         # assign input controls as joint torques
         wp.launch(inplace_assign, dim=self.dof_qd, inputs=[tau], outputs=[self.model.joint_act], device=self.device)
@@ -332,8 +332,8 @@ class RigidBodySimulator:
         if joint_q_next is not None and joint_qd_next is not None:
             wp.sim.eval_ik(self.model, states[-1], joint_q_next, joint_qd_next)
             
-        wp.launch(inplace_assign_transform, dim=self.dof_q, inputs=[states[-1].body_q], outputs=[body_q_next], device=self.device)
-        wp.launch(inplace_assign_spatial_vector, dim=self.dof_qd, inputs=[states[-1].body_qd], outputs=[body_qd_next], device=self.device)
+        wp.launch(inplace_assign_transform, dim=self.num_bodies, inputs=[states[-1].body_q], outputs=[body_q_next], device=self.device)
+        wp.launch(inplace_assign_spatial_vector, dim=self.num_bodies, inputs=[states[-1].body_qd], outputs=[body_qd_next], device=self.device)
 
         # if check_diffs:
         #     # check which arrays in model were modified
@@ -553,7 +553,26 @@ class RigidBodySimulator:
 
 np.set_printoptions(precision=16, linewidth=2000, suppress=True)
 
-sim = RigidBodySimulator(render=True, device=wp.get_preferred_device())
+
+if False:
+    # check some kernels
+
+    @wp.kernel
+    def check_transform_point(tf: wp.array(dtype=wp.transform), point: wp.array(dtype=wp.vec3), output: wp.array(dtype=wp.vec3)):
+        tid = wp.tid()
+        output[tid] = wp.transform_point(tf[tid], point[tid])
+    from warp.tests.grad_utils import check_kernel_jacobian
+    for _ in range(10):
+        tf = np.random.randn(1, 7).astype(np.float32)
+        tf[3:] /= np.linalg.norm(tf[3:])
+        point = np.random.randn(1, 3).astype(np.float32)
+        tf = wp.array(tf, dtype=wp.transform, requires_grad=True)
+        point = wp.array(point, dtype=wp.vec3, requires_grad=True)
+        output = wp.zeros_like(point)
+        check_kernel_jacobian(check_transform_point, 1, [tf, point], [output])
+
+# sim = RigidBodySimulator(render=True, device=wp.get_preferred_device())
+sim = RigidBodySimulator(render=True, device="cpu")
 
 use_maximal = True
 if use_maximal:
