@@ -97,6 +97,12 @@ def onehot(dim, i):
     v[i] = 1.0
     return v
 
+def get_device(xs):
+    for x in xs:
+        if isinstance(x, wp.array):
+            return x.device
+    return wp.get_preferred_device()
+
 
 def kernel_jacobian(kernel: wp.Kernel, dim: int, inputs: List[wp.array], outputs: List[wp.array], max_outputs_per_var=-1):
     """
@@ -115,13 +121,15 @@ def kernel_jacobian(kernel: wp.Kernel, dim: int, inputs: List[wp.array], outputs
 
     diff_inputs = create_diff_copies(inputs)
     diff_outputs = create_diff_copies(outputs)
+    device = get_device(inputs + outputs)
     tape = wp.Tape()
     with tape:
         wp.launch(
             kernel=kernel,
             dim=dim,
             inputs=diff_inputs,
-            outputs=diff_outputs)
+            outputs=diff_outputs,
+            device=device)
     tape.zero()
 
     row_id = 0
@@ -168,12 +176,13 @@ def kernel_jacobian_fd(kernel: wp.Kernel, dim: int, inputs: List[wp.array], outp
 
     diff_inputs = create_diff_copies(inputs, require_grad=False)
     diff_inputs2 = create_diff_copies(inputs, require_grad=False)
+    device = get_device(inputs + outputs)
 
     def f(xs):
         # make copy of output arrays, because some kernels may modify them in-place
         diff_outputs = create_diff_copies(outputs)
         # call the kernel without taping for finite differences
-        wp.launch(kernel, dim=dim, inputs=xs, outputs=diff_outputs)
+        wp.launch(kernel, dim=dim, inputs=xs, outputs=diff_outputs, device=device)
         return flatten_arrays(diff_outputs)
 
     # compute numerical Jacobian
@@ -373,21 +382,21 @@ def check_kernel_jacobian(kernel: Callable, dim: Tuple[int], inputs: List, outpu
         axs[0].imshow(jac_ad)
         axs[0].set_title("Analytical")
         axs[0].set_xticks(input_ticks)
-        axs[0].set_xticklabels(input_ticks_labels, rotation=90)
+        axs[0].set_xticklabels([f"{label} ({tick})" for label, tick in zip(input_ticks_labels, input_ticks)], rotation=90)
         axs[0].set_yticks(output_ticks)
-        axs[0].set_yticklabels(output_ticks_labels)
+        axs[0].set_yticklabels([f"{label} ({tick})" for label, tick in zip(output_ticks_labels, output_ticks)])
         axs[1].imshow(jac_fd)
         axs[1].set_title("Finite Difference")
         axs[1].set_xticks(input_ticks)
-        axs[1].set_xticklabels(input_ticks_labels, rotation=90)
+        axs[1].set_xticklabels([f"{label} ({tick})" for label, tick in zip(input_ticks_labels, input_ticks)], rotation=90)
         axs[1].set_yticks(output_ticks)
-        axs[1].set_yticklabels(output_ticks_labels)
+        axs[1].set_yticklabels([f"{label} ({tick})" for label, tick in zip(output_ticks_labels, output_ticks)])
         axs[2].imshow(jac_ad - jac_fd)
         axs[2].set_title("Difference")
         axs[2].set_xticks(input_ticks)
-        axs[2].set_xticklabels(input_ticks_labels, rotation=90)
+        axs[2].set_xticklabels([f"{label} ({tick})" for label, tick in zip(input_ticks_labels, input_ticks)], rotation=90)
         axs[2].set_yticks(output_ticks)
-        axs[2].set_yticklabels(output_ticks_labels)
+        axs[2].set_yticklabels([f"{label} ({tick})" for label, tick in zip(output_ticks_labels, output_ticks)])
         plt.show()
 
     return result, stats
@@ -409,7 +418,7 @@ def make_struct_of_arrays(xs):
     return total
 
 
-def check_backward_pass(func: Callable, visualize_graph=True, plotting: Literal["matplotlib", "plotly", "none"] = "plotly", track_inputs=[], track_outputs=[], track_input_names=[], track_output_names=[]):
+def check_backward_pass(func: Callable, visualize_graph=True, plotting: Literal["matplotlib", "plotly", "none"] = "matplotlib", track_inputs=[], track_outputs=[], track_input_names=[], track_output_names=[]):
     """
     Checks that the backward pass of a function involving Warp kernel launches.
     """
@@ -602,13 +611,13 @@ def check_backward_pass(func: Callable, visualize_graph=True, plotting: Literal[
     hide_non_arrays = True
     for launch in tape.launches:
         kernel, dim, inputs, outputs, device = tuple(launch)
-        # print(f"Checking backward pass of {kernel.key}...")
-        # result, kernel_stats = check_kernel_jacobian(
-        #     kernel, dim, inputs, outputs)
-        # print(result)
-        # if kernel.key not in stats:
-        #     stats[kernel.key] = defaultdict(list)
-        # add_to_struct_of_arrays(kernel_stats, stats[kernel.key])
+        print(f"Checking backward pass of {kernel.key}...")
+        result, kernel_stats = check_kernel_jacobian(
+            kernel, dim, inputs, outputs, plot_jac_on_fail=True, atol=1.0)
+        print(result)
+        if kernel.key not in stats:
+            stats[kernel.key] = defaultdict(list)
+        add_to_struct_of_arrays(kernel_stats, stats[kernel.key])
 
         kernel_names.add(kernel.key)
 
@@ -682,12 +691,12 @@ def check_backward_pass(func: Callable, visualize_graph=True, plotting: Literal[
 
     # print(chart)
 
-    import dash
-    from dash_extensions import Mermaid
-    app = dash.Dash()
-    app.layout = Mermaid(chart=chart)
+    # import dash
+    # from dash_extensions import Mermaid
+    # app = dash.Dash()
+    # app.layout = Mermaid(chart=chart)
 
-    app.run_server()
+    # app.run_server()
 
     # plot evolution of Jacobian statistics
     if plotting == "matplotlib":
