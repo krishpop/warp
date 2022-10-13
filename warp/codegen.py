@@ -338,7 +338,7 @@ class Adjoint:
         if skip_replay == False:
 
             if (replay):
-                # if custom replay specified the output it
+                # if custom replay specified then output it
                 adj.blocks[-1].body_replay.append(adj.prefix + replay)
             else:
                 # by default just replay the original statement

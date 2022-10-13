@@ -513,8 +513,8 @@ def update_rigid_ground_contacts(
     c = ground_plane[3]  # ground plane offset
     d = wp.dot(p_ref, n) - c
     if (d < thickness + rigid_contact_margin):
-        index = wp.atomic_add(contact_count, 0, 1)
-        if (index < rigid_contact_max):
+        index = wp.inc_index(contact_count, tid, rigid_contact_max)
+        if (index >= 0):
             contact_point0[index] = wp.transform_point(X_bw, p_ref)
             # project contact point onto ground plane
             contact_point1[index] = p_ref - n*d
@@ -669,9 +669,9 @@ def create_mesh_sdf_contacts(
 
         if (d < thickness + rigid_contact_margin):
             # increment contact count
-            index = wp.atomic_add(contact_count, 0, 1)
+            index = wp.inc_index(contact_count, tid, contact_max)
 
-            if (index < contact_max):
+            if (index >= 0):
                 err = d - thickness
 
                 # mesh collision
