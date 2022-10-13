@@ -27,9 +27,11 @@
 #if !defined(__CUDACC__)
     #define CUDA_CALLABLE
     #define CUDA_CALLABLE_DEVICE
+    bool WARP_FORWARD_MODE;
 #else
     #define CUDA_CALLABLE __host__ __device__ 
     #define CUDA_CALLABLE_DEVICE __device__
+    __device__ bool WARP_FORWARD_MODE;
 #endif
 
 #ifdef WP_VERIFY_FP

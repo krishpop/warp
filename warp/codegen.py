@@ -1302,8 +1302,6 @@ class Adjoint:
 # code generation
 
 cpu_module_header = '''
-bool WARP_FORWARD_MODE = true;
-
 #include "../native/builtin.h"
 
 // avoid namespacing of float type for casting to float type, this is to avoid wp::float(x), which is not valid in C++
@@ -1318,8 +1316,6 @@ using namespace wp;
 '''
 
 cuda_module_header = '''
-__device__ bool WARP_FORWARD_MODE = true;
-
 #include "../native/builtin.h"
 
 // avoid namespacing of float type for casting to float type, this is to avoid wp::float(x), which is not valid in C++
