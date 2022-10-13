@@ -8,8 +8,6 @@
 
 #pragma once
 
-bool WARP_FORWARD_MODE = true;
-
 // defines all crt + builtin types
 #include "builtin.h"
 
