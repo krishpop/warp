@@ -62,10 +62,14 @@ class StructInstance:
     def __setattr__(self, name, value):
         assert name in self._struct_.vars, "invalid struct member variable {}".format(name)
         if isinstance(self._struct_.vars[name].type, array):
-            # wp.array
-            assert isinstance(value, array)
-            assert value.dtype == self._struct_.vars[name].type.dtype, "assign to struct member variable {} failed, expected type {}, got type {}".format(name, self._struct_.vars[name].type.dtype, value.dtype)
-            setattr(self._c_struct_, name, value.__ctype__())
+            if value is None:
+                # create array with null pointer
+                setattr(self._c_struct_, name, array_t())
+            else:                    
+                # wp.array
+                assert isinstance(value, array)
+                assert value.dtype == self._struct_.vars[name].type.dtype, "assign to struct member variable {} failed, expected type {}, got type {}".format(name, self._struct_.vars[name].type.dtype, value.dtype)
+                setattr(self._c_struct_, name, value.__ctype__())
         elif issubclass(self._struct_.vars[name].type, ctypes.Array):
             # array type e.g. vec3
             setattr(self._c_struct_, name, self._struct_.vars[name].type(*value))
@@ -334,7 +338,7 @@ class Adjoint:
         if skip_replay == False:
 
             if (replay):
-                # if custom replay specified the output it
+                # if custom replay specified then output it
                 adj.blocks[-1].body_replay.append(adj.prefix + replay)
             else:
                 # by default just replay the original statement
@@ -436,19 +440,20 @@ class Adjoint:
 
         if resolved_func == None:
             
-            arg_types = ""
+            arg_types = []
 
             for x in inputs:
                 if isinstance(x, Var):
+                    # shorten Warp primitive type names
                     if x.type.__module__ == "warp.types":
-                        arg_types += x.type.__name__ + ", "
+                        arg_types.append(x.type.__name__)
                     else:
-                        arg_types += x.type.__module__ + "." + x.type.__name__ + ", "
+                        arg_types.append(x.type.__module__ + "." + x.type.__name__)
                 
                 if isinstance(x, warp.context.Function):
-                    arg_types += "function" + ", "
+                    arg_types.append("function")
 
-            raise Exception(f"Couldn't find function overload for '{func.key}' that matched inputs with types: {arg_types}")
+            raise Exception(f"Couldn't find function overload for '{func.key}' that matched inputs with types: [{', '.join(arg_types)}]")
 
         else:
             func = resolved_func
@@ -686,9 +691,8 @@ class Adjoint:
 
     def eval(adj, node):
 
-        # try:
         if hasattr(node, "lineno"):
-            adj.set_lineno(node.lineno-1)                
+            adj.set_lineno(node.lineno-1)
 
         # top level entry point for a function
         if (isinstance(node, ast.FunctionDef)):
@@ -705,7 +709,7 @@ class Adjoint:
             return out
 
         # if statement
-        elif (isinstance(node, ast.If)):         
+        elif (isinstance(node, ast.If)):
 
             if len(node.body) == 0:
                 return None
@@ -907,7 +911,7 @@ class Adjoint:
             for s in node.body:
                 adj.eval(s)
 
-                            # detect symbols with conflicting definitions (assigned inside the for loop)
+            # detect symbols with conflicting definitions (assigned inside the for loop)
             for items in symbols_prev.items():
 
                 sym = items[0]
@@ -1088,7 +1092,7 @@ class Adjoint:
             return out
 
         elif (isinstance(node, ast.Index)):
-            # the ast.Index node appears in 3.7 versions 
+            # the ast.Index node appears in 3.7 versions
             # when performing array slices, e.g.: x = arr[i]
             # but in version 3.8 and higher it does not appear
             return adj.eval(node.value)
@@ -1136,7 +1140,7 @@ class Adjoint:
             if (isinstance(node.targets[0], ast.Tuple)):
 
                 # record the expected number of outputs on the node
-                # we do this so we can decide which function to 
+                # we do this so we can decide which function to
                 # call based on the number of expected outputs
                 if isinstance(node.value, ast.Call):
                     node.value.expects = len(node.targets[0].elts)
@@ -1186,7 +1190,7 @@ class Adjoint:
                 else:
                     # simple expression, e.g.: x[i]
                     var = adj.eval(slice)
-                    indices.append(var)                    
+                    indices.append(var)
 
                 if (isinstance(target.type, array)):
                     adj.add_call(warp.context.builtin_functions["store"], [target, *indices, value])
@@ -1198,7 +1202,7 @@ class Adjoint:
             elif (isinstance(node.targets[0], ast.Name)):
 
                 # symbol name
-                name = node.targets[0].id 
+                name = node.targets[0].id
 
                 # evaluate rhs
                 rhs = adj.eval(node.value)
@@ -1221,7 +1225,7 @@ class Adjoint:
                 return out
 
         elif (isinstance(node, ast.Return)):
-            cond = adj.cond  
+            cond = adj.cond
 
             out = adj.eval(node.value)
             adj.symbols['return'] = out
@@ -1242,7 +1246,7 @@ class Adjoint:
             left = adj.eval(node.target)
             right = adj.eval(node.value)
 
-            # lookup 
+            # lookup
             name = builtin_operators[type(node.op)]
             func = warp.context.builtin_functions[name]
 
@@ -1266,12 +1270,6 @@ class Adjoint:
         else:
             raise Exception("Error, ast node of type {} not supported".format(type(node)))
 
-        # except Exception as e:
-
-        #     # print error / line number
-        #     lines = adj.source.splitlines()
-        #     print("Error: {} while transforming node {} in func: {} at line: {} col: {}: \n    {}".format(e, type(node), adj.func.__name__, node.lineno, node.col_offset, lines[max(node.lineno-1, 0)]))
-        #     raise
 
 
     # helper to evaluate expressions of the form
@@ -1304,6 +1302,8 @@ class Adjoint:
 # code generation
 
 cpu_module_header = '''
+bool WARP_FORWARD_MODE = true;
+
 #include "../native/builtin.h"
 
 // avoid namespacing of float type for casting to float type, this is to avoid wp::float(x), which is not valid in C++
@@ -1318,6 +1318,8 @@ using namespace wp;
 '''
 
 cuda_module_header = '''
+__device__ bool WARP_FORWARD_MODE = true;
+
 #include "../native/builtin.h"
 
 // avoid namespacing of float type for casting to float type, this is to avoid wp::float(x), which is not valid in C++
@@ -1374,6 +1376,7 @@ cuda_kernel_template = '''
 
 extern "C" __global__ void {name}_cuda_kernel_forward({forward_args})
 {{
+    WARP_FORWARD_MODE = true;
     int _idx = blockDim.x * blockIdx.x + threadIdx.x;
     if (_idx >= dim.size) 
         return;
@@ -1385,6 +1388,7 @@ extern "C" __global__ void {name}_cuda_kernel_forward({forward_args})
 
 extern "C" __global__ void {name}_cuda_kernel_backward({reverse_args})
 {{
+    WARP_FORWARD_MODE = false;
     int _idx = blockDim.x * blockIdx.x + threadIdx.x;
     if (_idx >= dim.size) 
         return;
@@ -1436,6 +1440,7 @@ extern "C" {{
 // Python CPU entry points
 WP_API void {name}_cpu_forward({forward_args})
 {{
+    WARP_FORWARD_MODE = true;
     set_launch_bounds(dim);
 
     for (int i=0; i < dim.size; ++i)
@@ -1448,6 +1453,7 @@ WP_API void {name}_cpu_forward({forward_args})
 
 WP_API void {name}_cpu_backward({reverse_args})
 {{
+    WARP_FORWARD_MODE = false;
     set_launch_bounds(dim);
 
     for (int i=0; i < dim.size; ++i)

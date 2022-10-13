@@ -111,15 +111,16 @@ class Robot:
         profiler = {}
 
         # create update graph
-        wp.capture_begin()
+        # wp.capture_begin()
 
-        # simulate
-        for i in range(0, self.sim_substeps):
-            self.state.clear_forces()
-            self.state = self.integrator.simulate(self.model, self.state, self.state, self.sim_dt)
-            self.sim_time += self.sim_dt
+        # # simulate
+        # for i in range(0, self.sim_substeps):
+        #     self.state.clear_forces()
+        #     wp.sim.collide(self.model, self.state)
+        #     self.state = self.integrator.simulate(self.model, self.state, self.state, self.sim_dt)
+        #     self.sim_time += self.sim_dt
                 
-        graph = wp.capture_end()
+        # graph = wp.capture_end()
 
 
         # simulate 
@@ -143,6 +144,7 @@ class Robot:
                 
                 for i in range(0, self.sim_substeps):
                     self.state.clear_forces()
+                    wp.sim.collide(self.model, self.state)
                     
                     random_actions = False
                     

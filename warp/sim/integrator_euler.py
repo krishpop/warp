@@ -28,7 +28,7 @@ def integrate_particles(x: wp.array(dtype=wp.vec3),
                         v: wp.array(dtype=wp.vec3),
                         f: wp.array(dtype=wp.vec3),
                         w: wp.array(dtype=float),
-                        gravity: wp.vec3,
+                        gravity: wp.array(dtype=float),
                         dt: float,
                         x_new: wp.array(dtype=wp.vec3),
                         v_new: wp.array(dtype=wp.vec3)):
@@ -41,8 +41,9 @@ def integrate_particles(x: wp.array(dtype=wp.vec3),
 
     inv_mass = w[tid]
 
+    g = wp.vec3(gravity[0], gravity[1], gravity[2])
     # simple semi-implicit Euler. v1 = v0 + a dt, x1 = x0 + v1 dt
-    v1 = v0 + (f0 * inv_mass + gravity * wp.step(0.0 - inv_mass)) *dt
+    v1 = v0 + (f0 * inv_mass + g * wp.step(0.0 - inv_mass)) *dt
     x1 = x0 + v1 * dt
 
     x_new[tid] = x1
@@ -782,7 +783,7 @@ def eval_tetrahedra(x: wp.array(dtype=wp.vec3),
 
 
 @wp.kernel
-def eval_contacts(particle_x: wp.array(dtype=wp.vec3), particle_v: wp.array(dtype=wp.vec3), ke: float, kd: float, kf: float, mu: float, offset: float, ground: wp.vec4, f: wp.array(dtype=wp.vec3)):
+def eval_contacts(particle_x: wp.array(dtype=wp.vec3), particle_v: wp.array(dtype=wp.vec3), ke: float, kd: float, kf: float, mu: float, offset: float, ground: wp.array(dtype=float), f: wp.array(dtype=wp.vec3)):
 
     tid = wp.tid()           
 
@@ -1366,7 +1367,7 @@ def eval_muscles(
         compute_muscle_force(i, body_X_s, body_v_s, body_com, muscle_links, muscle_points, activation, body_f_s)
     
 
-def compute_forces(model, state, particle_f, body_f):
+def compute_forces(model, state, particle_f, body_f, requires_grad):
 
     # damped springs
     if (model.spring_count):
@@ -1452,30 +1453,6 @@ def compute_forces(model, state, particle_f, body_f):
                   device=model.device)
 
     if (model.body_count):
-
-        if (hasattr(state, "rigid_contact_count")):
-            contact_vars = [
-                state.rigid_contact_count,
-                state.rigid_contact_body0,
-                state.rigid_contact_body1,
-                state.rigid_contact_point0,
-                state.rigid_contact_point1,
-                state.rigid_contact_normal,
-                state.rigid_contact_shape0,
-                state.rigid_contact_shape1,
-            ]
-        else:
-            contact_vars = [
-                model.rigid_contact_count,
-                model.rigid_contact_body0,
-                model.rigid_contact_body1,
-                model.rigid_contact_point0,
-                model.rigid_contact_point1,
-                model.rigid_contact_normal,
-                model.rigid_contact_shape0,
-                model.rigid_contact_shape1,
-            ]
-
         wp.launch(kernel=eval_rigid_contacts,
                   dim=model.rigid_contact_max,
                   inputs=[
@@ -1483,14 +1460,22 @@ def compute_forces(model, state, particle_f, body_f):
                       state.body_qd,
                       model.body_com,
                       model.shape_materials,
-                      model.shape_contact_thickness,
-                      *contact_vars
+                      model.shape_contact_thickness,                      
+                      model.rigid_contact_count,
+                      model.rigid_contact_body0,
+                      model.rigid_contact_body1,
+                      model.rigid_contact_point0,
+                      model.rigid_contact_point1,
+                      model.rigid_contact_normal,
+                      model.rigid_contact_shape0,
+                      model.rigid_contact_shape1,
                   ],
                   outputs=[
                       body_f
                   ],
                   device=model.device)
 
+        out_body_f = wp.clone(body_f)
         wp.launch(kernel=eval_body_joints,
                   dim=model.body_count,
                   inputs=[
@@ -1516,9 +1501,10 @@ def compute_forces(model, state, particle_f, body_f):
                       model.joint_attach_kd,
                   ],
                   outputs=[
-                      body_f
+                      out_body_f
                   ],
                   device=model.device)
+        body_f = out_body_f
 
     # particle shape contact
     if (model.particle_count and model.shape_count):
@@ -1606,7 +1592,8 @@ def compute_forces(model, state, particle_f, body_f):
     #         device=model.device,
     #         preserve_output=True)
 
-
+    state.particle_f = particle_f
+    state.body_f = body_f
 
 
 
@@ -1636,7 +1623,7 @@ class SemiImplicitIntegrator:
         self.angular_damping = angular_damping
 
 
-    def simulate(self, model, state_in, state_out, dt):
+    def simulate(self, model, state_in, state_out, dt, requires_grad=False):
 
         with wp.ScopedTimer("simulate", False):
 
@@ -1649,7 +1636,7 @@ class SemiImplicitIntegrator:
             if state_in.body_count:
                 body_f = state_in.body_f
 
-            compute_forces(model, state_in, particle_f, body_f)
+            compute_forces(model, state_in, particle_f, body_f, requires_grad=requires_grad)
 
             #-------------------------------------
             # integrate bodies
@@ -1814,7 +1801,7 @@ class VariationalImplicitIntegrator:
         # allocate temporary space for evaluating particle forces
         self.particle_f = wp.zeros(model.particle_count, dtype=wp.vec3, device=model.device)
 
-    def simulate(self, model, state_in, state_out, dt): 
+    def simulate(self, model, state_in, state_out, dt, requires_grad=False): 
 
         if (state_in is state_out):
             raise RuntimeError("Implicit integrators require state objects to not alias each other")

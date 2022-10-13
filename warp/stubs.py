@@ -368,6 +368,20 @@ def length_sq (x: vec3) -> float:
    ...
 
 @overload
+def length_sq (x: vec4) -> float:
+   """
+   Compute the squared length of a 4d vector.
+   """
+   ...
+
+@overload
+def length_sq (x: quat) -> float:
+   """
+   Compute the squared length of a quaternion.
+   """
+   ...
+
+@overload
 def transpose(m: mat22) -> mat22:
    """
    Return the transpose of the matrix m
@@ -1291,6 +1305,14 @@ def index(a: mat44, i: int32) -> vec4:
 def index(a: mat44, i: int32, j: int32) -> float:
    """
 
+   """
+   ...
+
+@overload
+def inc_index(a: array[Any], tid: int32, idx_limit: int32) -> int32:
+   """
+   Atomically increment index array ``value`` and keep track of the given thread ID mapping to this index, so that the backward pass can reuse the same index.
+   If the index is greater than ``idx_limit`` then the returned index will be -1.
    """
    ...
 

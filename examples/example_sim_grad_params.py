@@ -25,12 +25,12 @@ import numpy as np
 from tqdm import trange
 
 import warp as wp
-# wp.config.mode = "debug"
+wp.config.mode = "debug"
 import warp.sim
 import warp.sim.render
 
 
-# wp.config.verify_fp = True
+wp.config.verify_fp = True
 wp.init()
 
 @wp.kernel
@@ -128,24 +128,24 @@ class CubeSlopeSim:
 
             body_id = builder.add_body(
                 origin=wp.transform((-10.0, 5.0, 0.0), rot))
-            builder.add_shape_box(
-                body=body_id,
-                hx=hx,
-                hy=hy,
-                hz=hz,
-                density=density,
-                ke=2.e+3,
-                kd=0.0,
-                mu=0.2,
-                restitution=0.0)
-            # builder.add_shape_sphere(
+            # builder.add_shape_box(
             #     body=body_id,
-            #     radius=hx,
+            #     hx=hx,
+            #     hy=hy,
+            #     hz=hz,
             #     density=density,
             #     ke=2.e+3,
             #     kd=0.0,
             #     mu=0.2,
             #     restitution=0.0)
+            builder.add_shape_sphere(
+                body=body_id,
+                radius=hx,
+                density=density,
+                ke=2.e+3,
+                kd=0.0,
+                mu=0.2,
+                restitution=0.0)
 
         # finalize model
         self.model = builder.finalize(self.device)
@@ -153,6 +153,7 @@ class CubeSlopeSim:
 
         self.integrator = wp.sim.SemiImplicitIntegrator()
         # self.integrator = wp.sim.XPBDIntegrator(iterations=1, contact_con_weighting=False)
+
         self.loss = wp.zeros(self.num_envs*3, dtype=wp.float32,
                              device=self.device, requires_grad=True)
 
@@ -170,8 +171,7 @@ class CubeSlopeSim:
         #         requires_grad=False, require_contact_grads=False)
         self.states = []
         for t in trange(self.episode_frames*self.sim_substeps+1, desc="Allocating states"):
-            self.states.append(self.model.state(
-                requires_grad=compute_grad, require_contact_grads=compute_grad))
+            self.states.append(self.model.state(requires_grad=compute_grad))
 
         # XXX set parameters here without applying any operations until we tape the simulation
         self.model.body_mass = wp.array(inputs.detach().cpu().numpy(

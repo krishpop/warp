@@ -8,12 +8,11 @@
 """A module for building simulation models and state.
 """
 
-from operator import pos
-from warp.sim.articulation import eval_articulation_fk
 import warp as wp
 
 import math
 import numpy as np
+import copy
 
 from typing import Tuple
 from typing import List
@@ -360,7 +359,7 @@ class Model:
 
         self.device = wp.get_device(device)
 
-    def state(self, requires_grad=False, require_contact_grads=False) -> State:
+    def state(self, requires_grad=False) -> State:
         """Returns a state object for the model
 
         The returned state will be initialized with the initial configuration given in
@@ -418,36 +417,37 @@ class Model:
 
         return s
 
-    def allocate_soft_contacts(self, count=None):        
+    def allocate_soft_contacts(self, count=None, requires_grad=False):        
         if count is not None:
             self.soft_contact_max = count
         self.soft_contact_count = wp.zeros(1, dtype=wp.int32, device=self.device)
         self.soft_contact_particle = wp.zeros(self.soft_contact_max, dtype=int, device=self.device)
         self.soft_contact_body = wp.zeros(self.soft_contact_max, dtype=int, device=self.device)
-        self.soft_contact_body_pos = wp.zeros(self.soft_contact_max, dtype=wp.vec3, device=self.device)
-        self.soft_contact_body_vel = wp.zeros(self.soft_contact_max, dtype=wp.vec3, device=self.device)
-        self.soft_contact_normal = wp.zeros(self.soft_contact_max, dtype=wp.vec3, device=self.device)
+        self.soft_contact_body_pos = wp.zeros(self.soft_contact_max, dtype=wp.vec3, device=self.device, requires_grad=requires_grad)
+        self.soft_contact_body_vel = wp.zeros(self.soft_contact_max, dtype=wp.vec3, device=self.device, requires_grad=requires_grad)
+        self.soft_contact_normal = wp.zeros(self.soft_contact_max, dtype=wp.vec3, device=self.device, requires_grad=requires_grad)
 
-    def allocate_rigid_contacts(self, count=None):
+    def allocate_rigid_contacts(self, count=None, requires_grad=False):
         if count is not None:
             self.rigid_contact_max = count
-        self.rigid_contact_count = wp.zeros(1, dtype=wp.int32, device=self.device)
+        # serves as counter and mapping from thread ID to contact ID (for a correct backward pass)
+        self.rigid_contact_count = wp.zeros(self.rigid_contact_max+1, dtype=wp.int32, device=self.device)
         self.rigid_contact_body0 = wp.zeros(self.rigid_contact_max, dtype=wp.int32, device=self.device)
         self.rigid_contact_body1 = wp.zeros(self.rigid_contact_max, dtype=wp.int32, device=self.device)
-        self.rigid_contact_point0 = wp.zeros(self.rigid_contact_max, dtype=wp.vec3, device=self.device)
-        self.rigid_contact_point1 = wp.zeros(self.rigid_contact_max, dtype=wp.vec3, device=self.device)
-        self.rigid_contact_offset0 = wp.zeros(self.rigid_contact_max, dtype=wp.vec3, device=self.device)
-        self.rigid_contact_offset1 = wp.zeros(self.rigid_contact_max, dtype=wp.vec3, device=self.device)
-        self.rigid_contact_normal = wp.zeros(self.rigid_contact_max, dtype=wp.vec3, device=self.device)
-        self.rigid_contact_thickness = wp.zeros(self.rigid_contact_max, dtype=wp.float32, device=self.device)
+        self.rigid_contact_point0 = wp.zeros(self.rigid_contact_max, dtype=wp.vec3, device=self.device, requires_grad=requires_grad)
+        self.rigid_contact_point1 = wp.zeros(self.rigid_contact_max, dtype=wp.vec3, device=self.device, requires_grad=requires_grad)
+        self.rigid_contact_offset0 = wp.zeros(self.rigid_contact_max, dtype=wp.vec3, device=self.device, requires_grad=requires_grad)
+        self.rigid_contact_offset1 = wp.zeros(self.rigid_contact_max, dtype=wp.vec3, device=self.device, requires_grad=requires_grad)
+        self.rigid_contact_normal = wp.zeros(self.rigid_contact_max, dtype=wp.vec3, device=self.device, requires_grad=requires_grad)
+        self.rigid_contact_thickness = wp.zeros(self.rigid_contact_max, dtype=wp.float32, device=self.device, requires_grad=requires_grad)
         self.rigid_contact_shape0 = wp.zeros(self.rigid_contact_max, dtype=wp.int32, device=self.device)
         self.rigid_contact_shape1 = wp.zeros(self.rigid_contact_max, dtype=wp.int32, device=self.device)
-        self.rigid_active_contact_point0 = wp.zeros(self.rigid_contact_max, dtype=wp.vec3, device=self.device)
-        self.rigid_active_contact_point1 = wp.zeros(self.rigid_contact_max, dtype=wp.vec3, device=self.device)
-        self.rigid_active_contact_distance = wp.zeros(self.rigid_contact_max, dtype=wp.float32, device=self.device)
-        self.rigid_active_contact_distance_prev = wp.zeros(self.rigid_contact_max, dtype=wp.float32, device=self.device)
+        self.rigid_active_contact_point0 = wp.zeros(self.rigid_contact_max, dtype=wp.vec3, device=self.device, requires_grad=requires_grad)
+        self.rigid_active_contact_point1 = wp.zeros(self.rigid_contact_max, dtype=wp.vec3, device=self.device, requires_grad=requires_grad)
+        self.rigid_active_contact_distance = wp.zeros(self.rigid_contact_max, dtype=wp.float32, device=self.device, requires_grad=requires_grad)
+        self.rigid_active_contact_distance_prev = wp.zeros(self.rigid_contact_max, dtype=wp.float32, device=self.device, requires_grad=requires_grad)
         # number of contact constraints per rigid body (used for scaling the constraint contributions)
-        self.rigid_contact_inv_weight = wp.zeros(len(self.body_q), dtype=wp.float32, device=self.device)
+        self.rigid_contact_inv_weight = wp.zeros(len(self.body_q), dtype=wp.float32, device=self.device, requires_grad=requires_grad)
 
     def flatten(self):
         """Returns a list of Tensors stored by the model
@@ -1019,6 +1019,8 @@ class ModelBuilder:
     # shapes
     def add_shape_plane(self,
                         plane: Vec4=(0.0, 1.0, 0.0, 0.0),
+                        width: float=10.0,
+                        length: float=10.0,
                         ke: float=default_shape_ke,
                         kd: float=default_shape_kd,
                         kf: float=default_shape_kf,
@@ -1026,7 +1028,7 @@ class ModelBuilder:
                         restitution: float=default_shape_restitution):
         """Adds a plane collision shape
 
-        Args:
+        Args: 
             plane: The plane equation in form a*x + b*y + c*z + d = 0
             ke: The contact elastic stiffness
             kd: The contact damping stiffness
@@ -1035,6 +1037,8 @@ class ModelBuilder:
             restitution: The coefficient of restitution
 
         """
+
+        # TODO find transform so that normal is (0, 1, 0) and origin is (0, 0, 0), and use (width, length, 0) as scale
         self._add_shape(-1, (0.0, 0.0, 0.0), (0.0, 0.0, 0.0), GEO_PLANE, plane, None, 0.0, ke, kd, kf, mu, restitution)
 
     def add_shape_sphere(self,
@@ -2051,9 +2055,10 @@ class ModelBuilder:
             # muscles
 
             # close the muscle waypoint indices
-            self.muscle_start.append(len(self.muscle_bodies))
+            muscle_start = copy.copy(self.muscle_start)
+            muscle_start.append(len(self.muscle_bodies))
 
-            m.muscle_start = wp.array(self.muscle_start, dtype=wp.int32)
+            m.muscle_start = wp.array(muscle_start, dtype=wp.int32)
             m.muscle_params = wp.array(self.muscle_params, dtype=wp.float32)
             m.muscle_bodies = wp.array(self.muscle_bodies, dtype=wp.int32)
             m.muscle_points = wp.array(self.muscle_points, dtype=wp.vec3)
@@ -2098,17 +2103,21 @@ class ModelBuilder:
             m.joint_angular_compliance = wp.array(self.joint_angular_compliance, dtype=wp.float32)
 
             # 'close' the start index arrays with a sentinel value
-            self.joint_q_start.append(self.joint_coord_count)
-            self.joint_qd_start.append(self.joint_dof_count)
-            self.articulation_start.append(self.joint_count)
+            joint_q_start = copy.copy(self.joint_q_start)
+            joint_q_start.append(self.joint_coord_count)
+            joint_qd_start = copy.copy(self.joint_qd_start)
+            joint_qd_start.append(self.joint_dof_count)
+            articulation_start = copy.copy(self.articulation_start)
+            articulation_start.append(self.joint_count)
 
-            m.joint_q_start = wp.array(self.joint_q_start, dtype=int) 
-            m.joint_qd_start = wp.array(self.joint_qd_start, dtype=int)
-            m.articulation_start = wp.array(self.articulation_start, dtype=int)
+            m.joint_q_start = wp.array(joint_q_start, dtype=int) 
+            m.joint_qd_start = wp.array(joint_qd_start, dtype=int)
+            m.articulation_start = wp.array(articulation_start, dtype=int)
 
             # contacts
-            m.allocate_soft_contacts(64*1024)            
-            m.allocate_rigid_contacts(self.num_envs * 4096)
+            m.allocate_soft_contacts(64*1024)        
+            # TODO reset  
+            m.allocate_rigid_contacts(64*self.num_envs)
             m.rigid_contact_margin = self.rigid_contact_margin            
             m.rigid_contact_torsional_friction = self.rigid_contact_torsional_friction
             m.rigid_contact_rolling_friction = self.rigid_contact_rolling_friction
@@ -2122,8 +2131,8 @@ class ModelBuilder:
             m.tet_count = len(self.tet_poses)
             m.edge_count = len(self.edge_rest_angle)
             m.spring_count = len(self.spring_rest_length)
-            m.muscle_count = len(self.muscle_start)-1               # -1 due to sentinel value
-            m.articulation_count = len(self.articulation_start)-1   # -1 due to sentinel value
+            m.muscle_count = len(self.muscle_start)
+            m.articulation_count = len(self.articulation_start)
             
             m.joint_dof_count = self.joint_dof_count
             m.joint_coord_count = self.joint_coord_count
