@@ -2117,7 +2117,7 @@ class ModelBuilder:
             # contacts
             m.allocate_soft_contacts(64*1024)        
             # TODO reset  
-            m.allocate_rigid_contacts(64*self.num_envs)
+            m.allocate_rigid_contacts(256*self.num_envs)
             m.rigid_contact_margin = self.rigid_contact_margin            
             m.rigid_contact_torsional_friction = self.rigid_contact_torsional_friction
             m.rigid_contact_rolling_friction = self.rigid_contact_rolling_friction
