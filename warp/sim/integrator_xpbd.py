@@ -2023,26 +2023,26 @@ class XPBDIntegrator:
                         state_out.body_q = body_q
                         state_out.body_qd = body_qd
 
-                # if requires_grad:
-                #     out_body_qd = wp.clone(state_out.body_qd)
-                # else:
-                #     out_body_qd = state_out.body_qd
+                if requires_grad:
+                    out_body_qd = wp.clone(state_out.body_qd)
+                else:
+                    out_body_qd = state_out.body_qd
 
-                # # update body velocities
-                # wp.launch(kernel=update_body_velocities,
-                #         dim=model.body_count,
-                #         inputs=[
-                #             state_out.body_q,
-                #             state_out.body_q_prev,
-                #             model.body_com,
-                #             dt
-                #         ],
-                #         outputs=[
-                #             out_body_qd
-                #         ],
-                #         device=model.device)
+                # update body velocities
+                wp.launch(kernel=update_body_velocities,
+                        dim=model.body_count,
+                        inputs=[
+                            state_out.body_q,
+                            state_out.body_q_prev,
+                            model.body_com,
+                            dt
+                        ],
+                        outputs=[
+                            out_body_qd
+                        ],
+                        device=model.device)
 
-                # state_out.body_qd = out_body_qd
+                state_out.body_qd = out_body_qd
 
                 if (False and model.has_restitution):
                     if requires_grad:
