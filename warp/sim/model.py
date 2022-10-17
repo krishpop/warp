@@ -881,6 +881,8 @@ class ModelBuilder:
             com: The center of mass of the body w.r.t its origin
             I_m: The 3x3 inertia tensor of the body (specified relative to the center of mass)
             m: Mass of the body
+            body_name: Name of the body
+            joint_name: Name of the joint
 
         Returns:
             The index of the body in the model
