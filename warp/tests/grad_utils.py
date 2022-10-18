@@ -180,11 +180,11 @@ def kernel_jacobian(kernel: wp.Kernel, dim: int, inputs: List[wp.array], outputs
                         var = getattr(input, varname)
                         if is_differentiable(var):
                             grad = tape.gradients[var].numpy().flatten()
-                            jac_ad[row_id, col_id:col_id + len(grad)] = var.grad.numpy().flatten()
+                            jac_ad[row_id, col_id:col_id + len(grad)] = grad
                             col_id += len(grad)
                 elif is_differentiable(input):
                     grad = tape.gradients[input].numpy().flatten()
-                    jac_ad[row_id, col_id:col_id + len(grad)] = input.grad.numpy().flatten()
+                    jac_ad[row_id, col_id:col_id + len(grad)] = grad
                     col_id += len(grad)
             tape.zero()
             row_id += 1
@@ -217,6 +217,27 @@ def kernel_jacobian(kernel: wp.Kernel, dim: int, inputs: List[wp.array], outputs
 
     return jac_ad, flatten_arrays(diff_inputs), flatten_arrays(diff_outputs)
 
+@wp.kernel
+def normalize_transforms(xs: wp.array(dtype=wp.transform)):
+    tid = wp.tid()
+    x = xs[tid]
+    xs[tid] = wp.transform(wp.transform_get_translation(x), wp.normalize(wp.transform_get_rotation(x)))
+
+@wp.kernel
+def normalize_quats(xs: wp.array(dtype=wp.quat)):
+    tid = wp.tid()
+    x = xs[tid]
+    xs[tid] = wp.normalize(x)
+
+def normalize_inputs(xs: wp.array):
+    """
+    Normalizes quaternion inputs to ensure the finite difference Jacobian makes sense.
+    """
+    # if xs.dtype == wp.transform:
+    #     wp.launch(normalize_transforms, dim=len(xs), inputs=[xs], device=xs.device)
+    # elif xs.dtype == wp.quat:
+    #     wp.launch(normalize_quats, dim=len(xs), inputs=[xs], device=xs.device)
+    return xs
 
 def kernel_jacobian_fd(kernel: wp.Kernel, dim: int, inputs: List[wp.array], outputs: List[wp.array], eps: float = 1e-4, max_fd_dims_per_var: int = 500):
     """
@@ -257,10 +278,10 @@ def kernel_jacobian_fd(kernel: wp.Kernel, dim: int, inputs: List[wp.array], outp
                     limit = min(max_fd_dims_per_var, len(np_in)) if max_fd_dims_per_var > 0 else len(np_in)
                     for j in range(limit):
                         np_in[j] += eps
-                        setattr(diff_inputs[input_id], varname, wp.array(np_in.reshape(in_shape), dtype=var.dtype, device=var.device))
+                        setattr(diff_inputs[input_id], varname, normalize_inputs(wp.array(np_in.reshape(in_shape), dtype=var.dtype, device=var.device)))
                         y1 = f(diff_inputs)
                         np_in[j] -= 2*eps
-                        setattr(diff_inputs[input_id], varname, wp.array(np_in.reshape(in_shape), dtype=var.dtype, device=var.device))
+                        setattr(diff_inputs[input_id], varname, normalize_inputs(wp.array(np_in.reshape(in_shape), dtype=var.dtype, device=var.device)))
                         y2 = f(diff_inputs)
                         setattr(diff_inputs[input_id], varname, wp.array(np_in_original.reshape(in_shape), dtype=var.dtype, device=var.device))
                         jac_fd[:, col_id] = (y1 - y2) / (2*eps)
@@ -273,10 +294,10 @@ def kernel_jacobian_fd(kernel: wp.Kernel, dim: int, inputs: List[wp.array], outp
             limit = min(max_fd_dims_per_var, len(np_in)) if max_fd_dims_per_var > 0 else len(np_in)
             for j in range(limit):
                 np_in[j] += eps
-                diff_inputs[input_id] = wp.array(np_in.reshape(in_shape), dtype=input.dtype, device=input.device)
+                diff_inputs[input_id] = normalize_inputs(wp.array(np_in.reshape(in_shape), dtype=input.dtype, device=input.device))
                 y1 = f(diff_inputs)
                 np_in[j] -= 2*eps
-                diff_inputs[input_id] = wp.array(np_in.reshape(in_shape), dtype=input.dtype, device=input.device)
+                diff_inputs[input_id] = normalize_inputs(wp.array(np_in.reshape(in_shape), dtype=input.dtype, device=input.device))
                 y2 = f(diff_inputs)
                 diff_inputs[input_id] = wp.array(np_in_original.reshape(in_shape), dtype=input.dtype, device=input.device)
                 jac_fd[:, col_id] = (y1 - y2) / (2*eps)
@@ -285,7 +306,7 @@ def kernel_jacobian_fd(kernel: wp.Kernel, dim: int, inputs: List[wp.array], outp
     return jac_fd
 
 
-def check_kernel_jacobian(kernel: Callable, dim: Tuple[int], inputs: List, outputs: List = [], eps: float = 1e-4, max_fd_dims_per_var: int = 500, max_outputs_per_var=500, atol=100.0, rtol=1e-2, plot_jac_on_fail=False):
+def check_kernel_jacobian(kernel: Callable, dim: Tuple[int], inputs: List, outputs: List = [], eps: float = 1e-4, max_fd_dims_per_var: int = 500, max_outputs_per_var: int = 500, atol: float = 100.0, rtol: float = 1e-2, plot_jac_on_fail: bool = False, tabulate_errors: bool = True):
     """
     Checks that the Jacobian of the Warp kernel is correct by comparing it to the
     numerical Jacobian computed using finite differences.
@@ -375,7 +396,9 @@ def check_kernel_jacobian(kernel: Callable, dim: Tuple[int], inputs: List, outpu
         return max_abs_error, max_abs_error_idx
 
     def compute_max_rel_error(a, b):
-        denom = np.maximum(np.abs(a), np.abs(b))
+        denom = np.abs(a)
+        absb = np.abs(b)
+        denom[denom < absb] = absb[denom < absb]
         denom[denom == 0.0] = 1.0
         rel_diff = np.abs(a - b) / denom
         rel_diff[np.isnan(rel_diff)] = 0
@@ -405,19 +428,16 @@ def check_kernel_jacobian(kernel: Callable, dim: Tuple[int], inputs: List, outpu
     result = np.allclose(jac_ad, jac_fd, atol=atol, rtol=rtol)
     max_abs_error, max_abs_error_idx = compute_max_abs_error(jac_ad, jac_fd)
     labels = find_variable_names(max_abs_error_idx)
-    print(
-        f"Max error: {max_abs_error} at {max_abs_error_idx} ({labels[0]} -> {labels[1]}): {jac_ad[max_abs_error_idx]} vs {jac_fd[max_abs_error_idx]}")
+    print(f"Max error: {max_abs_error} at {max_abs_error_idx} ({labels[0]} -> {labels[1]}): {jac_ad[max_abs_error_idx]} vs {jac_fd[max_abs_error_idx]}")
     max_rel_error, max_rel_error_idx = compute_max_rel_error(jac_ad, jac_fd)
     labels = find_variable_names(max_rel_error_idx)
-    print(
-        f"Max relative error: {max_rel_error} at {max_rel_error_idx} ({labels[0]} -> {labels[1]}): {jac_ad[max_rel_error_idx]} vs {jac_fd[max_rel_error_idx]}")
+    print(f"Max relative error: {max_rel_error} at {max_rel_error_idx} ({labels[0]} -> {labels[1]}): {jac_ad[max_rel_error_idx]} vs {jac_fd[max_rel_error_idx]}")
 
     # compute relative condition number
     # ||J(x)|| / (||f(x)|| / ||x||)
     nfx = np.linalg.norm(ad_out, ord=2)
     if nfx > 0:
-        rel_condition_number = np.linalg.norm(
-            jac_ad, ord='fro')*np.linalg.norm(ad_in, ord=2) / nfx
+        rel_condition_number = np.linalg.norm(jac_ad, ord='fro')*np.linalg.norm(ad_in, ord=2) / nfx
     else:
         rel_condition_number = np.linalg.norm(jac_ad, ord='fro')
     print(f"Relative condition number: {rel_condition_number}")
@@ -444,24 +464,30 @@ def check_kernel_jacobian(kernel: Callable, dim: Tuple[int], inputs: List, outpu
         "individual": {}
     }
 
+    if tabulate_errors:
+        headers = ["Input", "Output", "Jac Block", "Max Abs Error", "Max Rel Error", "Row", "Col", "AD", "FD"]
+        table = [headers]
     for input_tick, input_label in zip(input_ticks, input_ticks_labels):
         for output_tick, output_label in zip(output_ticks, output_ticks_labels):
             input_len = min(input_lengths[input_label], max_fd_dims_per_var)
             output_len = min(output_lengths[output_label], max_outputs_per_var)
-            jac_ad_sub = jac_ad[output_tick:output_tick +
-                                output_len, input_tick:input_tick+input_len]
-            jac_fd_sub = jac_fd[output_tick:output_tick +
-                                output_len, input_tick:input_tick+input_len]
-            cond_stat["individual"][(
-                input_label, output_label)] = np.linalg.cond(jac_ad_sub)
-            max_abs_error_stat["individual"][(
-                input_label, output_label)] = compute_max_abs_error(jac_ad_sub, jac_fd_sub)[0]
-            max_rel_error_stat["individual"][(
-                input_label, output_label)] = compute_max_rel_error(jac_ad_sub, jac_fd_sub)[0]
-            mean_abs_error_stat["individual"][(input_label, output_label)] = compute_mean_abs_error(
-                jac_ad_sub, jac_fd_sub)
-            mean_rel_error_stat["individual"][(input_label, output_label)] = compute_mean_rel_error(
-                jac_ad_sub, jac_fd_sub)
+            jac_ad_sub = jac_ad[output_tick:output_tick+output_len, input_tick:input_tick+input_len]
+            jac_fd_sub = jac_fd[output_tick:output_tick+output_len, input_tick:input_tick+input_len]
+            cond_stat["individual"][(input_label, output_label)] = np.linalg.cond(jac_ad_sub)
+            max_abs = compute_max_abs_error(jac_ad_sub, jac_fd_sub)
+            max_rel = compute_max_rel_error(jac_ad_sub, jac_fd_sub)
+            max_abs_error_stat["individual"][(input_label, output_label)] = max_abs[0]
+            max_rel_error_stat["individual"][(input_label, output_label)] = max_rel[0]
+            mean_abs_error_stat["individual"][(input_label, output_label)] = compute_mean_abs_error(jac_ad_sub, jac_fd_sub)
+            mean_rel_error_stat["individual"][(input_label, output_label)] = compute_mean_rel_error(jac_ad_sub, jac_fd_sub)
+            if tabulate_errors:
+                # add the index offsets
+                actual_idx = (max_rel[1][0] + output_tick, max_rel[1][1] + input_tick)
+                table.append([input_label, output_label,
+                              f"[{output_tick}:{output_tick+output_len}, {input_tick}:{input_tick+input_len}]",
+                              max_abs[0], max_rel[0],
+                              actual_idx[0], actual_idx[1],
+                              jac_ad[actual_idx], jac_fd[actual_idx]])
 
     stats = {
         "sensitivity": {
@@ -478,6 +504,10 @@ def check_kernel_jacobian(kernel: Callable, dim: Tuple[int], inputs: List, outpu
             "fd": jac_fd,
         }
     }
+
+    if tabulate_errors:
+        from tabulate import tabulate
+        print(tabulate(table, headers="firstrow"))
 
     if not result and plot_jac_on_fail:
         import matplotlib.pyplot as plt
@@ -727,7 +757,9 @@ def check_backward_pass(
     for launch in tape.launches:
         kernel, dim, inputs, outputs, device = tuple(launch)
         if check_jacobians:
-            print(f"Checking backward pass of {kernel.key} (launch {kernel_launch_count[kernel.key]})...")
+            msg = f"Checking backward pass of {kernel.key} (launch {kernel_launch_count[kernel.key]})..."
+            print("".join(["#"] * len(msg)))
+            print(msg)
             result, kernel_stats = check_kernel_jacobian(
                 kernel, dim, inputs, outputs, plot_jac_on_fail=plot_jac_on_fail, atol=1.0)
             print(result)
@@ -782,7 +814,7 @@ def check_backward_pass(
                     if x.ptr in manipulated_vars:
                         chart_vars[x.ptr] = f"a{x.ptr}([{name}]):::problem;"
                         print(
-                            f"WARNING: variable {name} (0x{x.ptr}) requires grad and is manipulated by kernels {kernel.key} and {manipulated_vars[x.ptr]}.")
+                            f"WARNING: variable {name} requires grad and is manipulated by kernels {kernel.key} and {manipulated_vars[x.ptr]}.")
                         problematic_vars.add(f"a{x.ptr}")
                     else:
                         chart_vars[x.ptr] = f"a{x.ptr}([{name}]):::grad;"
