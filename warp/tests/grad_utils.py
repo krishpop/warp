@@ -18,6 +18,7 @@ def check_gradient(func: Callable, func_name: str, inputs: List, device: Devicel
     """
     Checks that the gradient of the Warp kernel is correct by comparing it to the
     numerical gradient computed using finite differences.
+    Note that this function only works for kernels with an output scalar array of length 1.
     """
 
     module = wp.get_module(func.__module__)
@@ -74,14 +75,36 @@ def is_differentiable(x):
 
 def flatten_arrays(xs):
     # flatten arrays that make sense to differentiate
-    return np.concatenate([x.numpy().flatten() for x in xs if is_differentiable(x)])
+    arrays = []
+    for x in xs:
+        if isinstance(x, wp.codegen.StructInstance):
+            for varname in x._struct_.vars:
+                var = getattr(x, varname)
+                if is_differentiable(var):
+                    arrays.append(var.numpy().flatten())
+        if is_differentiable(x):
+            arrays.append(x.numpy().flatten())
+    return np.concatenate(arrays)
 
 
 def create_diff_copies(xs, require_grad=True):
     # create copies of arrays that make sense to differentiate
     diffs = []
     for x in xs:
-        if is_differentiable(x):
+        if isinstance(x, wp.codegen.StructInstance):
+            new_struct = type(x)()
+            for varname in x._struct_.vars:
+                var = getattr(x, varname)
+                if is_differentiable(var):
+                    dvar = wp.clone(var)
+                    dvar.requires_grad = require_grad
+                    setattr(new_struct, varname, dvar)
+                elif isinstance(var, wp.array):
+                    setattr(new_struct, varname, wp.clone(var))
+                else:
+                    setattr(new_struct, varname, var)
+            diffs.append(new_struct)
+        elif is_differentiable(x):
             dx = wp.clone(x)
             dx.requires_grad = require_grad
             diffs.append(dx)
@@ -101,6 +124,11 @@ def get_device(xs):
     for x in xs:
         if isinstance(x, wp.array):
             return x.device
+        elif isinstance(x, wp.codegen.StructInstance):
+            for varname in x._struct_.vars:
+                var = getattr(x, varname)
+                if isinstance(var, wp.array):
+                    return var.device
     return wp.get_preferred_device()
 
 
@@ -133,30 +161,59 @@ def kernel_jacobian(kernel: wp.Kernel, dim: int, inputs: List[wp.array], outputs
     tape.zero()
 
     row_id = 0
-    for out in diff_outputs:
-        # loop over Jacobian rows, select output dimension to differentiate
-        if not is_differentiable(out):
-            continue
+    def eval_row(out):
+        nonlocal row_id
+        nonlocal tape
+        nonlocal jac_ad
         np_out = out.numpy()
         out_shape = np_out.shape
         np_out = np_out.flatten()
-        limit = min(max_outputs_per_var, len(np_out)
-                    ) if max_outputs_per_var > 0 else len(np_out)
+        limit = min(max_outputs_per_var, len(np_out)) if max_outputs_per_var > 0 else len(np_out)
         for j in range(limit):
-            out.grad = wp.array(onehot(len(np_out), j).reshape(
-                out_shape), dtype=out.dtype, device=out.device)
+            out.grad = wp.array(onehot(len(np_out), j).reshape(out_shape), dtype=out.dtype, device=out.device)
             tape.backward()
             col_id = 0
             for input in diff_inputs:
                 # fill in Jacobian columns from input gradients
-                if not is_differentiable(input):
-                    continue
-                grad = tape.gradients[input].numpy().flatten()
-                jac_ad[row_id, col_id:col_id +
-                       len(grad)] = input.grad.numpy().flatten()
-                col_id += len(grad)
+                if isinstance(input, wp.codegen.StructInstance):
+                    for varname in input._struct_.vars:
+                        var = getattr(input, varname)
+                        if is_differentiable(var):
+                            grad = tape.gradients[var].numpy().flatten()
+                            jac_ad[row_id, col_id:col_id + len(grad)] = var.grad.numpy().flatten()
+                            col_id += len(grad)
+                elif is_differentiable(input):
+                    grad = tape.gradients[input].numpy().flatten()
+                    jac_ad[row_id, col_id:col_id + len(grad)] = input.grad.numpy().flatten()
+                    col_id += len(grad)
             tape.zero()
             row_id += 1
+    for out in diff_outputs:
+        # loop over Jacobian rows, select output dimension to differentiate
+        if isinstance(out, wp.codegen.StructInstance):
+            for varname in out._struct_.vars:
+                var = getattr(out, varname)
+                if is_differentiable(var):
+                    eval_row(var)
+        elif is_differentiable(out):
+            eval_row(out)
+        # np_out = out.numpy()
+        # out_shape = np_out.shape
+        # np_out = np_out.flatten()
+        # limit = min(max_outputs_per_var, len(np_out)) if max_outputs_per_var > 0 else len(np_out)
+        # for j in range(limit):
+        #     out.grad = wp.array(onehot(len(np_out), j).reshape(out_shape), dtype=out.dtype, device=out.device)
+        #     tape.backward()
+        #     col_id = 0
+        #     for input in diff_inputs:
+        #         # fill in Jacobian columns from input gradients
+        #         if not is_differentiable(input):
+        #             continue
+        #         grad = tape.gradients[input].numpy().flatten()
+        #         jac_ad[row_id, col_id:col_id + len(grad)] = input.grad.numpy().flatten()
+        #         col_id += len(grad)
+        #     tape.zero()
+        #     row_id += 1
 
     return jac_ad, flatten_arrays(diff_inputs), flatten_arrays(diff_outputs)
 
@@ -175,7 +232,6 @@ def kernel_jacobian_fd(kernel: wp.Kernel, dim: int, inputs: List[wp.array], outp
     num_out = len(diff_out)
 
     diff_inputs = create_diff_copies(inputs, require_grad=False)
-    diff_inputs2 = create_diff_copies(inputs, require_grad=False)
     device = get_device(inputs + outputs)
 
     def f(xs):
@@ -190,25 +246,41 @@ def kernel_jacobian_fd(kernel: wp.Kernel, dim: int, inputs: List[wp.array], outp
 
     col_id = 0
     for input_id, input in enumerate(diff_inputs):
-        if not is_differentiable(input):
-            continue
-        np_in = input.numpy().copy()
-        in_shape = np_in.shape
-        np_in = np_in.flatten()
-        limit = min(max_fd_dims_per_var, len(np_in)
-                    ) if max_fd_dims_per_var > 0 else len(np_in)
-        for j in range(limit):
-            np_in[j] += eps
-            diff_inputs[input_id] = wp.array(np_in.reshape(
-                in_shape), dtype=input.dtype, device=input.device)
-            y1 = f(diff_inputs)
-            np_in[j] -= 2*eps
-            diff_inputs[input_id] = wp.array(np_in.reshape(
-                in_shape), dtype=input.dtype, device=input.device)
-            y2 = f(diff_inputs)
-            diff_inputs[input_id] = wp.clone(diff_inputs2[input_id])
-            jac_fd[:, col_id] = (y1 - y2) / (2*eps)
-            col_id += 1
+        if isinstance(input, wp.codegen.StructInstance):
+            for varname in input._struct_.vars:
+                var = getattr(input, varname)
+                if is_differentiable(var):
+                    np_in = var.numpy().copy()
+                    np_in_original = np_in.copy()
+                    in_shape = np_in.shape
+                    np_in = np_in.flatten()
+                    limit = min(max_fd_dims_per_var, len(np_in)) if max_fd_dims_per_var > 0 else len(np_in)
+                    for j in range(limit):
+                        np_in[j] += eps
+                        setattr(diff_inputs[input_id], varname, wp.array(np_in.reshape(in_shape), dtype=var.dtype, device=var.device))
+                        y1 = f(diff_inputs)
+                        np_in[j] -= 2*eps
+                        setattr(diff_inputs[input_id], varname, wp.array(np_in.reshape(in_shape), dtype=var.dtype, device=var.device))
+                        y2 = f(diff_inputs)
+                        setattr(diff_inputs[input_id], varname, wp.array(np_in_original.reshape(in_shape), dtype=var.dtype, device=var.device))
+                        jac_fd[:, col_id] = (y1 - y2) / (2*eps)
+                        col_id += 1
+        elif is_differentiable(input):
+            np_in = input.numpy().copy()
+            np_in_original = np_in.copy()
+            in_shape = np_in.shape
+            np_in = np_in.flatten()
+            limit = min(max_fd_dims_per_var, len(np_in)) if max_fd_dims_per_var > 0 else len(np_in)
+            for j in range(limit):
+                np_in[j] += eps
+                diff_inputs[input_id] = wp.array(np_in.reshape(in_shape), dtype=input.dtype, device=input.device)
+                y1 = f(diff_inputs)
+                np_in[j] -= 2*eps
+                diff_inputs[input_id] = wp.array(np_in.reshape(in_shape), dtype=input.dtype, device=input.device)
+                y2 = f(diff_inputs)
+                diff_inputs[input_id] = wp.array(np_in_original.reshape(in_shape), dtype=input.dtype, device=input.device)
+                jac_fd[:, col_id] = (y1 - y2) / (2*eps)
+                col_id += 1
 
     return jac_fd
 
@@ -219,13 +291,25 @@ def check_kernel_jacobian(kernel: Callable, dim: Tuple[int], inputs: List, outpu
     numerical Jacobian computed using finite differences.
     """
 
-    # check that the kernel arguments have requires_grad enables
+    # check that the kernel arguments have requires_grad enabled
     for input_id, input in enumerate(inputs):
-        if is_differentiable(input) and not input.requires_grad:
+        if isinstance(input, wp.codegen.StructInstance):
+            for varname in input._struct_.vars:
+                var = getattr(input, varname)
+                if is_differentiable(var) and not var.requires_grad:
+                    print(
+                        f"Warning: input {kernel.adj.args[input_id].label}.{varname} is differentiable but requires_grad is False")
+        elif is_differentiable(input) and not input.requires_grad:
             print(
                 f"Warning: input {kernel.adj.args[input_id].label} is differentiable but requires_grad is False")
     for output_id, output in enumerate(outputs):
-        if is_differentiable(output) and not output.requires_grad:
+        if isinstance(output, wp.codegen.StructInstance):
+            for varname in output._struct_.vars:
+                var = getattr(output, varname)
+                if is_differentiable(var) and not var.requires_grad:
+                    print(
+                        f"Warning: output {kernel.adj.args[output_id + len(inputs)].label}.{varname} is differentiable but requires_grad is False")
+        elif is_differentiable(output) and not output.requires_grad:
             print(
                 f"Warning: output {kernel.adj.args[output_id + len(inputs)].label} is differentiable but requires_grad is False")
 
@@ -235,36 +319,52 @@ def check_kernel_jacobian(kernel: Callable, dim: Tuple[int], inputs: List, outpu
     input_lengths = {}
     i = 0
     for id, x in enumerate(inputs):
-        if not is_differentiable(x):
-            continue
         name = kernel.adj.args[id].label
-        input_ticks_labels.append(name)
-        input_ticks.append(i)
-        input_lengths[name] = len(x.numpy().flatten())
-        i += input_lengths[name]
+        if isinstance(x, wp.codegen.StructInstance):
+            for varname in x._struct_.vars:
+                var = getattr(x, varname)
+                if is_differentiable(var):
+                    sname = f"{name}.{varname}"
+                    input_ticks_labels.append(sname)
+                    input_ticks.append(i)
+                    input_lengths[sname] = len(var.numpy().flatten())
+                    i += input_lengths[sname]
+        elif is_differentiable(x):  
+            input_ticks_labels.append(name)
+            input_ticks.append(i)
+            input_lengths[name] = len(x.numpy().flatten())
+            i += input_lengths[name]
     output_ticks_labels = []
     output_ticks = []
     output_lengths = {}
     i = 0
     for id, x in enumerate(outputs):
-        if not is_differentiable(x):
-            continue
         name = kernel.adj.args[id + len(inputs)].label
-        output_ticks_labels.append(name)
-        output_ticks.append(i)
-        output_lengths[name] = len(x.numpy().flatten())
-        i += output_lengths[name]
+        if isinstance(x, wp.codegen.StructInstance):
+            for varname in x._struct_.vars:
+                var = getattr(x, varname)
+                if is_differentiable(var):
+                    sname = f"{name}.{varname}"
+                    output_ticks_labels.append(sname)
+                    output_ticks.append(i)
+                    output_lengths[sname] = len(var.numpy().flatten())
+                    i += output_lengths[sname]
+        elif is_differentiable(x):
+            output_ticks_labels.append(name)
+            output_ticks.append(i)
+            output_lengths[name] = len(x.numpy().flatten())
+            i += output_lengths[name]
 
     def find_variable_names(idx: Tuple[int]) -> Tuple[str]:
         # idx is the row, column index in the Jacobian, need to find corresponding output, input var names
-        output_label = output_ticks_labels[-1]
-        for i, tick in enumerate(output_ticks):
-            if idx[0] > tick:
-                output_label = output_ticks_labels[i-1]
-        input_label = input_ticks_labels[-1]
-        for i, tick in enumerate(input_ticks):
-            if idx[1] > tick:
-                input_label = input_ticks_labels[i-1]
+        output_label = output_ticks_labels[0]
+        for i, tick in enumerate(output_ticks[1:]):
+            if idx[0] >= tick:
+                output_label = output_ticks_labels[i+1]
+        input_label = input_ticks_labels[0]
+        for i, tick in enumerate(input_ticks[1:]):
+            if idx[1] >= tick:
+                input_label = input_ticks_labels[i+1]
         return input_label, output_label
 
     def compute_max_abs_error(a, b):
@@ -275,7 +375,9 @@ def check_kernel_jacobian(kernel: Callable, dim: Tuple[int], inputs: List, outpu
         return max_abs_error, max_abs_error_idx
 
     def compute_max_rel_error(a, b):
-        rel_diff = np.abs(a - b) / np.maximum(np.abs(a), np.abs(b))
+        denom = np.maximum(np.abs(a), np.abs(b))
+        denom[denom == 0.0] = 1.0
+        rel_diff = np.abs(a - b) / denom
         rel_diff[np.isnan(rel_diff)] = 0
         max_rel_error = np.max(rel_diff)
         max_rel_error_idx = np.unravel_index(
@@ -288,7 +390,9 @@ def check_kernel_jacobian(kernel: Callable, dim: Tuple[int], inputs: List, outpu
         return mean_abs_error
 
     def compute_mean_rel_error(a, b):
-        rel_diff = np.abs(a - b) / np.maximum(np.abs(a), np.abs(b))
+        denom = np.maximum(np.abs(a), np.abs(b))
+        denom[denom == 0.0] = 1.0
+        rel_diff = np.abs(a - b) / denom
         rel_diff[np.isnan(rel_diff)] = 0
         mean_rel_error = np.mean(rel_diff)
         return mean_rel_error
@@ -418,7 +522,17 @@ def make_struct_of_arrays(xs):
     return total
 
 
-def check_backward_pass(func: Callable, visualize_graph=True, plotting: Literal["matplotlib", "plotly", "none"] = "matplotlib", track_inputs=[], track_outputs=[], track_input_names=[], track_output_names=[]):
+def check_backward_pass(
+    func: Callable,
+    visualize_graph=True,
+    check_jacobians=True,
+    plot_jac_on_fail=False,
+    plotting: Literal["matplotlib", "plotly", "none"] = "matplotlib",
+    track_inputs=[],
+    track_outputs=[],
+    track_input_names=[],
+    track_output_names=[],
+    ):
     """
     Checks that the backward pass of a function involving Warp kernel launches.
     """
@@ -563,7 +677,8 @@ def check_backward_pass(func: Callable, visualize_graph=True, plotting: Literal[
             print("To get better layouts, install graphviz and pygraphviz.")
             pos = nx.spring_layout(G)
 
-        plt.figure()
+        fig = plt.figure()
+        fig.canvas.set_window_title("Kernel launch graph")
         array_nodes = list(array_nodes)
         kernel_nodes = list(kernel_nodes)
         node_colors = []
@@ -611,13 +726,14 @@ def check_backward_pass(func: Callable, visualize_graph=True, plotting: Literal[
     hide_non_arrays = True
     for launch in tape.launches:
         kernel, dim, inputs, outputs, device = tuple(launch)
-        print(f"Checking backward pass of {kernel.key}...")
-        result, kernel_stats = check_kernel_jacobian(
-            kernel, dim, inputs, outputs, plot_jac_on_fail=True, atol=1.0)
-        print(result)
-        if kernel.key not in stats:
-            stats[kernel.key] = defaultdict(list)
-        add_to_struct_of_arrays(kernel_stats, stats[kernel.key])
+        if check_jacobians:
+            print(f"Checking backward pass of {kernel.key} (launch {kernel_launch_count[kernel.key]})...")
+            result, kernel_stats = check_kernel_jacobian(
+                kernel, dim, inputs, outputs, plot_jac_on_fail=plot_jac_on_fail, atol=1.0)
+            print(result)
+            if kernel.key not in stats:
+                stats[kernel.key] = defaultdict(list)
+            add_to_struct_of_arrays(kernel_stats, stats[kernel.key])
 
         kernel_names.add(kernel.key)
 
@@ -642,6 +758,19 @@ def check_backward_pass(func: Callable, visualize_graph=True, plotting: Literal[
                 else:
                     input_nodes.append(f"a{x.ptr}")
                     chart_vars[x.ptr] = f"a{x.ptr}([{name}]):::nograd;"
+            elif isinstance(x, wp.codegen.StructInstance):
+                for varname in x._struct_.vars:
+                    var = getattr(x, varname)
+                    if isinstance(var, wp.array):
+                        if var.requires_grad:
+                            input_nodes.append(f"a{var.ptr}")
+                            if var.ptr not in manipulated_vars:
+                                chart_vars[var.ptr] = f"a{var.ptr}([{name}.{varname}]):::grad;"
+                        else:
+                            input_nodes.append(f"a{var.ptr}")
+                            chart_vars[var.ptr] = f"a{var.ptr}([{name}.{varname}]):::nograd;"
+                    elif not hide_non_arrays:
+                        input_nodes.append(f"a{name}.{varname}([{name}.{varname}])")
             elif not hide_non_arrays:
                 input_nodes.append(f"a{name}([{name}])")
         output_nodes = []
@@ -698,178 +827,181 @@ def check_backward_pass(func: Callable, visualize_graph=True, plotting: Literal[
 
     # app.run_server()
 
-    # plot evolution of Jacobian statistics
-    if plotting == "matplotlib":
-        for stat_name, stat in stats.items():
-            import matplotlib.pyplot as plt
-            num = len(stat)
-            ncols = int(np.ceil(np.sqrt(num)))
-            nrows = int(np.ceil(num / float(ncols)))
-            fig, axes = plt.subplots(
-                ncols=ncols,
-                nrows=nrows,
-                figsize=(ncols * 5.5, nrows * 3.5),
-                squeeze=False,
-            )
-            fig.canvas.set_window_title(stat_name)
-            plt.suptitle(stat_name)
-            for dim in range(ncols * nrows):
-                ax = axes[dim // ncols, dim % ncols]
-                if dim >= num:
-                    ax.axis("off")
-                    continue
-            for dim, (kernel_key, cond) in enumerate(stat.items()):
-                ax = axes[dim // ncols, dim % ncols]
-                ax.set_title(f"{kernel_key}")
-                ax.plot(cond["total"], label="total", c="k", zorder=2)
-                ax.set_yscale("log")
-                for key, value in cond["individual"].items():
-                    ax.plot(value, label=f"{key[0]} $\\to$ {key[1]}", zorder=1)
-                # shrink current axis's height on the bottom
-                box = ax.get_position()
-                shrink = 0.4
-                ax.set_position([box.x0, box.y0 + box.height * shrink,
-                                box.width, box.height * (1.0-shrink)])
-                ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.05),
-                          fancybox=True, shadow=True, ncol=2)
-                ax.grid()
-            plt.subplots_adjust(hspace=0.2, wspace=0.2,
-                                top=0.9, left=0.1, right=0.9, bottom=0.4)
-            plt.show()
-    elif plotting == "plotly":
-        import dash
-        from dash import Dash, dcc, html
-        from dash.dependencies import Input, Output, State
-        from plotly.subplots import make_subplots
-        import plotly.graph_objects as go
-        import plotly.express as px
-
-        external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
-        app = Dash(__name__, external_stylesheets=external_stylesheets)
-
-        kernel_names = sorted(list(kernel_names))
-
-        colors = px.colors.qualitative.Dark24
-
-        app.layout = html.Div([
-            dcc.Store(id='appstate', data={
-                      "kernel": kernel_names[0], "mode": "jacobian"}),
-            html.Div([
-                dcc.Dropdown(
-                    options=[{"label": name, "value": name}
-                             for name in kernel_names],
-                    value=kernel_names[0],
-                    placeholder="Select a kernel",
-                    id="kernel-dropdown",
-                ),
-            ], style={'width': '49%', 'display': 'inline-block'}),
-            html.Div([
-                dcc.Tabs(id="mode-selector", value="jacobian", children=[
-                    dcc.Tab(label="Jacobian", value="jacobian"),
-                    dcc.Tab(label="Sensitivity", value="sensitivity"),
-                    dcc.Tab(label="Accuracy", value="accuracy"),
-                ])
-            ], style={'width': '49%', 'display': 'inline-block'}),
-            html.Div(id='view-content')
-        ])
-
-        @app.callback(Output('appstate', 'data'), Input('kernel-dropdown', 'value'), Input('mode-selector', 'value'), State('appstate', 'data'))
-        def update_kernel(kernel, mode, data):
-            if kernel is not None:
-                data["kernel"] = kernel
-            if mode is not None:
-                data["mode"] = mode
-            return data
-
-        @app.callback(Output('view-content', 'children'), Input('appstate', 'data'), State('appstate', 'data'))
-        def update_view(arg, data):
-            print("selection:", data)
-            selected_kernel = data["kernel"]
-            selected_mode = data["mode"]
-            selected_stats = stats[selected_kernel][selected_mode]
-            if selected_mode == "jacobian":
-                fig = make_subplots(
-                    rows=1, cols=3,
-                    subplot_titles=["AD Jacobian",
-                                    "FD Jacobian", "Difference"],
-                )
-                fig.add_trace(
-                    px.imshow(selected_stats["ad"][0]).data[0], row=1, col=1)
-                fig.add_trace(
-                    px.imshow(selected_stats["fd"][0]).data[0], row=1, col=2)
-                fig.add_trace(px.imshow(
-                    selected_stats["ad"][0]-selected_stats["fd"][0]).data[0], row=1, col=3)
-                fig.update_layout(coloraxis=dict(colorscale='RdBu_r'))
-            else:
-                selected_stat_items = selected_stats.items()
-                num = len(selected_stat_items)
+    if check_jacobians:
+        # plot evolution of Jacobian statistics
+        if plotting == "matplotlib":
+            from itertools import chain
+            any_stat = next(iter(stats.values()))
+            all_stats_names = chain.from_iterable([any_stat[cat].keys() for cat in ["sensitivity", "accuracy"]])
+            all_stats_names = [key for key in all_stats_names if key not in ("total", "individual")]
+            for kernel_name, stat in stats.items():
+                import matplotlib.pyplot as plt
+                num = len(all_stats_names)
                 ncols = int(np.ceil(np.sqrt(num)))
                 nrows = int(np.ceil(num / float(ncols)))
-                fig = make_subplots(
-                    rows=nrows, cols=ncols,
-                    subplot_titles=list(selected_stats.keys()),
-                    shared_xaxes=True,
-                    vertical_spacing=0.07,
-                    horizontal_spacing=0.05)
+                fig, axes = plt.subplots(
+                    ncols=ncols,
+                    nrows=nrows,
+                    figsize=(ncols * 5.5, nrows * 3.5),
+                    squeeze=False,
+                )
+                fig.canvas.set_window_title(kernel_name)
+                plt.suptitle(kernel_name, fontsize=16, fontweight="bold")
+                for dim in range(ncols * nrows):
+                    ax = axes[dim // ncols, dim % ncols]
+                    if dim >= num:
+                        ax.axis("off")
+                        continue
+                kernel_stats = list(chain.from_iterable([stat[cat].items() for cat in ["sensitivity", "accuracy"]]))
+                for dim, (stat_name, cond) in enumerate(kernel_stats):
+                    ax = axes[dim // ncols, dim % ncols]
+                    ax.set_title(f"{stat_name}")
+                    marker = "o" if len(cond["total"]) < 10 else None
+                    ax.plot(cond["total"], label="total", c="k", zorder=2, marker=marker)
+                    ax.set_yscale("log")
+                    for key, value in cond["individual"].items():
+                        marker = "o" if len(value) < 10 else None
+                        ax.plot(value, label=f"{key[0]} $\\to$ {key[1]}", zorder=1, marker=marker)
+                    if dim == len(kernel_stats)-1:
+                        ax.legend(loc='lower left', bbox_to_anchor=(1.05, 0.0), fancybox=True, shadow=True, ncol=2)
+                    ax.grid()
+                plt.subplots_adjust(hspace=0.2, wspace=0.2,
+                                    top=0.9, left=0.1, right=0.9, bottom=0.1)
+                plt.show()
+        elif plotting == "plotly":
+            import dash
+            from dash import Dash, dcc, html
+            from dash.dependencies import Input, Output, State
+            from plotly.subplots import make_subplots
+            import plotly.graph_objects as go
+            import plotly.express as px
 
-                previous_labels = set()  # avoid duplicate legend entries
-                for dim, (stat_name, stat) in enumerate(selected_stat_items):
-                    row = dim // ncols + 1
-                    col = dim % ncols + 1
-                    fig.add_trace(go.Scatter(
-                        y=stat["total"], name="total", line=dict(color="#000000"), legendgroup='group0', showlegend=(dim == 0)), row=row, col=col)
-                    fig.update_yaxes(type="log", row=row, col=col)
-                    for i, (key, value) in enumerate(stat["individual"].items()):
-                        label = "{0} → {1}".format(key[0], key[1])
+            external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
+            app = Dash(__name__, external_stylesheets=external_stylesheets)
+
+            kernel_names = sorted(list(kernel_names))
+
+            colors = px.colors.qualitative.Dark24
+
+            app.layout = html.Div([
+                dcc.Store(id='appstate', data={
+                        "kernel": kernel_names[0], "mode": "jacobian"}),
+                html.Div([
+                    dcc.Dropdown(
+                        options=[{"label": name, "value": name}
+                                for name in kernel_names],
+                        value=kernel_names[0],
+                        placeholder="Select a kernel",
+                        id="kernel-dropdown",
+                    ),
+                ], style={'width': '49%', 'display': 'inline-block'}),
+                html.Div([
+                    dcc.Tabs(id="mode-selector", value="jacobian", children=[
+                        dcc.Tab(label="Jacobian", value="jacobian"),
+                        dcc.Tab(label="Sensitivity", value="sensitivity"),
+                        dcc.Tab(label="Accuracy", value="accuracy"),
+                    ])
+                ], style={'width': '49%', 'display': 'inline-block'}),
+                html.Div(id='view-content')
+            ])
+
+            @app.callback(Output('appstate', 'data'), Input('kernel-dropdown', 'value'), Input('mode-selector', 'value'), State('appstate', 'data'))
+            def update_kernel(kernel, mode, data):
+                if kernel is not None:
+                    data["kernel"] = kernel
+                if mode is not None:
+                    data["mode"] = mode
+                return data
+
+            @app.callback(Output('view-content', 'children'), Input('appstate', 'data'), State('appstate', 'data'))
+            def update_view(arg, data):
+                print("selection:", data)
+                selected_kernel = data["kernel"]
+                selected_mode = data["mode"]
+                selected_stats = stats[selected_kernel][selected_mode]
+                if selected_mode == "jacobian":
+                    fig = make_subplots(
+                        rows=1, cols=3,
+                        subplot_titles=["AD Jacobian",
+                                        "FD Jacobian", "Difference"],
+                    )
+                    fig.add_trace(
+                        px.imshow(selected_stats["ad"][0]).data[0], row=1, col=1)
+                    fig.add_trace(
+                        px.imshow(selected_stats["fd"][0]).data[0], row=1, col=2)
+                    fig.add_trace(px.imshow(
+                        selected_stats["ad"][0]-selected_stats["fd"][0]).data[0], row=1, col=3)
+                    fig.update_layout(coloraxis=dict(colorscale='RdBu_r'))
+                else:
+                    selected_stat_items = selected_stats.items()
+                    num = len(selected_stat_items)
+                    ncols = int(np.ceil(np.sqrt(num)))
+                    nrows = int(np.ceil(num / float(ncols)))
+                    fig = make_subplots(
+                        rows=nrows, cols=ncols,
+                        subplot_titles=list(selected_stats.keys()),
+                        shared_xaxes=True,
+                        vertical_spacing=0.07,
+                        horizontal_spacing=0.05)
+
+                    previous_labels = set()  # avoid duplicate legend entries
+                    for dim, (stat_name, stat) in enumerate(selected_stat_items):
+                        row = dim // ncols + 1
+                        col = dim % ncols + 1
                         fig.add_trace(go.Scatter(
-                            x=np.arange(len(value)),
-                            y=value,
-                            name=label,
-                            legendgroup=f'group{label}',
-                            showlegend=(label not in previous_labels),
-                            hoverlabel=dict(namelength=-1),
-                            line=dict(color=colors[i % len(colors)])), row=row, col=col)
-                        previous_labels.add(label)
+                            y=stat["total"], name="total", line=dict(color="#000000"), legendgroup='group0', showlegend=(dim == 0)), row=row, col=col)
+                        fig.update_yaxes(type="log", row=row, col=col)
+                        for i, (key, value) in enumerate(stat["individual"].items()):
+                            label = "{0} → {1}".format(key[0], key[1])
+                            fig.add_trace(go.Scatter(
+                                x=np.arange(len(value)),
+                                y=value,
+                                name=label,
+                                legendgroup=f'group{label}',
+                                showlegend=(label not in previous_labels),
+                                hoverlabel=dict(namelength=-1),
+                                line=dict(color=colors[i % len(colors)])), row=row, col=col)
+                            previous_labels.add(label)
 
-            fig.update_layout(
-                margin=dict(l=20, r=20, t=30, b=20),
-            )
+                fig.update_layout(
+                    margin=dict(l=20, r=20, t=30, b=20),
+                )
 
-            return dcc.Graph(figure=fig, style={'width': '100vw', 'height': '90vh'})
+                return dcc.Graph(figure=fig, style={'width': '100vw', 'height': '90vh'})
 
-        # @app.callback(Output('view-content', 'children'), Input('tabs', 'value'))
-        # def stat_selection(tab):
-        #     try:
-        #         stat_id = int(tab)
-        #     except:
-        #         stat_id = 0
-        #     stat_name, stat = stat_items[stat_id]
-        #     num = len(stat)
-        #     ncols = int(np.ceil(np.sqrt(num)))
-        #     nrows = int(np.ceil(num / float(ncols)))
-        #     fig = make_subplots(
-        #         rows=nrows, cols=ncols,
-        #         subplot_titles=list(stat.keys()))
+            # @app.callback(Output('view-content', 'children'), Input('tabs', 'value'))
+            # def stat_selection(tab):
+            #     try:
+            #         stat_id = int(tab)
+            #     except:
+            #         stat_id = 0
+            #     stat_name, stat = stat_items[stat_id]
+            #     num = len(stat)
+            #     ncols = int(np.ceil(np.sqrt(num)))
+            #     nrows = int(np.ceil(num / float(ncols)))
+            #     fig = make_subplots(
+            #         rows=nrows, cols=ncols,
+            #         subplot_titles=list(stat.keys()))
 
-        #     previous_labels = set()  # avoid duplicate legend entries
-        #     for dim, (kernel_key, cond) in enumerate(stat.items()):
-        #         row = dim // ncols + 1
-        #         col = dim % ncols + 1
-        #         fig.add_trace(go.Scatter(
-        #             y=cond["total"], name="total", line=dict(color="#000000"), legendgroup='group0', showlegend=(dim==0)), row=row, col=col)
-        #         fig.update_yaxes(type="log", row=row, col=col)
-        #         for key, value in cond["individual"].items():
-        #             label = "{0} → {1}".format(key[0], key[1])
-        #             fig.add_trace(go.Scatter(
-        #                 x=np.arange(len(value)),
-        #                 y=value,
-        #                 name=label,
-        #                 legendgroup=f'group{label}',
-        #                 showlegend=(label not in previous_labels),
-        #                 hoverlabel=dict(namelength=-1)), row=row, col=col)
-        #             previous_labels.add(label)
+            #     previous_labels = set()  # avoid duplicate legend entries
+            #     for dim, (kernel_key, cond) in enumerate(stat.items()):
+            #         row = dim // ncols + 1
+            #         col = dim % ncols + 1
+            #         fig.add_trace(go.Scatter(
+            #             y=cond["total"], name="total", line=dict(color="#000000"), legendgroup='group0', showlegend=(dim==0)), row=row, col=col)
+            #         fig.update_yaxes(type="log", row=row, col=col)
+            #         for key, value in cond["individual"].items():
+            #             label = "{0} → {1}".format(key[0], key[1])
+            #             fig.add_trace(go.Scatter(
+            #                 x=np.arange(len(value)),
+            #                 y=value,
+            #                 name=label,
+            #                 legendgroup=f'group{label}',
+            #                 showlegend=(label not in previous_labels),
+            #                 hoverlabel=dict(namelength=-1)), row=row, col=col)
+            #             previous_labels.add(label)
 
-        #     return dcc.Graph(figure=fig, style={'width': '100vw', 'height': '90vh'})
+            #     return dcc.Graph(figure=fig, style={'width': '100vw', 'height': '90vh'})
 
-        app.title = "Warp backward pass statistics"
-        app.run()
+            app.title = "Warp backward pass statistics"
+            app.run()
