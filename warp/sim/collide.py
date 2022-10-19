@@ -146,8 +146,8 @@ def plane_sdf(width: float, length: float, p: wp.vec3):
 def create_soft_contacts(
     num_particles: int,
     particle_x: wp.array(dtype=wp.vec3), 
-    body_X_sc: wp.array(dtype=wp.transform),
-    shape_X_co: wp.array(dtype=wp.transform),
+    body_X_wb: wp.array(dtype=wp.transform),
+    shape_X_bs: wp.array(dtype=wp.transform),
     shape_body: wp.array(dtype=int),
     shape_geo_type: wp.array(dtype=int), 
     shape_geo_id: wp.array(dtype=wp.uint64),
@@ -170,17 +170,17 @@ def create_soft_contacts(
 
     px = particle_x[particle_index]
 
-    X_sc = wp.transform_identity()
+    X_wb = wp.transform_identity()
     if (rigid_index >= 0):
-        X_sc = body_X_sc[rigid_index]
+        X_wb = body_X_wb[rigid_index]
     
-    X_co = shape_X_co[shape_index]
+    X_bs = shape_X_bs[shape_index]
 
-    X_so = wp.transform_multiply(X_sc, X_co)
-    X_os = wp.transform_inverse(X_so)
+    X_ws = wp.transform_multiply(X_wb, X_bs)
+    X_sw = wp.transform_inverse(X_ws)
     
     # transform particle position to shape local space
-    x_local = wp.transform_point(X_os, px)
+    x_local = wp.transform_point(X_sw, px)
 
     # geo description
     geo_type = shape_geo_type[shape_index]
@@ -236,10 +236,10 @@ def create_soft_contacts(
         if (index < soft_contact_max):
 
             # compute contact point in body local space
-            body_pos = wp.transform_point(X_co, x_local - n*d)
-            body_vel = wp.transform_vector(X_co, v)
+            body_pos = wp.transform_point(X_bs, x_local - n*d)
+            body_vel = wp.transform_vector(X_bs, v)
 
-            world_normal = wp.transform_vector(X_so, n)
+            world_normal = wp.transform_vector(X_ws, n)
 
             soft_contact_body[index] = rigid_index
             soft_contact_body_pos[index] = body_pos
@@ -274,7 +274,7 @@ def volume_grad(volume: wp.uint64,
 #     shape_b: int,
 #     body_q: wp.array(dtype=wp.transform),
 #     body_qd: wp.array(dtype=wp.spatial_vector),
-#     shape_X_co: wp.array(dtype=wp.transform),
+#     shape_X_bs: wp.array(dtype=wp.transform),
 #     shape_body: wp.array(dtype=int),
 #     shape_geo_type: wp.array(dtype=int), 
 #     shape_geo_id: wp.array(dtype=wp.uint64),
@@ -300,22 +300,22 @@ def volume_grad(volume: wp.uint64,
 #     rigid_a = shape_body[shape_a]
 #     rigid_b = shape_body[shape_b]
 
-#     X_sc_a = body_q[rigid_a]
-#     X_sc_b = body_q[rigid_b]
+#     X_wb_a = body_q[rigid_a]
+#     X_wb_b = body_q[rigid_b]
     
-#     X_co_a = shape_X_co[shape_a]
-#     X_co_b = shape_X_co[shape_b]
+#     X_bs_a = shape_X_bs[shape_a]
+#     X_bs_b = shape_X_bs[shape_b]
 
-#     X_so_a = wp.transform_multiply(X_sc_a, X_co_a)
-#     # X_os_a = wp.transform_inverse(X_so_a)
-#     X_so_b = wp.transform_multiply(X_sc_b, X_co_b)
-
-
-#     X_so_a = X_sc_a
-#     X_so_b = X_sc_b
+#     X_ws_a = wp.transform_multiply(X_wb_a, X_bs_a)
+#     # X_sw_a = wp.transform_inverse(X_ws_a)
+#     X_ws_b = wp.transform_multiply(X_wb_b, X_bs_b)
 
 
-#     X_os_b = wp.transform_inverse(X_so_b)
+#     X_ws_a = X_wb_a
+#     X_ws_b = X_wb_b
+
+
+#     X_sw_b = wp.transform_inverse(X_ws_b)
 
 
     
@@ -361,9 +361,9 @@ def volume_grad(volume: wp.uint64,
 #         # print(tid)
 
 #         body_a_pos = wp.mesh_get_point(mesh_a, tid) * geo_scale_a[0]
-#         p_world = wp.transform_point(X_so_a, body_a_pos)
+#         p_world = wp.transform_point(X_ws_a, body_a_pos)
 
-#         query_b_local = wp.transform_point(X_os_b, p_world)
+#         query_b_local = wp.transform_point(X_sw_b, p_world)
 
 #         # print("p_mesh")
 #         # print(p_mesh)
@@ -431,7 +431,7 @@ def volume_grad(volume: wp.uint64,
 
 #             if (index < rigid_contact_max):
 
-#                 # n = wp.transform_vector(X_so, n)
+#                 # n = wp.transform_vector(X_ws, n)
 #                 err = d - rigid_contact_thickness
 
 #                 # mesh collision
@@ -440,12 +440,12 @@ def volume_grad(volume: wp.uint64,
 #                 # xpred = xpred - n*d
 #                 # body_b_pos = shape_p
 
-#                 body_b_pos_world = wp.transform_point(X_so_b, body_b_pos)
-#                 # body_a_pos = p_mesh # wp.transform_point(X_os_a, body_b_pos_world)
+#                 body_b_pos_world = wp.transform_point(X_ws_b, body_b_pos)
+#                 # body_a_pos = p_mesh # wp.transform_point(X_sw_a, body_b_pos_world)
 
 #                 # compute contact point in body local space
-#                 # body_a_pos = wp.transform_point(X_co_a, xpred)
-#                 body_a_vel = wp.transform_vector(X_co_a, v)
+#                 # body_a_pos = wp.transform_point(X_bs_a, xpred)
+#                 body_a_vel = wp.transform_vector(X_bs_a, v)
 
 
 #                 rigid_contact_body_a[index] = rigid_a
@@ -456,8 +456,8 @@ def volume_grad(volume: wp.uint64,
 #                 qd_b = body_qd[rigid_b]
 #                 v_b = wp.spatial_bottom(qd_b)
 #                 w_b = wp.spatial_top(qd_b)
-#                 p_b = wp.transform_get_translation(X_sc_b)
-#                 q_b = wp.transform_get_rotation(X_sc_b)
+#                 p_b = wp.transform_get_translation(X_wb_b)
+#                 q_b = wp.transform_get_rotation(X_wb_b)
 #                 b_vel = v_b + wp.cross(w_b, body_b_pos)
                 
 #                 rigid_contact_body_b[index] = rigid_b
@@ -465,8 +465,8 @@ def volume_grad(volume: wp.uint64,
 #                 rigid_contact_body_b_vel[index] = b_vel
 
 #                 # convert n to world frame
-#                 n = wp.transform_vector(X_so_b, n)
-#                 # n = wp.transform_vector(X_os_b, n)
+#                 n = wp.transform_vector(X_ws_b, n)
+#                 # n = wp.transform_vector(X_sw_b, n)
 #                 # print(n)
 #                 rigid_contact_normal[index] = n
 
@@ -481,7 +481,7 @@ def update_rigid_ground_contacts(
     ground_plane: wp.array(dtype=float),
     rigid_body: wp.array(dtype=int),
     body_q: wp.array(dtype=wp.transform),
-    shape_X_co: wp.array(dtype=wp.transform),
+    shape_X_bs: wp.array(dtype=wp.transform),
     contact_point_ref: wp.array(dtype=wp.vec3),
     ground_contact_shape: wp.array(dtype=int),
     shape_contact_thickness: wp.array(dtype=float),
@@ -506,8 +506,8 @@ def update_rigid_ground_contacts(
     thickness = shape_contact_thickness[shape]
     X_wb = body_q[body]
     X_bw = wp.transform_inverse(X_wb)
-    X_co = shape_X_co[shape]
-    X_ws = wp.transform_multiply(X_wb, X_co)
+    X_bs = shape_X_bs[shape]
+    X_ws = wp.transform_multiply(X_wb, X_bs)
     n = wp.vec3(ground_plane[0], ground_plane[1], ground_plane[2])
     p_ref = wp.transform_point(X_ws, contact_point_ref[tid])
     c = ground_plane[3]  # ground plane offset
@@ -530,7 +530,7 @@ def update_rigid_ground_contacts(
 @wp.kernel
 def create_sphere_sphere_contacts(
     body_q: wp.array(dtype=wp.transform),
-    shape_X_co: wp.array(dtype=wp.transform),
+    shape_X_bs: wp.array(dtype=wp.transform),
     shape_body: wp.array(dtype=int),
     shape_geo_type: wp.array(dtype=int), 
     shape_geo_id: wp.array(dtype=wp.uint64),
@@ -562,16 +562,16 @@ def create_sphere_sphere_contacts(
     rigid_a = shape_body[shape_a]
     rigid_b = shape_body[shape_b]
 
-    X_sc_a = body_q[rigid_a]
-    X_sc_b = body_q[rigid_b]
+    X_wb_a = body_q[rigid_a]
+    X_wb_b = body_q[rigid_b]
     
-    X_co_a = shape_X_co[shape_a]
-    X_co_b = shape_X_co[shape_b]
+    X_bs_a = shape_X_bs[shape_a]
+    X_bs_b = shape_X_bs[shape_b]
 
-    X_so_a = wp.transform_multiply(X_sc_a, X_co_a)
-    X_os_a = wp.transform_inverse(X_so_a)
-    X_so_b = wp.transform_multiply(X_sc_b, X_co_b)
-    X_os_b = wp.transform_inverse(X_so_b)
+    X_ws_a = wp.transform_multiply(X_wb_a, X_bs_a)
+    X_sw_a = wp.transform_inverse(X_ws_a)
+    X_ws_b = wp.transform_multiply(X_wb_b, X_bs_b)
+    X_sw_b = wp.transform_inverse(X_ws_b)
 
     # geo description
     geo_type_a = shape_geo_type[shape_a]
@@ -586,8 +586,8 @@ def create_sphere_sphere_contacts(
         radius_a = geo_scale_a[0]
         radius_b = geo_scale_b[0]
         thickness = shape_contact_thickness[shape_a] + shape_contact_thickness[shape_b]
-        p_a = wp.transform_get_translation(X_so_a)
-        p_b = wp.transform_get_translation(X_so_b)
+        p_a = wp.transform_get_translation(X_ws_a)
+        p_b = wp.transform_get_translation(X_ws_b)
         diff = p_a - p_b
         d = wp.length(diff) - thickness
         # print(d)
@@ -599,8 +599,8 @@ def create_sphere_sphere_contacts(
                 contact_point1[index] = wp.vec3(0.0)
                 contact_body0[index] = rigid_a
                 contact_body1[index] = rigid_b
-                contact_offset0[index] = wp.transform_vector(X_os_a, -radius_a * normal)
-                contact_offset1[index] = wp.transform_vector(X_os_b, radius_b * normal)
+                contact_offset0[index] = wp.transform_vector(X_sw_a, -radius_a * normal)
+                contact_offset1[index] = wp.transform_vector(X_sw_b, radius_b * normal)
                 contact_normal[index] = normal
                 contact_shape0[index] = shape_a
                 contact_shape1[index] = shape_b
@@ -613,7 +613,7 @@ def create_mesh_sdf_contacts(
     shape_a: int,
     shape_b: int,
     body_q: wp.array(dtype=wp.transform),
-    shape_X_co: wp.array(dtype=wp.transform),
+    shape_X_bs: wp.array(dtype=wp.transform),
     shape_body: wp.array(dtype=int),
     shape_geo_type: wp.array(dtype=int), 
     shape_geo_id: wp.array(dtype=wp.uint64),
@@ -640,16 +640,16 @@ def create_mesh_sdf_contacts(
     rigid_a = shape_body[shape_a]
     rigid_b = shape_body[shape_b]
 
-    X_sc_a = body_q[rigid_a]
-    X_sc_b = body_q[rigid_b]
+    X_wb_a = body_q[rigid_a]
+    X_wb_b = body_q[rigid_b]
     
-    X_co_a = shape_X_co[shape_a]
-    X_co_b = shape_X_co[shape_b]
+    X_bs_a = shape_X_bs[shape_a]
+    X_bs_b = shape_X_bs[shape_b]
 
-    X_so_a = wp.transform_multiply(X_sc_a, X_co_a)
-    X_os_a = wp.transform_inverse(X_so_a)
-    X_so_b = wp.transform_multiply(X_sc_b, X_co_b)
-    X_os_b = wp.transform_inverse(X_so_b)
+    X_ws_a = wp.transform_multiply(X_wb_a, X_bs_a)
+    X_sw_a = wp.transform_inverse(X_ws_a)
+    X_ws_b = wp.transform_multiply(X_wb_b, X_bs_b)
+    X_sw_b = wp.transform_inverse(X_ws_b)
 
     # geo description
     geo_type_a = shape_geo_type[shape_a]
@@ -692,13 +692,13 @@ def create_mesh_sdf_contacts(
         # print(tid)
 
         body_a_pos = wp.mesh_get_point(mesh_a, tid) * geo_scale_a[0]
-        p_world = wp.transform_point(X_so_a, body_a_pos)
+        p_world = wp.transform_point(X_ws_a, body_a_pos)
 
         # print("body_a_pos")
         # print(body_a_pos)
         # print(tid)
 
-        query_b_local = wp.transform_point(X_os_b, p_world)
+        query_b_local = wp.transform_point(X_sw_b, p_world)
 
         # print("p_mesh")
         # print(p_mesh)
@@ -759,8 +759,8 @@ def create_mesh_sdf_contacts(
                 body_b_pos = shape_p - n*err
 
                 # offset by contact thickness to be used in PBD contact friction constraints
-                contact_offset0[index] = wp.transform_vector(wp.transform_inverse(X_os_a), -thickness_a * n)
-                contact_offset1[index] = wp.transform_vector(wp.transform_inverse(X_os_b), thickness_b * n)
+                contact_offset0[index] = wp.transform_vector(wp.transform_inverse(X_sw_a), -thickness_a * n)
+                contact_offset1[index] = wp.transform_vector(wp.transform_inverse(X_sw_b), thickness_b * n)
 
                 # assign contact points in body local spaces
                 contact_body0[index] = rigid_a
@@ -770,7 +770,7 @@ def create_mesh_sdf_contacts(
                 contact_point1[index] = body_b_pos
 
                 # convert n to world frame
-                n = wp.transform_vector(X_so_b, n)
+                n = wp.transform_vector(X_ws_b, n)
                 contact_normal[index] = n
                 
                 contact_shape0[index] = shape_a
