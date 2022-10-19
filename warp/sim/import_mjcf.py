@@ -6,19 +6,15 @@
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
 
-from warp.sim.model import JOINT_COMPOUND, JOINT_REVOLUTE, JOINT_UNIVERSAL
-from warp.sim.model import Mesh
-from warp.utils import transform_identity
-
 import math
-import numpy as np
 import os
-
 import xml.etree.ElementTree as ET
 
-import warp as wp
-import warp.sim
+import numpy as np
 import trimesh
+import warp as wp
+from warp.sim.model import JOINT_COMPOUND, JOINT_UNIVERSAL
+from warp.sim.model import Mesh
 
 
 def parse_mjcf(
@@ -32,8 +28,8 @@ def parse_mjcf(
     contact_kf=100.0,
     contact_mu=0.5,
     contact_restitution=0.5,
-    limit_ke=10000.0,
-    limit_kd=1000.0,
+    limit_ke=100.0,
+    limit_kd=10.0,
     armature=0.0,
     armature_scale=1.0,
     add_particles=False,
@@ -98,7 +94,7 @@ def parse_mjcf(
         # body_pos = np.fromstring(body.attrib["pos"], sep=" ")
         body_pos = parse_vec(body, "pos", (0.0, 0.0, 0.0))
         body_ori_euler = parse_vec(body, "euler", (0.0, 0.0, 0.0))
-        if body_ori_euler is (0.0, 0.0, 0.0):
+        if False: # body_ori_euler is (0.0, 0.0, 0.0):
             body_axis = tuple(np.sign(body_ori_euler))
             body_angle = body_ori_euler[np.nonzero(body_ori_euler)].item() / 180 * np.pi
             body_ori = wp.quat_from_axis_angle(body_axis, body_angle)
@@ -116,6 +112,7 @@ def parse_mjcf(
         start_coord = builder.joint_coord_count
 
         if len(joints) == 1:
+            # print("joint:", joints[0].attrib["name"], "parent:", body_name)
 
             joint = joints[0]
 
@@ -174,7 +171,7 @@ def parse_mjcf(
                 if "type" not in joint.attrib:
                     joint.attrib["type"] = "hinge"
 
-                if joint.attrib["type"] != "hinge":
+                if joint.attrib["type"] not in ["hinge", "fixed", "prismatic"]:
                     print("Compound joints must all be hinges")
 
                 joint_name = joint.attrib["name"]
@@ -234,6 +231,7 @@ def parse_mjcf(
             geom_size = parse_vec(geom, "size", [1.0])
             geom_pos = parse_vec(geom, "pos", (0.0, 0.0, 0.0))
             geom_rot = parse_vec(geom, "quat", (0.0, 0.0, 0.0, 1.0))
+            geom_density = parse_float(geom, "density", density)
 
             if geom_type == "sphere":
 
@@ -242,23 +240,23 @@ def parse_mjcf(
                     pos=geom_pos,
                     rot=geom_rot,
                     radius=geom_size[0],
-                    density=density,
+                    density=geom_density,
                     ke=contact_ke,
                     kd=contact_kd,
                     kf=contact_kf,
                     mu=contact_mu,
                     restitution=contact_restitution)
 
-            elif geom_type == "mesh":
+            elif geom_type == "mesh" and add_mesh:
 
                 mesh, scale = parse_mesh(geom)
-
+                geom_size = tuple([scale * s for s in geom_size])
                 builder.add_shape_mesh(
                     body=link,
                     pos=geom_pos,
                     rot=geom_rot,
                     mesh=mesh,
-                    scale=(scale, scale, scale),
+                    scale=geom_size,
                     density=density,
                     ke=contact_ke,
                     kd=contact_kd,
