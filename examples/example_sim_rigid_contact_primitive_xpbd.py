@@ -152,7 +152,7 @@ class Example:
         self.points_a = np.zeros((self.max_contact_count, 3))
         self.points_b = np.zeros((self.max_contact_count, 3))
 
-        self.renderer = wp.sim.render.SimRenderer(self.model, stage)
+        self.renderer = wp.sim.render.SimRenderer(self.model, stage, scaling=100.0)
 
     def update(self):
 
@@ -179,6 +179,8 @@ class Example:
 
                         contact_points_b = self.model.rigid_contact_point1.numpy()
                         self.points_b[:rigid_contact_count] = [(wp.transform_point(qs[body], wp.vec3(*contact_points_b[i])) if body >= 0 else contact_points_b[i]) for i, body in enumerate(body_b)]
+
+                    self.render()
 
                 self.state = self.integrator.simulate(self.model, self.state, self.state, self.sim_dt/self.sim_substeps)   
 
@@ -216,7 +218,6 @@ if __name__ == '__main__':
     from tqdm import trange
     for i in trange(example.sim_steps):
         example.update()
-        example.render()
 
         q_history.append(example.state.body_q.numpy().copy())
         qd_history.append(example.state.body_qd.numpy().copy())
