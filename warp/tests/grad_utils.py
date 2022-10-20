@@ -287,33 +287,34 @@ def kernel_jacobian_fd(kernel: wp.Kernel, dim: int, inputs: List[wp.array], outp
     return jac_fd
 
 
-def check_kernel_jacobian(kernel: Callable, dim: Tuple[int], inputs: List, outputs: List = [], eps: float = 1e-4, max_fd_dims_per_var: int = 500, max_outputs_per_var: int = 500, atol: float = 100.0, rtol: float = 1e-2, plot_jac_on_fail: bool = False, tabulate_errors: bool = True):
+def check_kernel_jacobian(kernel: Callable, dim: Tuple[int], inputs: List, outputs: List = [], eps: float = 1e-4, max_fd_dims_per_var: int = 500, max_outputs_per_var: int = 500, atol: float = 100.0, rtol: float = 1e-2, plot_jac_on_fail: bool = False, tabulate_errors: bool = True, warn_about_missing_requires_grad: bool = True):
     """
     Checks that the Jacobian of the Warp kernel is correct by comparing it to the
     numerical Jacobian computed using finite differences.
     """
 
-    # check that the kernel arguments have requires_grad enabled
-    for input_id, input in enumerate(inputs):
-        if isinstance(input, wp.codegen.StructInstance):
-            for varname in input._struct_.vars:
-                var = getattr(input, varname)
-                if is_differentiable(var) and not var.requires_grad:
-                    print(
-                        f"Warning: input {kernel.adj.args[input_id].label}.{varname} is differentiable but requires_grad is False")
-        elif is_differentiable(input) and not input.requires_grad:
-            print(
-                f"Warning: input {kernel.adj.args[input_id].label} is differentiable but requires_grad is False")
-    for output_id, output in enumerate(outputs):
-        if isinstance(output, wp.codegen.StructInstance):
-            for varname in output._struct_.vars:
-                var = getattr(output, varname)
-                if is_differentiable(var) and not var.requires_grad:
-                    print(
-                        f"Warning: output {kernel.adj.args[output_id + len(inputs)].label}.{varname} is differentiable but requires_grad is False")
-        elif is_differentiable(output) and not output.requires_grad:
-            print(
-                f"Warning: output {kernel.adj.args[output_id + len(inputs)].label} is differentiable but requires_grad is False")
+    if warn_about_missing_requires_grad:
+        # check that the kernel arguments have requires_grad enabled
+        for input_id, input in enumerate(inputs):
+            if isinstance(input, wp.codegen.StructInstance):
+                for varname in input._struct_.vars:
+                    var = getattr(input, varname)
+                    if is_differentiable(var) and not var.requires_grad:
+                        print(
+                            f"Warning: input {kernel.adj.args[input_id].label}.{varname} is differentiable but requires_grad is False")
+            elif is_differentiable(input) and not input.requires_grad:
+                print(
+                    f"Warning: input {kernel.adj.args[input_id].label} is differentiable but requires_grad is False")
+        for output_id, output in enumerate(outputs):
+            if isinstance(output, wp.codegen.StructInstance):
+                for varname in output._struct_.vars:
+                    var = getattr(output, varname)
+                    if is_differentiable(var) and not var.requires_grad:
+                        print(
+                            f"Warning: output {kernel.adj.args[output_id + len(inputs)].label}.{varname} is differentiable but requires_grad is False")
+            elif is_differentiable(output) and not output.requires_grad:
+                print(
+                    f"Warning: output {kernel.adj.args[output_id + len(inputs)].label} is differentiable but requires_grad is False")
 
     # find input/output names mapping to Jacobian indices for tick labels
     input_ticks_labels = []
@@ -489,8 +490,11 @@ def check_kernel_jacobian(kernel: Callable, dim: Tuple[int], inputs: List, outpu
     }
 
     if tabulate_errors:
-        from tabulate import tabulate
-        print(tabulate(table, headers="firstrow"))
+        try:
+            from tabulate import tabulate
+            print(tabulate(table, headers="firstrow"))
+        except ImportError:
+            print("Install tabulate via `pip install tabulate` to print errors")
 
     if not result and plot_jac_on_fail:
         import matplotlib.pyplot as plt
