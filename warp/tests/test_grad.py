@@ -293,7 +293,7 @@ def gradcheck(func, func_name, inputs, device, outputs=None, eps=1e-4, tol=1e-2)
     print(f"Checking gradient of {func_name} on {device}...")
     result, stats = check_kernel_jacobian(
         kernel, dim=1, inputs=inputs, outputs=outputs, eps=eps, atol=tol,
-        plot_jac_on_fail=True, tabulate_errors=True)
+        plot_jac_on_fail=False, tabulate_errors=True, warn_about_missing_requires_grad=False)
     assert result
 
 def test_vector_math_grad(test, device):
@@ -331,8 +331,8 @@ def test_matrix_math_grad(test, device):
         # run the tests with 5 different random inputs
         for _ in range(5):
             x = wp.array(np.random.randn(1, dim, dim).astype(np.float32), ndim=1, dtype=mat_type, device=device)
-            gradcheck(check_determinant, f"check_length_{mat_type.__name__}", [x], device)
-            gradcheck(check_trace, f"check_length_sq_{mat_type.__name__}", [x], device)
+            gradcheck(check_determinant, f"check_determinant_{mat_type.__name__}", [x], device)
+            gradcheck(check_trace, f"check_trace_{mat_type.__name__}", [x], device)
 
 def test_3d_math_grad(test, device):
     np.random.seed(123)
