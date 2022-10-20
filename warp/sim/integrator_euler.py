@@ -1367,7 +1367,7 @@ def eval_muscles(
         compute_muscle_force(i, body_X_s, body_v_s, body_com, muscle_links, muscle_points, activation, body_f_s)
     
 
-def compute_forces(model, state, particle_f, body_f):
+def compute_forces(model, state, particle_f, body_f, requires_grad):
 
     # damped springs
     if (model.spring_count):
@@ -1453,30 +1453,6 @@ def compute_forces(model, state, particle_f, body_f):
                   device=model.device)
 
     if (model.body_count):
-
-        if (hasattr(state, "rigid_contact_count")):
-            contact_vars = [
-                state.rigid_contact_count,
-                state.rigid_contact_body0,
-                state.rigid_contact_body1,
-                state.rigid_contact_point0,
-                state.rigid_contact_point1,
-                state.rigid_contact_normal,
-                state.rigid_contact_shape0,
-                state.rigid_contact_shape1,
-            ]
-        else:
-            contact_vars = [
-                model.rigid_contact_count,
-                model.rigid_contact_body0,
-                model.rigid_contact_body1,
-                model.rigid_contact_point0,
-                model.rigid_contact_point1,
-                model.rigid_contact_normal,
-                model.rigid_contact_shape0,
-                model.rigid_contact_shape1,
-            ]
-
         wp.launch(kernel=eval_rigid_contacts,
                   dim=model.rigid_contact_max,
                   inputs=[
@@ -1484,42 +1460,50 @@ def compute_forces(model, state, particle_f, body_f):
                       state.body_qd,
                       model.body_com,
                       model.shape_materials,
-                      model.shape_contact_thickness,
-                      *contact_vars
+                      model.shape_contact_thickness,                      
+                      model.rigid_contact_count,
+                      model.rigid_contact_body0,
+                      model.rigid_contact_body1,
+                      model.rigid_contact_point0,
+                      model.rigid_contact_point1,
+                      model.rigid_contact_normal,
+                      model.rigid_contact_shape0,
+                      model.rigid_contact_shape1,
                   ],
                   outputs=[
                       body_f
                   ],
                   device=model.device)
 
-        wp.launch(kernel=eval_body_joints,
-                  dim=model.body_count,
-                  inputs=[
-                      state.body_q,
-                      state.body_qd,
-                      model.body_com,
-                      model.joint_q_start,
-                      model.joint_qd_start,
-                      model.joint_type,
-                      model.joint_parent,
-                      model.joint_X_p,
-                      model.joint_X_c,
-                      model.joint_axis,
-                      model.joint_target,
-                      model.joint_act,
-                      model.joint_target_ke,
-                      model.joint_target_kd,
-                      model.joint_limit_lower,
-                      model.joint_limit_upper,
-                      model.joint_limit_ke,
-                      model.joint_limit_kd,
-                      model.joint_attach_ke,
-                      model.joint_attach_kd,
-                  ],
-                  outputs=[
-                      body_f
-                  ],
-                  device=model.device)
+        if (model.joint_count):
+            wp.launch(kernel=eval_body_joints,
+                    dim=model.joint_count,
+                    inputs=[
+                        state.body_q,
+                        state.body_qd,
+                        model.body_com,
+                        model.joint_q_start,
+                        model.joint_qd_start,
+                        model.joint_type,
+                        model.joint_parent,
+                        model.joint_X_p,
+                        model.joint_X_c,
+                        model.joint_axis,
+                        model.joint_target,
+                        model.joint_act,
+                        model.joint_target_ke,
+                        model.joint_target_kd,
+                        model.joint_limit_lower,
+                        model.joint_limit_upper,
+                        model.joint_limit_ke,
+                        model.joint_limit_kd,
+                        model.joint_attach_ke,
+                        model.joint_attach_kd,
+                    ],
+                    outputs=[
+                        body_f
+                    ],
+                    device=model.device)
 
     # particle shape contact
     if (model.particle_count and model.shape_count):
@@ -1607,7 +1591,8 @@ def compute_forces(model, state, particle_f, body_f):
     #         device=model.device,
     #         preserve_output=True)
 
-
+    state.particle_f = particle_f
+    state.body_f = body_f
 
 
 
@@ -1650,7 +1635,7 @@ class SemiImplicitIntegrator:
             if state_in.body_count:
                 body_f = state_in.body_f
 
-            compute_forces(model, state_in, particle_f, body_f)
+            compute_forces(model, state_in, particle_f, body_f, requires_grad=requires_grad)
 
             #-------------------------------------
             # integrate bodies
