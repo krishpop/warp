@@ -11,8 +11,6 @@ import warp as wp
 from warp.context import Devicelike
 import numpy as np
 
-from .test_base import assert_np_equal
-
 
 def check_gradient(func: Callable, func_name: str, inputs: List, device: Devicelike, eps: float = 1e-4, tol: float = 1e-2):
     """
@@ -197,23 +195,6 @@ def kernel_jacobian(kernel: wp.Kernel, dim: int, inputs: List[wp.array], outputs
                     eval_row(var)
         elif is_differentiable(out):
             eval_row(out)
-        # np_out = out.numpy()
-        # out_shape = np_out.shape
-        # np_out = np_out.flatten()
-        # limit = min(max_outputs_per_var, len(np_out)) if max_outputs_per_var > 0 else len(np_out)
-        # for j in range(limit):
-        #     out.grad = wp.array(onehot(len(np_out), j).reshape(out_shape), dtype=out.dtype, device=out.device)
-        #     tape.backward()
-        #     col_id = 0
-        #     for input in diff_inputs:
-        #         # fill in Jacobian columns from input gradients
-        #         if not is_differentiable(input):
-        #             continue
-        #         grad = tape.gradients[input].numpy().flatten()
-        #         jac_ad[row_id, col_id:col_id + len(grad)] = input.grad.numpy().flatten()
-        #         col_id += len(grad)
-        #     tape.zero()
-        #     row_id += 1
 
     return jac_ad, flatten_arrays(diff_inputs), flatten_arrays(diff_outputs)
 
@@ -283,7 +264,7 @@ def kernel_jacobian_fd(kernel: wp.Kernel, dim: int, inputs: List[wp.array], outp
                         np_in[j] -= 2*eps
                         setattr(diff_inputs[input_id], varname, normalize_inputs(wp.array(np_in.reshape(in_shape), dtype=var.dtype, device=var.device)))
                         y2 = f(diff_inputs)
-                        setattr(diff_inputs[input_id], varname, wp.array(np_in_original.reshape(in_shape), dtype=var.dtype, device=var.device))
+                        setattr(diff_inputs[input_id], varname, wp.array(np_in_original, dtype=var.dtype, device=var.device))
                         jac_fd[:, col_id] = (y1 - y2) / (2*eps)
                         col_id += 1
         elif is_differentiable(input):
@@ -299,7 +280,7 @@ def kernel_jacobian_fd(kernel: wp.Kernel, dim: int, inputs: List[wp.array], outp
                 np_in[j] -= 2*eps
                 diff_inputs[input_id] = normalize_inputs(wp.array(np_in.reshape(in_shape), dtype=input.dtype, device=input.device))
                 y2 = f(diff_inputs)
-                diff_inputs[input_id] = wp.array(np_in_original.reshape(in_shape), dtype=input.dtype, device=input.device)
+                diff_inputs[input_id] = wp.array(np_in_original, dtype=input.dtype, device=input.device)
                 jac_fd[:, col_id] = (y1 - y2) / (2*eps)
                 col_id += 1
 
@@ -465,7 +446,7 @@ def check_kernel_jacobian(kernel: Callable, dim: Tuple[int], inputs: List, outpu
     }
 
     if tabulate_errors:
-        headers = ["Input", "Output", "Jac Block", "Max Abs Error", "Max Rel Error", "Row", "Col", "AD", "FD"]
+        headers = ["Input", "Output", "Jac Block", "Sensitivity", "Max Rel Error", "Row", "Col", "AD", "FD"]
         table = [headers]
     for input_tick, input_label in zip(input_ticks, input_ticks_labels):
         for output_tick, output_label in zip(output_ticks, output_ticks_labels):
@@ -485,9 +466,11 @@ def check_kernel_jacobian(kernel: Callable, dim: Tuple[int], inputs: List, outpu
                 actual_idx = (max_rel[1][0] + output_tick, max_rel[1][1] + input_tick)
                 table.append([input_label, output_label,
                               f"[{output_tick}:{output_tick+output_len}, {input_tick}:{input_tick+input_len}]",
-                              max_abs[0], max_rel[0],
+                              cond_stat["individual"][(input_label, output_label)],
+                              max_rel[0],
                               actual_idx[0], actual_idx[1],
                               jac_ad[actual_idx], jac_fd[actual_idx]])
+
 
     stats = {
         "sensitivity": {
@@ -512,7 +495,7 @@ def check_kernel_jacobian(kernel: Callable, dim: Tuple[int], inputs: List, outpu
     if not result and plot_jac_on_fail:
         import matplotlib.pyplot as plt
         fig, axs = plt.subplots(1, 3)
-        plt.suptitle(f"{kernel.key} Jacobian")
+        plt.suptitle(f"{kernel.key} Jacobian", fontsize=16, fontweight='bold')
         axs[0].imshow(jac_ad)
         axs[0].set_title("Analytical")
         axs[0].set_xticks(input_ticks)
@@ -531,6 +514,7 @@ def check_kernel_jacobian(kernel: Callable, dim: Tuple[int], inputs: List, outpu
         axs[2].set_xticklabels([f"{label} ({tick})" for label, tick in zip(input_ticks_labels, input_ticks)], rotation=90)
         axs[2].set_yticks(output_ticks)
         axs[2].set_yticklabels([f"{label} ({tick})" for label, tick in zip(output_ticks_labels, output_ticks)])
+        plt.tight_layout()
         plt.show()
 
     return result, stats
@@ -813,8 +797,8 @@ def check_backward_pass(
                     output_nodes.append(f"a{x.ptr}")
                     if x.ptr in manipulated_vars:
                         chart_vars[x.ptr] = f"a{x.ptr}([{name}]):::problem;"
-                        print(
-                            f"WARNING: variable {name} requires grad and is manipulated by kernels {kernel.key} and {manipulated_vars[x.ptr]}.")
+                        # print(
+                        #     f"WARNING: variable {name} requires grad and is manipulated by kernels {kernel.key} and {manipulated_vars[x.ptr]}.")
                         problematic_vars.add(f"a{x.ptr}")
                     else:
                         chart_vars[x.ptr] = f"a{x.ptr}([{name}]):::grad;"
