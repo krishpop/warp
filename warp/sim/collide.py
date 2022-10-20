@@ -634,7 +634,7 @@ def create_primitive_contacts(
 
         # select best potential endpoint on capsule A
         best_A = A_a
-        if (d3 < d0):
+        if ((d3 < d0 and d3 < d1) or (d2 < d1 and d2 < d0)):
             best_A = B_a
         
         # select point on capsule B line segment nearest to best potential endpoint on A capsule:

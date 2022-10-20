@@ -103,6 +103,27 @@ class Example:
                 density=(0.0 if i == 0 else 1000.0),
                 restitution=0.0)
 
+        # capsules (stable stack)
+        rot90s = [
+            wp.quat_from_axis_angle((0.0, 1.0, 0.0), math.pi*0.25),
+            wp.quat_from_axis_angle((0.0, 1.0, 0.0), -math.pi*0.25),
+        ]
+        for i in range(self.num_bodies):
+            
+            b = builder.add_body(origin=wp.transform((0.0, 1.0 + 0.4*i, 0.0), rot90s[i%2]))
+
+            s = builder.add_shape_capsule( 
+                pos=(0.0, 0.0, 0.0),
+                radius=0.25*self.scale,
+                half_width=self.scale*0.5,
+                body=b,
+                ke=self.ke,
+                kd=self.kd,
+                kf=self.kf,
+                mu=1.0,
+                density=(0.0 if i == 0 else 1000.0),
+                restitution=0.0)
+
         # initial spin 
         # for i in range(len(builder.body_qd)):
         #     # builder.body_qd[i] = (0.0, 2.0, 10.0, -1.5, 0.0, 0.0)
