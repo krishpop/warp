@@ -87,20 +87,21 @@ class Example:
                 restitution=0.0)
 
         # capsules
-        # for i in range(self.num_bodies):
+        for i in range(self.num_bodies):
             
-        #     b = builder.add_body(origin=wp.transform((0.0, 2.0, 4.0), wp.quat_rpy(0.1, 0.0, 0.3)))
+            b = builder.add_body(origin=wp.transform((0.1*i, 1.0 + 0.4*i, 4.0), wp.quat_identity()))
 
-        #     s = builder.add_shape_capsule( 
-        #         pos=(0.0, 0.0, 0.0),
-        #         radius=0.25*self.scale,
-        #         half_width=self.scale*0.5,
-        #         body=b,
-        #         ke=self.ke,
-        #         kd=self.kd,
-        #         kf=self.kf,
-        #         mu=0.01,
-        #         restitution=0.0)
+            s = builder.add_shape_capsule( 
+                pos=(0.0, 0.0, 0.0),
+                radius=0.25*self.scale,
+                half_width=self.scale*0.5,
+                body=b,
+                ke=self.ke,
+                kd=self.kd,
+                kf=self.kf,
+                mu=0.5,
+                density=(0.0 if i == 0 else 1000.0),
+                restitution=0.0)
 
         # initial spin 
         # for i in range(len(builder.body_qd)):
@@ -120,7 +121,15 @@ class Example:
         self.state = self.model.state()
 
         # one time collide for ground contact
-        self.model.collide(self.state)
+        if self.model.ground:
+            self.model.collide(self.state)
+
+        # distance threshold at which contacts are generated
+        self.model.rigid_contact_margin = 0.1
+
+        self.max_contact_count = 100
+        self.points_a = np.zeros((self.max_contact_count, 3))
+        self.points_b = np.zeros((self.max_contact_count, 3))
 
         self.renderer = wp.sim.render.SimRenderer(self.model, stage)
 
@@ -131,6 +140,25 @@ class Example:
             for i in range(self.sim_substeps):
                 self.state.clear_forces()
                 wp.sim.collide(self.model, self.state)
+
+                if i == 0:
+                    # visualize contact points
+                    qs = self.state.body_q.numpy()
+                    rigid_contact_count = self.model.rigid_contact_count.numpy()[0]
+
+                    self.points_a[rigid_contact_count:].fill(0.0)
+                    self.points_b[rigid_contact_count:].fill(0.0)
+
+                    body_a = self.model.rigid_contact_body0.numpy()[:rigid_contact_count]
+                    body_b = self.model.rigid_contact_body1.numpy()[:rigid_contact_count]
+
+                    if rigid_contact_count > 0:
+                        contact_points_a = self.model.rigid_contact_point0.numpy()
+                        self.points_a[:rigid_contact_count] = [(wp.transform_point(qs[body], wp.vec3(*contact_points_a[i])) if body >= 0 else contact_points_a[i]) for i, body in enumerate(body_a)]
+
+                        contact_points_b = self.model.rigid_contact_point1.numpy()
+                        self.points_b[:rigid_contact_count] = [(wp.transform_point(qs[body], wp.vec3(*contact_points_b[i])) if body >= 0 else contact_points_b[i]) for i, body in enumerate(body_b)]
+
                 self.state = self.integrator.simulate(self.model, self.state, self.state, self.sim_dt/self.sim_substeps)   
 
     def render(self, is_live=False):
@@ -140,6 +168,10 @@ class Example:
 
             self.renderer.begin_frame(time)
             self.renderer.render(self.state)
+
+            self.renderer.render_points("contact_points_a", np.array(self.points_a), radius=0.05)
+            self.renderer.render_points("contact_points_b", np.array(self.points_b), radius=0.05)
+
             self.renderer.end_frame()
         
         self.sim_time += self.sim_dt
