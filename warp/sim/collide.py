@@ -141,6 +141,13 @@ def plane_sdf(width: float, length: float, p: wp.vec3):
     d = wp.max(d, abs(p[1]))
     return d
 
+@wp.func
+def closest_point_line_segment(a: wp.vec3, b: wp.vec3, point: wp.vec3) -> wp.vec3:
+    ab = b - a
+    ap = point - a
+    t = wp.dot(ap, ab) / wp.dot(ab, ab)
+    t = wp.clamp(t, 0.0, 1.0)
+    return a + t * ab
 
 @wp.kernel
 def create_soft_contacts(
@@ -528,7 +535,7 @@ def update_rigid_ground_contacts(
             contact_thickness[index] = thickness
 
 @wp.kernel
-def create_sphere_sphere_contacts(
+def create_primitive_contacts(
     body_q: wp.array(dtype=wp.transform),
     shape_X_bs: wp.array(dtype=wp.transform),
     shape_body: wp.array(dtype=int),
@@ -579,10 +586,7 @@ def create_sphere_sphere_contacts(
     geo_type_b = shape_geo_type[shape_b]
     geo_scale_b = shape_geo_scale[shape_b]
 
-    # GEO_SPHERE (0)
-    if (geo_type_a == 0 and geo_type_b == 0):
-        geo_id_a = shape_geo_id[shape_a]
-        geo_id_b = shape_geo_id[shape_b]
+    if (geo_type_a == wp.sim.GEO_SPHERE and geo_type_b == wp.sim.GEO_SPHERE):
         radius_a = geo_scale_a[0]
         radius_b = geo_scale_b[0]
         thickness = shape_contact_thickness[shape_a] + shape_contact_thickness[shape_b]
@@ -605,6 +609,63 @@ def create_sphere_sphere_contacts(
                 contact_shape0[index] = shape_a
                 contact_shape1[index] = shape_b
                 contact_thickness[index] = thickness
+        return
+    if (geo_type_a == wp.sim.GEO_CAPSULE and geo_type_b == wp.sim.GEO_CAPSULE):
+        # https://wickedengine.net/2020/04/26/capsule-collision-detection/
+        radius_a = geo_scale_a[0]
+        radius_b = geo_scale_b[0]
+        # capsule extends along x axis
+        half_width_a = geo_scale_a[1]
+        half_width_b = geo_scale_b[1]
+
+        # capsule A
+        A_a = wp.transform_point(X_ws_a, wp.vec3(half_width_a, 0.0, 0.0))
+        B_a = wp.transform_point(X_ws_a, wp.vec3(-half_width_a, 0.0, 0.0))
+        
+        # capsule B
+        A_b = wp.transform_point(X_ws_b, wp.vec3(half_width_b, 0.0, 0.0))
+        B_b = wp.transform_point(X_ws_b, wp.vec3(-half_width_b, 0.0, 0.0))
+
+        # squared distances between line endpoints
+        d0 = wp.length_sq(A_b - A_a)
+        d1 = wp.length_sq(B_b - A_a)
+        d2 = wp.length_sq(A_b - B_a)
+        d3 = wp.length_sq(B_b - B_a)
+
+        # select best potential endpoint on capsule A
+        best_A = A_a
+        if (d3 < d0):
+            best_A = B_a
+        
+        # select point on capsule B line segment nearest to best potential endpoint on A capsule:
+        best_B = closest_point_line_segment(A_b, B_b, best_A)
+        
+        # # now do the same for capsule A segment:
+        best_A = closest_point_line_segment(A_a, B_a, best_B)
+
+        thickness = shape_contact_thickness[shape_a] + shape_contact_thickness[shape_b]
+
+        diff = best_A - best_B
+        # print("best A, B:")
+        # print(best_A)
+        # print(best_B)
+        d = wp.length(diff) - thickness
+        # print(d)
+        normal = wp.normalize(diff)
+        if (d < rigid_contact_margin):
+            index = wp.inc_index(contact_count, shape_a, contact_max)
+            if (index >= 0):
+                contact_point0[index] = wp.transform_point(X_sw_a, best_A)
+                contact_point1[index] = wp.transform_point(X_sw_b, best_B)
+                contact_body0[index] = rigid_a
+                contact_body1[index] = rigid_b
+                contact_offset0[index] = wp.transform_vector(X_sw_a, -radius_a * normal)
+                contact_offset1[index] = wp.transform_vector(X_sw_b, radius_b * normal)
+                contact_normal[index] = normal
+                contact_shape0[index] = shape_a
+                contact_shape1[index] = shape_b
+                contact_thickness[index] = thickness
+        return
 
 
 
@@ -848,7 +909,7 @@ def collide(model, state, experimental_sdf_collision=False):
         # print("rigid_contact_count:", state.rigid_contact_count.numpy()[0])
 
     wp.launch(
-        kernel=create_sphere_sphere_contacts,
+        kernel=create_primitive_contacts,
         dim=(model.body_count, model.body_count),
         inputs=[
             state.body_q,
