@@ -432,22 +432,44 @@ class Model:
             self.rigid_contact_max = count
         # serves as counter and mapping from thread ID to contact ID (for a correct backward pass)
         self.rigid_contact_count = wp.zeros(self.rigid_contact_max+1, dtype=wp.int32, device=self.device)
+        # ID of first rigid body
         self.rigid_contact_body0 = wp.zeros(self.rigid_contact_max, dtype=wp.int32, device=self.device)
+        # ID of second rigid body
         self.rigid_contact_body1 = wp.zeros(self.rigid_contact_max, dtype=wp.int32, device=self.device)
+        # position of contact point in body 0's frame before the integration step
         self.rigid_contact_point0 = wp.zeros(self.rigid_contact_max, dtype=wp.vec3, device=self.device, requires_grad=requires_grad)
+        # position of contact point in body 1's frame before the integration step
         self.rigid_contact_point1 = wp.zeros(self.rigid_contact_max, dtype=wp.vec3, device=self.device, requires_grad=requires_grad)
+        # moment arm before the integration step resulting from thickness displacement added to contact point 0 in body 0's frame (used in XPBD contact friction handling)
         self.rigid_contact_offset0 = wp.zeros(self.rigid_contact_max, dtype=wp.vec3, device=self.device, requires_grad=requires_grad)
+        # moment arm before the integration step resulting from thickness displacement added to contact point 1 in body 1's frame (used in XPBD contact friction handling)
         self.rigid_contact_offset1 = wp.zeros(self.rigid_contact_max, dtype=wp.vec3, device=self.device, requires_grad=requires_grad)
+        # contact normal in world frame
         self.rigid_contact_normal = wp.zeros(self.rigid_contact_max, dtype=wp.vec3, device=self.device, requires_grad=requires_grad)
+        # combined thickness of both shapes
         self.rigid_contact_thickness = wp.zeros(self.rigid_contact_max, dtype=wp.float32, device=self.device, requires_grad=requires_grad)
+        # ID of the first shape in the contact pair
         self.rigid_contact_shape0 = wp.zeros(self.rigid_contact_max, dtype=wp.int32, device=self.device)
+        # ID of the second shape in the contact pair
         self.rigid_contact_shape1 = wp.zeros(self.rigid_contact_max, dtype=wp.int32, device=self.device)
+
+        # temporary variables used during the XPBD solver iterations:
+        # world space position of contact point resulting from applying current body 0 transform to its point0
         self.rigid_active_contact_point0 = wp.zeros(self.rigid_contact_max, dtype=wp.vec3, device=self.device, requires_grad=requires_grad)
+        # world space position of contact point resulting from applying current body 1 transform to its point1
         self.rigid_active_contact_point1 = wp.zeros(self.rigid_contact_max, dtype=wp.vec3, device=self.device, requires_grad=requires_grad)
+        # current contact distance (negative penetration depth)
         self.rigid_active_contact_distance = wp.zeros(self.rigid_contact_max, dtype=wp.float32, device=self.device, requires_grad=requires_grad)
+        # contact distance before the solver iterations
         self.rigid_active_contact_distance_prev = wp.zeros(self.rigid_contact_max, dtype=wp.float32, device=self.device, requires_grad=requires_grad)
-        # number of contact constraints per rigid body (used for scaling the constraint contributions)
+        # world space position of point0 before the solver iterations
+        self.rigid_active_contact_point0_prev = wp.zeros(self.rigid_contact_max, dtype=wp.vec3, device=self.device, requires_grad=requires_grad)
+        # world space position of point1 before the solver iterations
+        self.rigid_active_contact_point1_prev = wp.zeros(self.rigid_contact_max, dtype=wp.vec3, device=self.device, requires_grad=requires_grad)
+        # number of contact constraints per rigid body (used for scaling the constraint contributions, a basic version of mass splitting)
         self.rigid_contact_inv_weight = wp.zeros(len(self.body_q), dtype=wp.float32, device=self.device, requires_grad=requires_grad)
+        # number of contact constraints before the solver iterations
+        self.rigid_contact_inv_weight_prev = wp.zeros(len(self.body_q), dtype=wp.float32, device=self.device, requires_grad=requires_grad)
 
     def flatten(self):
         """Returns a list of Tensors stored by the model
@@ -620,7 +642,7 @@ class ModelBuilder:
     default_shape_kd = 1000.0
     default_shape_kf = 1000.0
     default_shape_mu = 0.5
-    default_shape_restitution = 0.8
+    default_shape_restitution = 0.0
     default_shape_density = 1000.0
 
     
@@ -734,8 +756,9 @@ class ModelBuilder:
         self.rigid_contact_torsional_friction = 0.5
         # rolling friction coefficient (only considered by XPBD so far)
         self.rigid_contact_rolling_friction = 0.001
-        # treat collisions with relative velocity below this as inelastic
-        self.rigid_contact_bounce_threshold = 1e-5
+        # treat collisions with relative velocity below this (multiplied by dt) as inelastic
+        # jitter threshold from 
+        self.rigid_contact_jitter_threshold = 2.0 * np.linalg.norm(gravity)
         
 
     # an articulation is a set of contiguous bodies bodies from articulation_start[i] to articulation_start[i+1]
@@ -2017,7 +2040,6 @@ class ModelBuilder:
             m.shape_materials.mu = wp.array(self.shape_material_mu, dtype=wp.float32, device=device)
             m.shape_materials.restitution = wp.array(self.shape_material_restitution, dtype=wp.float32, device=device)
             m.shape_contact_thickness = wp.array(self.shape_contact_thickness, dtype=wp.float32, device=device)
-            m.has_restitution = np.any(np.array(self.shape_material_restitution) > 0.0)
 
             #---------------------
             # springs
@@ -2121,7 +2143,7 @@ class ModelBuilder:
             m.rigid_contact_margin = self.rigid_contact_margin            
             m.rigid_contact_torsional_friction = self.rigid_contact_torsional_friction
             m.rigid_contact_rolling_friction = self.rigid_contact_rolling_friction
-            m.rigid_contact_bounce_threshold = self.rigid_contact_bounce_threshold
+            m.rigid_contact_jitter_threshold = self.rigid_contact_jitter_threshold
 
             # counts
             m.particle_count = len(self.particle_q)
