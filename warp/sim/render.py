@@ -94,7 +94,7 @@ class SimRenderer(warp.render.UsdRenderer):
                     #mesh.GetSizeAttr().Set((geo_scale[0], geo_scale[1], geo_scale[2]))
 
                     wp.render._usd_add_xform(mesh)
-                    wp.render._usd_set_xform(mesh, self.scale(X_bs.p), X_bs.q, self.scale((geo_scale[0], geo_scale[1], geo_scale[2])), 0.0)
+                    wp.render._usd_set_xform(mesh, self.scale(X_bs.p), X_bs.q, (geo_scale[0], geo_scale[1], geo_scale[2]), 0.0)
 
                 elif (geo_type == warp.sim.GEO_MESH):
 
@@ -104,7 +104,7 @@ class SimRenderer(warp.render.UsdRenderer):
                     mesh.GetFaceVertexCountsAttr().Set([3] * int(len(geo_src.indices) / 3))
 
                     wp.render._usd_add_xform(mesh)
-                    wp.render._usd_set_xform(mesh, self.scale(X_bs.p), X_bs.q, self.scale((geo_scale[0], geo_scale[1], geo_scale[2])), 0.0)
+                    wp.render._usd_set_xform(mesh, self.scale(X_bs.p), X_bs.q, (geo_scale[0], geo_scale[1], geo_scale[2]), 0.0)
 
                 elif (geo_type == warp.sim.GEO_SDF):
                     pass
