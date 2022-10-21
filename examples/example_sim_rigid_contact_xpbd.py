@@ -19,13 +19,13 @@ import math
 import numpy as np
 
 import warp as wp
+wp.config.mode == "debug"
 import warp.sim
 import warp.sim.render
 
-wp.config.mode == "debug"
-wp.config.verify_fp = True
+# wp.config.verify_fp = True
 wp.init()
-wp.config.mode == "debug"
+# wp.config.mode == "debug"
 
 
 class Example:
@@ -37,7 +37,7 @@ class Example:
         self.sim_time = 0.0
         self.sim_substeps = 5
 
-        self.solve_iterations = 2
+        self.solve_iterations = 1
         self.relaxation = 1.0
 
         self.num_bodies = 1
@@ -53,71 +53,79 @@ class Example:
 
         builder = wp.sim.ModelBuilder()
 
-        # boxes
-        # for i in range(self.num_bodies):
-            
-        #     b = builder.add_body(origin=wp.transform((i, 1.0, 0.0), wp.quat_identity()))
+        restitution = 1.0
 
-        #     s = builder.add_shape_box( 
-        #         pos=(0.0, 0.0, 0.0),
-        #         hx=0.5*self.scale,
-        #         hy=0.2*self.scale,
-        #         hz=0.2*self.scale,
-        #         body=i,
-        #         ke=self.ke,
-        #         kd=self.kd,
-        #         kf=self.kf,
-        #         mu=0.05,
-        #         restitution=0.5)
+        # boxes
+        for i in range(self.num_bodies):
+            
+            b = builder.add_body(origin=wp.transform((i, 0.0, 0.0), wp.quat_identity()))
+            # b = builder.add_body(origin=wp.transform((i, 0.6, 0.0), wp.quat_rpy(0.2, 0.5, 0.8)))
+
+            s = builder.add_shape_box( 
+                pos=(0.0, 0.0, 0.0),
+                hx=0.25*self.scale,
+                hy=0.12*self.scale,
+                hz=0.12*self.scale,
+                body=b,
+                ke=self.ke,
+                kd=self.kd,
+                kf=self.kf,
+                mu=0.05,
+                restitution=restitution)
 
         # spheres
         for i in range(self.num_bodies):
             
-            b = builder.add_body(origin=wp.transform((i, 2.0, 2.0), wp.quat_identity()))
+            b = builder.add_body(origin=wp.transform((0.01 * i, 1.3*self.scale * i + 0.5, 1.0), wp.quat_identity()))
 
             s = builder.add_shape_sphere(
                 pos=(0.0, 0.0, 0.0),
-                radius=0.25*self.scale, 
+                radius=0.25*self.scale,
+                body=b,
+                ke=self.ke,
+                kd=self.kd,
+                kf=self.kf,
+                mu=1.0,
+                restitution=restitution)
+
+        # capsules
+        for i in range(self.num_bodies):
+            
+            # b = builder.add_body(origin=wp.transform((0.0, 2.0, 4.0), wp.quat_rpy(0.1, 0.0, 0.3)))
+            b = builder.add_body(origin=wp.transform((0.0, 2.0, 2.0), wp.quat_identity()))
+
+            s = builder.add_shape_capsule( 
+                pos=(0.0, 0.0, 0.0),
+                radius=0.25*self.scale,
+                half_width=self.scale*0.5,
                 body=b,
                 ke=self.ke,
                 kd=self.kd,
                 kf=self.kf,
                 mu=0.01,
-                restitution=0.5)
-
-        # capsules
-        # for i in range(self.num_bodies):
-            
-        #     b = builder.add_body(origin=wp.transform((i, 2.0, 4.0), wp.quat_rpy(0.1, 0.0, 0.3)))
-
-        #     s = builder.add_shape_capsule( 
-        #         pos=(0.0, 0.0, 0.0),
-        #         radius=0.25*self.scale,
-        #         half_width=0.0, #self.scale*0.5,
-        #         body=b,
-        #         ke=self.ke,
-        #         kd=self.kd,
-        #         kf=self.kf,
-        #         mu=0.01,
-        #         restitution=0.5)
+                restitution=restitution)
 
         # initial spin 
-        for i in range(len(builder.body_qd)):
-            # builder.body_qd[i] = (0.0, 2.0, 10.0, -1.5, 0.0, 0.0)
-            builder.body_qd[i] = (10.0, 0.0, 0.0, 0.3, 2.5, -4.0)
+        # for i in range(len(builder.body_qd)):
+        #     # builder.body_qd[i] = (0.0, 2.0, 10.0, -1.5, 0.0, 0.0)
+        #     builder.body_qd[i] = (10.0, 0.0, 0.0, 0.3, 2.5, -4.0)
+
+        # ground_angle = np.deg2rad(30.0)
+        # builder.ground = [0.0, np.sin(ground_angle), np.cos(ground_angle), -0.5]
+        builder.ground = [0.0, 1.0, 0.0, 0.0]
         
         self.model = builder.finalize(self.device)
         self.model.ground = True
 
         self.integrator = wp.sim.XPBDIntegrator(self.solve_iterations)
-        self.integrator.contact_con_weighting = True
+        self.integrator.contact_con_weighting = False
         # self.integrator = wp.sim.SemiImplicitIntegrator()
         self.state = self.model.state()
 
         # one time collide for ground contact
         self.model.collide(self.state)
 
-        self.renderer = wp.sim.render.SimRenderer(self.model, stage)
+        self.renderer = wp.sim.render.SimRenderer(self.model, stage, scaling=100.0)
 
     def update(self):
 
@@ -156,7 +164,8 @@ if __name__ == '__main__':
     num_con_history.append(example.model.rigid_contact_inv_weight.numpy().copy())
 
     from tqdm import trange
-    for i in trange(30) : #example.sim_steps):
+    example.render()
+    for i in trange(example.sim_steps):
         example.update()
         example.render()
 

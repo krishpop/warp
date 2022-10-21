@@ -37,59 +37,6 @@ else:
 
 wp.init()
 
-@wp.func
-def volume_grad(volume: wp.uint64,
-                p: wp.vec3):
-    
-    eps = 1.0
-    q = wp.volume_world_to_index(volume, p)
-
-    # compute gradient of the SDF using finite differences
-    dx = wp.volume_sample_f(volume, q + wp.vec3(eps, 0.0, 0.0), wp.Volume.LINEAR) - wp.volume_sample_f(volume, q - wp.vec3(eps, 0.0, 0.0), wp.Volume.LINEAR)
-    dy = wp.volume_sample_f(volume, q + wp.vec3(0.0, eps, 0.0), wp.Volume.LINEAR) - wp.volume_sample_f(volume, q - wp.vec3(0.0, eps, 0.0), wp.Volume.LINEAR)
-    dz = wp.volume_sample_f(volume, q + wp.vec3(0.0, 0.0, eps), wp.Volume.LINEAR) - wp.volume_sample_f(volume, q - wp.vec3(0.0, 0.0, eps), wp.Volume.LINEAR)
-
-    return wp.normalize(wp.vec3(dx, dy, dz))
-
-@wp.kernel
-def simulate(positions: wp.array(dtype=wp.vec3),
-            velocities: wp.array(dtype=wp.vec3),
-            volume: wp.uint64,
-            restitution: float,
-            margin: float,
-            dt: float):
-    
-    
-    tid = wp.tid()
-
-    x = positions[tid]
-    v = velocities[tid]
-
-    v = v + wp.vec3(0.0, 0.0, -980.0)*dt - v*0.1*dt
-    xpred = x + v*dt
-    xpred_local = wp.volume_world_to_index(volume, xpred)
-    
-    d = wp.volume_sample_f(volume, xpred_local, wp.Volume.LINEAR)
-
-    if (d < margin):
-        
-        n = volume_grad(volume, xpred)
-        err = d - margin
-
-        # mesh collision
-        xpred = xpred - n*err
-
-
-    # ground collision
-    if (xpred[2] < 0.0):
-        xpred = wp.vec3(xpred[0], xpred[1], 0.0)
-
-    # pbd update
-    v = (xpred - x)*(1.0/dt)
-    x = xpred
-
-    positions[tid] = x
-    velocities[tid] = v
 
 class Example:
 
@@ -145,6 +92,8 @@ class Example:
 
         builder = wp.sim.ModelBuilder()
 
+        restitution = 1.0
+
         b1 = builder.add_body(
             origin=wp.transform((-0.8, 1.7, -0.8), wp.quat_identity())
         )
@@ -158,7 +107,8 @@ class Example:
             kd=0.0,
             kf=0.0, # 1e1, 
             mu=0.3,
-            density=1e2,
+            restitution=restitution,
+            density=1e3,
         )
 
         axis = np.array((0.2, 0.1, 0.7))
@@ -175,7 +125,8 @@ class Example:
             kd=0.0,
             kf=0.0, # 1e1,
             mu=0.3,
-            density=1e2,
+            restitution=restitution,
+            density=1e3,
         )
 
         # axis = np.array((0.2, 0.8, 0.17))
@@ -207,6 +158,7 @@ class Example:
             kd=0.0, # 1e2,
             kf=0.0, # 1e1,
             mu=0.3,
+            restitution=restitution,
             density=1e3,
         )
 
@@ -217,8 +169,10 @@ class Example:
         # make sure we allocate enough rigid contacts
         self.model.allocate_rigid_contacts(4096)
 
-        self.integrator = wp.sim.XPBDIntegrator(iterations=1, contact_con_weighting=False)
-        self.integrator.contact_con_weighting = True
+        self.integrator = wp.sim.XPBDIntegrator(
+            iterations=1,
+            contact_con_weighting=True,
+            contact_normal_relaxation=1.0)
         # self.integrator = wp.sim.SemiImplicitIntegrator()
         self.state = self.model.state()
 
@@ -226,7 +180,8 @@ class Example:
         with wp.ScopedTimer("collide", active=True):
             self.model.collide(self.state)
 
-        self.renderer = wp.sim.render.SimRenderer(self.model, stage)
+        self.renderer = wp.sim.render.SimRenderer(
+            self.model, stage, scaling=100.0)
 
         self.points_a = []
         self.points_b = []

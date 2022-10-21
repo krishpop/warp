@@ -45,6 +45,7 @@ class Example:
         self.ke = 1.e+5
         self.kd = 250.0
         self.kf = 500.0
+        self.restitution = 0.8
 
         # self.device = wp.get_preferred_device()
         self.device = "cpu"
@@ -68,7 +69,7 @@ class Example:
         #         kd=self.kd,
         #         kf=self.kf,
         #         mu=0.05,
-        #         restitution=0.0)
+        #         restitution=self.restitution)
 
         # spheres
         for i in range(self.num_bodies):
@@ -84,7 +85,7 @@ class Example:
                 kd=self.kd,
                 kf=self.kf,
                 mu=1.0,
-                restitution=0.0)
+                restitution=self.restitution)
 
         # capsules
         for i in range(self.num_bodies):
@@ -101,7 +102,7 @@ class Example:
                 kf=self.kf,
                 mu=0.5,
                 density=(0.0 if i == 0 else 1000.0),
-                restitution=0.0)
+                restitution=self.restitution)
 
         # capsules (stable stack)
         rot90s = [
@@ -122,7 +123,7 @@ class Example:
                 kf=self.kf,
                 mu=1.0,
                 density=(0.0 if i == 0 else 1000.0),
-                restitution=0.0)
+                restitution=self.restitution)
 
         # initial spin 
         # for i in range(len(builder.body_qd)):
