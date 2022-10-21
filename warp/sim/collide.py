@@ -910,7 +910,7 @@ def collide(model, state, experimental_sdf_collision=False):
 
     wp.launch(
         kernel=create_primitive_contacts,
-        dim=(model.body_count, model.body_count),
+        dim=(model.shape_count, model.shape_count),
         inputs=[
             state.body_q,
             model.shape_transform,
