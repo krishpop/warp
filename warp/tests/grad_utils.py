@@ -449,6 +449,8 @@ def check_kernel_jacobian(kernel: Callable, dim: Tuple[int], inputs: List, outpu
     if tabulate_errors:
         headers = ["Input", "Output", "Jac Block", "Sensitivity", "Max Rel Error", "Row", "Col", "AD", "FD"]
         table = [headers]
+    highlight_xs = []
+    highlight_ys = []
     for input_tick, input_label in zip(input_ticks, input_ticks_labels):
         for output_tick, output_label in zip(output_ticks, output_ticks_labels):
             input_len = min(input_lengths[input_label], max_fd_dims_per_var)
@@ -461,10 +463,13 @@ def check_kernel_jacobian(kernel: Callable, dim: Tuple[int], inputs: List, outpu
             max_abs_error_stat["individual"][(input_label, output_label)] = max_abs[0]
             max_rel_error_stat["individual"][(input_label, output_label)] = max_rel[0]
             mean_abs_error_stat["individual"][(input_label, output_label)] = compute_mean_abs_error(jac_ad_sub, jac_fd_sub)
-            mean_rel_error_stat["individual"][(input_label, output_label)] = compute_mean_rel_error(jac_ad_sub, jac_fd_sub)
+            mean_rel_error_stat["individual"][(input_label, output_label)] = compute_mean_rel_error(jac_ad_sub, jac_fd_sub)            
+            actual_idx = (max_rel[1][0] + output_tick, max_rel[1][1] + input_tick)
+            if max_rel[0] > 0.0:
+                highlight_xs.append(actual_idx[1])  # swap because row is vertical
+                highlight_ys.append(actual_idx[0])
             if tabulate_errors:
                 # add the index offsets
-                actual_idx = (max_rel[1][0] + output_tick, max_rel[1][1] + input_tick)
                 table.append([input_label, output_label,
                               f"[{output_tick}:{output_tick+output_len}, {input_tick}:{input_tick+input_len}]",
                               cond_stat["individual"][(input_label, output_label)],
@@ -498,27 +503,24 @@ def check_kernel_jacobian(kernel: Callable, dim: Tuple[int], inputs: List, outpu
 
     if not result and plot_jac_on_fail:
         import matplotlib.pyplot as plt
+        from matplotlib.colors import LogNorm
         fig, axs = plt.subplots(1, 3)
         plt.suptitle(f"{kernel.key} Jacobian", fontsize=16, fontweight='bold')
-        axs[0].imshow(jac_ad)
+        def plot_matrix(ax, mat):
+            mat[mat==0.0] = np.nan
+            ax.imshow(np.abs(mat), cmap='jet', interpolation='nearest', norm=LogNorm())
+            ax.set_xticks(input_ticks)
+            ax.set_xticklabels([f"{label} ({tick})" for label, tick in zip(input_ticks_labels, input_ticks)], rotation=90)
+            ax.set_yticks(output_ticks)
+            ax.set_yticklabels([f"{label} ({tick})" for label, tick in zip(output_ticks_labels, output_ticks)])
+        plot_matrix(axs[0], jac_ad)
         axs[0].set_title("Analytical")
-        axs[0].set_xticks(input_ticks)
-        axs[0].set_xticklabels([f"{label} ({tick})" for label, tick in zip(input_ticks_labels, input_ticks)], rotation=90)
-        axs[0].set_yticks(output_ticks)
-        axs[0].set_yticklabels([f"{label} ({tick})" for label, tick in zip(output_ticks_labels, output_ticks)])
-        axs[1].imshow(jac_fd)
+        plot_matrix(axs[1], jac_fd)
         axs[1].set_title("Finite Difference")
-        axs[1].set_xticks(input_ticks)
-        axs[1].set_xticklabels([f"{label} ({tick})" for label, tick in zip(input_ticks_labels, input_ticks)], rotation=90)
-        axs[1].set_yticks(output_ticks)
-        axs[1].set_yticklabels([f"{label} ({tick})" for label, tick in zip(output_ticks_labels, output_ticks)])
-        axs[2].imshow(jac_ad - jac_fd)
+        plot_matrix(axs[2], jac_ad - jac_fd)
         axs[2].set_title("Difference")
-        axs[2].set_xticks(input_ticks)
-        axs[2].set_xticklabels([f"{label} ({tick})" for label, tick in zip(input_ticks_labels, input_ticks)], rotation=90)
-        axs[2].set_yticks(output_ticks)
-        axs[2].set_yticklabels([f"{label} ({tick})" for label, tick in zip(output_ticks_labels, output_ticks)])
-        plt.tight_layout()
+        axs[2].scatter(highlight_xs, highlight_ys, marker='x', color='red')
+        plt.tight_layout(h_pad=0.0, w_pad=0.0)
         plt.show()
 
     return result, stats
