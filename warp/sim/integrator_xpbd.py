@@ -1223,6 +1223,9 @@ def update_body_contact_weights(
     count = contact_count[0]
     if (tid >= count):
         return
+
+    if (contact_shape0[tid] == -1 and contact_shape1[tid] == -1):
+        return
         
     body_a = contact_body0[tid]
     body_b = contact_body1[tid]
@@ -1249,7 +1252,7 @@ def update_body_contact_weights(
     bx_b = wp.transform_point(X_wb_b, bx_b)
     
     n = contact_normal[tid]
-    d = -wp.dot(n, bx_b-bx_a) - thickness
+    d = wp.dot(n, bx_a-bx_b) - thickness
     active_contact_distance[tid] = d
 
     if d < 0.0:
@@ -1260,6 +1263,9 @@ def update_body_contact_weights(
                 wp.atomic_add(contact_inv_weight, body_b, 1.0)
         active_contact_point0[tid] = bx_a
         active_contact_point1[tid] = bx_b
+    else:
+        active_contact_point0[tid] = wp.vec3(0.0)
+        active_contact_point1[tid] = wp.vec3(0.0)
 
 
 @wp.kernel
@@ -2076,7 +2082,7 @@ class XPBDIntegrator:
 
                 state_out.body_qd = out_body_qd
 
-                if (True):
+                if (False): 
                     if requires_grad:
                         state_out.body_deltas = wp.zeros_like(state_out.body_deltas)
                     else:
