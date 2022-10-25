@@ -7,7 +7,6 @@
 
 
 from warp.sim.model import JOINT_COMPOUND, JOINT_REVOLUTE, JOINT_UNIVERSAL
-from warp.utils import transform_identity
 
 import math
 import numpy as np
@@ -32,15 +31,11 @@ def parse_mjcf(
     limit_ke=10000.0,
     limit_kd=1000.0,
     armature=0.0,
-    armature_scale=1.0):
+    armature_scale=1.0,
+    enable_self_collisions=True):
 
     file = ET.parse(filename)
     root = file.getroot()
-
-    # map node names to link indices
-    node_map = {}
-    xform_map = {}
-    mesh_map = {}
     
     type_map = { 
         "ball": wp.sim.JOINT_BALL, 
@@ -250,9 +245,17 @@ def parse_mjcf(
 
     #-----------------
     # start articulation
-
+    
+    start_shape_count = len(builder.shape_geo_type)
     builder.add_articulation()
 
     world = root.find("worldbody")
     for body in world.findall("body"):
         parse_body(body, -1)
+
+    end_shape_count = len(builder.shape_geo_type)
+
+    if not enable_self_collisions:
+        for i in range(start_shape_count, end_shape_count):
+            for j in range(i+1, end_shape_count):
+                builder.shape_collision_filter_pairs.add((i, j))
