@@ -94,6 +94,23 @@ class Example:
 
         restitution = 1.0
 
+        bowl = builder.add_body(
+            origin=wp.transform((0.0, 1.1, 0.0), wp.quat_from_axis_angle((1.0, 0.0, 0.0), 0.01))
+        )
+        builder.add_shape_mesh(
+            body=bowl,
+            mesh=bowl_mesh,
+            volume=bowl_volume,
+            pos=(0.0, 0.0, 0.0),
+            scale=(1.0, 1.0, 1.0),
+            ke=1e6,
+            kd=0.0, # 1e2,
+            kf=0.0, # 1e1,
+            mu=0.3,
+            restitution=restitution,
+            density=1e3,
+        )
+
         b1 = builder.add_body(
             origin=wp.transform((-0.8, 1.7, -0.8), wp.quat_identity())
         )
@@ -145,29 +162,11 @@ class Example:
         #     density=1e3,
         # )
 
-        bowl = builder.add_body(
-            origin=wp.transform((0.0, 1.1, 0.0), wp.quat_from_axis_angle((1.0, 0.0, 0.0), 0.01))
-        )
-        builder.add_shape_mesh(
-            body=bowl,
-            mesh=bowl_mesh,
-            volume=bowl_volume,
-            pos=(0.0, 0.0, 0.0),
-            scale=(1.0, 1.0, 1.0),
-            ke=1e6,
-            kd=0.0, # 1e2,
-            kf=0.0, # 1e1,
-            mu=0.3,
-            restitution=restitution,
-            density=1e3,
-        )
-
-
         self.model = builder.finalize(self.device)
         self.model.ground = True
 
         # make sure we allocate enough rigid contacts
-        self.model.allocate_rigid_contacts(4096)
+        self.model.allocate_rigid_contacts(2**14)
 
         self.integrator = wp.sim.XPBDIntegrator(
             iterations=1,
