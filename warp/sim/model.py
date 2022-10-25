@@ -308,6 +308,10 @@ class Model:
         self.body_com = None
         self.body_inertia = None
 
+        self.shape_collision_group = None
+        self.shape_collision_mask = None
+        self.shape_collision_radius = None
+
         # TODO: update this
         self.joint_type = None
         self.joint_parent = None
@@ -432,6 +436,8 @@ class Model:
             self.rigid_contact_max = count
         # serves as counter and mapping from thread ID to contact ID (for a correct backward pass)
         self.rigid_contact_count = wp.zeros(self.rigid_contact_max+1, dtype=wp.int32, device=self.device)
+        # contact point ID within the (shape_a, shape_b) contact pair
+        self.rigid_contact_point_id = wp.zeros(self.rigid_contact_max, dtype=wp.int32, device=self.device)
         # ID of first rigid body
         self.rigid_contact_body0 = wp.zeros(self.rigid_contact_max, dtype=wp.int32, device=self.device)
         # ID of second rigid body
@@ -654,8 +660,10 @@ class ModelBuilder:
         self.particle_qd = []
         self.particle_mass = []
 
-        # shapes
+        # shapes (each shape has an entry in this array)
+        # transform from shape to body
         self.shape_transform = []
+        # maps from shape index to body index
         self.shape_body = []
         self.shape_geo_type = []
         self.shape_geo_scale = []
@@ -667,6 +675,13 @@ class ModelBuilder:
         self.shape_material_restitution = []
         self.shape_contact_thickness = []
         self.shape_volumes = []
+        # collision groups within collisions are handled
+        self.shape_collision_group = []
+        # radius to use for broadphase collision checking
+        self.shape_collision_radius = []
+
+        # filtering to ignore certain collision pairs
+        self.shape_collision_filter_pairs = set()
 
         # geometry
         self.geo_meshes = []
@@ -710,6 +725,7 @@ class ModelBuilder:
         self.body_q = []
         self.body_qd = []
         self.body_name = []
+        self.body_shapes = []  # mapping from body to shapes
 
         # rigid joints
         self.joint_parent = []         # index of the parent body                      (constant)
@@ -810,6 +826,12 @@ class ModelBuilder:
 
         self.shape_body.extend([b + start_body_idx for b in articulation.shape_body])
 
+        last_collision_group = np.max(self.shape_collision_group) if len(self.shape_collision_group) > 0 else 0
+        self.shape_collision_group.extend([(g + last_collision_group if g > -1 else -1) for g in articulation.shape_collision_group])
+        shape_count = len(self.shape_geo_type)
+        for i, j in articulation.shape_collision_filter_pairs:
+            self.shape_collision_filter_pairs.add((i + shape_count, j + shape_count))
+
         rigid_articulation_attrs = [
             "body_inertia",
             "body_mass",
@@ -844,7 +866,8 @@ class ModelBuilder:
             "shape_material_kf",
             "shape_material_mu",
             "shape_material_restitution",
-            "shape_contact_thickness"
+            "shape_contact_thickness",
+            "shape_collision_radius",
         ]
 
         for attr in rigid_articulation_attrs:
@@ -924,6 +947,7 @@ class ModelBuilder:
         self.body_qd.append(wp.spatial_vector())
 
         self.body_name.append(body_name or f"body {child}")
+        self.body_shapes.append([])
 
         # joint data
         self.joint_type.append(joint_type.val)
@@ -1194,8 +1218,27 @@ class ModelBuilder:
 
         self._add_shape(body, pos, rot, GEO_MESH, (scale[0], scale[1], scale[2], 0.0), mesh, density, ke, kd, kf, mu, restitution, thickness=contact_thickness, volume=volume)
 
-    def _add_shape(self, body, pos, rot, type, scale, src, density, ke, kd, kf, mu, restitution, thickness=0.0, volume=None):
+    def _shape_radius(self, type, scale, src):
+        if type == GEO_SPHERE:
+            return scale[0]
+        elif type == GEO_BOX:
+            return np.linalg.norm(scale)
+        elif type == GEO_CAPSULE:
+            return scale[0] + scale[1]
+        elif type == GEO_MESH:
+            vmin = np.min(src.vertices, axis=0)
+            vmax = np.max(src.vertices, axis=0)
+            radius = np.linalg.norm(vmax - vmin) * 0.5
+            return radius
+        else:
+            return 10.0
+    
+    def _add_shape(self, body, pos, rot, type, scale, src, density, ke, kd, kf, mu, restitution, thickness=0.0, volume=None, collision_group=-1, collision_filter_parent=True):
         self.shape_body.append(body)
+        shape = len(self.shape_geo_type)
+        for same_body_shape in self.body_shapes[body]:
+            self.shape_collision_filter_pairs.add((same_body_shape, shape))
+        self.body_shapes[body].append(shape)
         self.shape_transform.append(wp.transform(pos, rot))
         self.shape_geo_type.append(type.val)
         self.shape_geo_scale.append((scale[0], scale[1], scale[2]))
@@ -1206,6 +1249,14 @@ class ModelBuilder:
         self.shape_material_mu.append(mu)
         self.shape_material_restitution.append(restitution)
         self.shape_contact_thickness.append(thickness)
+        self.shape_collision_group.append(collision_group)
+        self.shape_collision_radius.append(self._shape_radius(type, scale, src))
+        if collision_filter_parent and body > -1:
+            # XXX we assume joint ID == body ID here
+            parent_body = self.joint_parent[body]
+            if parent_body > -1:
+                for parent_shape in self.body_shapes[parent_body]:
+                    self.shape_collision_filter_pairs.add((parent_shape, shape))
 
         (m, I) = self._compute_shape_mass(type, scale, src, density)
 
@@ -2031,7 +2082,7 @@ class ModelBuilder:
                     mesh_num_points.append(0)
 
             m.shape_geo_id = wp.array(shape_geo_id, dtype=wp.uint64, device=device)
-            m.mesh_num_points = mesh_num_points
+            m.mesh_num_points = wp.array(mesh_num_points, dtype=wp.int32, device=device)
             m.shape_geo_scale = wp.array(self.shape_geo_scale, dtype=wp.vec3, device=device)
             m.shape_materials = ShapeContactMaterial()
             m.shape_materials.ke = wp.array(self.shape_material_ke, dtype=wp.float32, device=device)
@@ -2040,6 +2091,16 @@ class ModelBuilder:
             m.shape_materials.mu = wp.array(self.shape_material_mu, dtype=wp.float32, device=device)
             m.shape_materials.restitution = wp.array(self.shape_material_restitution, dtype=wp.float32, device=device)
             m.shape_contact_thickness = wp.array(self.shape_contact_thickness, dtype=wp.float32, device=device)
+
+            collision_mask = np.ones((len(self.shape_geo_type), len(self.shape_geo_type)), dtype=np.int32)
+            np.fill_diagonal(collision_mask, 0)  # disable self-collision
+            # create mask out of the list of enabled collision pairs for faster lookup
+            for i, j in self.shape_collision_filter_pairs:
+                collision_mask[i, j] = 0
+                collision_mask[j, i] = 0
+            m.shape_collision_mask = wp.array(collision_mask, ndim=2, dtype=wp.int32, device=device)
+            m.shape_collision_group = wp.array(self.shape_collision_group, dtype=wp.int32, device=device)
+            m.shape_collision_radius = wp.array(self.shape_collision_radius, dtype=wp.float32, device=device)
 
             #---------------------
             # springs
@@ -2143,6 +2204,7 @@ class ModelBuilder:
             m.rigid_contact_margin = self.rigid_contact_margin            
             m.rigid_contact_torsional_friction = self.rigid_contact_torsional_friction
             m.rigid_contact_rolling_friction = self.rigid_contact_rolling_friction
+            # XXX this variable is not used at the moment
             m.rigid_contact_jitter_threshold = self.rigid_contact_jitter_threshold
 
             # counts
