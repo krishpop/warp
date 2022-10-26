@@ -27,9 +27,11 @@
 #if !defined(__CUDACC__)
     #define CUDA_CALLABLE
     #define CUDA_CALLABLE_DEVICE
+    bool WARP_FORWARD_MODE;
 #else
     #define CUDA_CALLABLE __host__ __device__ 
     #define CUDA_CALLABLE_DEVICE __device__
+    __device__ bool WARP_FORWARD_MODE;
 #endif
 
 #ifdef WP_VERIFY_FP
@@ -723,8 +725,7 @@ CUDA_CALLABLE inline void copy(T& dest, const T& src)
 template <typename T>
 CUDA_CALLABLE inline void adj_copy(T& dest, const T& src, T& adj_dest, T& adj_src)
 {
-    // nop, this is non-differentiable operation since it violates SSA
-    adj_src = adj_dest;
+    adj_src += adj_dest;
     adj_dest = 0.0;
 }
 

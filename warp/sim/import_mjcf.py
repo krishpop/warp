@@ -6,6 +6,8 @@
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
 
+from warp.sim.model import JOINT_COMPOUND, JOINT_REVOLUTE, JOINT_UNIVERSAL
+
 import math
 import os
 import xml.etree.ElementTree as ET
@@ -13,7 +15,6 @@ import xml.etree.ElementTree as ET
 import numpy as np
 import trimesh
 import warp as wp
-from warp.sim.model import JOINT_COMPOUND, JOINT_UNIVERSAL
 from warp.sim.model import Mesh
 
 
@@ -34,15 +35,10 @@ def parse_mjcf(
     armature_scale=1.0,
     add_particles=False,
     add_mesh=False,
-):
+    enable_self_collisions=True):
 
     file = ET.parse(filename)
     root = file.getroot()
-
-    # map node names to link indices
-    node_map = {}
-    xform_map = {}
-    mesh_map = {}
     
     type_map = { 
         "ball": wp.sim.JOINT_BALL, 
@@ -318,9 +314,17 @@ def parse_mjcf(
 
     # -----------------
     # start articulation
-
+    
+    start_shape_count = len(builder.shape_geo_type)
     builder.add_articulation()
 
     world = root.find("worldbody")
     for body in world.findall("body"):
         parse_body(body, -1)
+
+    end_shape_count = len(builder.shape_geo_type)
+
+    if not enable_self_collisions:
+        for i in range(start_shape_count, end_shape_count):
+            for j in range(i+1, end_shape_count):
+                builder.shape_collision_filter_pairs.add((i, j))
