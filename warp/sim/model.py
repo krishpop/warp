@@ -311,6 +311,7 @@ class Model:
         self.shape_collision_group = None
         self.shape_collision_mask = None
         self.shape_collision_radius = None
+        self.shape_contact_pairs = None
 
         # TODO: update this
         self.joint_type = None
@@ -476,6 +477,61 @@ class Model:
         self.rigid_contact_inv_weight = wp.zeros(len(self.body_q), dtype=wp.float32, device=self.device, requires_grad=requires_grad)
         # number of contact constraints before the solver iterations
         self.rigid_contact_inv_weight_prev = wp.zeros(len(self.body_q), dtype=wp.float32, device=self.device, requires_grad=requires_grad)
+
+        if self.shape_collision_mask is None:
+            raise RuntimeError("shape_collision_mask is None, please call Model.finalize() first")
+        
+        @wp.kernel
+        def find_shape_contact_pairs(
+            collision_group: wp.array(dtype=int),
+            collision_mask: wp.array(dtype=int, ndim=2),
+            rigid_contact_max: int,
+            # outputs
+            contact_count: wp.array(dtype=int),
+            contact_pairs: wp.array(dtype=int, ndim=2),
+        ):
+            shape_a, shape_b = wp.tid()
+            if shape_a >= shape_b:
+                return
+            if collision_mask[shape_a, shape_b] == 0:
+                # print("collision mask")
+                return
+            cg_a = collision_group[shape_a]
+            cg_b = collision_group[shape_b]
+            if cg_a != cg_b and cg_a > -1 and cg_b > -1:
+                # print("collision group")
+                return
+            index = wp.atomic_add(contact_count, 0, 1)
+            if index >= rigid_contact_max:
+                return
+            contact_pairs[index, 0] = shape_a
+            contact_pairs[index, 1] = shape_b            
+
+        # find potential contact pairs based on collision groups and collision mask (pairwise filtering)
+        self.shape_contact_pairs = wp.zeros((self.rigid_contact_max, 2), dtype=wp.int32, device=self.device)
+        wp.launch(
+            kernel=find_shape_contact_pairs,
+            dim=(self.shape_count, self.shape_count),
+            inputs=[
+                self.shape_collision_group,
+                self.shape_collision_mask,
+                self.rigid_contact_max,
+            ],
+            outputs=[
+                self.rigid_contact_count,
+                self.shape_contact_pairs
+            ],
+            device=self.device
+        )
+        required_contacts = self.rigid_contact_count.numpy()[0]
+        if required_contacts > self.rigid_contact_max:
+            raise RuntimeError(f"Number of rigid contacts exceeded limit ({self.rigid_contact_max}). Increase Model.rigid_contact_max to at least {required_contacts}.")
+        # update the maximum number of contacts based on the number of potential contact pairs
+        pairs = self.shape_contact_pairs.numpy()
+        num_pairs = len(np.where(pairs.any(axis=1))[0])
+        print("Number of potential shape contact pairs:", num_pairs)
+        self.shape_contact_pair_count = num_pairs
+        self.rigid_contact_count.zero_()
 
     def flatten(self):
         """Returns a list of Tensors stored by the model
@@ -789,7 +845,7 @@ class ModelBuilder:
     def add_articulation(self):
         self.articulation_start.append(self.joint_count)
     
-    def add_rigid_articulation(self, articulation, xform=None, update_num_env_count=True):
+    def add_rigid_articulation(self, articulation, xform=None, update_num_env_count=True, separate_collision_group=True):
         """Copies a rigid articulation from `articulation`, another `ModelBuilder`.
         
         Args:
@@ -827,7 +883,10 @@ class ModelBuilder:
         self.shape_body.extend([b + start_body_idx for b in articulation.shape_body])
 
         last_collision_group = np.max(self.shape_collision_group) if len(self.shape_collision_group) > 0 else 0
-        self.shape_collision_group.extend([(g + last_collision_group if g > -1 else -1) for g in articulation.shape_collision_group])
+        if separate_collision_group:
+            self.shape_collision_group.extend([last_collision_group + 1 for _ in articulation.shape_collision_group])
+        else:
+            self.shape_collision_group.extend([(g + last_collision_group if g > -1 else -1) for g in articulation.shape_collision_group])
         shape_count = len(self.shape_geo_type)
         for i, j in articulation.shape_collision_filter_pairs:
             self.shape_collision_filter_pairs.add((i + shape_count, j + shape_count))
@@ -2071,11 +2130,11 @@ class ModelBuilder:
 
             # build list of ids for geometry sources (meshes, sdfs)
             shape_geo_id = []
+            # number of mesh vertices per geo (0 if geo is not a mesh)
             mesh_num_points = []
             for geo in self.shape_geo_src:
                 if (geo):
                     shape_geo_id.append(geo.finalize(device=device))
-                    # TODO remove this
                     mesh_num_points.append(len(geo.vertices))
                 else:
                     shape_geo_id.append(-1)
@@ -2094,7 +2153,7 @@ class ModelBuilder:
 
             collision_mask = np.ones((len(self.shape_geo_type), len(self.shape_geo_type)), dtype=np.int32)
             np.fill_diagonal(collision_mask, 0)  # disable self-collision
-            # create mask out of the list of enabled collision pairs for faster lookup
+            # create mask from the list of enabled collision pairs for faster lookup
             for i, j in self.shape_collision_filter_pairs:
                 collision_mask[i, j] = 0
                 collision_mask[j, i] = 0
@@ -2197,16 +2256,6 @@ class ModelBuilder:
             m.joint_qd_start = wp.array(joint_qd_start, dtype=int)
             m.articulation_start = wp.array(articulation_start, dtype=int)
 
-            # contacts
-            m.allocate_soft_contacts(64*1024)        
-            # TODO reset  
-            m.allocate_rigid_contacts(256*self.num_envs)
-            m.rigid_contact_margin = self.rigid_contact_margin            
-            m.rigid_contact_torsional_friction = self.rigid_contact_torsional_friction
-            m.rigid_contact_rolling_friction = self.rigid_contact_rolling_friction
-            # XXX this variable is not used at the moment
-            m.rigid_contact_jitter_threshold = self.rigid_contact_jitter_threshold
-
             # counts
             m.particle_count = len(self.particle_q)
             m.body_count = len(self.body_q)
@@ -2217,6 +2266,16 @@ class ModelBuilder:
             m.spring_count = len(self.spring_rest_length)
             m.muscle_count = len(self.muscle_start)
             m.articulation_count = len(self.articulation_start)
+
+            # contacts
+            m.allocate_soft_contacts(64*1024)        
+            # TODO reset  
+            m.allocate_rigid_contacts(256*self.num_envs)
+            m.rigid_contact_margin = self.rigid_contact_margin            
+            m.rigid_contact_torsional_friction = self.rigid_contact_torsional_friction
+            m.rigid_contact_rolling_friction = self.rigid_contact_rolling_friction
+            # XXX this variable is not used at the moment
+            m.rigid_contact_jitter_threshold = self.rigid_contact_jitter_threshold
             
             m.joint_dof_count = self.joint_dof_count
             m.joint_coord_count = self.joint_coord_count
