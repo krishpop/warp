@@ -367,9 +367,9 @@ def broadphase_collision_pairs(
     d = wp.length(p_a - p_b)
     r_a = collision_radius[shape_a]
     r_b = collision_radius[shape_b]
-    if d > r_a + r_b + rigid_contact_margin:
-        # print("too far")
-        return
+    # if d > r_a + r_b + rigid_contact_margin:
+    #     # print("too far")
+    #     return
 
     type_a = shape_geo_type[shape_a]
     type_b = shape_geo_type[shape_b]
@@ -400,16 +400,16 @@ def broadphase_collision_pairs(
                 if index + i >= rigid_contact_max:
                     print("Number of rigid contacts exceeded limit. Increase Model.rigid_contact_max.")
                     return
-                contact_shape0[index + i] = actual_shape_a
-                contact_shape1[index + i] = actual_shape_b
+                contact_shape0[index + i] = shape_a
+                contact_shape1[index + i] = shape_b
                 contact_point_id[index + i] = i
             # allocate contact points from mesh B against A
             for i in range(num_contacts_b):
                 if index + num_contacts_a + i >= rigid_contact_max:
                     print("Number of rigid contacts exceeded limit. Increase Model.rigid_contact_max.")
                     return
-                contact_shape0[index + num_contacts_a + i] = actual_shape_b
-                contact_shape1[index + num_contacts_a + i] = actual_shape_a
+                contact_shape0[index + num_contacts_a + i] = shape_b
+                contact_shape1[index + num_contacts_a + i] = shape_a
                 contact_point_id[index + num_contacts_a + i] = i
         return
     else:
