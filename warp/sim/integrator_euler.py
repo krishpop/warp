@@ -941,6 +941,8 @@ def eval_rigid_contacts(
     body_f: wp.array(dtype=wp.spatial_vector)):
 
     tid = wp.tid()
+    if (contact_shape0[tid] == -1 and contact_shape1[tid] == -1):
+        return
 
     count = contact_count[0]
     if (tid >= count):
