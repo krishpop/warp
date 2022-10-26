@@ -94,11 +94,13 @@ def parse_mjcf(
         # body_pos = np.fromstring(body.attrib["pos"], sep=" ")
         body_pos = parse_vec(body, "pos", (0.0, 0.0, 0.0))
         body_ori_euler = parse_vec(body, "euler", (0.0, 0.0, 0.0))
-        if False: # body_ori_euler is (0.0, 0.0, 0.0):
+        if np.nonzero(body_ori_euler)[0].sum() > 0:
             body_axis = tuple(np.sign(body_ori_euler))
-            body_angle = body_ori_euler[np.nonzero(body_ori_euler)].item() / 180 * np.pi
-            body_ori = wp.quat_from_axis_angle(body_axis, body_angle)
+            body_angle = body_ori_euler[np.nonzero(body_ori_euler)[0].item()] / 180 * np.pi
+            body_ori = wp.utils.quat_from_axis_angle(body_axis, body_angle)
+            # print("body_ori_euler", body_ori_euler, "body_angle", body_angle, "body_axis", body_axis, "body_ori", body_ori)
         else:
+            # print("body_ori_euler", body_ori_euler)
             body_ori = wp.quat_identity()
 
         # -----------------
@@ -112,7 +114,7 @@ def parse_mjcf(
         start_coord = builder.joint_coord_count
 
         if len(joints) == 1:
-            # print("joint:", joints[0].attrib["name"], "parent:", body_name)
+            print("joint:", joints[0].attrib["name"], "parent:", body_name)
 
             joint = joints[0]
 
@@ -171,7 +173,7 @@ def parse_mjcf(
                 if "type" not in joint.attrib:
                     joint.attrib["type"] = "hinge"
 
-                if joint.attrib["type"] not in ["hinge", "fixed", "prismatic"]:
+                if joint.attrib["type"] not in ["hinge", "fixed", "slide"]:
                     print("Compound joints must all be hinges")
 
                 joint_name = joint.attrib["name"]
@@ -251,6 +253,7 @@ def parse_mjcf(
 
                 mesh, scale = parse_mesh(geom)
                 geom_size = tuple([scale * s for s in geom_size])
+                assert len(geom_size) == 3, "need to specify size for mesh geom"
                 builder.add_shape_mesh(
                     body=link,
                     pos=geom_pos,
