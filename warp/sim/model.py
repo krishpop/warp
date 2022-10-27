@@ -600,55 +600,55 @@ class Model:
 
                     add_contact(shape_body[i], -1, X_bs, p, 0.0, i, -1)
 
-            for j in range(i, self.shape_count):
+            # for j in range(i, self.shape_count):
 
-                # transform from shape to body
-                X_bs = wp.transform_expand(shape_transform[i].tolist())
+            #     # transform from shape to body
+            #     X_bs = wp.transform_expand(shape_transform[i].tolist())
 
-                geo_type_b = shape_geo_type[j].item()
+            #     geo_type_b = shape_geo_type[j].item()
 
-                if (geo_type == GEO_SPHERE):
+            #     if (geo_type == GEO_SPHERE):
 
-                    radius_a = shape_geo_scale[i][0].item()
-                    radius_b = shape_geo_scale[j][0].item()
-                    radius = radius_a + radius_b
+            #         radius_a = shape_geo_scale[i][0].item()
+            #         radius_b = shape_geo_scale[j][0].item()
+            #         radius = radius_a + radius_b
 
-                    add_contact(shape_body[i], shape_body[j], X_bs, (0.0, 0.0, 0.0), radius, i, j)
+            #         add_contact(shape_body[i], shape_body[j], X_bs, (0.0, 0.0, 0.0), radius, i, # j)
 
-                elif (geo_type == GEO_CAPSULE):
+            #     elif (geo_type == GEO_CAPSULE):
 
-                    radius_a = shape_geo_scale[i][0].item()
-                    radius_b = shape_geo_scale[j][0].item()
-                    radius = radius_a + radius_b
+            #         radius_a = shape_geo_scale[i][0].item()
+            #         radius_b = shape_geo_scale[j][0].item()
+            #         radius = radius_a + radius_b
 
-                    half_width = shape_geo_scale[i][1].item()
+            #         half_width = shape_geo_scale[i][1].item()
 
-                    add_contact(shape_body[i], shape_body[j], X_bs, (-half_width, 0.0, 0.0), radius, i, j)
-                    add_contact(shape_body[i], shape_body[j], X_bs, (half_width, 0.0, 0.0), radius, i, j)
+            #         add_contact(shape_body[i], shape_body[j], X_bs, (-half_width, 0.0, 0.0), # radius, i, j)
+            #         add_contact(shape_body[i], shape_body[j], X_bs, (half_width, 0.0, 0.0), # radius, i, j)
 
-                elif (geo_type == GEO_BOX):
+            #     elif (geo_type == GEO_BOX):
 
-                    edges = shape_geo_scale[i].tolist()
+            #         edges = shape_geo_scale[i].tolist()
 
-                    add_contact(shape_body[i], shape_body[j], X_bs, (-edges[0], -edges[1], -edges[2]), 0.0, i, j)
-                    add_contact(shape_body[i], shape_body[j], X_bs, ( edges[0], -edges[1], -edges[2]), 0.0, i, j)
-                    add_contact(shape_body[i], shape_body[j], X_bs, (-edges[0],  edges[1], -edges[2]), 0.0, i, j)
-                    add_contact(shape_body[i], shape_body[j], X_bs, (edges[0], edges[1], -edges[2]), 0.0, i, j)
-                    add_contact(shape_body[i], shape_body[j], X_bs, (-edges[0], -edges[1], edges[2]), 0.0, i, j)
-                    add_contact(shape_body[i], shape_body[j], X_bs, (edges[0], -edges[1], edges[2]), 0.0, i, j)
-                    add_contact(shape_body[i], shape_body[j], X_bs, (-edges[0], edges[1], edges[2]), 0.0, i, j)
-                    add_contact(shape_body[i], shape_body[j], X_bs, (edges[0], edges[1], edges[2]), 0.0, i, j)
+            #         add_contact(shape_body[i], shape_body[j], X_bs, (-edges[0], -edges[1], # -edges[2]), 0.0, i, j)
+            #         add_contact(shape_body[i], shape_body[j], X_bs, ( edges[0], -edges[1], # -edges[2]), 0.0, i, j)
+            #         add_contact(shape_body[i], shape_body[j], X_bs, (-edges[0],  edges[1], # -edges[2]), 0.0, i, j)
+            #         add_contact(shape_body[i], shape_body[j], X_bs, (edges[0], edges[1], # -edges[2]), 0.0, i, j)
+            #         add_contact(shape_body[i], shape_body[j], X_bs, (-edges[0], -edges[1], # edges[2]), 0.0, i, j)
+            #         add_contact(shape_body[i], shape_body[j], X_bs, (edges[0], -edges[1], # edges[2]), 0.0, i, j)
+            #         add_contact(shape_body[i], shape_body[j], X_bs, (-edges[0], edges[1], # edges[2]), 0.0, i, j)
+            #         add_contact(shape_body[i], shape_body[j], X_bs, (edges[0], edges[1], # edges[2]), 0.0, i, j)
 
-                elif (geo_type == GEO_MESH):
+            #     elif (geo_type == GEO_MESH):
 
-                    mesh = shape_geo_src[i]
-                    scale = shape_geo_scale[i]
+            #         mesh = shape_geo_src[i]
+            #         scale = shape_geo_scale[i]
 
-                    for v in mesh.vertices:
+            #         for v in mesh.vertices:
 
-                        p = (v[0] * scale[0], v[1] * scale[1], v[2] * scale[2])
+            #             p = (v[0] * scale[0], v[1] * scale[1], v[2] * scale[2])
 
-                        add_contact(shape_body[i], shape_body[j], X_bs, p, 0.0, i, -1)
+            #             add_contact(shape_body[i], shape_body[j], X_bs, p, 0.0, i, j)
 
 
         # send to wp
@@ -1261,7 +1261,8 @@ class ModelBuilder:
                        kf: float=default_shape_kf,
                        mu: float=default_shape_mu,
                        restitution: float=default_shape_restitution,
-                       contact_thickness: float=0.0):
+                       contact_thickness: float=0.0,
+                       collision_group: int=-1):
         """Adds a triangle mesh collision shape to a body.
 
         Args:
@@ -1281,7 +1282,8 @@ class ModelBuilder:
         """
 
 
-        self._add_shape(body, pos, rot, GEO_MESH, (scale[0], scale[1], scale[2], 0.0), mesh, density, ke, kd, kf, mu, restitution, thickness=contact_thickness, volume=volume)
+        self._add_shape(body, pos, rot, GEO_MESH, (scale[0], scale[1], scale[2], 0.0), mesh, density, ke, kd, kf, mu, restitution, thickness=contact_thickness, volume=volume,
+                        collision_group=collision_group)
 
     def _shape_radius(self, type, scale, src):
         if type == GEO_SPHERE:

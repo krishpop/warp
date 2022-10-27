@@ -6,8 +6,6 @@
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
 
-from warp.sim.model import JOINT_COMPOUND, JOINT_REVOLUTE, JOINT_UNIVERSAL
-
 import math
 import os
 import xml.etree.ElementTree as ET
@@ -15,6 +13,7 @@ import xml.etree.ElementTree as ET
 import numpy as np
 import trimesh
 import warp as wp
+from warp.sim.model import JOINT_COMPOUND, JOINT_UNIVERSAL
 from warp.sim.model import Mesh
 
 
@@ -133,8 +132,8 @@ def parse_mjcf(
                 joint_xform=wp.transform(body_pos, body_ori),
                 joint_axis=joint_axis,
                 joint_type=joint_type,
-                joint_limit_lower=np.deg2rad(joint_range[0]),
-                joint_limit_upper=np.deg2rad(joint_range[1]),
+                joint_limit_lower=joint_range[0],
+                joint_limit_upper=joint_range[1],
                 joint_limit_ke=limit_ke,
                 joint_limit_kd=limit_kd,
                 joint_target_ke=joint_stiffness,
@@ -248,8 +247,11 @@ def parse_mjcf(
             elif geom_type == "mesh" and add_mesh:
 
                 mesh, scale = parse_mesh(geom)
-                geom_size = tuple([scale * s for s in geom_size])
+                geom_size = tuple([scale * s * 2.5 for s in geom_size])
                 assert len(geom_size) == 3, "need to specify size for mesh geom"
+                collision_group = -1
+                if geom_name == "obj_surface" or "distal" in geom_name:
+                    collision_group = 1
                 builder.add_shape_mesh(
                     body=link,
                     pos=geom_pos,
@@ -261,6 +263,7 @@ def parse_mjcf(
                     kd=contact_kd,
                     kf=contact_kf,
                     mu=contact_mu,
+                    collision_group=collision_group,
                 )
 
             elif geom_type == "capsule":
