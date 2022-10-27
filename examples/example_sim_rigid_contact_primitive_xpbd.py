@@ -19,7 +19,8 @@ import math
 import numpy as np
 
 import warp as wp
-wp.config.mode == "debug"
+# wp.config.mode == "release"
+# wp.config.verify_fp = False
 import warp.sim
 import warp.sim.render
 
@@ -32,7 +33,7 @@ class Example:
 
     def __init__(self, stage):
 
-        self.sim_steps = 500
+        self.sim_steps = 300
         self.sim_dt = 1.0/30.0
         self.sim_time = 0.0
         self.sim_substeps = 5
@@ -40,17 +41,17 @@ class Example:
         self.solve_iterations = 1
         self.relaxation = 1.0
 
-        self.num_bodies = 5
+        self.num_bodies = 2
         self.scale = 0.5
         self.ke = 1.e+5
         self.kd = 250.0
         self.kf = 500.0
-        self.restitution = 0.8
+        self.restitution = 0.0
 
         # self.device = wp.get_preferred_device()
         self.device = "cpu"
 
-        self.plot = True
+        self.plot = False
 
         builder = wp.sim.ModelBuilder()
 
@@ -77,7 +78,7 @@ class Example:
             b = builder.add_body(origin=wp.transform((0.01 * i, 1.3*self.scale * i + 0.5, 2.0), wp.quat_identity()))
 
             s = builder.add_shape_sphere(
-                pos=(0.0, 0.0, 0.0),
+                pos=(0.3, 0.0, 0.0),
                 radius=0.25*self.scale, 
                 density=(0.0 if i == 0 else 1000.0),
                 body=b,
@@ -114,7 +115,7 @@ class Example:
             b = builder.add_body(origin=wp.transform((0.0, 1.0 + 0.4*i, 0.0), rot90s[i%2]))
 
             s = builder.add_shape_capsule( 
-                pos=(0.0, 0.0, 0.0),
+                pos=(0.3, 0.0, 0.0),
                 radius=0.25*self.scale,
                 half_width=self.scale*0.5,
                 body=b,
@@ -166,21 +167,12 @@ class Example:
                 if i == 0:
                     # visualize contact points
                     qs = self.state.body_q.numpy()
-                    rigid_contact_count = self.model.rigid_contact_count.numpy()[0]
-
-                    self.points_a[rigid_contact_count:].fill(0.0)
-                    self.points_b[rigid_contact_count:].fill(0.0)
-
-                    body_a = self.model.rigid_contact_body0.numpy()[:rigid_contact_count]
-                    body_b = self.model.rigid_contact_body1.numpy()[:rigid_contact_count]
-
-                    if rigid_contact_count > 0:
-                        contact_points_a = self.model.rigid_contact_point0.numpy()
-                        self.points_a[:rigid_contact_count] = [(wp.transform_point(qs[body], wp.vec3(*contact_points_a[i])) if body >= 0 else contact_points_a[i]) for i, body in enumerate(body_a)]
-
-                        contact_points_b = self.model.rigid_contact_point1.numpy()
-                        self.points_b[:rigid_contact_count] = [(wp.transform_point(qs[body], wp.vec3(*contact_points_b[i])) if body >= 0 else contact_points_b[i]) for i, body in enumerate(body_b)]
-
+                    rigid_contact_count = min(self.model.rigid_contact_count.numpy()[0], self.max_contact_count)
+                    self.points_a.fill(0.0)
+                    self.points_b.fill(0.0)
+                    self.points_a[:rigid_contact_count] = self.model.rigid_active_contact_point0_prev.numpy()[:rigid_contact_count]
+                    self.points_b[:rigid_contact_count] = self.model.rigid_active_contact_point1_prev.numpy()[:rigid_contact_count]
+                    
                     self.render()
 
                 self.state = self.integrator.simulate(self.model, self.state, self.state, self.sim_dt/self.sim_substeps)   
