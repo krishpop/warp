@@ -874,10 +874,7 @@ def collide(model, state, experimental_sdf_collision=False):
     model.rigid_contact_count.zero_()
 
     if (model.body_count):
-        wp.launch(
-            kernel=broadphase_collision_pairs,
-            dim=(model.shape_count, model.shape_count),
-            inputs=[
+        inputs = [
                 state.body_q,
                 model.shape_transform,
                 model.shape_body,
@@ -888,17 +885,23 @@ def collide(model, state, experimental_sdf_collision=False):
                 model.rigid_contact_max,
                 model.mesh_num_points,
                 model.rigid_contact_margin,
-            ],
-            outputs=[
+                ]
+        outputs = [
                 model.rigid_contact_count,
                 model.rigid_contact_shape0,
                 model.rigid_contact_shape1,
                 model.rigid_contact_point_id,
-            ],
+            ]
+        print("in shapes: {}".format([x.shape for x in inputs if isinstance(x, wp.array)]))
+        print("out shapes: {}".format([x.shape for x in outputs if isinstance(x, wp.array)]))
+        wp.launch(
+            kernel=broadphase_collision_pairs,
+            dim=(model.shape_count, model.shape_count),
+            inputs=inputs,
+            outputs=outputs,
             device=model.device)
 
         # print("rigid_contact_count:", model.rigid_contact_count.numpy()[0])
-        # print("ground_contact_count:", ground_contact_count.numpy()[0])
             
         wp.launch(
             kernel=handle_contact_pairs,
