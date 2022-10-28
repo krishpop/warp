@@ -312,8 +312,10 @@ def update_rigid_ground_contacts(
     c = ground_plane[3]  # ground plane offset
     d = wp.dot(p_ref, n) - c
     if (d < thickness + rigid_contact_margin):
-        index = wp.inc_index(contact_count, tid, rigid_contact_max)
-        if (index >= 0):
+        # index = wp.inc_index(contact_count, tid, rigid_contact_max)
+        # if (index >= 0):
+        index = wp.atomic_add(contact_count, 0, 1)
+        if (index < rigid_contact_max):
             contact_point0[index] = wp.transform_point(X_bw, p_ref)
             # project contact point onto ground plane
             contact_point1[index] = p_ref - n*d
@@ -367,9 +369,9 @@ def broadphase_collision_pairs(
     d = wp.length(p_a - p_b)
     r_a = collision_radius[shape_a]
     r_b = collision_radius[shape_b]
-    # if d > r_a + r_b + rigid_contact_margin:
-    #     # print("too far")
-    #     return
+    if d > r_a + r_b + rigid_contact_margin:
+        # print("too far")
+        return
 
     type_a = shape_geo_type[shape_a]
     type_b = shape_geo_type[shape_b]
@@ -452,7 +454,10 @@ def handle_contact_pairs(
     contact_thickness: wp.array(dtype=float)):
 
     tid = wp.tid()
+    # print(rigid_contact_count[0])
     if tid >= rigid_contact_count[0]:
+        # if tid == rigid_contact_count[0]:
+        #     print(rigid_contact_count[0])
         return
     shape_a = contact_shape0[tid]
     shape_b = contact_shape1[tid]
@@ -610,8 +615,8 @@ def handle_contact_pairs(
         mesh_b = shape_geo_id[shape_b]
 
         body_a_pos = wp.mesh_get_point(mesh_a, point_id) * geo_scale_a[0]
-        p_world = wp.transform_point(X_ws_a, body_a_pos)
-        query_b_local = wp.transform_point(X_sw_b, p_world)
+        p_a_world = wp.transform_point(X_ws_a, body_a_pos)
+        query_b_local = wp.transform_point(X_sw_b, p_a_world)
 
         face_index = int(0)
         face_u = float(0.0)  
@@ -623,8 +628,9 @@ def handle_contact_pairs(
         if (res):
             shape_p = wp.mesh_eval_position(mesh_b, face_index, face_u, face_v)
             shape_p = shape_p*geo_scale_b[0]
-            # contact direction vector in frame of body B
-            diff_b = query_b_local - shape_p
+            p_b_world = wp.transform_point(X_ws_b, shape_p)
+            # contact direction vector in world frame
+            diff_b = p_a_world - p_b_world
             d = wp.length(diff_b) * sign
             n = wp.normalize(diff_b) * sign
         else:
@@ -637,22 +643,29 @@ def handle_contact_pairs(
         thickness = thickness_a + thickness_b
         err = d - thickness
         if (err < rigid_contact_margin):
-            # compute point at the surface of mesh b
-            body_b_pos = shape_p - n*err
+            contact_normal[tid] = n
 
             # offset by contact thickness to be used in PBD contact friction constraints
             contact_offset0[tid] = wp.transform_vector(wp.transform_inverse(X_bw_a), -thickness_a * n)
             contact_offset1[tid] = wp.transform_vector(wp.transform_inverse(X_bw_b), thickness_b * n)
 
             # assign contact points in body local spaces
-            contact_point0[tid] = body_a_pos            
-            contact_point1[tid] = body_b_pos
-
-            # convert n to world frame
-            n = wp.transform_vector(X_ws_b, n)
-            contact_normal[tid] = n
+            contact_point0[tid] = wp.transform_point(X_bw_a, p_a_world)
+            contact_point1[tid] = wp.transform_point(X_bw_b, p_b_world - n*err)
 
             contact_thickness[tid] = thickness
+
+            # print("contact")
+            # print(rigid_a)
+            # print(rigid_b)
+
+            # if rigid_a == 5 and rigid_b == 21:
+            #     print("contact:")
+            #     print(d)
+            # if rigid_a == 21 and rigid_b == 5:
+            #     print("contact:")
+            #     print(d)
+
         else:
             contact_shape0[tid] = -1
             contact_shape1[tid] = -1
