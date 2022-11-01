@@ -24,6 +24,8 @@ Quat = List[float]
 Mat33 = List[float]
 Transform = Tuple[Vec3, Quat]
 
+from warp.sim.collide import find_shape_contact_pairs
+
 
 # shape geometry types
 GEO_SPHERE = wp.constant(0)
@@ -479,33 +481,7 @@ class Model:
         self.rigid_contact_inv_weight_prev = wp.zeros(len(self.body_q), dtype=wp.float32, device=self.device, requires_grad=requires_grad)
 
         if self.shape_collision_mask is None:
-            raise RuntimeError("shape_collision_mask is None, please call Model.finalize() first")
-        
-        @wp.kernel
-        def find_shape_contact_pairs(
-            collision_group: wp.array(dtype=int),
-            collision_mask: wp.array(dtype=int, ndim=2),
-            rigid_contact_max: int,
-            # outputs
-            contact_count: wp.array(dtype=int),
-            contact_pairs: wp.array(dtype=int, ndim=2),
-        ):
-            shape_a, shape_b = wp.tid()
-            if shape_a >= shape_b:
-                return
-            if collision_mask[shape_a, shape_b] == 0:
-                # print("collision mask")
-                return
-            cg_a = collision_group[shape_a]
-            cg_b = collision_group[shape_b]
-            if cg_a != cg_b and cg_a > -1 and cg_b > -1:
-                # print("collision group")
-                return
-            index = wp.atomic_add(contact_count, 0, 1)
-            if index >= rigid_contact_max:
-                return
-            contact_pairs[index, 0] = shape_a
-            contact_pairs[index, 1] = shape_b            
+            raise RuntimeError("shape_collision_mask is None, please call Model.finalize() first")         
 
         # find potential contact pairs based on collision groups and collision mask (pairwise filtering)
         self.shape_contact_pairs = wp.zeros((self.rigid_contact_max, 2), dtype=wp.int32, device=self.device)
@@ -521,7 +497,8 @@ class Model:
                 self.rigid_contact_count,
                 self.shape_contact_pairs
             ],
-            device=self.device
+            device=self.device,
+            record_tape=False,
         )
         required_contacts = self.rigid_contact_count.numpy()[0]
         if required_contacts > self.rigid_contact_max:
@@ -529,7 +506,7 @@ class Model:
         # update the maximum number of contacts based on the number of potential contact pairs
         pairs = self.shape_contact_pairs.numpy()
         num_pairs = len(np.where(pairs.any(axis=1))[0])
-        print("Number of potential shape contact pairs:", num_pairs)
+        # print("Number of potential shape contact pairs:", num_pairs)
         self.shape_contact_pair_count = num_pairs
         self.rigid_contact_count.zero_()
 
@@ -882,7 +859,7 @@ class ModelBuilder:
 
         self.shape_body.extend([b + start_body_idx for b in articulation.shape_body])
 
-        last_collision_group = np.max(self.shape_collision_group) if len(self.shape_collision_group) > 0 else 0
+        last_collision_group = np.max(self.shape_collision_group) if len(self.shape_collision_group) > 0 else -1
         if separate_collision_group:
             self.shape_collision_group.extend([last_collision_group + 1 for _ in articulation.shape_collision_group])
         else:

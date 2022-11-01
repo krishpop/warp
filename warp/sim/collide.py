@@ -330,6 +330,33 @@ def update_rigid_ground_contacts(
         else:
             print("Number of rigid contacts exceeded limit. Increase Model.rigid_contact_max.")
 
+# apply collision groups and contact mask to count and enumerate the shape contact pairs
+@wp.kernel
+def find_shape_contact_pairs(
+    collision_group: wp.array(dtype=int),
+    collision_mask: wp.array(dtype=int, ndim=2),
+    rigid_contact_max: int,
+    # outputs
+    contact_count: wp.array(dtype=int),
+    contact_pairs: wp.array(dtype=int, ndim=2),
+):
+    shape_a, shape_b = wp.tid()
+    if shape_a >= shape_b:
+        return
+    if collision_mask[shape_a, shape_b] == 0:
+        # print("collision mask")
+        return
+    cg_a = collision_group[shape_a]
+    cg_b = collision_group[shape_b]
+    if cg_a != cg_b and cg_a > -1 and cg_b > -1:
+        # print("collision group")
+        return
+    index = wp.atomic_add(contact_count, 0, 1)
+    if index >= rigid_contact_max:
+        return
+    contact_pairs[index, 0] = shape_a
+    contact_pairs[index, 1] = shape_b   
+
 @wp.kernel
 def broadphase_collision_pairs(
     contact_pairs: wp.array(dtype=int, ndim=2),
@@ -878,7 +905,7 @@ def collide(model, state, experimental_sdf_collision=False):
     # clear old count
     model.rigid_contact_count.zero_()
 
-    if (True and model.body_count):
+    if (model.shape_contact_pair_count):
         wp.launch(
             kernel=broadphase_collision_pairs,
             dim=model.shape_contact_pair_count,
@@ -899,7 +926,8 @@ def collide(model, state, experimental_sdf_collision=False):
                 model.rigid_contact_shape1,
                 model.rigid_contact_point_id,
             ],
-            device=model.device)
+            device=model.device,
+            record_tape=False)
 
         # print("rigid_contact_count:", model.rigid_contact_count.numpy()[0])
         # print("ground_contact_count:", ground_contact_count.numpy()[0])
