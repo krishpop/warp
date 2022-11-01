@@ -123,7 +123,8 @@ def parse_urdf(
         shape_restitution=0.5,
         limit_ke=100.0,
         limit_kd=10.0,
-        parse_visuals_as_colliders=False):
+        parse_visuals_as_colliders=False,
+        enable_self_collisions=True):
 
     robot = urdfpy.URDF.load(filename)
 
@@ -131,6 +132,8 @@ def parse_urdf(
     link_index = {}
 
     builder.add_articulation()
+    
+    start_shape_count = len(builder.shape_geo_type)
 
     # import inertial properties from URDF if density is zero
     if density == 0.0:
@@ -265,3 +268,10 @@ def parse_urdf(
 
         # add ourselves to the index
         link_index[joint.child] = link
+    
+    end_shape_count = len(builder.shape_geo_type)
+
+    if not enable_self_collisions:
+        for i in range(start_shape_count, end_shape_count):
+            for j in range(i+1, end_shape_count):
+                builder.shape_collision_filter_pairs.add((i, j))
