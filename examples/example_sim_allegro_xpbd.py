@@ -32,7 +32,7 @@ class Robot:
     episode_duration = 20.0      # seconds
     episode_frames = int(episode_duration/frame_dt)
 
-    sim_substeps = 30
+    sim_substeps = 4
     sim_dt = frame_dt / sim_substeps
     sim_steps = int(episode_duration / sim_dt)
    
@@ -48,25 +48,26 @@ class Robot:
 
         self.num_envs = num_envs
         articulation_builder = wp.sim.ModelBuilder()
+        floating_base = True
         wp.sim.parse_urdf(
             os.path.join(os.path.dirname(__file__), "assets/isaacgymenvs/kuka_allegro_description/allegro.urdf"),
             articulation_builder,
-            xform=wp.transform(np.array((0.0, -1.0, 0.0)), wp.quat_identity()),
-            floating=False, 
-            density=0,
-            armature=1.0,
+            xform=wp.transform(np.array((0.0, 0.2, 0.0)), wp.quat_identity()),
+            floating=floating_base,
+            density=1e3,
+            armature=0.001,
             stiffness=0.0,
             damping=0.0,
             shape_ke=1.e+4,
             shape_kd=1.e+2,
             shape_kf=1.e+2,
-            shape_mu=1.0,
+            shape_mu=0.5,
             limit_ke=1.e+4,
             limit_kd=1.e+1,
             enable_self_collisions=True)
 
         for i in range(num_envs):
-            articulation_builder.joint_X_p[0] = wp.transform(np.array((i*2.0, 0.0, 0.0)), wp.quat_from_axis_angle((1.0, 0.0, 0.0), -math.pi*0.5))
+            # articulation_builder.joint_X_p[0] = wp.transform(np.array((0.0, 0.0, 0.0)), wp.quat_from_axis_angle((1.0, 0.0, 0.0), -math.pi*0.5))
 
             builder.add_rigid_articulation(articulation_builder)
 
@@ -76,13 +77,15 @@ class Robot:
             # builder.joint_target[-3:] = [0.0, 0.0, 0.0]
 
             # ensure all joint positions are within limits
-            for i in range(len(builder.joint_q)):
-                builder.joint_q[i] = 0.5 * (builder.joint_limit_lower[i] + builder.joint_limit_upper[i])
+            q_offset = (7 if floating_base else 0)
+            qd_offset = (6 if floating_base else 0)
+            for i in range(16):
+                builder.joint_q[i+q_offset] = 0.5 * (builder.joint_limit_lower[i+qd_offset] + builder.joint_limit_upper[i+qd_offset])
 
         # finalize model
         self.model = builder.finalize(device)
         self.model.allocate_rigid_contacts(2**18)
-        self.model.ground = False
+        self.model.ground = True
 
         print("collision filters:")
         print(builder.shape_collision_filter_pairs)
@@ -90,7 +93,7 @@ class Robot:
         self.model.joint_attach_ke = 1600.0
         self.model.joint_attach_kd = 20.0
 
-        self.solve_iterations = 5
+        self.solve_iterations = 40
         self.integrator = wp.sim.XPBDIntegrator(self.solve_iterations)
         # self.integrator = wp.sim.SemiImplicitIntegrator()
 
@@ -119,6 +122,13 @@ class Robot:
             self.model.collide(self.state)
 
         profiler = {}
+
+        if (self.render):
+            with wp.ScopedTimer("render", False):
+                self.render_time += self.frame_dt                
+                self.renderer.begin_frame(self.render_time)
+                self.renderer.render(self.state)
+                self.renderer.end_frame()
 
         # create update graph
         wp.capture_begin()
@@ -163,7 +173,6 @@ class Robot:
                         self.renderer.render(self.state)
                         self.renderer.end_frame()
 
-
                 if plot:
                     q_history.append(self.state.body_q.numpy().copy())
                     qd_history.append(self.state.body_qd.numpy().copy())
@@ -184,74 +193,38 @@ class Robot:
             q_history = np.array(q_history)
             qd_history = np.array(qd_history)
             delta_history = np.array(delta_history)
+
+            num_viz_links = 3
             
-            fig, ax = plt.subplots(3, 6, figsize=(10, 10))
+            fig, ax = plt.subplots(num_viz_links, 6, figsize=(10, 10))
             fig.subplots_adjust(hspace=0.2, wspace=0.2)
-            ax[0,0].set_title("Cart Position")
-            ax[0,0].grid()
-            ax[1,0].set_title("Pole 1 Position")
-            ax[1,0].grid()
-            ax[2,0].set_title("Pole 2 Position")
-            ax[2,0].grid()
+            for i in range(num_viz_links):
+                ax[i,0].set_title(f"Link {i} Position")
+                ax[i,0].grid()
 
-            ax[0,1].set_title("Cart Orientation")
-            ax[0,1].grid()
-            ax[1,1].set_title("Pole 1 Orientation")
-            ax[1,1].grid()
-            ax[2,1].set_title("Pole 1 Orientation")
-            ax[2,1].grid()
+                ax[i,1].set_title(f"Link {i} Orientation")
+                ax[i,1].grid()
 
-            ax[0,2].set_title("Cart Linear Velocity")
-            ax[0,2].grid()
-            ax[1,2].set_title("Pole 1 Linear Velocity")
-            ax[1,2].grid()
-            ax[2,2].set_title("Pole 2 Linear Velocity")
-            ax[2,2].grid()
+                ax[i,2].set_title(f"Link {i} Linear Velocity")
+                ax[i,2].grid()
 
-            ax[0,3].set_title("Cart Angular Velocity")
-            ax[0,3].grid()
-            ax[1,3].set_title("Pole 1 Angular Velocity")
-            ax[1,3].grid()
-            ax[2,3].set_title("Pole 2 Angular Velocity")
-            ax[2,3].grid()
+                ax[i,3].set_title(f"Link {i} Angular Velocity")
+                ax[i,3].grid()
 
-            ax[0,4].set_title("Cart Linear Delta")
-            ax[0,4].grid()
-            ax[1,4].set_title("Pole 1 Linear Delta")
-            ax[1,4].grid()
-            ax[2,4].set_title("Pole 2 Linear Delta")
-            ax[2,4].grid()
+                ax[i,4].set_title(f"Link {i} Linear Delta")
+                ax[i,4].grid()
 
-            ax[0,5].set_title("Cart Angular Delta")
-            ax[0,5].grid()
-            ax[1,5].set_title("Pole 1 Angular Delta")
-            ax[1,5].grid()
-            ax[2,5].set_title("Pole 2 Angular Delta")
-            ax[2,5].grid()
+                ax[i,5].set_title(f"Link {i} Angular Delta")
+                ax[i,5].grid()
 
-            ax[0,0].plot(q_history[:,1,:3])
-            ax[0,1].plot(q_history[:,1,3:])
+                ax[i,0].plot(q_history[:,i,:3])
+                ax[i,1].plot(q_history[:,i,3:])
 
-            ax[0,2].plot(qd_history[:,1,3:])
-            ax[0,3].plot(qd_history[:,1,:3])
+                ax[i,2].plot(qd_history[:,i,3:])
+                ax[i,3].plot(qd_history[:,i,:3])
 
-            ax[0,4].plot(delta_history[:,1,3:])
-            ax[0,5].plot(delta_history[:,1,:3])
-
-            if q_history.shape[1] > 2:
-                ax[1,0].plot(q_history[:,2,:3])
-                ax[1,1].plot(q_history[:,2,3:])
-                ax[1,2].plot(qd_history[:,2,3:])
-                ax[1,3].plot(qd_history[:,2,:3])
-                ax[1,4].plot(delta_history[:,2,3:])
-                ax[1,5].plot(delta_history[:,2,:3])
-            if q_history.shape[1] > 3:
-                ax[2,0].plot(q_history[:,3,:3])
-                ax[2,1].plot(q_history[:,3,3:])
-                ax[2,2].plot(qd_history[:,3,3:])
-                ax[2,3].plot(qd_history[:,3,:3])
-                ax[2,4].plot(delta_history[:,3,3:])
-                ax[2,5].plot(delta_history[:,3,:3])
+                ax[i,4].plot(delta_history[:,i,3:])
+                ax[i,5].plot(delta_history[:,i,:3])
 
             plt.show()
 
