@@ -312,9 +312,9 @@ def update_rigid_ground_contacts(
     c = ground_plane[3]  # ground plane offset
     d = wp.dot(p_ref, n) - c
     if (d < thickness + rigid_contact_margin):
-        # index = wp.inc_index(contact_count, tid, rigid_contact_max)
+        index = wp.inc_index(contact_count, tid, rigid_contact_max)
         # if (index >= 0):
-        index = wp.atomic_add(contact_count, 0, 1)
+        # index = wp.atomic_add(contact_count, 0, 1)
         if (index < rigid_contact_max):
             contact_point0[index] = wp.transform_point(X_bw, p_ref)
             # project contact point onto ground plane
@@ -397,7 +397,6 @@ def broadphase_collision_pairs(
     r_a = collision_radius[shape_a]
     r_b = collision_radius[shape_b]
     if d > r_a + r_b + rigid_contact_margin:
-        # print("too far")
         return
 
     type_a = shape_geo_type[shape_a]
@@ -481,10 +480,7 @@ def handle_contact_pairs(
     contact_thickness: wp.array(dtype=float)):
 
     tid = wp.tid()
-    # print(rigid_contact_count[0])
     if tid >= rigid_contact_count[0]:
-        # if tid == rigid_contact_count[0]:
-        #     print(rigid_contact_count[0])
         return
     shape_a = contact_shape0[tid]
     shape_b = contact_shape1[tid]
@@ -509,7 +505,7 @@ def handle_contact_pairs(
     X_ws_a = wp.transform_multiply(X_wb_a, X_bs_a)
     X_ws_b = wp.transform_multiply(X_wb_b, X_bs_b)
     
-    X_sw_a = wp.transform_inverse(X_ws_a)
+    # X_sw_a = wp.transform_inverse(X_ws_a)
     X_sw_b = wp.transform_inverse(X_ws_b)
 
     X_bw_a = wp.transform_inverse(X_wb_a)
@@ -681,18 +677,6 @@ def handle_contact_pairs(
             contact_point1[tid] = wp.transform_point(X_bw_b, p_b_world - n*err)
 
             contact_thickness[tid] = thickness
-
-            # print("contact")
-            # print(rigid_a)
-            # print(rigid_b)
-
-            # if rigid_a == 5 and rigid_b == 21:
-            #     print("contact:")
-            #     print(d)
-            # if rigid_a == 21 and rigid_b == 5:
-            #     print("contact:")
-            #     print(d)
-
         else:
             contact_shape0[tid] = -1
             contact_shape1[tid] = -1
@@ -961,75 +945,38 @@ def collide(model, state, experimental_sdf_collision=False):
             ],
             device=model.device)
             
-        if (model.ground):
-            # print("Contacts before:", model.ground_contact_point0.numpy())
-            # print(model.ground_contact_ref.numpy())
-            wp.launch(
-                kernel=update_rigid_ground_contacts,
-                dim=model.ground_contact_dim,
-                inputs=[
-                    model.ground_plane,
-                    model.ground_contact_body0,
-                    state.body_q,
-                    model.shape_transform,
-                    model.ground_contact_ref,
-                    model.ground_contact_shape0,
-                    model.shape_contact_thickness,
-                    model.rigid_contact_margin,
-                    model.rigid_contact_max,
-                ],
-                outputs=[
-                    model.rigid_contact_count,
-                    model.rigid_contact_body0,
-                    model.rigid_contact_body1,
-                    model.rigid_contact_point0,
-                    model.rigid_contact_point1,
-                    model.rigid_contact_offset0,
-                    model.rigid_contact_offset1,
-                    model.rigid_contact_normal,
-                    model.rigid_contact_shape0,
-                    model.rigid_contact_shape1,
-                    model.rigid_contact_thickness,
-                ],
-                device=model.device
-            )
+    if (model.ground):
+        # print("Contacts before:", model.ground_contact_point0.numpy())
+        # print(model.ground_contact_ref.numpy())
+        wp.launch(
+            kernel=update_rigid_ground_contacts,
+            dim=model.ground_contact_dim,
+            inputs=[
+                model.ground_plane,
+                model.ground_contact_body0,
+                state.body_q,
+                model.shape_transform,
+                model.ground_contact_ref,
+                model.ground_contact_shape0,
+                model.shape_contact_thickness,
+                model.rigid_contact_margin,
+                model.rigid_contact_max,
+            ],
+            outputs=[
+                model.rigid_contact_count,
+                model.rigid_contact_body0,
+                model.rigid_contact_body1,
+                model.rigid_contact_point0,
+                model.rigid_contact_point1,
+                model.rigid_contact_offset0,
+                model.rigid_contact_offset1,
+                model.rigid_contact_normal,
+                model.rigid_contact_shape0,
+                model.rigid_contact_shape1,
+                model.rigid_contact_thickness,
+            ],
+            device=model.device
+        )
 
         # print("rigid_contact_count:", state.rigid_contact_count.numpy()[0])
     
-    # if False and experimental_sdf_collision:
-    #     for shape_a in range(model.shape_count-1):
-    #         point_count = model.mesh_num_points.numpy()[shape_a]
-    #         for shape_b in range(shape_a+1, model.shape_count):
-    #             # print(f'colliding {shape_a} {shape_b}')
-    #             wp.launch(
-    #                 kernel=create_mesh_sdf_contacts,
-    #                 dim=point_count,
-    #                 inputs=[
-    #                     shape_a,
-    #                     shape_b,
-    #                     state.body_q,
-    #                     model.shape_transform,
-    #                     model.shape_body,
-    #                     model.shape_geo_type, 
-    #                     model.shape_geo_id,
-    #                     model.shape_volume_id,
-    #                     model.shape_geo_scale,
-    #                     model.shape_contact_thickness,
-    #                     model.rigid_contact_max,
-    #                     model.rigid_contact_margin,
-    #                 ],
-    #                 # outputs
-    #                 outputs=[
-    #                     model.rigid_contact_count,
-    #                     model.rigid_contact_body0,
-    #                     model.rigid_contact_body1,
-    #                     model.rigid_contact_point0,
-    #                     model.rigid_contact_point1,
-    #                     model.rigid_contact_offset0,
-    #                     model.rigid_contact_offset1,
-    #                     model.rigid_contact_normal,
-    #                     model.rigid_contact_shape0,
-    #                     model.rigid_contact_shape1,
-    #                     model.rigid_contact_thickness,
-    #                 ],
-    #                 device=model.device)
