@@ -85,7 +85,7 @@ def urdf_add_collision(builder, link, collisions, density, shape_ke, shape_kd, s
                 vertices = []
 
                 for v in m.vertices:
-                    vertices.append(np.array(v))
+                    vertices.append(np.array(v) * geo.mesh.scale)
 
                 for f in m.faces:
                     faces.append(int(f[0]))
