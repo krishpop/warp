@@ -311,11 +311,11 @@ class Model:
         self.body_inertia = None
 
         self.shape_collision_group = None
-        self.shape_collision_mask = None
+        self.shape_collision_group_map = None
+        self.shape_collision_filter_pairs = None
         self.shape_collision_radius = None
         self.shape_contact_pairs = None
 
-        # TODO: update this
         self.joint_type = None
         self.joint_parent = None
         self.joint_child = None
@@ -480,35 +480,84 @@ class Model:
         # number of contact constraints before the solver iterations
         self.rigid_contact_inv_weight_prev = wp.zeros(len(self.body_q), dtype=wp.float32, device=self.device, requires_grad=requires_grad)
 
-        if self.shape_collision_mask is None:
-            raise RuntimeError("shape_collision_mask is None, please call Model.finalize() first")         
-
         # find potential contact pairs based on collision groups and collision mask (pairwise filtering)
-        self.shape_contact_pairs = wp.zeros((self.rigid_contact_max, 2), dtype=wp.int32, device=self.device)
-        wp.launch(
-            kernel=find_shape_contact_pairs,
-            dim=(self.shape_count, self.shape_count),
-            inputs=[
-                self.shape_collision_group,
-                self.shape_collision_mask,
-                self.rigid_contact_max,
-            ],
-            outputs=[
-                self.rigid_contact_count,
-                self.shape_contact_pairs
-            ],
-            device=self.device,
-            record_tape=False,
-        )
-        required_contacts = self.rigid_contact_count.numpy()[0]
-        if required_contacts > self.rigid_contact_max:
-            raise RuntimeError(f"Number of rigid contacts exceeded limit ({self.rigid_contact_max}). Increase Model.rigid_contact_max to at least {required_contacts}.")
-        # update the maximum number of contacts based on the number of potential contact pairs
-        pairs = self.shape_contact_pairs.numpy()
-        num_pairs = len(np.where(pairs.any(axis=1))[0])
-        # print("Number of potential shape contact pairs:", num_pairs)
-        self.shape_contact_pair_count = num_pairs
-        self.rigid_contact_count.zero_()
+        if True:
+            import itertools, copy
+            # shape_a, shape_b = np.meshgrid(np.arange(len(self.shape_collision_group)), np.arange(len(self.shape_collision_group)))
+            # cgroups = np.array(self.shape_collision_group)
+            filters = copy.copy(self.shape_collision_filter_pairs)
+            for a, b in self.shape_collision_filter_pairs:
+                filters.add((b, a))
+            contact_pairs = []
+            for group, shapes in self.shape_collision_group_map.items():
+                for shape_a, shape_b in itertools.product(shapes, shapes):
+                    if shape_a < shape_b and (shape_a, shape_b) not in filters:
+                        contact_pairs.append((shape_a, shape_b))
+                if group != -1 and -1 in self.shape_collision_group_map:
+                    for shape_a, shape_b in itertools.product(shapes, self.shape_collision_group_map[-1]):
+                        if shape_a < shape_b and (shape_a, shape_b) not in filters:
+                            contact_pairs.append((shape_a, shape_b))
+            self.shape_contact_pairs = wp.array(np.array(contact_pairs), dtype=wp.int32, device=self.device)
+            self.shape_contact_pair_count = len(contact_pairs)
+        elif False:
+            from tqdm import trange
+            contact_pairs = []
+            for shape_a in trange(self.shape_count, desc="Finding contact pairs"):
+                for shape_b in range(shape_a+1, self.shape_count):
+                    if (shape_a, shape_b) in self.shape_collision_filter_pairs:
+                        continue
+                    if (shape_b, shape_a) in self.shape_collision_filter_pairs:
+                        continue
+                    cg_a = self.shape_collision_group[shape_a]
+                    cg_b = self.shape_collision_group[shape_b]
+                    if cg_a != cg_b and cg_a > -1 and cg_b > -1:
+                        continue
+                    if len(contact_pairs) >= self.rigid_contact_max:
+                        raise RuntimeError(f"Number of rigid contacts exceeded limit ({self.rigid_contact_max}). Increase Model.rigid_contact_max.")
+                    contact_pairs.append((shape_a, shape_b))
+            self.shape_contact_pairs = wp.array(np.array(contact_pairs), dtype=wp.int32, device=self.device)
+            self.shape_contact_pair_count = len(contact_pairs)
+        else:
+            device = "cpu"
+            # collision_mask = np.ones((len(self.shape_geo_type), len(self.shape_geo_type)), dtype=np.int32)
+            # np.fill_diagonal(collision_mask, 0)  # disable self-collision
+            # create mask from the list of enabled collision pairs for faster lookup
+            # for i, j in self.shape_collision_filter_pairs:
+            #     collision_mask[i, j] = 0
+            #     collision_mask[j, i] = 0
+            # shape_collision_mask = wp.array(collision_mask, ndim=2, dtype=wp.int32, device=device)
+            shape_collision_group = wp.array(self.shape_collision_group, dtype=wp.int32, device=device)    
+            shape_contact_pairs = wp.zeros((self.rigid_contact_max, 2), dtype=wp.int32, device=device)
+            contact_count = wp.zeros(1, dtype=wp.int32, device=device)
+            wp.launch(
+                kernel=find_shape_contact_pairs,
+                dim=(self.shape_count, self.shape_count),
+                inputs=[
+                    shape_collision_group,
+                    # shape_collision_mask,
+                    self.rigid_contact_max,
+                ],
+                outputs=[
+                    contact_count,
+                    shape_contact_pairs
+                ],
+                device=device,
+                record_tape=False,
+            )
+            required_contacts = contact_count.numpy()[0]
+            if required_contacts > self.rigid_contact_max:
+                raise RuntimeError(f"Number of rigid contacts exceeded limit ({self.rigid_contact_max}). Increase Model.rigid_contact_max to at least {required_contacts}.")
+            # update the maximum number of contacts based on the number of potential contact pairs
+            pairs = shape_contact_pairs.numpy()
+            # apply collision filters
+            for i, j in self.shape_collision_filter_pairs:
+                pairs[i, j] = 0
+                pairs[j, i] = 0
+            valid_pairs = np.where(pairs.any(axis=1))[0]
+            self.shape_contact_pairs = wp.array(pairs[valid_pairs], dtype=wp.int32, device=self.device)
+            num_pairs = len(valid_pairs)
+            # print("Number of potential shape contact pairs:", num_pairs)
+            self.shape_contact_pair_count = num_pairs
 
     def flatten(self):
         """Returns a list of Tensors stored by the model
@@ -710,6 +759,8 @@ class ModelBuilder:
         self.shape_volumes = []
         # collision groups within collisions are handled
         self.shape_collision_group = []
+        self.shape_collision_group_map = {}
+        self.last_collision_group = 0
         # radius to use for broadphase collision checking
         self.shape_collision_radius = []
 
@@ -754,6 +805,8 @@ class ModelBuilder:
         # rigid bodies
         self.body_mass = []
         self.body_inertia = []
+        self.body_inv_mass = []
+        self.body_inv_inertia = []
         self.body_com = []
         self.body_q = []
         self.body_qd = []
@@ -829,6 +882,7 @@ class ModelBuilder:
             articulation: a model builder to add rigid articulation from.
             xform: root position of this body (overrides that in the articulation_builder).
             update_num_env_count: if True, the number of environments is incremented by 1.
+            separate_collision_group: if True, the shapes from the articulation will all be put into a single new collision group, otherwise, only the shapes in collision group > -1 will be moved to a new group.
         """
 
         if xform is not None:
@@ -859,18 +913,33 @@ class ModelBuilder:
 
         self.shape_body.extend([b + start_body_idx for b in articulation.shape_body])
 
-        last_collision_group = np.max(self.shape_collision_group) if len(self.shape_collision_group) > 0 else -1
         if separate_collision_group:
-            self.shape_collision_group.extend([last_collision_group + 1 for _ in articulation.shape_collision_group])
+            self.shape_collision_group.extend([self.last_collision_group + 1 for _ in articulation.shape_collision_group])
         else:
-            self.shape_collision_group.extend([(g + last_collision_group if g > -1 else -1) for g in articulation.shape_collision_group])
+            self.shape_collision_group.extend([(g + self.last_collision_group if g > -1 else -1) for g in articulation.shape_collision_group])
         shape_count = len(self.shape_geo_type)
         for i, j in articulation.shape_collision_filter_pairs:
             self.shape_collision_filter_pairs.add((i + shape_count, j + shape_count))
+        for group, shapes in articulation.shape_collision_group_map.items():
+            if separate_collision_group:
+                group = self.last_collision_group + 1
+            else:
+                group = (group + self.last_collision_group if group > -1 else -1)
+            if group not in articulation.shape_collision_group_map:
+                self.shape_collision_group_map[group] = []
+            self.shape_collision_group_map[group].extend([s + shape_count for s in shapes])
+
+        # update last collision group counter
+        if separate_collision_group:
+            self.last_collision_group += 1
+        elif articulation.last_collision_group > -1:
+            self.last_collision_group += articulation.last_collision_group
 
         rigid_articulation_attrs = [
             "body_inertia",
             "body_mass",
+            "body_inv_inertia",
+            "body_inv_mass",
             "body_com",
             "body_q",
             "body_qd",
@@ -975,9 +1044,20 @@ class ModelBuilder:
         child = len(self.body_mass)
 
         # body data
-        self.body_inertia.append(I_m + np.eye(3)*joint_armature)
+        inertia = I_m + np.eye(3)*joint_armature
+        self.body_inertia.append(inertia)
         self.body_mass.append(m)
         self.body_com.append(com)
+        
+        if (m > 0.0):
+            self.body_inv_mass.append(1.0/m)
+        else:
+            self.body_inv_mass.append(0.0)
+    
+        if inertia.any():
+            self.body_inv_inertia.append(np.linalg.inv(inertia))
+        else:
+            self.body_inv_inertia.append(inertia)
         
         self.body_q.append(origin)
         self.body_qd.append(wp.spatial_vector())
@@ -1286,6 +1366,10 @@ class ModelBuilder:
         self.shape_material_restitution.append(restitution)
         self.shape_contact_thickness.append(thickness)
         self.shape_collision_group.append(collision_group)
+        if collision_group not in self.shape_collision_group_map:
+            self.shape_collision_group_map[collision_group] = []
+        self.last_collision_group = max(self.last_collision_group, collision_group)
+        self.shape_collision_group_map[collision_group].append(shape)
         self.shape_collision_radius.append(self._shape_radius(type, scale, src))
         if collision_filter_parent and body > -1:
             # XXX we assume joint ID == body ID here
@@ -1987,6 +2071,52 @@ class ModelBuilder:
 
         return (m, I)
 
+    def compute_mesh_inertia(self, density: float, vertices: list, indices: list) -> tuple:
+        com = np.mean(vertices, 0)
+
+        num_tris = len(indices) // 3
+
+        # compute signed inertia for each tetrahedron
+        # formed with the interior point, using an order-2
+        # quadrature: https://www.sciencedirect.com/science/article/pii/S0377042712001604#br000040
+
+        weight = 0.25
+        alpha = math.sqrt(5.0) / 5.0
+
+        I = np.zeros((3, 3))
+        mass = 0.0
+
+        for i in range(num_tris):
+
+            p = np.array(vertices[indices[i * 3 + 0]])
+            q = np.array(vertices[indices[i * 3 + 1]])
+            r = np.array(vertices[indices[i * 3 + 2]])
+
+            mid = (com + p + q + r) / 4.0
+
+            pcom = p - com
+            qcom = q - com
+            rcom = r - com
+
+            Dm = np.matrix((pcom, qcom, rcom)).T
+            volume = np.linalg.det(Dm) / 6.0
+            if volume == 0.0:
+                continue
+
+            # quadrature points lie on the line between the
+            # centroid and each vertex of the tetrahedron
+            quads = (mid + (p - mid) * alpha, mid + (q - mid) * alpha, mid + (r - mid) * alpha, mid + (com - mid) * alpha)
+
+            for j in range(4):
+
+                # displacement of quadrature point from COM
+                d = quads[j] - com
+
+                I += weight * volume * (np.dot(d, d) * np.eye(3, 3) - np.outer(d, d))
+                mass += weight * volume
+
+        return (mass * density, I * density)
+
     def _compute_shape_mass(self, type, scale, src, density):
       
         if density == 0:     # zero density means fixed
@@ -2000,8 +2130,12 @@ class ModelBuilder:
             return self.compute_capsule_inertia(density, scale[0], scale[1] * 2.0)
         elif (type == GEO_MESH):
             #todo: non-uniform scale of inertia tensor
-            s = scale[0]
-            return (density * src.mass * s * s * s, density * src.I * s * s * s * s * s)
+            if src.mass > 0.0:
+                s = scale[0]
+                return (density * src.mass * s * s * s, density * src.I * s * s * s * s * s)
+            else:
+                # fall back to computing inertia from mesh geometry
+                return self.compute_mesh_inertia(density, src.vertices, src.indices)
 
 
     def _transform_inertia(self, m, I, p, q):
@@ -2036,6 +2170,16 @@ class ModelBuilder:
         self.body_inertia[i] = new_inertia
         self.body_com[i] = new_com
 
+        if (new_mass > 0.0):
+            self.body_inv_mass[i] = 1.0/new_mass
+        else:
+            self.body_inv_mass[i] = 0.0
+            
+        if new_inertia.any():
+            self.body_inv_inertia[i] = np.linalg.inv(new_inertia)
+        else:
+            self.body_inv_inertia[i] = new_inertia
+
 
     def finalize(self, device=None) -> Model:
         """Convert this builder object to a concrete model for simulation.
@@ -2062,23 +2206,6 @@ class ModelBuilder:
             else:
                 particle_inv_mass.append(0.0)
 
-
-        # construct rigid inv masses
-        body_inv_mass = []
-        body_inv_inertia = []
-        
-        for m in self.body_mass:
-            if (m > 0.0):
-                body_inv_mass.append(1.0/m)
-            else:
-                body_inv_mass.append(0.0)
-
-        
-        for i in self.body_inertia:
-            if i.any():
-                body_inv_inertia.append(np.linalg.inv(i))
-            else:
-                body_inv_inertia.append(i)
 
         with wp.ScopedDevice(device):
 
@@ -2128,14 +2255,17 @@ class ModelBuilder:
             m.shape_materials.restitution = wp.array(self.shape_material_restitution, dtype=wp.float32, device=device)
             m.shape_contact_thickness = wp.array(self.shape_contact_thickness, dtype=wp.float32, device=device)
 
-            collision_mask = np.ones((len(self.shape_geo_type), len(self.shape_geo_type)), dtype=np.int32)
-            np.fill_diagonal(collision_mask, 0)  # disable self-collision
-            # create mask from the list of enabled collision pairs for faster lookup
-            for i, j in self.shape_collision_filter_pairs:
-                collision_mask[i, j] = 0
-                collision_mask[j, i] = 0
-            m.shape_collision_mask = wp.array(collision_mask, ndim=2, dtype=wp.int32, device=device)
-            m.shape_collision_group = wp.array(self.shape_collision_group, dtype=wp.int32, device=device)
+            m.shape_collision_filter_pairs = self.shape_collision_filter_pairs
+            # collision_mask = np.ones((len(self.shape_geo_type), len(self.shape_geo_type)), dtype=np.int32)
+            # np.fill_diagonal(collision_mask, 0)  # disable self-collision
+            # # create mask from the list of enabled collision pairs for faster lookup
+            # for i, j in self.shape_collision_filter_pairs:
+            #     collision_mask[i, j] = 0
+            #     collision_mask[j, i] = 0
+            # m.shape_collision_mask = wp.array(collision_mask, ndim=2, dtype=wp.int32, device=device)
+            # m.shape_collision_group = wp.array(self.shape_collision_group, dtype=wp.int32, device=device)
+            m.shape_collision_group = self.shape_collision_group
+            m.shape_collision_group_map = self.shape_collision_group_map
             m.shape_collision_radius = wp.array(self.shape_collision_radius, dtype=wp.float32, device=device)
 
             #---------------------
@@ -2189,9 +2319,9 @@ class ModelBuilder:
             m.body_q = wp.array(self.body_q, dtype=wp.transform)
             m.body_qd = wp.array(self.body_qd, dtype=wp.spatial_vector)
             m.body_inertia = wp.array(self.body_inertia, dtype=wp.mat33)
-            m.body_inv_inertia = wp.array(body_inv_inertia, dtype=wp.mat33)
+            m.body_inv_inertia = wp.array(self.body_inv_inertia, dtype=wp.mat33)
             m.body_mass = wp.array(self.body_mass, dtype=wp.float32)
-            m.body_inv_mass = wp.array(body_inv_mass, dtype=wp.float32)
+            m.body_inv_mass = wp.array(self.body_inv_mass, dtype=wp.float32)
             m.body_com = wp.array(self.body_com, dtype=wp.vec3)
             m.body_name = self.body_name
 
@@ -2247,7 +2377,7 @@ class ModelBuilder:
             # contacts
             m.allocate_soft_contacts(64*1024)        
             # TODO reset  
-            m.allocate_rigid_contacts(256*self.num_envs)
+            m.allocate_rigid_contacts(512*self.num_envs)
             m.rigid_contact_margin = self.rigid_contact_margin            
             m.rigid_contact_torsional_friction = self.rigid_contact_torsional_friction
             m.rigid_contact_rolling_friction = self.rigid_contact_rolling_friction
