@@ -48,11 +48,11 @@ class Robot:
 
         self.num_envs = num_envs
         articulation_builder = wp.sim.ModelBuilder()
-        floating_base = True
+        floating_base = False
         wp.sim.parse_urdf(
             os.path.join(os.path.dirname(__file__), "assets/isaacgymenvs/kuka_allegro_description/allegro.urdf"),
             articulation_builder,
-            xform=wp.transform(np.array((0.0, 0.2, 0.0)), wp.quat_identity()),
+            xform=wp.transform(np.array((0.0, 0.2, 0.0)), wp.quat_rpy(-np.pi/2, np.pi/2, np.pi/2)),
             floating=floating_base,
             density=1e3,
             armature=0.001,
@@ -65,22 +65,34 @@ class Robot:
             limit_ke=1.e+4,
             limit_kd=1.e+1,
             enable_self_collisions=True)
+        
+        wp.sim.parse_urdf(
+            os.path.join(os.path.dirname(__file__), "assets/isaacgymenvs/objects/cube_multicolor_allegro.urdf"),
+            articulation_builder,
+            xform=wp.transform(np.array((0.0, 1.2, 0.0)), wp.quat_identity()),
+            floating=True,
+            density=0.0,  # use inertia settings from URDF
+            armature=0.001,
+            stiffness=0.0,
+            damping=0.0,
+            shape_ke=1.e+4,
+            shape_kd=1.e+2,
+            shape_kf=1.e+2,
+            shape_mu=0.5,
+            limit_ke=1.e+4,
+            limit_kd=1.e+1,
+            parse_visuals_as_colliders=True)
 
         for i in range(num_envs):
             # articulation_builder.joint_X_p[0] = wp.transform(np.array((0.0, 0.0, 0.0)), wp.quat_from_axis_angle((1.0, 0.0, 0.0), -math.pi*0.5))
 
             builder.add_rigid_articulation(articulation_builder)
 
-            # joint initial positions
-            # builder.joint_q[-3:] = [0.0, 0.3, 0.0]
-
-            # builder.joint_target[-3:] = [0.0, 0.0, 0.0]
-
-            # ensure all joint positions are within limits
-            q_offset = (7 if floating_base else 0)
-            qd_offset = (6 if floating_base else 0)
-            for i in range(16):
-                builder.joint_q[i+q_offset] = 0.5 * (builder.joint_limit_lower[i+qd_offset] + builder.joint_limit_upper[i+qd_offset])
+            # # ensure all joint positions are within limits
+            # q_offset = (7 if floating_base else 0)
+            # qd_offset = (6 if floating_base else 0)
+            # for i in range(16):
+            #     builder.joint_q[i+q_offset] = 0.5 * (builder.joint_limit_lower[i+qd_offset] + builder.joint_limit_upper[i+qd_offset])
 
         # finalize model
         self.model = builder.finalize(device)
@@ -196,7 +208,7 @@ class Robot:
 
             num_viz_links = 3
             
-            fig, ax = plt.subplots(num_viz_links, 6, figsize=(10, 10))
+            fig, ax = plt.subplots(num_viz_links, 6, figsize=(10, 10), squeeze=False)
             fig.subplots_adjust(hspace=0.2, wspace=0.2)
             for i in range(num_viz_links):
                 ax[i,0].set_title(f"Link {i} Position")
