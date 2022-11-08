@@ -941,14 +941,14 @@ def eval_rigid_contacts(
     body_f: wp.array(dtype=wp.spatial_vector)):
 
     tid = wp.tid()
-    if (contact_shape0[tid] == -1 and contact_shape1[tid] == -1):
+    if (contact_shape0[tid] == contact_shape1[tid]):
         return
 
     count = contact_count[0]
     if (tid >= count):
         return
 
-    # use average contact material properties    
+    # retrieve contact thickness, compute average contact material properties    
     ke = 0.0       # restitution coefficient
     kd = 0.0       # damping coefficient
     kf = 0.0       # friction coefficient
@@ -997,7 +997,7 @@ def eval_rigid_contacts(
         bx_b = wp.transform_point(X_wb_b, bx_b) + thickness_b * n
         r_b = bx_b - wp.transform_point(X_wb_b, X_com_b)
     
-    d = -wp.dot(n, bx_b-bx_a)
+    d = wp.dot(n, bx_a-bx_b)
     
     if (d >= 0.0):
         return
