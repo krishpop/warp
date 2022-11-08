@@ -107,11 +107,8 @@ def box_sdf_grad(upper: wp.vec3, p: wp.vec3):
     if (qy > qx and qy > qz or qx == 0.0 and qz == 0.0):
         return wp.vec3(0.0, sy, 0.0)
 
-    # z projection
-    if (qz > qx and qz > qy or qx == 0.0 and qy == 0.0):
-        return wp.vec3(0.0, 0.0, sz)
-
-    return wp.vec3(0.0)
+    # z projection    
+    return wp.vec3(0.0, 0.0, sz)
 
 @wp.func
 def capsule_sdf(radius: float, half_width: float, p: wp.vec3):

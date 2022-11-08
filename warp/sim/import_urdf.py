@@ -81,18 +81,11 @@ def urdf_add_collision(builder, link, collisions, density, shape_ke, shape_kd, s
         if geo.mesh:
 
             for m in geo.mesh.meshes:
-                faces = []
+                faces = list(np.array(m.faces).astype('int').flatten())
                 vertices = np.array(m.vertices, dtype=np.float32).reshape((-1, 3))
                 if geo.mesh.scale is not None:
                     vertices *= geo.mesh.scale
-
-                for f in m.faces:
-                    faces.append(int(f[0]))
-                    faces.append(int(f[1]))
-                    faces.append(int(f[2]))
-
                 mesh = Mesh(vertices, faces)
-
                 builder.add_shape_mesh(
                     body=link,
                     pos=pos,
@@ -104,7 +97,6 @@ def urdf_add_collision(builder, link, collisions, density, shape_ke, shape_kd, s
                     kf=shape_kf,
                     mu=shape_mu,
                     restitution=shape_restitution)
-
 
 def parse_urdf(
         filename,

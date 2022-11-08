@@ -25,3 +25,4 @@ exts/omni.warp/omni/warp/ogn/tests/usd
 .vs/
 examples/assets/
 outputs/
+build/lib/
