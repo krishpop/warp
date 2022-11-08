@@ -482,9 +482,8 @@ class Model:
 
         # find potential contact pairs based on collision groups and collision mask (pairwise filtering)
         if True:
+            # fastest implementation so far, iterate over collision groups (islands)
             import itertools, copy
-            # shape_a, shape_b = np.meshgrid(np.arange(len(self.shape_collision_group)), np.arange(len(self.shape_collision_group)))
-            # cgroups = np.array(self.shape_collision_group)
             filters = copy.copy(self.shape_collision_filter_pairs)
             for a, b in self.shape_collision_filter_pairs:
                 filters.add((b, a))
