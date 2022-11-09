@@ -324,6 +324,8 @@ class Model:
 
     def __init__(self, device=None):
 
+        self.requires_grad = False
+
         self.particle_q = None
         self.particle_qd = None
         self.particle_mass = None
@@ -728,7 +730,7 @@ class Model:
         with wp.ScopedDevice(self.device):
             self.ground_contact_dim = len(body0)
             self.ground_contact_body0 = wp.array(body0, dtype=wp.int32)
-            self.ground_contact_ref = wp.array(point, dtype=wp.vec3)
+            self.ground_contact_ref = wp.array(point, dtype=wp.vec3, requires_grad=self.requires_grad)
             self.ground_contact_shape0 = wp.array(shape0, dtype=wp.int32)
 
 
@@ -919,6 +921,9 @@ class ModelBuilder:
         # treat collisions with relative velocity below this (multiplied by dt) as inelastic
         # jitter threshold from 
         self.rigid_contact_jitter_threshold = 2.0 * np.linalg.norm(gravity)
+
+        # number of rigid contact points to allocate in the model during self.finalize() per environment
+        self.num_rigid_contacts_per_env = 64
         
 
     # an articulation is a set of contiguous bodies bodies from articulation_start[i] to articulation_start[i+1]
@@ -2372,7 +2377,7 @@ class ModelBuilder:
             self.body_inv_inertia[i] = new_inertia
 
 
-    def finalize(self, device=None) -> Model:
+    def finalize(self, device=None, requires_grad=False) -> Model:
         """Convert this builder object to a concrete model for simulation.
 
         After building simulation elements this method should be called to transfer
@@ -2380,6 +2385,7 @@ class ModelBuilder:
 
         Args:
             device: The simulation device to use, e.g.: 'cpu', 'cuda'
+            requires_grad: Whether to enable gradient computation for the model
 
         Returns:
 
@@ -2403,24 +2409,25 @@ class ModelBuilder:
             #-------------------------------------
             # construct Model (non-time varying) data
 
-            m = Model()
+            m = Model(device)
+            m.requires_grad = requires_grad
 
             #---------------------        
             # particles
 
             # state (initial)
-            m.particle_q = wp.array(self.particle_q, dtype=wp.vec3)
-            m.particle_q_original = wp.array(self.particle_q, dtype=wp.vec3)
-            m.particle_qd = wp.array(self.particle_qd, dtype=wp.vec3)
-            m.particle_mass = wp.array(self.particle_mass, dtype=wp.float32)
-            m.particle_inv_mass = wp.array(particle_inv_mass, dtype=wp.float32)
+            m.particle_q = wp.array(self.particle_q, dtype=wp.vec3, requires_grad=requires_grad)
+            m.particle_q_original = wp.array(self.particle_q, dtype=wp.vec3, requires_grad=requires_grad)
+            m.particle_qd = wp.array(self.particle_qd, dtype=wp.vec3, requires_grad=requires_grad)
+            m.particle_mass = wp.array(self.particle_mass, dtype=wp.float32, requires_grad=requires_grad)
+            m.particle_inv_mass = wp.array(particle_inv_mass, dtype=wp.float32, requires_grad=requires_grad)
 
             #---------------------
             # collision geometry
 
-            m.shape_transform = wp.array(self.shape_transform, dtype=wp.transform, device=device)
-            m.shape_body = wp.array(self.shape_body, dtype=wp.int32, device=device)
-            m.shape_geo_type = wp.array(self.shape_geo_type, dtype=wp.int32, device=device)
+            m.shape_transform = wp.array(self.shape_transform, dtype=wp.transform, requires_grad=requires_grad)
+            m.shape_body = wp.array(self.shape_body, dtype=wp.int32)
+            m.shape_geo_type = wp.array(self.shape_geo_type, dtype=wp.int32)
             m.shape_geo_src = self.shape_geo_src
 
             # build list of ids for geometry sources (meshes, sdfs)
@@ -2435,61 +2442,53 @@ class ModelBuilder:
                     shape_geo_id.append(-1)
                     mesh_num_points.append(0)
 
-            m.shape_geo_id = wp.array(shape_geo_id, dtype=wp.uint64, device=device)
-            m.mesh_num_points = wp.array(mesh_num_points, dtype=wp.int32, device=device)
-            m.shape_geo_scale = wp.array(self.shape_geo_scale, dtype=wp.vec3, device=device)
+            m.shape_geo_id = wp.array(shape_geo_id, dtype=wp.uint64)
+            m.mesh_num_points = wp.array(mesh_num_points, dtype=wp.int32)
+            m.shape_geo_scale = wp.array(self.shape_geo_scale, dtype=wp.vec3, requires_grad=requires_grad)
             m.shape_materials = ShapeContactMaterial()
-            m.shape_materials.ke = wp.array(self.shape_material_ke, dtype=wp.float32, device=device)
-            m.shape_materials.kd = wp.array(self.shape_material_kd, dtype=wp.float32, device=device)
-            m.shape_materials.kf = wp.array(self.shape_material_kf, dtype=wp.float32, device=device)
-            m.shape_materials.mu = wp.array(self.shape_material_mu, dtype=wp.float32, device=device)
-            m.shape_materials.restitution = wp.array(self.shape_material_restitution, dtype=wp.float32, device=device)
-            m.shape_contact_thickness = wp.array(self.shape_contact_thickness, dtype=wp.float32, device=device)
+            m.shape_materials.ke = wp.array(self.shape_material_ke, dtype=wp.float32, requires_grad=requires_grad)
+            m.shape_materials.kd = wp.array(self.shape_material_kd, dtype=wp.float32, requires_grad=requires_grad)
+            m.shape_materials.kf = wp.array(self.shape_material_kf, dtype=wp.float32, requires_grad=requires_grad)
+            m.shape_materials.mu = wp.array(self.shape_material_mu, dtype=wp.float32, requires_grad=requires_grad)
+            m.shape_materials.restitution = wp.array(self.shape_material_restitution, dtype=wp.float32, requires_grad=requires_grad)
+            m.shape_contact_thickness = wp.array(self.shape_contact_thickness, dtype=wp.float32, requires_grad=requires_grad)
 
             m.shape_collision_filter_pairs = self.shape_collision_filter_pairs
-            # collision_mask = np.ones((len(self.shape_geo_type), len(self.shape_geo_type)), dtype=np.int32)
-            # np.fill_diagonal(collision_mask, 0)  # disable self-collision
-            # # create mask from the list of enabled collision pairs for faster lookup
-            # for i, j in self.shape_collision_filter_pairs:
-            #     collision_mask[i, j] = 0
-            #     collision_mask[j, i] = 0
-            # m.shape_collision_mask = wp.array(collision_mask, ndim=2, dtype=wp.int32, device=device)
-            # m.shape_collision_group = wp.array(self.shape_collision_group, dtype=wp.int32, device=device)
             m.shape_collision_group = self.shape_collision_group
             m.shape_collision_group_map = self.shape_collision_group_map
-            m.shape_collision_radius = wp.array(self.shape_collision_radius, dtype=wp.float32, device=device)
+            m.shape_collision_radius = wp.array(self.shape_collision_radius, dtype=wp.float32, requires_grad=requires_grad)
 
             #---------------------
             # springs
 
             m.spring_indices = wp.array(self.spring_indices, dtype=wp.int32)
-            m.spring_rest_length = wp.array(self.spring_rest_length, dtype=wp.float32)
-            m.spring_stiffness = wp.array(self.spring_stiffness, dtype=wp.float32)
-            m.spring_damping = wp.array(self.spring_damping, dtype=wp.float32)
-            m.spring_control = wp.array(self.spring_control, dtype=wp.float32)
+            m.spring_rest_length = wp.array(self.spring_rest_length, dtype=wp.float32, requires_grad=requires_grad)
+            m.spring_stiffness = wp.array(self.spring_stiffness, dtype=wp.float32, requires_grad=requires_grad)
+            m.spring_damping = wp.array(self.spring_damping, dtype=wp.float32, requires_grad=requires_grad)
+            m.spring_control = wp.array(self.spring_control, dtype=wp.float32, requires_grad=requires_grad)
 
             #---------------------
             # triangles
 
             m.tri_indices = wp.array(self.tri_indices, dtype=wp.int32)
-            m.tri_poses = wp.array(self.tri_poses, dtype=wp.mat22)
-            m.tri_activations = wp.array(self.tri_activations, dtype=wp.float32)
-            m.tri_materials = wp.array(self.tri_materials, dtype=wp.float32)
+            m.tri_poses = wp.array(self.tri_poses, dtype=wp.mat22, requires_grad=requires_grad)
+            m.tri_activations = wp.array(self.tri_activations, dtype=wp.float32, requires_grad=requires_grad)
+            m.tri_materials = wp.array(self.tri_materials, dtype=wp.float32, requires_grad=requires_grad)
 
             #---------------------
             # edges
 
             m.edge_indices = wp.array(self.edge_indices, dtype=wp.int32)
-            m.edge_rest_angle = wp.array(self.edge_rest_angle, dtype=wp.float32)
-            m.edge_bending_properties = wp.array(self.edge_bending_properties, dtype=wp.float32)
+            m.edge_rest_angle = wp.array(self.edge_rest_angle, dtype=wp.float32, requires_grad=requires_grad)
+            m.edge_bending_properties = wp.array(self.edge_bending_properties, dtype=wp.float32, requires_grad=requires_grad)
 
             #---------------------
             # tetrahedra
 
             m.tet_indices = wp.array(self.tet_indices, dtype=wp.int32)
-            m.tet_poses = wp.array(self.tet_poses, dtype=wp.mat33)
-            m.tet_activations = wp.array(self.tet_activations, dtype=wp.float32)
-            m.tet_materials = wp.array(self.tet_materials, dtype=wp.float32)
+            m.tet_poses = wp.array(self.tet_poses, dtype=wp.mat33, requires_grad=requires_grad)
+            m.tet_activations = wp.array(self.tet_activations, dtype=wp.float32, requires_grad=requires_grad)
+            m.tet_materials = wp.array(self.tet_materials, dtype=wp.float32, requires_grad=requires_grad)
 
             #-----------------------
             # muscles
@@ -2499,21 +2498,21 @@ class ModelBuilder:
             muscle_start.append(len(self.muscle_bodies))
 
             m.muscle_start = wp.array(muscle_start, dtype=wp.int32)
-            m.muscle_params = wp.array(self.muscle_params, dtype=wp.float32)
+            m.muscle_params = wp.array(self.muscle_params, dtype=wp.float32, requires_grad=requires_grad)
             m.muscle_bodies = wp.array(self.muscle_bodies, dtype=wp.int32)
-            m.muscle_points = wp.array(self.muscle_points, dtype=wp.vec3)
-            m.muscle_activation = wp.array(self.muscle_activation, dtype=wp.float32)
+            m.muscle_points = wp.array(self.muscle_points, dtype=wp.vec3, requires_grad=requires_grad)
+            m.muscle_activation = wp.array(self.muscle_activation, dtype=wp.float32, requires_grad=requires_grad)
 
             #--------------------------------------
             # rigid bodies
             
-            m.body_q = wp.array(self.body_q, dtype=wp.transform)
-            m.body_qd = wp.array(self.body_qd, dtype=wp.spatial_vector)
-            m.body_inertia = wp.array(self.body_inertia, dtype=wp.mat33)
-            m.body_inv_inertia = wp.array(self.body_inv_inertia, dtype=wp.mat33)
-            m.body_mass = wp.array(self.body_mass, dtype=wp.float32)
-            m.body_inv_mass = wp.array(self.body_inv_mass, dtype=wp.float32)
-            m.body_com = wp.array(self.body_com, dtype=wp.vec3)
+            m.body_q = wp.array(self.body_q, dtype=wp.transform, requires_grad=requires_grad)
+            m.body_qd = wp.array(self.body_qd, dtype=wp.spatial_vector, requires_grad=requires_grad)
+            m.body_inertia = wp.array(self.body_inertia, dtype=wp.mat33, requires_grad=requires_grad)
+            m.body_inv_inertia = wp.array(self.body_inv_inertia, dtype=wp.mat33, requires_grad=requires_grad)
+            m.body_mass = wp.array(self.body_mass, dtype=wp.float32, requires_grad=requires_grad)
+            m.body_inv_mass = wp.array(self.body_inv_mass, dtype=wp.float32, requires_grad=requires_grad)
+            m.body_com = wp.array(self.body_com, dtype=wp.vec3, requires_grad=requires_grad)
             m.body_name = self.body_name
 
             # model
@@ -2521,26 +2520,26 @@ class ModelBuilder:
             m.joint_type = wp.array(self.joint_type, dtype=wp.int32)
             m.joint_parent = wp.array(self.joint_parent, dtype=wp.int32)
             m.joint_child = wp.array(self.joint_child, dtype=wp.int32)
-            m.joint_X_p = wp.array(self.joint_X_p, dtype=wp.transform)
-            m.joint_X_c = wp.array(self.joint_X_c, dtype=wp.transform)
-            m.joint_axis = wp.array(self.joint_axis, dtype=wp.vec3)
-            m.joint_q = wp.array(self.joint_q, dtype=float)
-            m.joint_qd = wp.array(self.joint_qd, dtype=float)
+            m.joint_X_p = wp.array(self.joint_X_p, dtype=wp.transform, requires_grad=requires_grad)
+            m.joint_X_c = wp.array(self.joint_X_c, dtype=wp.transform, requires_grad=requires_grad)
+            m.joint_axis = wp.array(self.joint_axis, dtype=wp.vec3, requires_grad=requires_grad)
+            m.joint_q = wp.array(self.joint_q, dtype=wp.float32, requires_grad=requires_grad)
+            m.joint_qd = wp.array(self.joint_qd, dtype=wp.float32, requires_grad=requires_grad)
             m.joint_name = self.joint_name
 
             # dynamics properties
-            m.joint_armature = wp.array(self.joint_armature, dtype=wp.float32)
-            m.joint_target = wp.array(self.joint_target, dtype=wp.float32)
-            m.joint_target_ke = wp.array(self.joint_target_ke, dtype=wp.float32)
-            m.joint_target_kd = wp.array(self.joint_target_kd, dtype=wp.float32)
-            m.joint_act = wp.array(self.joint_act, dtype=wp.float32)
+            m.joint_armature = wp.array(self.joint_armature, dtype=wp.float32, requires_grad=requires_grad)
+            m.joint_target = wp.array(self.joint_target, dtype=wp.float32, requires_grad=requires_grad)
+            m.joint_target_ke = wp.array(self.joint_target_ke, dtype=wp.float32, requires_grad=requires_grad)
+            m.joint_target_kd = wp.array(self.joint_target_kd, dtype=wp.float32, requires_grad=requires_grad)
+            m.joint_act = wp.array(self.joint_act, dtype=wp.float32, requires_grad=requires_grad)
 
-            m.joint_limit_lower = wp.array(self.joint_limit_lower, dtype=wp.float32)
-            m.joint_limit_upper = wp.array(self.joint_limit_upper, dtype=wp.float32)
-            m.joint_limit_ke = wp.array(self.joint_limit_ke, dtype=wp.float32)
-            m.joint_limit_kd = wp.array(self.joint_limit_kd, dtype=wp.float32)
-            m.joint_linear_compliance = wp.array(self.joint_linear_compliance, dtype=wp.float32)
-            m.joint_angular_compliance = wp.array(self.joint_angular_compliance, dtype=wp.float32)
+            m.joint_limit_lower = wp.array(self.joint_limit_lower, dtype=wp.float32, requires_grad=requires_grad)
+            m.joint_limit_upper = wp.array(self.joint_limit_upper, dtype=wp.float32, requires_grad=requires_grad)
+            m.joint_limit_ke = wp.array(self.joint_limit_ke, dtype=wp.float32, requires_grad=requires_grad)
+            m.joint_limit_kd = wp.array(self.joint_limit_kd, dtype=wp.float32, requires_grad=requires_grad)
+            m.joint_linear_compliance = wp.array(self.joint_linear_compliance, dtype=wp.float32, requires_grad=requires_grad)
+            m.joint_angular_compliance = wp.array(self.joint_angular_compliance, dtype=wp.float32, requires_grad=requires_grad)
 
             # 'close' the start index arrays with a sentinel value
             joint_q_start = copy.copy(self.joint_q_start)
@@ -2550,9 +2549,9 @@ class ModelBuilder:
             articulation_start = copy.copy(self.articulation_start)
             articulation_start.append(self.joint_count)
 
-            m.joint_q_start = wp.array(joint_q_start, dtype=int) 
-            m.joint_qd_start = wp.array(joint_qd_start, dtype=int)
-            m.articulation_start = wp.array(articulation_start, dtype=int)
+            m.joint_q_start = wp.array(joint_q_start, dtype=wp.int32)
+            m.joint_qd_start = wp.array(joint_qd_start, dtype=wp.int32)
+            m.articulation_start = wp.array(articulation_start, dtype=wp.int32)
 
             # counts
             m.particle_count = len(self.particle_q)
@@ -2566,9 +2565,8 @@ class ModelBuilder:
             m.articulation_count = len(self.articulation_start)
 
             # contacts
-            m.allocate_soft_contacts(1*1024)        
-            # TODO reset  
-            m.allocate_rigid_contacts(32*self.num_envs)
+            m.allocate_soft_contacts(1*1024, requires_grad=requires_grad)
+            m.allocate_rigid_contacts(self.num_rigid_contacts_per_env*self.num_envs, requires_grad=requires_grad)
             m.rigid_contact_margin = self.rigid_contact_margin            
             m.rigid_contact_torsional_friction = self.rigid_contact_torsional_friction
             m.rigid_contact_rolling_friction = self.rigid_contact_rolling_friction
@@ -2587,13 +2585,13 @@ class ModelBuilder:
 
             # store volumes in model to keep the references alive when ModelBuilder gets destroyed
             m.shape_volumes = self.shape_volumes
-            m.shape_volume_id = wp.array([(v.id if v is not None else 0) for v in m.shape_volumes], dtype=wp.uint64, device=device)
+            m.shape_volume_id = wp.array([(v.id if v is not None else 0) for v in m.shape_volumes], dtype=wp.uint64)
 
             # enable ground plane
             m.ground = True
-            m.ground_plane = wp.array([*self.upvector, 0.0], dtype=wp.float32, device=device)
+            m.ground_plane = wp.array([*self.upvector, 0.0], dtype=wp.float32, requires_grad=requires_grad)
             # m.gravity = np.array(self.upvector) * self.gravity
-            m.gravity = wp.array([*(np.array(self.upvector) * self.gravity)], dtype=wp.float32, device=device)
+            m.gravity = wp.array([*(np.array(self.upvector) * self.gravity)], dtype=wp.float32, requires_grad=requires_grad)
 
             m.enable_tri_collisions = False
 
