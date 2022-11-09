@@ -11,6 +11,18 @@ import warp as wp
 from warp.context import Devicelike
 import numpy as np
 
+class FontColors:
+    # https://stackoverflow.com/a/287944
+    HEADER = '\033[95m'
+    OKBLUE = '\033[94m'
+    OKCYAN = '\033[96m'
+    OKGREEN = '\033[92m'
+    WARNING = '\033[93m'
+    FAIL = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
+
 
 def check_gradient(func: Callable, func_name: str, inputs: List, device: Devicelike, eps: float = 1e-4, tol: float = 1e-2):
     """
@@ -300,21 +312,21 @@ def check_kernel_jacobian(kernel: Callable, dim: Tuple[int], inputs: List, outpu
                 for varname in input._struct_.vars:
                     var = getattr(input, varname)
                     if is_differentiable(var) and not var.requires_grad:
-                        print(
-                            f"Warning: input {kernel.adj.args[input_id].label}.{varname} is differentiable but requires_grad is False")
+                        print(FontColors.WARNING +
+                            f"Warning: input \"{kernel.adj.args[input_id].label}.{varname}\" is differentiable but requires_grad is False" + FontColors.ENDC)
             elif is_differentiable(input) and not input.requires_grad:
-                print(
-                    f"Warning: input {kernel.adj.args[input_id].label} is differentiable but requires_grad is False")
+                print(FontColors.WARNING +
+                    f"Warning: input \"{kernel.adj.args[input_id].label}\" is differentiable but requires_grad is False" + FontColors.ENDC)
         for output_id, output in enumerate(outputs):
             if isinstance(output, wp.codegen.StructInstance):
                 for varname in output._struct_.vars:
                     var = getattr(output, varname)
                     if is_differentiable(var) and not var.requires_grad:
-                        print(
-                            f"Warning: output {kernel.adj.args[output_id + len(inputs)].label}.{varname} is differentiable but requires_grad is False")
+                        print(FontColors.WARNING +
+                            f"Warning: output \"{kernel.adj.args[output_id + len(inputs)].label}.{varname}\" is differentiable but requires_grad is False" + FontColors.ENDC)
             elif is_differentiable(output) and not output.requires_grad:
-                print(
-                    f"Warning: output {kernel.adj.args[output_id + len(inputs)].label} is differentiable but requires_grad is False")
+                print(FontColors.WARNING +
+                    f"Warning: output \"{kernel.adj.args[output_id + len(inputs)].label}\" is differentiable but requires_grad is False" + FontColors.ENDC)
 
     # find input/output names mapping to Jacobian indices for tick labels
     input_ticks_labels = []
@@ -402,6 +414,10 @@ def check_kernel_jacobian(kernel: Callable, dim: Tuple[int], inputs: List, outpu
         mean_rel_error = np.mean(rel_diff)
         return mean_rel_error
 
+    if len(inputs) == 0:
+        raise ValueError("No differentiable inputs available")
+    if len(outputs) == 0:
+        raise ValueError("No differentiable outputs available")
     jac_ad, ad_in, ad_out = kernel_jacobian(
         kernel, dim, inputs, outputs, max_outputs_per_var=max_outputs_per_var)
     jac_fd = kernel_jacobian_fd(
@@ -506,18 +522,25 @@ def check_kernel_jacobian(kernel: Callable, dim: Tuple[int], inputs: List, outpu
         from matplotlib.colors import LogNorm
         fig, axs = plt.subplots(1, 3)
         plt.suptitle(f"{kernel.key} Jacobian", fontsize=16, fontweight='bold')
-        def plot_matrix(ax, mat):
+        def plot_matrix(ax, mat, vmin, vmax):
+            mat = np.copy(mat)
             mat[mat==0.0] = np.nan
-            ax.imshow(np.abs(mat), cmap='jet', interpolation='nearest', norm=LogNorm())
+            if vmin is not None and vmin < vmax and vmin != 0.0:
+                ax.imshow(np.abs(mat), cmap='jet', interpolation='nearest', norm=LogNorm())
+            else:
+                ax.imshow(np.abs(mat), cmap='jet', interpolation='nearest')
             ax.set_xticks(input_ticks)
             ax.set_xticklabels([f"{label} ({tick})" for label, tick in zip(input_ticks_labels, input_ticks)], rotation=90)
             ax.set_yticks(output_ticks)
             ax.set_yticklabels([f"{label} ({tick})" for label, tick in zip(output_ticks_labels, output_ticks)])
-        plot_matrix(axs[0], jac_ad)
+        vmin = min(np.min(jac_ad), np.min(jac_fd))
+        vmax = max(np.max(jac_ad), np.max(jac_fd))
+        plot_matrix(axs[0], jac_ad, vmin, vmax)
         axs[0].set_title("Analytical")
-        plot_matrix(axs[1], jac_fd)
+        plot_matrix(axs[1], jac_fd, vmin, vmax)
         axs[1].set_title("Finite Difference")
-        plot_matrix(axs[2], jac_ad - jac_fd)
+        diff = jac_ad - jac_fd
+        plot_matrix(axs[2], diff, None, None)
         axs[2].set_title("Difference")
         axs[2].scatter(highlight_xs, highlight_ys, marker='x', color='red')
         plt.tight_layout(h_pad=0.0, w_pad=0.0)
@@ -543,7 +566,7 @@ def make_struct_of_arrays(xs):
 
 
 def check_backward_pass(
-    func: Callable,
+    tape: wp.Tape,
     visualize_graph=True,
     check_jacobians=True,
     plot_jac_on_fail=False,
@@ -552,13 +575,11 @@ def check_backward_pass(
     track_outputs=[],
     track_input_names=[],
     track_output_names=[],
+    ignore_kernels=set(),
     ):
     """
-    Checks that the backward pass of a function involving Warp kernel launches.
+    Runs various checks of the backward pass given the tape of recorded kernel launches.
     """
-    tape = wp.Tape()
-    with tape:
-        func()
 
     def add_to_struct_of_arrays(d, target):
         for k, v in d.items():
@@ -662,8 +683,9 @@ def check_backward_pass(
                 for path in paths:
                     # XXX all arrays up until the last one have to be differentiable
                     if not all([G.nodes[i]["requires_grad"] or G.nodes[i]["nondifferentiable"] for i in path[:-1]]):
-                        print(
-                            f"Warning: nondifferentiable node on path from {node_labels[x.ptr]} to {node_labels[y.ptr]} via [{' -> '.join([node_labels[p] for p in path])}].")
+                        print(FontColors.WARNING +
+                            f"Warning: nondifferentiable node on path from {node_labels[x.ptr]} to {node_labels[y.ptr]} via [{' -> '.join([node_labels[p] for p in path])}]."
+                            + FontColors.ENDC)
                         print(
                             f"Nondifferentiable array(s): [{', '.join([node_labels[p] for p in path if not G.nodes[p]['requires_grad']])}]")
                         all_differentiable = False
@@ -671,17 +693,17 @@ def check_backward_pass(
                     many_overwrites = set(node for node in path if len(
                         manipulated_nodes[node]) > 1)
                     if len(many_overwrites) > 0:
-                        print(
-                            f"Warning: multiple kernels manipulate array(s) on path from {node_labels[x.ptr]} to {node_labels[y.ptr]}.")
+                        print(FontColors.WARNING +
+                            f"Warning: multiple kernels manipulate array(s) on path from {node_labels[x.ptr]} to {node_labels[y.ptr]}." + FontColors.ENDC)
                         for node in many_overwrites:
                             print(
                                 f"\tArray {node_labels[node]} is manipulated by kernels [{', '.join([kernel for kernel in manipulated_nodes[node]])}].")
                     else:
-                        print(
-                            f"Path from {node_labels[x.ptr]} to {node_labels[y.ptr]} is differentiable.")
+                        print(FontColors.OKGREEN +
+                            f"Path from {node_labels[x.ptr]} to {node_labels[y.ptr]} is differentiable." + FontColors.ENDC)
             except nx.NetworkXNoPath:
-                print(
-                    f"Error: there is no computation path from {node_labels[x.ptr]} to {node_labels[y.ptr]}")
+                print(FontColors.FAIL +
+                    f"Error: there is no computation path from {node_labels[x.ptr]} to {node_labels[y.ptr]}" + FontColors.ENDC)
 
     if visualize_graph:
         import matplotlib as mpl
@@ -746,16 +768,19 @@ def check_backward_pass(
     hide_non_arrays = True
     for launch in tape.launches:
         kernel, dim, inputs, outputs, device = tuple(launch)
-        if check_jacobians:
-            msg = f"Checking backward pass of {kernel.key} (launch {kernel_launch_count[kernel.key]})..."
+        if check_jacobians and kernel.key not in ignore_kernels:
+            msg = f"Checking Jacobian of kernel \"{kernel.key}\" (launch {kernel_launch_count[kernel.key]})..."
             print("".join(["#"] * len(msg)))
-            print(msg)
-            result, kernel_stats = check_kernel_jacobian(
-                kernel, dim, inputs, outputs, plot_jac_on_fail=plot_jac_on_fail, atol=1.0)
-            print(result)
-            if kernel.key not in stats:
-                stats[kernel.key] = defaultdict(list)
-            add_to_struct_of_arrays(kernel_stats, stats[kernel.key])
+            print(FontColors.OKCYAN + msg + FontColors.ENDC)
+            try:
+                result, kernel_stats = check_kernel_jacobian(
+                    kernel, dim, inputs, outputs, plot_jac_on_fail=plot_jac_on_fail, atol=1.0)
+                print(result)
+                if kernel.key not in stats:
+                    stats[kernel.key] = defaultdict(list)
+                add_to_struct_of_arrays(kernel_stats, stats[kernel.key])
+            except Exception as e:
+                print(FontColors.FAIL + f"Error while checking jacobian of kernel {kernel.key}: {e}" + FontColors.ENDC)
 
         kernel_names.add(kernel.key)
 
