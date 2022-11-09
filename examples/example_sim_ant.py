@@ -32,7 +32,7 @@ class Robot:
     episode_duration = 5.0      # seconds
     episode_frames = int(episode_duration/frame_dt)
 
-    sim_substeps = 10
+    sim_substeps = 5
     sim_dt = frame_dt / sim_substeps
     sim_steps = int(episode_duration / sim_dt)
    
@@ -60,7 +60,8 @@ class Robot:
             contact_kf=1.e+4,
             contact_mu=1.0,
             limit_ke=1.e+4,
-            limit_kd=1.e+1)
+            limit_kd=1.e+1,
+            enable_self_collisions=False)
 
 
         for i in range(num_envs):
@@ -92,7 +93,9 @@ class Robot:
         self.model.joint_attach_kd *= 4.0
 
         # self.integrator = wp.sim.SemiImplicitIntegrator()
-        self.integrator = wp.sim.XPBDIntegrator()
+        self.integrator = wp.sim.XPBDIntegrator(
+            iterations=2
+        )
 
         #-----------------------
         # set up Usd renderer
@@ -164,7 +167,7 @@ class Robot:
 
         return 1000.0*float(self.num_envs)/avg_time
 
-profile = False
+profile = True
 
 if profile:
 
@@ -172,15 +175,21 @@ if profile:
     env_times = []
     env_size = []
 
-    for i in range(15):
+    # first compile
+    robot = Robot(render=False, num_envs=2)
+    steps_per_second = robot.run()
 
-        robot = Robot(render=False, num_envs=env_count)
-        steps_per_second = robot.run()
+    env_count = 32768
 
-        env_size.append(env_count)
-        env_times.append(steps_per_second)
-        
-        env_count *= 2
+    # for i in range(15):
+
+    robot = Robot(render=False, num_envs=env_count)
+    steps_per_second = robot.run()
+
+    env_size.append(env_count)
+    env_times.append(steps_per_second)
+    
+    # env_count *= 2
 
     # dump times
     for i in range(len(env_times)):

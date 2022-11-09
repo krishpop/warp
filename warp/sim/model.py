@@ -2566,9 +2566,9 @@ class ModelBuilder:
             m.articulation_count = len(self.articulation_start)
 
             # contacts
-            m.allocate_soft_contacts(64*1024)        
+            m.allocate_soft_contacts(1*1024)        
             # TODO reset  
-            m.allocate_rigid_contacts(512*self.num_envs)
+            m.allocate_rigid_contacts(32*self.num_envs)
             m.rigid_contact_margin = self.rigid_contact_margin            
             m.rigid_contact_torsional_friction = self.rigid_contact_torsional_friction
             m.rigid_contact_rolling_friction = self.rigid_contact_rolling_friction
