@@ -1160,5 +1160,5 @@ def collide(model, state, edge_sdf_iter: int = 5):
             device=model.device
         )
 
-        # print("rigid_contact_count:", state.rigid_contact_count.numpy()[0])
+        # print("rigid_contact_count:", model.rigid_contact_count.numpy()[0])
     
