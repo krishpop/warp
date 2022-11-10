@@ -5,7 +5,8 @@
 # distribution of this software and related documentation without an express
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
-"""A module for building simulation models and state.
+"""
+Collision handling functions and kernels.
 """
 
 import warp as wp
@@ -1036,6 +1037,15 @@ def handle_contact_pairs(
     return
 
 def collide(model, state, edge_sdf_iter: int = 5):
+    """
+    Generates contact points for the particles and rigid bodies in the model,
+    to be used in the contact dynamics kernel of the integrator.
+
+    Args:
+        model: the model to be simulated
+        state: the state of the model
+        edge_sdf_iter: number of Frank-Wolfe iterations for finding closest contact points between edges and SDF
+    """
 
     # clear old count
     model.soft_contact_count.zero_()
