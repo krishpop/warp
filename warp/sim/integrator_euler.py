@@ -1113,6 +1113,11 @@ def eval_body_joints(body_q: wp.array(dtype=wp.transform),
                      body_f: wp.array(dtype=wp.spatial_vector)):
 
     tid = wp.tid()
+    type = joint_type[tid]
+    
+    # early out for free joints
+    if (type == wp.sim.JOINT_FREE):
+        return
 
     c_child = tid
     c_parent = joint_parent[tid]
@@ -1147,7 +1152,6 @@ def eval_body_joints(body_q: wp.array(dtype=wp.transform),
     # joint properties (for 1D joints)
     q_start = joint_q_start[tid]
     qd_start = joint_qd_start[tid]
-    type = joint_type[tid]
     axis = joint_axis[tid]
 
     target = joint_target[qd_start]
@@ -1179,9 +1183,6 @@ def eval_body_joints(body_q: wp.array(dtype=wp.transform),
     # reduce angular damping stiffness for stability
     angular_damping_scale = 0.01
 
-    # early out for free joints
-    if (type == wp.sim.JOINT_FREE):
-        return
 
     if type == wp.sim.JOINT_FIXED:
 
