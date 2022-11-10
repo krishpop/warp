@@ -82,18 +82,16 @@ class CubeSlopeSim:
 
         self.frame_dt = 1.0/60.0
 
-        self.episode_duration = 1.5      # seconds
+        self.episode_duration = 2.5      # seconds
         self.episode_frames = int(self.episode_duration/self.frame_dt)
 
-        self.sim_substeps = 1
+        self.sim_substeps = 5
         self.sim_dt = self.frame_dt / self.sim_substeps
         self.sim_steps = int(self.episode_duration / self.sim_dt)
 
         self.sim_time = 0.0
         self.render_time = 0.0
         self.render = False
-
-        states = []
 
         self.num_envs = num_envs
         self.loss = wp.zeros(self.num_envs*3, dtype=wp.float32,
@@ -267,8 +265,8 @@ seed = 1
 
 np.set_printoptions(precision=10)
 
-# robot = CubeSlopeSim(seed=seed, device=wp.get_preferred_device())
-robot = CubeSlopeSim(seed=seed, device="cpu")
+robot = CubeSlopeSim(seed=seed, device=wp.get_preferred_device())
+# robot = CubeSlopeSim(seed=seed, device="cpu")
 torch.manual_seed(seed)
 # param = torch.tensor([1 / 10.0]).repeat(1, 1).view(1, 1)
 param = torch.tensor([100.0]).repeat(1, 1).view(1, 1)
