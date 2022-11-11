@@ -18,11 +18,11 @@ from warp.sim.model import Mesh
 
 
 def parse_mjcf(
-    filename, 
-    builder, 
-    density=1000.0, 
-    stiffness=0.0, 
-    damping=0.0, 
+    filename,
+    builder,
+    density=1000.0,
+    stiffness=0.0,
+    damping=0.0,
     contact_ke=1000.0,
     contact_kd=100.0,
     contact_kf=100.0,
@@ -34,19 +34,19 @@ def parse_mjcf(
     armature_scale=1.0,
     add_particles=False,
     add_mesh=False,
-    enable_self_collisions=True):
+    enable_self_collisions=True,
+):
 
     file = ET.parse(filename)
     root = file.getroot()
-    
-    type_map = { 
-        "ball": wp.sim.JOINT_BALL, 
-        "hinge": wp.sim.JOINT_REVOLUTE, 
-        "slide": wp.sim.JOINT_PRISMATIC, 
-        "free": wp.sim.JOINT_FREE, 
-        "fixed": wp.sim.JOINT_FIXED
-    }
 
+    type_map = {
+        "ball": wp.sim.JOINT_BALL,
+        "hinge": wp.sim.JOINT_REVOLUTE,
+        "slide": wp.sim.JOINT_PRISMATIC,
+        "free": wp.sim.JOINT_FREE,
+        "fixed": wp.sim.JOINT_FIXED,
+    }
 
     def parse_float(node, key, default):
         if key in node.attrib:
@@ -89,13 +89,27 @@ def parse_mjcf(
         # body_pos = np.fromstring(body.attrib["pos"], sep=" ")
         body_pos = parse_vec(body, "pos", (0.0, 0.0, 0.0))
         body_ori_euler = parse_vec(body, "euler", (0.0, 0.0, 0.0))
-        if np.nonzero(body_ori_euler)[0].sum() > 0:
+        if len(np.nonzero(body_ori_euler)[0]) > 0:
             body_axis = tuple(np.sign(body_ori_euler))
-            body_angle = body_ori_euler[np.nonzero(body_ori_euler)[0].item()] / 180 * np.pi
+            body_angle = (
+                body_ori_euler[np.nonzero(body_ori_euler)[0].item()] / 180 * np.pi
+            )
             body_ori = wp.utils.quat_from_axis_angle(body_axis, body_angle)
-            # print("body_ori_euler", body_ori_euler, "body_angle", body_angle, "body_axis", body_axis, "body_ori", body_ori)
+            for val in [
+                "body_ori_euler",
+                body_ori_euler,
+                "body_angle",
+                body_angle,
+                "body_axis",
+                body_axis,
+                "body_ori",
+                body_ori,
+                "body_pos",
+                body_pos,
+            ]:
+                print(val)
         else:
-            # print("body_ori_euler", body_ori_euler)
+            print("body_ori_euler", body_ori_euler)
             body_ori = wp.quat_identity()
 
         # -----------------
@@ -132,8 +146,8 @@ def parse_mjcf(
                 joint_xform=wp.transform(body_pos, body_ori),
                 joint_axis=joint_axis,
                 joint_type=joint_type,
-                joint_limit_lower=joint_range[0],
-                joint_limit_upper=joint_range[1],
+                joint_limit_lower=np.deg2rad(joint_range[0]),
+                joint_limit_upper=np.deg2rad(joint_range[1]),
                 joint_limit_ke=limit_ke,
                 joint_limit_kd=limit_kd,
                 joint_target_ke=joint_stiffness,
@@ -204,7 +218,7 @@ def parse_mjcf(
             link = builder.add_body(
                 parent=parent,
                 origin=wp.transform_identity(),  # will be evaluated in fk()
-                joint_xform=wp.transform(body_pos, wp.quat_identity()),
+                joint_xform=wp.transform(body_pos, body_ori),
                 joint_xform_child=wp.transform([0.0, 0.0, 0.0], q),
                 joint_type=type,
                 joint_limit_lower=joint_lower,
@@ -215,9 +229,10 @@ def parse_mjcf(
                 joint_target_kd=joint_damping,
                 joint_armature=joint_armature[0],
                 body_name=body_name,
-                joint_name=joint_name)
-            
-        #-----------------
+                joint_name=joint_name,
+            )
+
+        # -----------------
         # add shapes
 
         for geom in body.findall("geom"):
@@ -242,12 +257,13 @@ def parse_mjcf(
                     kd=contact_kd,
                     kf=contact_kf,
                     mu=contact_mu,
-                    restitution=contact_restitution)
+                    restitution=contact_restitution,
+                )
 
             elif geom_type == "mesh" and add_mesh:
 
                 mesh, scale = parse_mesh(geom)
-                geom_size = tuple([scale * s * 2.5 for s in geom_size])
+                geom_size = tuple([scale * s for s in geom_size])
                 assert len(geom_size) == 3, "need to specify size for mesh geom"
                 collision_group = -1
                 if geom_name == "obj_surface" or "distal" in geom_name:
@@ -304,8 +320,9 @@ def parse_mjcf(
                     kd=contact_kd,
                     kf=contact_kf,
                     mu=contact_mu,
-                    restitution=contact_restitution)
-                
+                    restitution=contact_restitution,
+                )
+
             else:
                 print("Type: " + geom_type + " unsupported")
 
@@ -317,7 +334,7 @@ def parse_mjcf(
 
     # -----------------
     # start articulation
-    
+
     start_shape_count = len(builder.shape_geo_type)
     builder.add_articulation()
 
@@ -329,5 +346,5 @@ def parse_mjcf(
 
     if not enable_self_collisions:
         for i in range(start_shape_count, end_shape_count):
-            for j in range(i+1, end_shape_count):
+            for j in range(i + 1, end_shape_count):
                 builder.shape_collision_filter_pairs.add((i, j))
