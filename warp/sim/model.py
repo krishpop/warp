@@ -820,7 +820,6 @@ class ModelBuilder:
         self.shape_material_mu = []
         self.shape_material_restitution = []
         self.shape_contact_thickness = []
-        self.shape_volumes = []
         # collision groups within collisions are handled
         self.shape_collision_group = []
         self.shape_collision_group_map = {}
@@ -1396,7 +1395,6 @@ class ModelBuilder:
                        pos: Vec3=(0.0, 0.0, 0.0),
                        rot: Quat=(0.0, 0.0, 0.0, 1.0),
                        mesh: Mesh=None,
-                       volume: Volume=None,
                        scale: Vec3=(1.0, 1.0, 1.0),
                        density: float=default_shape_density,
                        ke: float=default_shape_ke,
@@ -1423,8 +1421,7 @@ class ModelBuilder:
 
         """
 
-
-        self._add_shape(body, pos, rot, GEO_MESH, (scale[0], scale[1], scale[2], 0.0), mesh, density, ke, kd, kf, mu, restitution, thickness=contact_thickness, volume=volume)
+        self._add_shape(body, pos, rot, GEO_MESH, (scale[0], scale[1], scale[2], 0.0), mesh, density, ke, kd, kf, mu, restitution, thickness=contact_thickness)
 
     def _shape_radius(self, type, scale, src):
         if type == GEO_SPHERE:
@@ -1447,7 +1444,7 @@ class ModelBuilder:
         else:
             return 10.0
     
-    def _add_shape(self, body, pos, rot, type, scale, src, density, ke, kd, kf, mu, restitution, thickness=0.0, volume=None, collision_group=-1, collision_filter_parent=True):
+    def _add_shape(self, body, pos, rot, type, scale, src, density, ke, kd, kf, mu, restitution, thickness=0.0, collision_group=-1, collision_filter_parent=True):
         self.shape_body.append(body)
         shape = len(self.shape_geo_type)
         if body in self.body_shapes:
@@ -1482,8 +1479,6 @@ class ModelBuilder:
         (m, I) = self._compute_shape_mass(type, scale, src, density)
 
         self._update_body_mass(body, m, I, np.array(pos), np.array(rot))
-
-        self.shape_volumes.append(volume)
 
     # particles
     def add_particle(self, pos : Vec3, vel : Vec3, mass : float) -> int:
@@ -2456,7 +2451,6 @@ class ModelBuilder:
 
             # state (initial)
             m.particle_q = wp.array(self.particle_q, dtype=wp.vec3, requires_grad=requires_grad)
-            m.particle_q_original = wp.array(self.particle_q, dtype=wp.vec3, requires_grad=requires_grad)
             m.particle_qd = wp.array(self.particle_qd, dtype=wp.vec3, requires_grad=requires_grad)
             m.particle_mass = wp.array(self.particle_mass, dtype=wp.float32, requires_grad=requires_grad)
             m.particle_inv_mass = wp.array(particle_inv_mass, dtype=wp.float32, requires_grad=requires_grad)
@@ -2626,10 +2620,6 @@ class ModelBuilder:
             # store refs to geometry
             m.geo_meshes = self.geo_meshes
             m.geo_sdfs = self.geo_sdfs
-
-            # store volumes in model to keep the references alive when ModelBuilder gets destroyed
-            m.shape_volumes = self.shape_volumes
-            m.shape_volume_id = wp.array([(v.id if v is not None else 0) for v in m.shape_volumes], dtype=wp.uint64)
 
             # enable ground plane
             m.ground = True
