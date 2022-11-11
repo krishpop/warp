@@ -261,13 +261,9 @@ def apply_body_deltas(
     x_com = p0 + wp.quat_rotate(q0, body_com[tid])
 
     weight = 1.0
-    # if (constraint_inv_weights):
-    #     if (constraint_inv_weights[tid] > 0.0):
-    #         weight = 1.0 / constraint_inv_weights[tid]
-    #     else:
-    #         weight = 1.0
-    # else:
-    #     weight = 1.0
+    if (constraint_inv_weights):
+        if (constraint_inv_weights[tid] > 0.0):
+            weight = 1.0 / constraint_inv_weights[tid]
 
     dp = wp.spatial_bottom(delta) * inv_m * weight
     dq = wp.spatial_top(delta) * weight
@@ -1064,7 +1060,6 @@ def solve_body_contact_positions(
     shape_materials: ShapeContactMaterial,
     relaxation: float,
     dt: float,
-    max_penetration: float,
     contact_torsional_friction: float,
     contact_rolling_friction: float,
     # outputs
@@ -1169,8 +1164,6 @@ def solve_body_contact_positions(
         if (body_b >= 0):
             wp.atomic_add(contact_inv_weight, body_b, 1.0)
 
-    # limit penetration to prevent extreme constraint deltas
-    # d = wp.max(max_penetration, d)
     lambda_n = compute_contact_constraint_delta(
         d, X_wb_a, X_wb_b, m_inv_a, m_inv_b, I_inv_a, I_inv_b,
         -n, n, angular_a, angular_b, relaxation, dt)
@@ -1478,7 +1471,6 @@ class XPBDIntegrator:
                  contact_normal_relaxation=1.0,
                  contact_friction_relaxation=1.0,
                  contact_con_weighting=True,
-                 max_rigid_contact_penetration=-100.0,
                  angular_damping=0.0,
                  enable_restitution=False):
 
@@ -1493,11 +1485,6 @@ class XPBDIntegrator:
         self.contact_friction_relaxation = contact_friction_relaxation
 
         self.contact_con_weighting = contact_con_weighting
-
-        # maximum penetration depth to be used for contact handling in order
-        # to clip the contact impulse to reasonable levels in case of strong
-        # interpenetrations between rigid bodies (has to be a value < 0)
-        self.max_rigid_contact_penetration = max_rigid_contact_penetration
 
         self.angular_damping = angular_damping
 
@@ -1788,7 +1775,6 @@ class XPBDIntegrator:
                                 model.shape_materials,
                                 self.contact_normal_relaxation,
                                 dt,
-                                self.max_rigid_contact_penetration,
                                 model.rigid_contact_torsional_friction,
                                 model.rigid_contact_rolling_friction,
                             ],
