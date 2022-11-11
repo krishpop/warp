@@ -146,7 +146,7 @@ def closest_point_plane(width: float, length: float, point: wp.vec3) -> wp.vec3:
         x = wp.clamp(point[0], -width, width)
     else:
         x = point[0]
-    if x > 0.0:
+    if length > 0.0:
         z = wp.clamp(point[2], -length, length)
     else:
         z = point[2]
@@ -513,9 +513,9 @@ def count_contact_points(
         else:
             num_contacts = 8
     elif actual_type_a == wp.sim.GEO_MESH:
-        num_contacts_a = mesh_num_points[shape_a]
+        num_contacts_a = mesh_num_points[actual_shape_a]
         if actual_type_b == wp.sim.GEO_MESH:
-            num_contacts_b = mesh_num_points[shape_b]
+            num_contacts_b = mesh_num_points[actual_shape_b]
         else:
             num_contacts_b = 0
         num_contacts = num_contacts_a + num_contacts_b
@@ -857,7 +857,11 @@ def handle_contact_pairs(
             sign = wp.sign(wp.dot(diff, normal))
             distance = wp.length(diff) * sign
         else:
-            normal = wp.normalize(diff)
+            normal = wp.transform_vector(X_ws_b, wp.vec3(0.0, 1.0, 0.0))
+            # check which side the box COM is on
+            sign = wp.sign(wp.dot(wp.transform_get_translation(X_ws_a) - p_b_world, normal))
+            if sign < 0.0:
+                normal = wp.normalize(diff)
             distance = wp.length(diff)
             
     elif (geo_type_a == wp.sim.GEO_CAPSULE and geo_type_b == wp.sim.GEO_CAPSULE):
@@ -908,7 +912,8 @@ def handle_contact_pairs(
         half_width_a = geo_scale_a[1]
         side = float(point_id) * 2.0 - 1.0
         p_a_world = wp.transform_point(X_ws_a, wp.vec3(side*half_width_a, 0.0, 0.0))
-        p_b_body = closest_point_plane(geo_scale_b[0], geo_scale_b[1], wp.transform_point(X_sw_b, p_a_world))
+        query_b = wp.transform_point(X_sw_b, p_a_world)
+        p_b_body = closest_point_plane(geo_scale_b[0], geo_scale_b[1], query_b)
         p_b_world = wp.transform_point(X_ws_b, p_b_body)
         diff = p_a_world - p_b_world
         distance = wp.length(diff)
@@ -1013,8 +1018,8 @@ def handle_contact_pairs(
         # transform from world into body frame (so the contact point includes the shape transform)
         contact_point0[tid] = wp.transform_point(X_bw_a, p_a_world)
         contact_point1[tid] = wp.transform_point(X_bw_b, p_b_world)
-        contact_offset0[tid] = wp.transform_vector(X_wb_a, -thickness_a * normal)
-        contact_offset1[tid] = wp.transform_vector(X_wb_b, thickness_b * normal)
+        contact_offset0[tid] = wp.transform_vector(X_bw_a, -thickness_a * normal)
+        contact_offset1[tid] = wp.transform_vector(X_bw_b, thickness_b * normal)
         contact_normal[tid] = normal
         contact_thickness[tid] = thickness
     else:
