@@ -141,6 +141,18 @@ def plane_sdf(width: float, length: float, p: wp.vec3):
     return d
 
 @wp.func
+def closest_point_plane(width: float, length: float, point: wp.vec3) -> wp.vec3:
+    if width > 0.0:
+        x = wp.clamp(point[0], -width, width)
+    else:
+        x = point[0]
+    if x > 0.0:
+        z = wp.clamp(point[2], -length, length)
+    else:
+        z = point[2]
+    return wp.vec3(x, 0.0, z)
+
+@wp.func
 def closest_point_line_segment(a: wp.vec3, b: wp.vec3, point: wp.vec3) -> wp.vec3:
     ab = b - a
     ap = point - a
@@ -327,23 +339,19 @@ def create_soft_contacts(
     n = wp.vec3()
     v = wp.vec3()
 
-    # GEO_SPHERE (0)
-    if (geo_type == 0):
+    if (geo_type == wp.sim.GEO_SPHERE):
         d = sphere_sdf(wp.vec3(), geo_scale[0], x_local)
         n = sphere_sdf_grad(wp.vec3(), geo_scale[0], x_local)
 
-    # GEO_BOX (1)
-    if (geo_type == 1):
+    if (geo_type == wp.sim.GEO_BOX):
         d = box_sdf(geo_scale, x_local)
         n = box_sdf_grad(geo_scale, x_local)
         
-    # GEO_CAPSULE (2)
-    if (geo_type == 2):
+    if (geo_type == wp.sim.GEO_CAPSULE):
         d = capsule_sdf(geo_scale[0], geo_scale[1], x_local)
         n = capsule_sdf_grad(geo_scale[0], geo_scale[1], x_local)
 
-    # GEO_MESH (3)
-    if (geo_type == 3):
+    if (geo_type == wp.sim.GEO_MESH):
         mesh = shape_geo_id[shape_index]
 
         face_index = int(0)
@@ -383,8 +391,7 @@ def create_soft_contacts(
             soft_contact_particle[index] = particle_index
             soft_contact_normal[index] = world_normal
 
-    # GEO_PLANE (5)
-    if (geo_type == 5):
+    if (geo_type == wp.sim.GEO_PLANE):
         d = plane_sdf(geo_scale[0], geo_scale[1], x_local)
         n = wp.vec3(0.0, 1.0, 0.0)
 
@@ -459,32 +466,67 @@ def update_rigid_ground_contacts(
         else:
             print("Number of rigid contacts exceeded limit. Increase Model.rigid_contact_max.")
 
-# apply collision groups and contact mask to count and enumerate the shape contact pairs
 @wp.kernel
-def find_shape_contact_pairs(
-    collision_group: wp.array(dtype=int),
-    # collision_mask: wp.array(dtype=int, ndim=2),
-    rigid_contact_max: int,
+def count_contact_points(
+    contact_pairs: wp.array(dtype=int, ndim=2),
+    shape_geo_type: wp.array(dtype=int),
+    mesh_num_points: wp.array(dtype=int),
     # outputs
     contact_count: wp.array(dtype=int),
-    contact_pairs: wp.array(dtype=int, ndim=2),
 ):
-    shape_a, shape_b = wp.tid()
-    if shape_a >= shape_b:
-        return
-    # if collision_mask[shape_a, shape_b] == 0:
-    #     # print("collision mask")
-    #     return
-    cg_a = collision_group[shape_a]
-    cg_b = collision_group[shape_b]
-    if cg_a != cg_b and cg_a > -1 and cg_b > -1:
-        # print("collision group")
-        return
-    index = wp.atomic_add(contact_count, 0, 1)
-    if index >= rigid_contact_max:
-        return
-    contact_pairs[index, 0] = shape_a
-    contact_pairs[index, 1] = shape_b   
+    tid = wp.tid()
+    shape_a = contact_pairs[tid, 0]
+    shape_b = contact_pairs[tid, 1]
+
+    if shape_b == -1:
+        actual_type_a = shape_geo_type[shape_a]
+        # ground plane
+        actual_type_b = wp.sim.GEO_PLANE
+    else:
+        type_a = shape_geo_type[shape_a]
+        type_b = shape_geo_type[shape_b]
+        # unique ordering of shape pairs
+        if type_a < type_b:
+            actual_shape_a = shape_a
+            actual_shape_b = shape_b
+            actual_type_a = type_a
+            actual_type_b = type_b
+        else:
+            actual_shape_a = shape_b
+            actual_shape_b = shape_a
+            actual_type_a = type_b
+            actual_type_b = type_a
+
+    # determine how many contact points need to be evaluated
+    num_contacts = 0
+    if actual_type_a == wp.sim.GEO_SPHERE:
+        num_contacts = 1
+    elif actual_type_a == wp.sim.GEO_CAPSULE:
+        num_contacts = 2
+    elif actual_type_a == wp.sim.GEO_BOX:
+        if actual_type_b == wp.sim.GEO_BOX:
+            num_contacts = 24
+        elif actual_type_b == wp.sim.GEO_MESH:
+            num_contacts_a = 8
+            num_contacts_b = mesh_num_points[actual_shape_b]
+            num_contacts = num_contacts_a + num_contacts_b
+        else:
+            num_contacts = 8
+    elif actual_type_a == wp.sim.GEO_MESH:
+        num_contacts_a = mesh_num_points[shape_a]
+        if actual_type_b == wp.sim.GEO_MESH:
+            num_contacts_b = mesh_num_points[shape_b]
+        else:
+            num_contacts_b = 0
+        num_contacts = num_contacts_a + num_contacts_b
+    elif actual_type_a == wp.sim.GEO_PLANE:
+        return  # no plane-plane contacts
+    else:
+        print("count_contact_points: unsupported geometry type")
+        print(actual_type_a)
+        print(actual_type_b)
+
+    wp.atomic_add(contact_count, 0, num_contacts)
 
 @wp.kernel
 def broadphase_collision_pairs(
@@ -499,7 +541,7 @@ def broadphase_collision_pairs(
     rigid_contact_margin: float,
     # outputs
     contact_count: wp.array(dtype=int),
-    contact_shape0: wp.array(dtype=int),    
+    contact_shape0: wp.array(dtype=int),
     contact_shape1: wp.array(dtype=int),
     contact_point_id: wp.array(dtype=int),
 ):
@@ -508,16 +550,23 @@ def broadphase_collision_pairs(
     shape_b = contact_pairs[tid, 1]
 
     rigid_a = shape_body[shape_a]
-    rigid_b = shape_body[shape_b]
-
     X_wb_a = body_q[rigid_a]
-    X_wb_b = body_q[rigid_b]
-    
     X_bs_a = shape_X_bs[shape_a]
-    X_bs_b = shape_X_bs[shape_b]
-
     X_ws_a = wp.transform_multiply(X_wb_a, X_bs_a)
-    X_ws_b = wp.transform_multiply(X_wb_b, X_bs_b)
+
+    if shape_b == -1:
+        rigid_b = -1
+        X_wb_b = wp.transform_identity()
+        X_bs_b = wp.transform_identity()
+        X_ws_b = wp.transform_identity()
+    else:
+        rigid_b = shape_body[shape_b]
+        if rigid_b == -1:
+            X_wb_b = wp.transform_identity()
+        else:
+            X_wb_b = body_q[rigid_b]
+        X_bs_b = shape_X_bs[shape_b]
+        X_ws_b = wp.transform_multiply(X_wb_b, X_bs_b)
 
     p_a = wp.transform_get_translation(X_ws_a)
     p_b = wp.transform_get_translation(X_ws_b)
@@ -587,8 +636,14 @@ def broadphase_collision_pairs(
         else:
             num_contacts = 8
     elif actual_type_a == wp.sim.GEO_MESH:
-        num_contacts_a = mesh_num_points[shape_a]
-        num_contacts_b = mesh_num_points[shape_b]
+        num_contacts_a = mesh_num_points[actual_shape_a]
+        if actual_type_b == wp.sim.GEO_MESH:
+            num_contacts_b = mesh_num_points[actual_shape_b]
+        elif actual_type_b == wp.sim.GEO_PLANE:
+            num_contacts_b = 0
+        else:
+            print("broadphase_collision_pairs: unsupported geometry type for mesh collision")
+            return
         num_contacts = num_contacts_a + num_contacts_b
         if num_contacts > 0:
             index = wp.atomic_add(contact_count, 0, num_contacts)
@@ -597,15 +652,17 @@ def broadphase_collision_pairs(
                 return
             # allocate contact points from mesh A against B
             for i in range(num_contacts_a):
-                contact_shape0[index + i] = shape_a
-                contact_shape1[index + i] = shape_b
+                contact_shape0[index + i] = actual_shape_a
+                contact_shape1[index + i] = actual_shape_b
                 contact_point_id[index + i] = i
             # allocate contact points from mesh B against A
             for i in range(num_contacts_b):
-                contact_shape0[index + num_contacts_a + i] = shape_b
-                contact_shape1[index + num_contacts_a + i] = shape_a
+                contact_shape0[index + num_contacts_a + i] = actual_shape_b
+                contact_shape1[index + num_contacts_a + i] = actual_shape_a
                 contact_point_id[index + num_contacts_a + i] = i
         return
+    elif actual_type_a == wp.sim.GEO_PLANE:
+        return  # no plane-plane contacts
     else:
         print("broadphase_collision_pairs: unsupported geometry type")
 
@@ -658,55 +715,67 @@ def handle_contact_pairs(
     point_id = contact_point_id[tid]
 
     rigid_a = shape_body[shape_a]
-    rigid_b = shape_body[shape_b]
+    X_wb_a = body_q[rigid_a]
+    X_bs_a = shape_X_bs[shape_a]
+    X_ws_a = wp.transform_multiply(X_wb_a, X_bs_a)
+    X_bw_a = wp.transform_inverse(X_wb_a)
     
+    geo_type_a = shape_geo_type[shape_a]
+    geo_scale_a = shape_geo_scale[shape_a]
+    thickness_a = shape_contact_thickness[shape_a]
+
+    if shape_b == -1:
+        rigid_b = -1
+        X_wb_b = wp.transform_identity()
+        X_bs_b = wp.transform_identity()
+        X_ws_b = wp.transform_identity()
+        X_sw_b = wp.transform_identity()
+        X_bw_b = wp.transform_identity()
+        # assume ground plane
+        geo_type_b = wp.sim.GEO_PLANE
+        geo_scale_b = wp.vec3(0.0)
+        thickness_b = 0.0
+        print("assuming ground plane")
+    else:
+        rigid_b = shape_body[shape_b]
+        if rigid_b == -1:
+            X_wb_b = wp.transform_identity()
+        else:
+            X_wb_b = body_q[rigid_b]    
+        X_bs_b = shape_X_bs[shape_b]
+        X_ws_b = wp.transform_multiply(X_wb_b, X_bs_b)
+        X_sw_b = wp.transform_inverse(X_ws_b)
+        X_bw_b = wp.transform_inverse(X_wb_b)
+        geo_type_b = shape_geo_type[shape_b]
+        geo_scale_b = shape_geo_scale[shape_b]
+        thickness_b = shape_contact_thickness[shape_b]
+
+    thickness = thickness_a + thickness_b
+
     # fill in contact rigid body ids
     contact_body0[tid] = rigid_a
     contact_body1[tid] = rigid_b
 
-    X_wb_a = body_q[rigid_a]
-    X_wb_b = body_q[rigid_b]
-    
-    X_bs_a = shape_X_bs[shape_a]
-    X_bs_b = shape_X_bs[shape_b]
-
-    X_ws_a = wp.transform_multiply(X_wb_a, X_bs_a)
-    X_ws_b = wp.transform_multiply(X_wb_b, X_bs_b)
-    
-    # X_sw_a = wp.transform_inverse(X_ws_a)
-    X_sw_b = wp.transform_inverse(X_ws_b)
-
-    X_bw_a = wp.transform_inverse(X_wb_a)
-    X_bw_b = wp.transform_inverse(X_wb_b)
-
-    # geo description
-    geo_type_a = shape_geo_type[shape_a]
-    geo_scale_a = shape_geo_scale[shape_a]
-    geo_type_b = shape_geo_type[shape_b]
-    geo_scale_b = shape_geo_scale[shape_b]
-
-    thickness_a = shape_contact_thickness[shape_a]
-    thickness_b = shape_contact_thickness[shape_b]
-    thickness = thickness_a + thickness_b
+    distance = 1.0e6
 
     if geo_type_a == wp.sim.GEO_SPHERE:
-        p_a = wp.transform_get_translation(X_ws_a)
+        p_a_world = wp.transform_get_translation(X_ws_a)
         if geo_type_b == wp.sim.GEO_SPHERE:
-            p_b = wp.transform_get_translation(X_ws_b)
+            p_b_world = wp.transform_get_translation(X_ws_b)
         elif geo_type_b == wp.sim.GEO_BOX:
             # contact point in frame of body B
-            p_a_body = wp.transform_point(X_sw_b, p_a)
+            p_a_body = wp.transform_point(X_sw_b, p_a_world)
             p_b_body = closest_point_box(geo_scale_b, p_a_body)
-            p_b = wp.transform_point(X_ws_b, p_b_body)
+            p_b_world = wp.transform_point(X_ws_b, p_b_body)
         elif geo_type_b == wp.sim.GEO_CAPSULE:
             half_width_b = geo_scale_b[1]
             # capsule B
             A_b = wp.transform_point(X_ws_b, wp.vec3(half_width_b, 0.0, 0.0))
             B_b = wp.transform_point(X_ws_b, wp.vec3(-half_width_b, 0.0, 0.0))
-            p_b = closest_point_line_segment(A_b, B_b, p_a)
+            p_b_world = closest_point_line_segment(A_b, B_b, p_a_world)
         elif geo_type_b == wp.sim.GEO_MESH:
             mesh_b = shape_geo_id[shape_b]
-            query_b_local = wp.transform_point(X_sw_b, p_a)
+            query_b_local = wp.transform_point(X_sw_b, p_a_world)
             face_index = int(0)
             face_u = float(0.0)
             face_v = float(0.0)
@@ -715,33 +784,23 @@ def handle_contact_pairs(
             if (res):
                 shape_p = wp.mesh_eval_position(mesh_b, face_index, face_u, face_v)
                 shape_p = shape_p*geo_scale_b[0]
-                p_b = wp.transform_point(X_ws_b, shape_p)
+                p_b_world = wp.transform_point(X_ws_b, shape_p)
             else:
                 contact_shape0[tid] = -1
                 contact_shape1[tid] = -1
                 return
+        elif geo_type_b == wp.sim.GEO_PLANE:
+            p_b_body = closest_point_plane(geo_scale_b[0], geo_scale_b[1], wp.transform_point(X_sw_b, p_a_world))
+            p_b_world = wp.transform_point(X_ws_b, p_b_body)
         else:
             print("Unsupported geometry type in sphere collision handling")
             print(geo_type_b)
             return
-            
-        diff = p_a - p_b
-        d = wp.length(diff) - thickness
+        diff = p_a_world - p_b_world
+        distance = wp.length(diff)
         normal = wp.normalize(diff)
-        if (d < rigid_contact_margin):
-            # transform from world into body frame (so the contact point includes the shape transform)
-            contact_point0[tid] = wp.transform_point(X_bw_a, p_a)  # might not be zero if shape has transform
-            contact_point1[tid] = wp.transform_point(X_bw_b, p_b)
-            contact_offset0[tid] = wp.transform_vector(wp.transform_inverse(X_bw_a), -thickness_a * normal)
-            contact_offset1[tid] = wp.transform_vector(wp.transform_inverse(X_bw_b), thickness_b * normal)
-            contact_normal[tid] = normal
-            contact_thickness[tid] = thickness
-        else:
-            contact_shape0[tid] = -1
-            contact_shape1[tid] = -1
-        return
 
-    if (geo_type_a == wp.sim.GEO_BOX and geo_type_b == wp.sim.GEO_BOX):
+    elif (geo_type_a == wp.sim.GEO_BOX and geo_type_b == wp.sim.GEO_BOX):
         # edge-based box contact
         edge = get_box_edge(point_id, geo_scale_a)
         edge0_world = wp.transform_point(X_ws_a, wp.spatial_top(edge))
@@ -760,22 +819,9 @@ def handle_contact_pairs(
         # use center of box A to query normal to make sure we are not inside B
         query_b = wp.transform_point(X_sw_b, wp.transform_get_translation(X_ws_a))
         normal = wp.transform_vector(X_ws_b, box_sdf_grad(geo_scale_b, query_b))
-        d = wp.dot(diff, normal)
-        
-        if (d - thickness < rigid_contact_margin):
-            # transform from world into body frame (so the contact point includes the shape transform)
-            contact_point0[tid] = wp.transform_point(X_bw_a, p_a_world)
-            contact_point1[tid] = wp.transform_point(X_bw_b, p_b_world)
-            contact_offset0[tid] = wp.transform_vector(wp.transform_inverse(X_bw_a), -thickness_a * normal)
-            contact_offset1[tid] = wp.transform_vector(wp.transform_inverse(X_bw_b), thickness_b * normal)
-            contact_normal[tid] = normal
-            contact_thickness[tid] = thickness
-        else:
-            contact_shape0[tid] = -1
-            contact_shape1[tid] = -1
-        return
+        distance = wp.dot(diff, normal)
 
-    if (geo_type_a == wp.sim.GEO_BOX and geo_type_b == wp.sim.GEO_CAPSULE):
+    elif (geo_type_a == wp.sim.GEO_BOX and geo_type_b == wp.sim.GEO_CAPSULE):
         half_width_b = geo_scale_b[1]
         # capsule B
         edge0_world = wp.transform_point(X_ws_b, wp.vec3(half_width_b, 0.0, 0.0))
@@ -787,7 +833,6 @@ def handle_contact_pairs(
         start_u = float(point_id)  # either 0 or 1
         u = closest_edge_coordinate_box(geo_scale_a, edge0_a, edge1_a, max_iter, start_u)
         p_b_world = (1.0 - u) * edge0_world + u * edge1_world
-
         # find closest point + contact normal on box B
         query_a = wp.transform_point(X_sw_a, p_b_world)
         p_a_body = closest_point_box(geo_scale_a, query_a)
@@ -795,90 +840,47 @@ def handle_contact_pairs(
         diff = p_a_world - p_b_world
         # the contact point inside the capsule should already be outside the box
         normal = -wp.transform_vector(X_ws_a, box_sdf_grad(geo_scale_a, query_a))
-        d = wp.dot(diff, normal)
+        distance = wp.dot(diff, normal)
 
-        if (d - thickness < rigid_contact_margin):
-            # transform from world into body frame (so the contact point includes the shape transform)
-            contact_point0[tid] = wp.transform_point(X_bw_a, p_a_world)
-            contact_point1[tid] = wp.transform_point(X_bw_b, p_b_world)
-            contact_offset0[tid] = wp.transform_vector(wp.transform_inverse(X_bw_a), -thickness_a * normal)
-            contact_offset1[tid] = wp.transform_vector(wp.transform_inverse(X_bw_b), thickness_b * normal)
-            contact_normal[tid] = normal
-            contact_thickness[tid] = thickness
+    elif (geo_type_a == wp.sim.GEO_BOX and geo_type_b == wp.sim.GEO_PLANE):
+        # TODO use edge SDF contact if plane is finite
+        p_a_body = get_box_vertex(point_id, geo_scale_a)
+        p_a_world = wp.transform_point(X_ws_a, p_a_body)  
+        query_b = wp.transform_point(X_sw_b, p_a_world)
+        p_b_body = closest_point_plane(geo_scale_b[0], geo_scale_b[1], query_b)
+        p_b_world = wp.transform_point(X_ws_b, p_b_body)
+        diff = p_a_world - p_b_world        
+        # if the plane is infinite or the point is above the plane we fix the normal to prevent intersections
+        if (geo_scale_b[0] == 0.0 and geo_scale_b[1] == 0.0 
+                or wp.abs(query_b[0]) < geo_scale_b[0] and wp.abs(query_b[2]) < geo_scale_b[1]):
+            normal = wp.transform_vector(X_ws_b, wp.vec3(0.0, 1.0, 0.0))
+            sign = wp.sign(wp.dot(diff, normal))
+            distance = wp.length(diff) * sign
         else:
-            contact_shape0[tid] = -1
-            contact_shape1[tid] = -1
-        return
-            
-    if (geo_type_a == wp.sim.GEO_CAPSULE and geo_type_b == wp.sim.GEO_CAPSULE):
-        if True:
-            # find closest edge coordinate to capsule SDF B
-            half_width_a = geo_scale_a[1]
-            # edge from capsule A
-            edge0_world = wp.transform_point(X_ws_a, wp.vec3(half_width_a, 0.0, 0.0))
-            edge1_world = wp.transform_point(X_ws_a, wp.vec3(-half_width_a, 0.0, 0.0))
-            edge0_b = wp.transform_point(X_sw_b, edge0_world)
-            edge1_b = wp.transform_point(X_sw_b, edge1_world)
-            max_iter = edge_sdf_iter
-            start_u = float(point_id)  # either 0 or 1
-            u = closest_edge_coordinate_capsule(geo_scale_b[0], geo_scale_b[1], edge0_b, edge1_b, max_iter, start_u)
-            p_a_world = (1.0 - u) * edge0_world + u * edge1_world
-            half_width_b = geo_scale_b[1]
-            p0_b_world = wp.transform_point(X_ws_b, wp.vec3(half_width_b, 0.0, 0.0))
-            p1_b_world = wp.transform_point(X_ws_b, wp.vec3(-half_width_b, 0.0, 0.0))
-            p_b_world = closest_point_line_segment(p0_b_world, p1_b_world, p_a_world)
-        else:
-            # implementation using line segment closest point query
-            # https://wickedengine.net/2020/04/26/capsule-collision-detection/
-            radius_a = geo_scale_a[0]
-            radius_b = geo_scale_b[0]
-            # capsule extends along x axis
-            half_width_a = geo_scale_a[1]
-            half_width_b = geo_scale_b[1]
-
-            # capsule A
-            A_a = wp.transform_point(X_ws_a, wp.vec3(half_width_a, 0.0, 0.0))
-            B_a = wp.transform_point(X_ws_a, wp.vec3(-half_width_a, 0.0, 0.0))
-            
-            # capsule B
-            A_b = wp.transform_point(X_ws_b, wp.vec3(half_width_b, 0.0, 0.0))
-            B_b = wp.transform_point(X_ws_b, wp.vec3(-half_width_b, 0.0, 0.0))
-
-            # squared distances between line endpoints
-            d0 = wp.length_sq(A_b - A_a)
-            d1 = wp.length_sq(B_b - A_a)
-            d2 = wp.length_sq(A_b - B_a)
-            d3 = wp.length_sq(B_b - B_a)
-
-            # select best potential endpoint on capsule A
-            p_a_world = A_a
-            if ((d3 < d0 and d3 < d1) or (d2 < d1 and d2 < d0)):
-                p_a_world = B_a
-            
-            # select point on capsule B line segment nearest to best potential endpoint on A capsule:
-            p_b_world = closest_point_line_segment(A_b, B_b, p_a_world)
-            
-            if point_id == 1:
-                # now do the same for capsule A segment:
-                p_a_world = closest_point_line_segment(A_a, B_a, p_b_world)
-
-        diff = p_a_world - p_b_world
-        d = wp.length(diff) - thickness
-        if (d < rigid_contact_margin):
             normal = wp.normalize(diff)
-            # transform from world into body frame (so the contact point includes the shape transform)
-            contact_point0[tid] = wp.transform_point(X_bw_a, p_a_world)
-            contact_point1[tid] = wp.transform_point(X_bw_b, p_b_world)
-            contact_offset0[tid] = wp.transform_vector(wp.transform_inverse(X_bw_a), -thickness_a * normal)
-            contact_offset1[tid] = wp.transform_vector(wp.transform_inverse(X_bw_b), thickness_b * normal)
-            contact_normal[tid] = normal
-            contact_thickness[tid] = thickness
-        else:
-            contact_shape0[tid] = -1
-            contact_shape1[tid] = -1
-        return
+            distance = wp.length(diff)
+            
+    elif (geo_type_a == wp.sim.GEO_CAPSULE and geo_type_b == wp.sim.GEO_CAPSULE):
+        # find closest edge coordinate to capsule SDF B
+        half_width_a = geo_scale_a[1]
+        # edge from capsule A
+        edge0_world = wp.transform_point(X_ws_a, wp.vec3(half_width_a, 0.0, 0.0))
+        edge1_world = wp.transform_point(X_ws_a, wp.vec3(-half_width_a, 0.0, 0.0))
+        edge0_b = wp.transform_point(X_sw_b, edge0_world)
+        edge1_b = wp.transform_point(X_sw_b, edge1_world)
+        max_iter = edge_sdf_iter
+        start_u = float(point_id)  # either 0 or 1
+        u = closest_edge_coordinate_capsule(geo_scale_b[0], geo_scale_b[1], edge0_b, edge1_b, max_iter, start_u)
+        p_a_world = (1.0 - u) * edge0_world + u * edge1_world
+        half_width_b = geo_scale_b[1]
+        p0_b_world = wp.transform_point(X_ws_b, wp.vec3(half_width_b, 0.0, 0.0))
+        p1_b_world = wp.transform_point(X_ws_b, wp.vec3(-half_width_b, 0.0, 0.0))
+        p_b_world = closest_point_line_segment(p0_b_world, p1_b_world, p_a_world)
+        diff = p_a_world - p_b_world
+        distance = wp.length(diff)
+        normal = wp.normalize(diff)
 
-    if (geo_type_a == wp.sim.GEO_CAPSULE and geo_type_b == wp.sim.GEO_MESH):
+    elif (geo_type_a == wp.sim.GEO_CAPSULE and geo_type_b == wp.sim.GEO_MESH):
         # find closest edge coordinate to mesh SDF B
         radius_a = geo_scale_a[0]
         half_width_a = geo_scale_a[1]
@@ -897,22 +899,22 @@ def handle_contact_pairs(
         p_b_body = closest_point_mesh(mesh_b, query_b/geo_scale_b[0], max_dist)
         p_b_world = wp.transform_point(X_ws_b, p_b_body*geo_scale_b[0])
         diff = p_a_world - p_b_world
-        d = wp.length(diff) - thickness
-        if (d < rigid_contact_margin):
-            normal = wp.normalize(diff)
-            # transform from world into body frame (so the contact point includes the shape transform)
-            contact_point0[tid] = wp.transform_point(X_bw_a, p_a_world)
-            contact_point1[tid] = wp.transform_point(X_bw_b, p_b_world)
-            contact_offset0[tid] = wp.transform_vector(wp.transform_inverse(X_bw_a), -thickness_a * normal)
-            contact_offset1[tid] = wp.transform_vector(wp.transform_inverse(X_bw_b), thickness_b * normal)
-            contact_normal[tid] = normal
-            contact_thickness[tid] = thickness
-        else:
-            contact_shape0[tid] = -1
-            contact_shape1[tid] = -1
-        return
+        distance = wp.length(diff)
+        normal = wp.normalize(diff)
 
-    if (geo_type_a == wp.sim.GEO_MESH and geo_type_b == wp.sim.GEO_BOX):
+    elif (geo_type_a == wp.sim.GEO_CAPSULE and geo_type_b == wp.sim.GEO_PLANE):
+        # TODO add proper capsule-plane contact via edge SDF, in case plane is finite
+        radius_a = geo_scale_a[0]
+        half_width_a = geo_scale_a[1]
+        side = float(point_id) * 2.0 - 1.0
+        p_a_world = wp.transform_point(X_ws_a, wp.vec3(side*half_width_a, 0.0, 0.0))
+        p_b_body = closest_point_plane(geo_scale_b[0], geo_scale_b[1], wp.transform_point(X_sw_b, p_a_world))
+        p_b_world = wp.transform_point(X_ws_b, p_b_body)
+        diff = p_a_world - p_b_world
+        distance = wp.length(diff)
+        normal = wp.normalize(diff)
+
+    elif (geo_type_a == wp.sim.GEO_MESH and geo_type_b == wp.sim.GEO_BOX):
         # vertex-based contact
         mesh_a = shape_geo_id[shape_a]
         body_a_pos = wp.mesh_get_point(mesh_a, point_id) * geo_scale_a[0]
@@ -926,25 +928,9 @@ def handle_contact_pairs(
         normal = wp.normalize(diff)
         if box_sdf(geo_scale_b, query_b) < 0.0:
             normal = -normal
-        d = wp.length(diff)
-        
-        thickness_a = shape_contact_thickness[shape_a]
-        thickness_b = shape_contact_thickness[shape_b]
-        thickness = thickness_a + thickness_b
-        if (d - thickness < rigid_contact_margin):
-            # transform from world into body frame (so the contact point includes the shape transform)
-            contact_point0[tid] = wp.transform_point(X_bw_a, p_a_world)
-            contact_point1[tid] = wp.transform_point(X_bw_b, p_b_world)
-            contact_offset0[tid] = wp.transform_vector(wp.transform_inverse(X_bw_a), -thickness_a * normal)
-            contact_offset1[tid] = wp.transform_vector(wp.transform_inverse(X_bw_b), thickness_b * normal)
-            contact_normal[tid] = normal
-            contact_thickness[tid] = thickness
-        else:
-            contact_shape0[tid] = -1
-            contact_shape1[tid] = -1
-        return
+        distance = wp.length(diff)
 
-    if (geo_type_a == wp.sim.GEO_BOX and geo_type_b == wp.sim.GEO_MESH):
+    elif (geo_type_a == wp.sim.GEO_BOX and geo_type_b == wp.sim.GEO_MESH):
         # vertex-based contact
         query_a = get_box_vertex(point_id, geo_scale_a)
         p_a_world = wp.transform_point(X_ws_a, query_a)
@@ -963,30 +949,14 @@ def handle_contact_pairs(
             p_b_world = wp.transform_point(X_ws_b, shape_p)
             # contact direction vector in world frame
             diff_b = p_a_world - p_b_world
-            d = wp.length(diff_b) * sign
-            n = wp.normalize(diff_b) * sign
+            distance = wp.length(diff_b) * sign
+            normal = wp.normalize(diff_b) * sign
         else:
             contact_shape0[tid] = -1
             contact_shape1[tid] = -1
             return
 
-        err = d - thickness
-        if (err < rigid_contact_margin):
-            contact_normal[tid] = n
-
-            # offset by contact thickness to be used in PBD contact friction constraints
-            contact_offset0[tid] = wp.transform_vector(wp.transform_inverse(X_bw_a), -thickness_a * n)
-            contact_offset1[tid] = wp.transform_vector(wp.transform_inverse(X_bw_b), thickness_b * n)
-            # assign contact points in body local spaces
-            contact_point0[tid] = wp.transform_point(X_bw_a, p_a_world)
-            contact_point1[tid] = wp.transform_point(X_bw_b, p_b_world)
-            contact_thickness[tid] = thickness
-        else:
-            contact_shape0[tid] = -1
-            contact_shape1[tid] = -1
-        return
-
-    if (geo_type_a == wp.sim.GEO_MESH and geo_type_b == wp.sim.GEO_MESH):
+    elif (geo_type_a == wp.sim.GEO_MESH and geo_type_b == wp.sim.GEO_MESH):
         # vertex-based contact
         mesh_a = shape_geo_id[shape_a]
         mesh_b = shape_geo_id[shape_b]
@@ -1008,33 +978,48 @@ def handle_contact_pairs(
             p_b_world = wp.transform_point(X_ws_b, shape_p)
             # contact direction vector in world frame
             diff_b = p_a_world - p_b_world
-            d = wp.length(diff_b) * sign
-            n = wp.normalize(diff_b) * sign
+            distance = wp.length(diff_b) * sign
+            normal = wp.normalize(diff_b) * sign
         else:
             contact_shape0[tid] = -1
             contact_shape1[tid] = -1
             return
 
-        err = d - thickness
-        if (err < rigid_contact_margin):
-            contact_normal[tid] = n
-
-            # offset by contact thickness to be used in PBD contact friction constraints
-            contact_offset0[tid] = wp.transform_vector(wp.transform_inverse(X_bw_a), -thickness_a * n)
-            contact_offset1[tid] = wp.transform_vector(wp.transform_inverse(X_bw_b), thickness_b * n)
-
-            # assign contact points in body local spaces
-            contact_point0[tid] = wp.transform_point(X_bw_a, p_a_world)
-            contact_point1[tid] = wp.transform_point(X_bw_b, p_b_world - n*err)
-
-            contact_thickness[tid] = thickness
+    elif (geo_type_a == wp.sim.GEO_MESH and geo_type_b == wp.sim.GEO_PLANE):
+        # vertex-based contact
+        mesh_a = shape_geo_id[shape_a]
+        body_a_pos = wp.mesh_get_point(mesh_a, point_id) * geo_scale_a[0]
+        p_a_world = wp.transform_point(X_ws_a, body_a_pos)
+        query_b = wp.transform_point(X_sw_b, p_a_world)
+        p_b_body = closest_point_plane(geo_scale_b[0], geo_scale_b[1], query_b)
+        p_b_world = wp.transform_point(X_ws_b, p_b_body)
+        diff = p_a_world - p_b_world
+        # if the plane is infinite or the point is above the plane we fix the normal to prevent intersections
+        if (geo_scale_b[0] == 0.0 and geo_scale_b[1] == 0.0 
+                or wp.abs(query_b[0]) < geo_scale_b[0] and wp.abs(query_b[2]) < geo_scale_b[1]):
+            normal = wp.transform_vector(X_ws_b, wp.vec3(0.0, 1.0, 0.0))
+            sign = wp.sign(wp.dot(diff, normal))
+            distance = wp.length(diff) * sign
         else:
-            contact_shape0[tid] = -1
-            contact_shape1[tid] = -1
+            normal = wp.normalize(diff)
+            distance = wp.length(diff)
+
+    else:
+        print("Unsupported geometry pair in collision handling")
         return
-        
-    print("Unsupported geometry pair in collision handling")
-    return
+
+    d = distance - thickness
+    if (d < rigid_contact_margin):
+        # transform from world into body frame (so the contact point includes the shape transform)
+        contact_point0[tid] = wp.transform_point(X_bw_a, p_a_world)
+        contact_point1[tid] = wp.transform_point(X_bw_b, p_b_world)
+        contact_offset0[tid] = wp.transform_vector(X_wb_a, -thickness_a * normal)
+        contact_offset1[tid] = wp.transform_vector(X_wb_b, thickness_b * normal)
+        contact_normal[tid] = normal
+        contact_thickness[tid] = thickness
+    else:
+        contact_shape0[tid] = -1
+        contact_shape1[tid] = -1
 
 def collide(model, state, edge_sdf_iter: int = 5):
     """

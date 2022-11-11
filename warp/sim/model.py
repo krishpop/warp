@@ -25,7 +25,7 @@ Mat33 = List[float]
 Transform = Tuple[Vec3, Quat]
 from typing import Optional
 
-from warp.sim.collide import find_shape_contact_pairs
+from warp.sim.collide import count_contact_points
 
 
 # shape geometry types
@@ -326,6 +326,8 @@ class Model:
 
         self.requires_grad = False
 
+        self.ground = False
+
         self.particle_q = None
         self.particle_qd = None
         self.particle_mass = None
@@ -486,6 +488,86 @@ class Model:
         self.soft_contact_body_vel = wp.zeros(self.soft_contact_max, dtype=wp.vec3, device=self.device, requires_grad=requires_grad)
         self.soft_contact_normal = wp.zeros(self.soft_contact_max, dtype=wp.vec3, device=self.device, requires_grad=requires_grad)
 
+    def find_shape_contact_pairs(self):
+        # find potential contact pairs based on collision groups and collision mask (pairwise filtering)
+        if True:
+            # fastest implementation so far, iterate over collision groups (islands)
+            import itertools, copy
+            filters = copy.copy(self.shape_collision_filter_pairs)
+            for a, b in self.shape_collision_filter_pairs:
+                filters.add((b, a))
+            contact_pairs = []
+            for group, shapes in self.shape_collision_group_map.items():
+                for shape_a, shape_b in itertools.product(shapes, shapes):
+                    if shape_a < shape_b and (shape_a, shape_b) not in filters:
+                        contact_pairs.append((shape_a, shape_b))
+                if group != -1 and -1 in self.shape_collision_group_map:
+                    for shape_a, shape_b in itertools.product(shapes, self.shape_collision_group_map[-1]):
+                        if shape_a < shape_b and (shape_a, shape_b) not in filters:
+                            contact_pairs.append((shape_a, shape_b))
+            self.shape_contact_pairs = wp.array(np.array(contact_pairs), dtype=wp.int32, device=self.device)
+            self.shape_contact_pair_count = len(contact_pairs)
+        else:
+            from tqdm import trange
+            contact_pairs = []
+            for shape_a in trange(self.shape_count, desc="Finding contact pairs"):
+                for shape_b in range(shape_a+1, self.shape_count):
+                    if (shape_a, shape_b) in self.shape_collision_filter_pairs:
+                        continue
+                    if (shape_b, shape_a) in self.shape_collision_filter_pairs:
+                        continue
+                    cg_a = self.shape_collision_group[shape_a]
+                    cg_b = self.shape_collision_group[shape_b]
+                    if cg_a != cg_b and cg_a > -1 and cg_b > -1:
+                        continue
+                    if len(contact_pairs) >= self.rigid_contact_max:
+                        raise RuntimeError(f"Number of rigid contacts exceeded limit ({self.rigid_contact_max}). Increase Model.rigid_contact_max.")
+                    contact_pairs.append((shape_a, shape_b))
+            self.shape_contact_pairs = wp.array(np.array(contact_pairs), dtype=wp.int32, device=self.device)
+            self.shape_contact_pair_count = len(contact_pairs)
+
+    def count_contact_points(self):
+        """
+        Counts the maximum number of contact points that need to be allocated.
+        """
+        # calculate the potential number of shape pair contact points
+        contact_count = wp.zeros(1, dtype=wp.int32, device=self.device)
+        wp.launch(
+            kernel=count_contact_points,
+            dim=self.shape_contact_pair_count,
+            inputs=[
+                self.shape_contact_pairs,
+                self.shape_geo_type,
+                self.mesh_num_points,
+            ],
+            outputs=[
+                contact_count
+            ],
+            device=self.device,
+            record_tape=False)
+        count = contact_count.numpy()[0]
+        if self.ground:
+            # count ground contacts
+            contact_count.zero_()
+            pairs = wp.array(
+                np.vstack((np.arange(self.shape_count), -np.ones(self.shape_count))).T,
+                dtype=wp.int32, device=self.device)
+            wp.launch(
+                kernel=count_contact_points,
+                dim=self.shape_count,
+                inputs=[
+                    pairs,
+                    self.shape_geo_type,
+                    self.mesh_num_points,
+                ],
+                outputs=[
+                    contact_count
+                ],
+                device=self.device,
+                record_tape=False)
+            count += contact_count.numpy()[0]
+        return int(count)
+
     def allocate_rigid_contacts(self, count=None, requires_grad=False):
         if count is not None:
             self.rigid_contact_max = count
@@ -531,84 +613,6 @@ class Model:
         self.rigid_contact_inv_weight = wp.zeros(len(self.body_q), dtype=wp.float32, device=self.device, requires_grad=requires_grad)
         # number of contact constraints before the solver iterations
         self.rigid_contact_inv_weight_prev = wp.zeros(len(self.body_q), dtype=wp.float32, device=self.device, requires_grad=requires_grad)
-
-        # find potential contact pairs based on collision groups and collision mask (pairwise filtering)
-        if True:
-            # fastest implementation so far, iterate over collision groups (islands)
-            import itertools, copy
-            filters = copy.copy(self.shape_collision_filter_pairs)
-            for a, b in self.shape_collision_filter_pairs:
-                filters.add((b, a))
-            contact_pairs = []
-            for group, shapes in self.shape_collision_group_map.items():
-                for shape_a, shape_b in itertools.product(shapes, shapes):
-                    if shape_a < shape_b and (shape_a, shape_b) not in filters:
-                        contact_pairs.append((shape_a, shape_b))
-                if group != -1 and -1 in self.shape_collision_group_map:
-                    for shape_a, shape_b in itertools.product(shapes, self.shape_collision_group_map[-1]):
-                        if shape_a < shape_b and (shape_a, shape_b) not in filters:
-                            contact_pairs.append((shape_a, shape_b))
-            self.shape_contact_pairs = wp.array(np.array(contact_pairs), dtype=wp.int32, device=self.device)
-            self.shape_contact_pair_count = len(contact_pairs)
-        elif False:
-            from tqdm import trange
-            contact_pairs = []
-            for shape_a in trange(self.shape_count, desc="Finding contact pairs"):
-                for shape_b in range(shape_a+1, self.shape_count):
-                    if (shape_a, shape_b) in self.shape_collision_filter_pairs:
-                        continue
-                    if (shape_b, shape_a) in self.shape_collision_filter_pairs:
-                        continue
-                    cg_a = self.shape_collision_group[shape_a]
-                    cg_b = self.shape_collision_group[shape_b]
-                    if cg_a != cg_b and cg_a > -1 and cg_b > -1:
-                        continue
-                    if len(contact_pairs) >= self.rigid_contact_max:
-                        raise RuntimeError(f"Number of rigid contacts exceeded limit ({self.rigid_contact_max}). Increase Model.rigid_contact_max.")
-                    contact_pairs.append((shape_a, shape_b))
-            self.shape_contact_pairs = wp.array(np.array(contact_pairs), dtype=wp.int32, device=self.device)
-            self.shape_contact_pair_count = len(contact_pairs)
-        else:
-            device = "cpu"
-            # collision_mask = np.ones((len(self.shape_geo_type), len(self.shape_geo_type)), dtype=np.int32)
-            # np.fill_diagonal(collision_mask, 0)  # disable self-collision
-            # create mask from the list of enabled collision pairs for faster lookup
-            # for i, j in self.shape_collision_filter_pairs:
-            #     collision_mask[i, j] = 0
-            #     collision_mask[j, i] = 0
-            # shape_collision_mask = wp.array(collision_mask, ndim=2, dtype=wp.int32, device=device)
-            shape_collision_group = wp.array(self.shape_collision_group, dtype=wp.int32, device=device)    
-            shape_contact_pairs = wp.zeros((self.rigid_contact_max, 2), dtype=wp.int32, device=device)
-            contact_count = wp.zeros(1, dtype=wp.int32, device=device)
-            wp.launch(
-                kernel=find_shape_contact_pairs,
-                dim=(self.shape_count, self.shape_count),
-                inputs=[
-                    shape_collision_group,
-                    # shape_collision_mask,
-                    self.rigid_contact_max,
-                ],
-                outputs=[
-                    contact_count,
-                    shape_contact_pairs
-                ],
-                device=device,
-                record_tape=False,
-            )
-            required_contacts = contact_count.numpy()[0]
-            if required_contacts > self.rigid_contact_max:
-                raise RuntimeError(f"Number of rigid contacts exceeded limit ({self.rigid_contact_max}). Increase Model.rigid_contact_max to at least {required_contacts}.")
-            # update the maximum number of contacts based on the number of potential contact pairs
-            pairs = shape_contact_pairs.numpy()
-            # apply collision filters
-            for i, j in self.shape_collision_filter_pairs:
-                pairs[i, j] = 0
-                pairs[j, i] = 0
-            valid_pairs = np.where(pairs.any(axis=1))[0]
-            self.shape_contact_pairs = wp.array(pairs[valid_pairs], dtype=wp.int32, device=self.device)
-            num_pairs = len(valid_pairs)
-            # print("Number of potential shape contact pairs:", num_pairs)
-            self.shape_contact_pair_count = num_pairs
 
     def flatten(self):
         """Returns a list of Tensors stored by the model
@@ -871,7 +875,7 @@ class ModelBuilder:
         self.body_q = []
         self.body_qd = []
         self.body_name = []
-        self.body_shapes = []  # mapping from body to shapes
+        self.body_shapes = {}  # mapping from body to shapes
 
         # rigid joints
         self.joint_parent = []         # index of the parent body                      (constant)
@@ -910,6 +914,7 @@ class ModelBuilder:
 
         self.upvector = upvector
         self.gravity = gravity
+        self.ground = True
 
         # contacts to be generated within the given distance margin to be generated at
         # every simulation substep (can be 0 if only one PBD solver iteration is used)
@@ -923,7 +928,8 @@ class ModelBuilder:
         self.rigid_contact_jitter_threshold = 2.0 * np.linalg.norm(gravity)
 
         # number of rigid contact points to allocate in the model during self.finalize() per environment
-        self.num_rigid_contacts_per_env = 64
+        # if setting is None, the number of worst-case number of contacts will be calculated in self.finalize()
+        self.num_rigid_contacts_per_env = None
         
 
     # an articulation is a set of contiguous bodies bodies from articulation_start[i] to articulation_start[i+1]
@@ -1052,7 +1058,7 @@ class ModelBuilder:
     # register a rigid body and return its index.
     def add_body(
         self, 
-        origin: Transform, 
+        origin: Transform,
         parent: int=-1,
         joint_xform: Transform=wp.transform(),    # transform of joint in parent space
         joint_xform_child: Transform=wp.transform(),
@@ -1126,7 +1132,7 @@ class ModelBuilder:
         self.body_qd.append(wp.spatial_vector())
 
         self.body_name.append(body_name or f"body {child}")
-        self.body_shapes.append([])
+        self.body_shapes[child] = []
 
         # joint data
         self.joint_type.append(joint_type.val)
@@ -1245,17 +1251,28 @@ class ModelBuilder:
     # shapes
     def add_shape_plane(self,
                         plane: Vec4=(0.0, 1.0, 0.0, 0.0),
+                        pos: Vec3=None,
+                        rot: Quat=None,
                         width: float=10.0,
                         length: float=10.0,
+                        body: int = -1,
                         ke: float=default_shape_ke,
                         kd: float=default_shape_kd,
                         kf: float=default_shape_kf,
                         mu: float=default_shape_mu,
                         restitution: float=default_shape_restitution):
-        """Adds a plane collision shape
+        """
+        Adds a plane collision shape.
+        If pos and rot are defined, the plane is assumed to have its normal as (0, 1, 0).
+        Otherwise, the plane equation is used.
 
         Args: 
             plane: The plane equation in form a*x + b*y + c*z + d = 0
+            pos: The position of the plane in world coordinates
+            rot: The rotation of the plane in world coordinates
+            width: The extent along x of the plane (infinite if 0)
+            length: The extent along z of the plane (infinite if 0)
+            body: The body index to attach the shape to (-1 by default to keep the plane static)
             ke: The contact elastic stiffness
             kd: The contact damping stiffness
             kf: The contact friction stiffness
@@ -1263,9 +1280,21 @@ class ModelBuilder:
             restitution: The coefficient of restitution
 
         """
-
-        # TODO find transform so that normal is (0, 1, 0) and origin is (0, 0, 0), and use (width, length, 0) as scale
-        self._add_shape(-1, (0.0, 0.0, 0.0), (0.0, 0.0, 0.0), GEO_PLANE, plane, None, 0.0, ke, kd, kf, mu, restitution)
+        if pos is None or rot is None:
+            # compute position and rotation from plane equation
+            normal = np.array(plane[:3])
+            normal /= np.linalg.norm(normal)
+            pos = plane[3] * normal
+            if np.allclose(normal, (0.0, 1.0, 0.0)):
+                # no rotation necessary
+                rot = (0.0, 0.0, 0.0, 1.0)
+            else:
+                c = np.cross(normal, (0.0, 1.0, 0.0))
+                angle = np.arcsin(np.linalg.norm(c))
+                axis = c / np.linalg.norm(c)
+                rot = wp.quat_from_axis_angle(axis, angle)
+        scale = (width, length, 0.0)
+        self._add_shape(body, pos, rot, GEO_PLANE, scale, None, 0.0, ke, kd, kf, mu, restitution)
 
     def add_shape_sphere(self,
                          body,
@@ -1297,7 +1326,7 @@ class ModelBuilder:
         self._add_shape(body, pos, rot, GEO_SPHERE, (radius, 0.0, 0.0, 0.0), None, density, ke, kd, kf, mu, restitution, thickness=radius)
 
     def add_shape_box(self,
-                      body : int,
+                      body: int,
                       pos: Vec3=(0.0, 0.0, 0.0),
                       rot: Quat=(0.0, 0.0, 0.0, 1.0),
                       hx: float=0.5,
@@ -1409,15 +1438,24 @@ class ModelBuilder:
             vmax = np.max(src.vertices, axis=0)
             radius = np.linalg.norm(vmax - vmin) * 0.5
             return radius
+        elif type == GEO_PLANE:
+            if scale[0] > 0.0 and scale[1] > 0.0:
+                # finite plane
+                return np.linalg.norm(scale)
+            else:
+                return 1.0e6
         else:
             return 10.0
     
     def _add_shape(self, body, pos, rot, type, scale, src, density, ke, kd, kf, mu, restitution, thickness=0.0, volume=None, collision_group=-1, collision_filter_parent=True):
         self.shape_body.append(body)
         shape = len(self.shape_geo_type)
-        for same_body_shape in self.body_shapes[body]:
-            self.shape_collision_filter_pairs.add((same_body_shape, shape))
-        self.body_shapes[body].append(shape)
+        if body in self.body_shapes:
+            for same_body_shape in self.body_shapes[body]:
+                self.shape_collision_filter_pairs.add((same_body_shape, shape))
+            self.body_shapes[body].append(shape)
+        else:
+            self.body_shapes[body] = [shape]
         self.shape_transform.append(wp.transform(pos, rot))
         self.shape_geo_type.append(type.val)
         self.shape_geo_scale.append((scale[0], scale[1], scale[2]))
@@ -2411,6 +2449,7 @@ class ModelBuilder:
 
             m = Model(device)
             m.requires_grad = requires_grad
+            m.ground = self.ground
 
             #---------------------        
             # particles
@@ -2566,7 +2605,12 @@ class ModelBuilder:
 
             # contacts
             m.allocate_soft_contacts(1*1024, requires_grad=requires_grad)
-            m.allocate_rigid_contacts(self.num_rigid_contacts_per_env*self.num_envs, requires_grad=requires_grad)
+            m.find_shape_contact_pairs()
+            if self.num_rigid_contacts_per_env is None:
+                contact_count = m.count_contact_points()
+            else:
+                contact_count = self.num_rigid_contacts_per_env*self.num_envs
+            m.allocate_rigid_contacts(contact_count, requires_grad=requires_grad)
             m.rigid_contact_margin = self.rigid_contact_margin            
             m.rigid_contact_torsional_friction = self.rigid_contact_torsional_friction
             m.rigid_contact_rolling_friction = self.rigid_contact_rolling_friction
