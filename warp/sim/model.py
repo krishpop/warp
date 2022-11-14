@@ -1424,6 +1424,9 @@ class ModelBuilder:
         self._add_shape(body, pos, rot, GEO_MESH, (scale[0], scale[1], scale[2], 0.0), mesh, density, ke, kd, kf, mu, restitution, thickness=contact_thickness)
 
     def _shape_radius(self, type, scale, src):
+        """
+        Calculates the squared radius of a sphere that encloses the shape, used for broadphase collision detection.
+        """
         if type == GEO_SPHERE:
             return scale[0]
         elif type == GEO_BOX:
@@ -1431,10 +1434,8 @@ class ModelBuilder:
         elif type == GEO_CAPSULE:
             return scale[0] + scale[1]
         elif type == GEO_MESH:
-            vmin = np.min(src.vertices, axis=0)
-            vmax = np.max(src.vertices, axis=0)
-            radius = np.linalg.norm(vmax - vmin) * 0.5
-            return radius
+            vmax = np.max(np.abs(src.vertices), axis=0) * scale[0]
+            return np.linalg.norm(vmax)
         elif type == GEO_PLANE:
             if scale[0] > 0.0 and scale[1] > 0.0:
                 # finite plane
@@ -2622,7 +2623,7 @@ class ModelBuilder:
             m.geo_sdfs = self.geo_sdfs
 
             # enable ground plane
-            m.ground = True
+            m.ground = self.ground
             m.ground_plane = wp.array([*self.upvector, 0.0], dtype=wp.float32, requires_grad=requires_grad)
             # m.gravity = np.array(self.upvector) * self.gravity
             m.gravity = wp.array([*(np.array(self.upvector) * self.gravity)], dtype=wp.float32, requires_grad=requires_grad)
