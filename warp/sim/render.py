@@ -108,8 +108,8 @@ class SimRenderer(warp.render.UsdRenderer):
                 elif (geo_type == warp.sim.GEO_MESH):
 
                     mesh = UsdGeom.Mesh.Define(self.stage, parent_path.AppendChild("mesh_" + str(s)))
-                    mesh.GetPointsAttr().Set(geo_src.vertices)
-                    mesh.GetFaceVertexIndicesAttr().Set(geo_src.indices)
+                    mesh.GetPointsAttr().Set(np.array(geo_src.vertices))
+                    mesh.GetFaceVertexIndicesAttr().Set(np.array(geo_src.indices))
                     mesh.GetFaceVertexCountsAttr().Set([3] * int(len(geo_src.indices) / 3))
 
                     wp.render._usd_add_xform(mesh)
