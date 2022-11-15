@@ -1236,7 +1236,7 @@ def collide(model, state, edge_sdf_iter: int = 5):
             ],
             device=model.device)
             
-    if (model.ground):
+    if (False and model.ground):
         # print("Contacts before:", model.ground_contact_point0.numpy())
         # print(model.ground_contact_ref.numpy())
         wp.launch(

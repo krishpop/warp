@@ -1302,7 +1302,6 @@ def apply_rigid_restitution(
     active_contact_point1: wp.array(dtype=wp.vec3),
     contact_inv_weight: wp.array(dtype=float),
     gravity: wp.array(dtype=float),
-    jitter_threshold: float,
     dt: float,
     # outputs
     deltas: wp.array(dtype=wp.spatial_vector),
@@ -1404,21 +1403,7 @@ def apply_rigid_restitution(
 
     # Eq. 29
     rel_vel_old = wp.dot(n, v_a - v_b)
-
-    # if (wp.abs(rel_vel_old) < jitter_threshold or inv_mass == 0.0):
-    #     return
-
     rel_vel_new = wp.dot(n, v_a_new - v_b_new)
-
-    # jitter_threshold = 2.0*wp.length(g)*dt
-    jitter_threshold *= dt
-
-    # if (wp.abs(rel_vel_new) < jitter_threshold):
-    #     # restitution = 0.0
-    #     return
-    # if (wp.abs(rel_vel_old) < jitter_threshold):
-    #     # restitution = 0.0
-    #     return
 
     # Eq. 34 (Eq. 33 from the ACM paper, note the max operation)
     dv = n * (-rel_vel_new + wp.max(-restitution * rel_vel_old, 0.0))
@@ -1889,7 +1874,6 @@ class XPBDIntegrator:
                                 model.rigid_active_contact_point1_prev,
                                 model.rigid_contact_inv_weight_prev,
                                 model.gravity,
-                                model.rigid_contact_jitter_threshold,
                                 dt,
                             ],
                             outputs=[
