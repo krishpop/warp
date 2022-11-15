@@ -485,61 +485,6 @@ def volume_grad(volume: wp.uint64,
 
 
 @wp.kernel
-def update_rigid_ground_contacts(
-    ground_plane: wp.array(dtype=float),
-    rigid_body: wp.array(dtype=int),
-    body_q: wp.array(dtype=wp.transform),
-    shape_X_bs: wp.array(dtype=wp.transform),
-    contact_point_ref: wp.array(dtype=wp.vec3),
-    ground_contact_shape: wp.array(dtype=int),
-    shape_contact_thickness: wp.array(dtype=float),
-    rigid_contact_margin: float,
-    rigid_contact_max: int,
-    # outputs
-    contact_count: wp.array(dtype=int),
-    contact_body0: wp.array(dtype=int),
-    contact_body1: wp.array(dtype=int),
-    contact_point0: wp.array(dtype=wp.vec3),
-    contact_point1: wp.array(dtype=wp.vec3),
-    contact_offset0: wp.array(dtype=wp.vec3),
-    contact_offset1: wp.array(dtype=wp.vec3),
-    contact_normal: wp.array(dtype=wp.vec3),
-    contact_shape0: wp.array(dtype=int),    
-    contact_shape1: wp.array(dtype=int),
-    contact_thickness: wp.array(dtype=float)
-):
-    tid = wp.tid()
-    body = rigid_body[tid]
-    shape = ground_contact_shape[tid]
-    thickness = shape_contact_thickness[shape]
-    X_wb = body_q[body]
-    X_bw = wp.transform_inverse(X_wb)
-    X_bs = shape_X_bs[shape]
-    X_ws = wp.transform_multiply(X_wb, X_bs)
-    n = wp.vec3(ground_plane[0], ground_plane[1], ground_plane[2])
-    p_ref = wp.transform_point(X_ws, contact_point_ref[tid])
-    c = ground_plane[3]  # ground plane offset
-    d = wp.dot(p_ref, n) - c
-    if (d < thickness + rigid_contact_margin):
-        index = wp.inc_index(contact_count, tid, rigid_contact_max)
-        # if (index >= 0):
-        # index = wp.atomic_add(contact_count, 0, 1)
-        if (index < rigid_contact_max):
-            contact_point0[index] = wp.transform_point(X_bw, p_ref)
-            # project contact point onto ground plane
-            contact_point1[index] = p_ref - n*d
-            contact_body0[index] = body
-            contact_body1[index] = -1
-            contact_offset0[index] = wp.transform_vector(X_bw, -thickness * n)
-            contact_offset1[index] = wp.vec3(0.0)
-            contact_normal[index] = n
-            contact_shape0[index] = shape
-            contact_shape1[index] = -1
-            contact_thickness[index] = thickness
-        else:
-            print("Number of rigid contacts exceeded limit. Increase Model.rigid_contact_max.")
-
-@wp.kernel
 def count_contact_points(
     contact_pairs: wp.array(dtype=int, ndim=2),
     shape_geo_type: wp.array(dtype=int),
@@ -1201,9 +1146,6 @@ def collide(model, state, edge_sdf_iter: int = 5):
             ],
             device=model.device,
             record_tape=False)
-
-        # print("rigid_contact_count:", model.rigid_contact_count.numpy()[0])
-        # print("ground_contact_count:", ground_contact_count.numpy()[0])
             
         wp.launch(
             kernel=handle_contact_pairs,
@@ -1235,39 +1177,6 @@ def collide(model, state, edge_sdf_iter: int = 5):
                 model.rigid_contact_thickness,
             ],
             device=model.device)
-            
-    if (False and model.ground):
-        # print("Contacts before:", model.ground_contact_point0.numpy())
-        # print(model.ground_contact_ref.numpy())
-        wp.launch(
-            kernel=update_rigid_ground_contacts,
-            dim=model.ground_contact_dim,
-            inputs=[
-                model.ground_plane,
-                model.ground_contact_body0,
-                state.body_q,
-                model.shape_transform,
-                model.ground_contact_ref,
-                model.ground_contact_shape0,
-                model.shape_contact_thickness,
-                model.rigid_contact_margin,
-                model.rigid_contact_max,
-            ],
-            outputs=[
-                model.rigid_contact_count,
-                model.rigid_contact_body0,
-                model.rigid_contact_body1,
-                model.rigid_contact_point0,
-                model.rigid_contact_point1,
-                model.rigid_contact_offset0,
-                model.rigid_contact_offset1,
-                model.rigid_contact_normal,
-                model.rigid_contact_shape0,
-                model.rigid_contact_shape1,
-                model.rigid_contact_thickness,
-            ],
-            device=model.device
-        )
 
         # print("rigid_contact_count:", model.rigid_contact_count.numpy()[0])
     
