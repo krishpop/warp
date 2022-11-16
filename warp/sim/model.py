@@ -1143,7 +1143,7 @@ class ModelBuilder:
                 group = self.last_collision_group + 1
             else:
                 group = (group + self.last_collision_group if group > -1 else -1)
-            if group not in articulation.shape_collision_group_map:
+            if group not in self.shape_collision_group_map:
                 self.shape_collision_group_map[group] = []
             self.shape_collision_group_map[group].extend([s + shape_count for s in shapes])
 
