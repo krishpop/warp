@@ -541,6 +541,7 @@ class Model:
             inputs=[
                 self.shape_contact_pairs,
                 self.shape_geo_type,
+                self.shape_geo_scale,
                 self.mesh_num_points,
             ],
             outputs=[
