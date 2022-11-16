@@ -105,7 +105,10 @@ class Example:
             
             for i in range(self.sim_substeps):
                 self.state.clear_forces()
-                self.state = self.integrator.simulate(self.model, self.state, self.state, self.sim_dt/self.sim_substeps)   
+                self.state = self.integrator.simulate(self.model, self.state, self.state, self.sim_dt/self.sim_substeps)
+
+            if self.model.ground:
+                wp.sim.collide(self.model, self.state)
 
     def render(self, is_live=False):
 

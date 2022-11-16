@@ -156,7 +156,7 @@ if __name__ == '__main__':
     num_con_history.append(example.model.rigid_contact_inv_weight.numpy().copy())
 
     from tqdm import trange
-    for i in trange(30) : #example.sim_steps):
+    for i in trange(example.sim_steps):
         example.update()
         example.render()
 
