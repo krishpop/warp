@@ -8,6 +8,7 @@
 import numpy as np
 import warp as wp
 from warp.tests.test_base import *
+from warp.tests.grad_utils import check_kernel_jacobian
 
 wp.init()
 
@@ -278,7 +279,7 @@ def test_preserve_outputs_grad(test, device):
     # ensure gradients are correct
     assert_np_equal(tape.gradients[x].numpy(), -2.0*val)
 
-def gradcheck(func, func_name, inputs, device, eps=1e-4, tol=1e-2):
+def gradcheck(func, func_name, inputs, device, outputs=None, eps=1e-4, tol=1e-2):
     """
     Checks that the gradient of the Warp kernel is correct by comparing it to the
     numerical gradient computed using finite differences.
@@ -287,47 +288,13 @@ def gradcheck(func, func_name, inputs, device, eps=1e-4, tol=1e-2):
     module = wp.get_module(func.__module__)
     kernel = wp.Kernel(func=func, key=func_name, module=module)
 
-    def f(xs):
-        # call the kernel without taping for finite differences
-        wp_xs = [
-            wp.array(xs[i], ndim=1, dtype=inputs[i].dtype, device=device)
-            for i in range(len(inputs))
-        ]
-        output = wp.zeros(1, dtype=wp.float32, device=device)
-        wp.launch(kernel, dim=1, inputs=wp_xs, outputs=[output], device=device)
-        return output.numpy()[0]
-
-    # compute numerical gradient
-    numerical_grad = []
-    np_xs = []
-    for i in range(len(inputs)):
-        np_xs.append(inputs[i].numpy().flatten().copy())
-        numerical_grad.append(np.zeros_like(np_xs[-1]))
-        inputs[i].requires_grad = True
-
-    for i in range(len(np_xs)):
-        for j in range(len(np_xs[i])):
-            np_xs[i][j] += eps
-            y1 = f(np_xs)
-            np_xs[i][j] -= 2*eps
-            y2 = f(np_xs)
-            np_xs[i][j] += eps
-            numerical_grad[i][j] = (y1 - y2) / (2*eps)
-
-    # compute analytical gradient
-    tape = wp.Tape()
-    output = wp.zeros(1, dtype=wp.float32, device=device, requires_grad=True)
-    with tape:
-        wp.launch(kernel, dim=1, inputs=inputs, outputs=[output], device=device)
-
-    tape.backward(loss=output)
-
-    # compare gradients
-    for i in range(len(inputs)):
-        grad = tape.gradients[inputs[i]]
-        assert_np_equal(grad.numpy(), numerical_grad[i], tol=tol)
-
-    tape.zero()
+    if outputs is None:
+        outputs = [wp.zeros(1, dtype=wp.float32, device=device)]
+    print(f"Checking gradient of {func_name} on {device}...")
+    result, stats = check_kernel_jacobian(
+        kernel, dim=1, inputs=inputs, outputs=outputs, eps=eps, atol=tol,
+        plot_jac_on_fail=False, tabulate_errors=True, warn_about_missing_requires_grad=False)
+    assert result
 
 def test_vector_math_grad(test, device):
     np.random.seed(123)
@@ -350,23 +317,6 @@ def test_vector_math_grad(test, device):
             gradcheck(check_length_sq, f"check_length_sq_{vec_type.__name__}", [x], device)
             gradcheck(check_normalize, f"check_normalize_{vec_type.__name__}", [x], device)
 
-
-@wp.func
-def my_rpy(roll: float, pitch: float, yaw: float) -> wp.quat:
-    cy = wp.cos(yaw * 0.5)
-    sy = wp.sin(yaw * 0.5)
-    cr = wp.cos(roll * 0.5)
-    sr = wp.sin(roll * 0.5)
-    cp = wp.cos(pitch * 0.5)
-    sp = wp.sin(pitch * 0.5)
-
-    w = (cy * cr * cp + sy * sr * sp)
-    x = (cy * sr * cp - sy * cr * sp)
-    y = (cy * cr * sp + sy * sr * cp)
-    z = (sy * cr * cp - cy * sr * sp)
-
-    return wp.quat(x, y, z, w)
-
 def test_matrix_math_grad(test, device):
     np.random.seed(123)
     
@@ -381,15 +331,15 @@ def test_matrix_math_grad(test, device):
         # run the tests with 5 different random inputs
         for _ in range(5):
             x = wp.array(np.random.randn(1, dim, dim).astype(np.float32), ndim=1, dtype=mat_type, device=device)
-            gradcheck(check_determinant, f"check_length_{mat_type.__name__}", [x], device)
-            gradcheck(check_trace, f"check_length_sq_{mat_type.__name__}", [x], device)
+            gradcheck(check_determinant, f"check_determinant_{mat_type.__name__}", [x], device)
+            gradcheck(check_trace, f"check_trace_{mat_type.__name__}", [x], device)
 
 def test_3d_math_grad(test, device):
     np.random.seed(123)
     
     # test binary operations
-    def check_cross(vs: wp.array(dtype=wp.vec3), out: wp.array(dtype=float)):
-        out[0] = wp.length(wp.cross(vs[0], vs[1]))
+    def check_cross(vs: wp.array(dtype=wp.vec3), out: wp.array(dtype=wp.vec3)):
+        out[0] = wp.cross(vs[0], vs[1])
 
     def check_dot(vs: wp.array(dtype=wp.vec3), out: wp.array(dtype=float)):
         out[0] = wp.dot(vs[0], vs[1])
@@ -430,13 +380,24 @@ def test_3d_math_grad(test, device):
     # run the tests with 5 different random inputs
     for _ in range(5):
         x = wp.array(np.random.randn(2, 3).astype(np.float32), dtype=wp.vec3, device=device)
-        gradcheck(check_cross, f"check_cross_3d", [x], device)
+        gradcheck(check_cross, f"check_cross_3d", [x], device, outputs=[wp.zeros(1, dtype=wp.vec3, device=device)])
         gradcheck(check_dot, f"check_dot_3d", [x], device)
-        gradcheck(check_mat33, f"check_mat33_3d", [x], device, eps=2e-2)
+        gradcheck(check_mat33, f"check_mat33_3d", [x], device)
         gradcheck(check_trace_diagonal, f"check_trace_diagonal_3d", [x], device)
         gradcheck(check_rot_rpy, f"check_rot_rpy_3d", [x], device)
         gradcheck(check_rot_axis_angle, f"check_rot_axis_angle_3d", [x], device)
         gradcheck(check_rot_quat_inv, f"check_rot_quat_inv_3d", [x], device)
+
+@wp.kernel
+def spurious_assignment(xs: wp.array(dtype=wp.vec3), output: wp.array(dtype=wp.vec3)):
+    x = xs[0]
+    y = x  # <--  y is not used anywhere, yet it causes the gradient of x to be zero!
+    output[0] = x
+
+@wp.kernel
+def no_spurious_assignment(xs: wp.array(dtype=wp.vec3), output: wp.array(dtype=wp.vec3)):
+    x = xs[0]
+    output[0] = x
 
 def register(parent):
 
@@ -445,7 +406,7 @@ def register(parent):
     class TestGrad(parent):
         pass
 
-    #add_function_test(TestGrad, "test_while_loop_grad", test_while_loop_grad, devices=devices)
+    # add_function_test(TestGrad, "test_while_loop_grad", test_while_loop_grad, devices=devices)
     add_function_test(TestGrad, "test_for_loop_nested_for_grad", test_for_loop_nested_for_grad, devices=devices)
     add_function_test(TestGrad, "test_scalar_grad", test_scalar_grad, devices=devices)
     add_function_test(TestGrad, "test_for_loop_grad", test_for_loop_grad, devices=devices)
@@ -456,8 +417,45 @@ def register(parent):
     add_function_test(TestGrad, "test_matrix_math_grad", test_matrix_math_grad, devices=devices)
     add_function_test(TestGrad, "test_3d_math_grad", test_3d_math_grad, devices=devices)
 
+    # from grad_utils import check_kernel_jacobian
+    # check_kernel_jacobian(
+    #     spurious_assignment, 1,
+    #     inputs=[wp.array([1, 2, 3], dtype=wp.vec3, device=wp.get_device())],
+    #     outputs=[wp.array([0, 0, 0], dtype=wp.vec3, device=wp.get_device())],
+    #     plot_jac_on_fail=True, atol=0.1)
+    # check_kernel_jacobian(
+    #     no_spurious_assignment, 1,
+    #     inputs=[wp.array([1, 2, 3], dtype=wp.vec3, device=wp.get_device())],
+    #     outputs=[wp.array([0, 0, 0], dtype=wp.vec3, device=wp.get_device())],
+    #     plot_jac_on_fail=True, atol=-0.1)
+
+
     return TestGrad
 
+def run():
+
+    test_suite = unittest.TestSuite()
+    result = unittest.TestResult()
+
+    tests = [register(unittest.TestCase)]
+
+    for test in tests:
+        test_suite.addTest(unittest.defaultTestLoader.loadTestsFromTestCase(test))
+
+    # force rebuild of all kernels
+    wp.build.clear_kernel_cache()
+
+    # load all modules
+    wp.force_load()
+
+    runner = unittest.TextTestRunner(verbosity=2, failfast=False)
+    ret = not runner.run(test_suite).wasSuccessful()
+    return ret
+
+
 if __name__ == '__main__':
-    c = register(unittest.TestCase)
-    unittest.main(verbosity=2, failfast=False)
+    ret = run()
+
+    import sys
+    sys.exit(ret)
+

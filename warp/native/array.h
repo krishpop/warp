@@ -88,6 +88,41 @@ namespace wp
 
 const int ARRAY_MAX_DIMS = 4;    // must match constant in types.py
 
+
+struct shape_t
+{
+    int dims[ARRAY_MAX_DIMS];
+
+    CUDA_CALLABLE inline int operator[](int i) const
+    {
+        assert(i < ARRAY_MAX_DIMS);
+        return dims[i];
+    }
+
+    CUDA_CALLABLE inline int& operator[](int i)
+    {
+        assert(i < ARRAY_MAX_DIMS);
+        return dims[i];
+    }    
+};
+
+CUDA_CALLABLE inline int index(const shape_t& s, int i)
+{
+    return s.dims[i];
+}
+
+CUDA_CALLABLE inline void adj_index(const shape_t& s, int i, const shape_t& adj_s, int adj_i, int adj_ret) {}
+
+inline CUDA_CALLABLE void print(shape_t s)
+{
+    // todo: only print valid dims, currently shape has a fixed size
+    // but we don't know how many dims are valid (e.g.: 1d, 2d, etc)
+    // should probably store ndim with shape
+    printf("(%d, %d, %d, %d)\n", s.dims[0], s.dims[1], s.dims[2], s.dims[3]);
+}
+inline CUDA_CALLABLE void adj_print(shape_t s, shape_t& shape_t) {}
+
+
 template <typename T>
 struct array_t
 {
@@ -95,12 +130,14 @@ struct array_t
     array_t(int) {} // for backward a = 0 initialization syntax
 
     T* data;
-    int shape[ARRAY_MAX_DIMS];
+    shape_t shape;
     int strides[ARRAY_MAX_DIMS];
     int ndim;
 
     CUDA_CALLABLE inline operator T*() const { return data; }
 };
+
+
 
 // return stride (in bytes) of the given index
 template <typename T>
@@ -326,6 +363,18 @@ template<typename T> inline CUDA_CALLABLE void adj_inc_index(const array_t<T>& b
     
 }
 
+// select operator to check for array being null
+template <typename T1, typename T2>
+CUDA_CALLABLE inline T2 select(const array_t<T1>& arr, const T2& a, const T2& b) { return arr.data?b:a; }
+
+template <typename T1, typename T2>
+CUDA_CALLABLE inline void adj_select(const array_t<T1>& arr, const T2& a, const T2& b, const array_t<T1>& adj_cond, T2& adj_a, T2& adj_b, const T2& adj_ret)
+{
+    if (arr.data)
+        adj_b += adj_ret;
+    else
+        adj_a += adj_ret;
+}
 
 // for float and vector types this is just an alias for an atomic add
 template <typename T>

@@ -972,18 +972,18 @@ def eval_rigid_contacts(
 ):
 
     tid = wp.tid()
-    if contact_shape0[tid] == -1 and contact_shape1[tid] == -1:
+    if (contact_shape0[tid] == contact_shape1[tid]):
         return
 
     count = contact_count[0]
     if tid >= count:
         return
 
-    # use average contact material properties
-    ke = 0.0  # restitution coefficient
-    kd = 0.0  # damping coefficient
-    kf = 0.0  # friction coefficient
-    mu = 0.0  # coulomb friction
+    # retrieve contact thickness, compute average contact material properties    
+    ke = 0.0       # restitution coefficient
+    kd = 0.0       # damping coefficient
+    kf = 0.0       # friction coefficient
+    mu = 0.0       # coulomb friction
     mat_nonzero = 0
     thickness_a = 0.0
     thickness_b = 0.0
@@ -1027,6 +1027,11 @@ def eval_rigid_contacts(
         X_com_b = body_com[body_b]
         bx_b = wp.transform_point(X_wb_b, bx_b) + thickness_b * n
         r_b = bx_b - wp.transform_point(X_wb_b, X_com_b)
+    
+    d = wp.dot(n, bx_a-bx_b)
+    
+    if (d >= 0.0):
+        return
 
     d = -wp.dot(n, bx_b - bx_a)
 
@@ -1833,7 +1838,7 @@ class SemiImplicitIntegrator:
         >>>
         >>> # simulation loop
         >>> for i in range(100):
-        >>>     state = integrator.forward(model, state, dt)
+        >>>     state = integrator.simulate(model, state_in, state_out, dt)
 
     """
 

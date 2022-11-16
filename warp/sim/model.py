@@ -22,6 +22,9 @@ Vec4 = List[float]
 Quat = List[float]
 Mat33 = List[float]
 Transform = Tuple[Vec3, Quat]
+from typing import Optional
+
+from warp.sim.collide import find_shape_contact_pairs
 
 
 # shape geometry types
@@ -44,6 +47,7 @@ JOINT_UNIVERSAL = wp.constant(6)
 JOINT_REVOLUTE_SPRING = wp.constant(7)
 
 
+
 # Material properties pertaining to rigid shape contact dynamics
 @wp.struct
 class ShapeContactMaterial:
@@ -52,6 +56,58 @@ class ShapeContactMaterial:
     kf: wp.array(dtype=float)  # The contact friction stiffness
     mu: wp.array(dtype=float)  # The coefficient of friction
     restitution: wp.array(dtype=float)  # The coefficient of restitution
+
+
+# Calculates the mass and inertia of a body given mesh data.
+@wp.kernel
+def compute_mass_inertia(
+    #inputs
+    com: wp.vec3,
+    alpha: float,
+    weight: float,
+    indices: wp.array(dtype=int, ndim=1),
+    vertices: wp.array(dtype=wp.vec3, ndim=1),
+    quads: wp.array(dtype=wp.vec3, ndim=2),
+    #outputs
+    mass: wp.array(dtype=float, ndim=1),
+    inertia: wp.array(dtype=wp.mat33, ndim=1)):
+
+    i = wp.tid()
+
+    p = vertices[indices[i * 3 + 0]]
+    q = vertices[indices[i * 3 + 1]]
+    r = vertices[indices[i * 3 + 2]]
+
+    mid = (com + p + q + r) / 4.
+
+    pcom = p - com
+    qcom = q - com
+    rcom = r - com
+
+    Dm = wp.mat33(pcom[0], qcom[0], rcom[0],
+                  pcom[1], qcom[1], rcom[1],
+                  pcom[2], qcom[2], rcom[2])
+
+    volume = wp.determinant(Dm) / 6.0
+
+    # quadrature points lie on the line between the
+    # centroid and each vertex of the tetrahedron
+    quads[i, 0] = alpha * (p - mid) + mid
+    quads[i, 1] = alpha * (q - mid) + mid
+    quads[i, 2] = alpha * (r - mid) + mid
+    quads[i, 3] = alpha * (com - mid) + mid
+    
+    for j in range(4):
+        # displacement of quadrature point from COM
+        d = quads[i,j] - com
+
+        # accumulate mass
+        wp.atomic_add(mass, 0, weight * volume)
+
+        # accumulate inertia
+        identity = wp.mat33(1., 0., 0., 0., 1., 0., 0., 0., 1.)
+        I = weight * volume * (wp.dot(d, d) * identity - wp.outer(d, d))
+        wp.atomic_add(inertia, 0, I)
 
 
 class Mesh:
@@ -82,9 +138,9 @@ class Mesh:
         self.indices = indices
 
         if compute_inertia:
-
             # compute com and inertia (using density=1.0)
             com = np.mean(vertices, 0)
+            com_warp = wp.vec3(com[0], com[1], com[2])
 
             num_tris = int(len(indices) / 3)
 
@@ -95,42 +151,31 @@ class Mesh:
             weight = 0.25
             alpha = math.sqrt(5.0) / 5.0
 
-            I = np.zeros((3, 3))
-            mass = 0.0
+            # Allocating for mass and inertia.
+            I_warp = wp.zeros(1, dtype=wp.mat33)
+            mass_warp = wp.zeros(1, dtype=float)
 
-            for i in range(num_tris):
+            # Quadrature points
+            quads_warp = wp.zeros(shape=(num_tris, 4), dtype=wp.vec3)
 
-                p = np.array(vertices[indices[i * 3 + 0]])
-                q = np.array(vertices[indices[i * 3 + 1]])
-                r = np.array(vertices[indices[i * 3 + 2]])
+            # Launch warp kernel for calculating mass and inertia of body given mesh data.
+            wp.launch(kernel=compute_mass_inertia,
+                      dim=num_tris,
+                      inputs=[
+                          com_warp,
+                          alpha,
+                          weight,
+                          wp.array(indices, dtype=int),
+                          wp.array(vertices, dtype=wp.vec3),
+                          quads_warp
+                          ],
+                      outputs=[
+                          mass_warp,
+                          I_warp])
 
-                mid = (com + p + q + r) / 4.0
-
-                pcom = p - com
-                qcom = q - com
-                rcom = r - com
-
-                Dm = np.matrix((pcom, qcom, rcom)).T
-                volume = np.linalg.det(Dm) / 6.0
-
-                # quadrature points lie on the line between the
-                # centroid and each vertex of the tetrahedron
-                quads = (
-                    mid + (p - mid) * alpha,
-                    mid + (q - mid) * alpha,
-                    mid + (r - mid) * alpha,
-                    mid + (com - mid) * alpha,
-                )
-
-                for j in range(4):
-
-                    # displacement of quadrature point from COM
-                    d = quads[j] - com
-
-                    I += (
-                        weight * volume * (wp.dot(d, d) * np.eye(3, 3) - np.outer(d, d))
-                    )
-                    mass += weight * volume
+            # Extract mass and inertia and save to class attributes.
+            mass = mass_warp.numpy()[0]
+            I = I_warp.numpy()[0]
 
             self.I = I
             self.mass = mass
@@ -278,6 +323,8 @@ class Model:
 
     def __init__(self, device=None):
 
+        self.requires_grad = False
+
         self.particle_q = None
         self.particle_qd = None
         self.particle_mass = None
@@ -315,10 +362,11 @@ class Model:
         self.body_inertia = None
 
         self.shape_collision_group = None
-        self.shape_collision_mask = None
+        self.shape_collision_group_map = None
+        self.shape_collision_filter_pairs = None
         self.shape_collision_radius = None
+        self.shape_contact_pairs = None
 
-        # TODO: update this
         self.joint_type = None
         self.joint_parent = None
         self.joint_child = None
@@ -585,6 +633,84 @@ class Model:
             requires_grad=requires_grad,
         )
 
+        # find potential contact pairs based on collision groups and collision mask (pairwise filtering)
+        if True:
+            # fastest implementation so far, iterate over collision groups (islands)
+            import itertools, copy
+            filters = copy.copy(self.shape_collision_filter_pairs)
+            for a, b in self.shape_collision_filter_pairs:
+                filters.add((b, a))
+            contact_pairs = []
+            for group, shapes in self.shape_collision_group_map.items():
+                for shape_a, shape_b in itertools.product(shapes, shapes):
+                    if shape_a < shape_b and (shape_a, shape_b) not in filters:
+                        contact_pairs.append((shape_a, shape_b))
+                if group != -1 and -1 in self.shape_collision_group_map:
+                    for shape_a, shape_b in itertools.product(shapes, self.shape_collision_group_map[-1]):
+                        if shape_a < shape_b and (shape_a, shape_b) not in filters:
+                            contact_pairs.append((shape_a, shape_b))
+            self.shape_contact_pairs = wp.array(np.array(contact_pairs), dtype=wp.int32, device=self.device)
+            self.shape_contact_pair_count = len(contact_pairs)
+        elif False:
+            from tqdm import trange
+            contact_pairs = []
+            for shape_a in trange(self.shape_count, desc="Finding contact pairs"):
+                for shape_b in range(shape_a+1, self.shape_count):
+                    if (shape_a, shape_b) in self.shape_collision_filter_pairs:
+                        continue
+                    if (shape_b, shape_a) in self.shape_collision_filter_pairs:
+                        continue
+                    cg_a = self.shape_collision_group[shape_a]
+                    cg_b = self.shape_collision_group[shape_b]
+                    if cg_a != cg_b and cg_a > -1 and cg_b > -1:
+                        continue
+                    if len(contact_pairs) >= self.rigid_contact_max:
+                        raise RuntimeError(f"Number of rigid contacts exceeded limit ({self.rigid_contact_max}). Increase Model.rigid_contact_max.")
+                    contact_pairs.append((shape_a, shape_b))
+            self.shape_contact_pairs = wp.array(np.array(contact_pairs), dtype=wp.int32, device=self.device)
+            self.shape_contact_pair_count = len(contact_pairs)
+        else:
+            device = "cpu"
+            # collision_mask = np.ones((len(self.shape_geo_type), len(self.shape_geo_type)), dtype=np.int32)
+            # np.fill_diagonal(collision_mask, 0)  # disable self-collision
+            # create mask from the list of enabled collision pairs for faster lookup
+            # for i, j in self.shape_collision_filter_pairs:
+            #     collision_mask[i, j] = 0
+            #     collision_mask[j, i] = 0
+            # shape_collision_mask = wp.array(collision_mask, ndim=2, dtype=wp.int32, device=device)
+            shape_collision_group = wp.array(self.shape_collision_group, dtype=wp.int32, device=device)    
+            shape_contact_pairs = wp.zeros((self.rigid_contact_max, 2), dtype=wp.int32, device=device)
+            contact_count = wp.zeros(1, dtype=wp.int32, device=device)
+            wp.launch(
+                kernel=find_shape_contact_pairs,
+                dim=(self.shape_count, self.shape_count),
+                inputs=[
+                    shape_collision_group,
+                    # shape_collision_mask,
+                    self.rigid_contact_max,
+                ],
+                outputs=[
+                    contact_count,
+                    shape_contact_pairs
+                ],
+                device=device,
+                record_tape=False,
+            )
+            required_contacts = contact_count.numpy()[0]
+            if required_contacts > self.rigid_contact_max:
+                raise RuntimeError(f"Number of rigid contacts exceeded limit ({self.rigid_contact_max}). Increase Model.rigid_contact_max to at least {required_contacts}.")
+            # update the maximum number of contacts based on the number of potential contact pairs
+            pairs = shape_contact_pairs.numpy()
+            # apply collision filters
+            for i, j in self.shape_collision_filter_pairs:
+                pairs[i, j] = 0
+                pairs[j, i] = 0
+            valid_pairs = np.where(pairs.any(axis=1))[0]
+            self.shape_contact_pairs = wp.array(pairs[valid_pairs], dtype=wp.int32, device=self.device)
+            num_pairs = len(valid_pairs)
+            # print("Number of potential shape contact pairs:", num_pairs)
+            self.shape_contact_pair_count = num_pairs
+
     def flatten(self):
         """Returns a list of Tensors stored by the model
 
@@ -749,7 +875,7 @@ class Model:
         with wp.ScopedDevice(self.device):
             self.ground_contact_dim = len(body0)
             self.ground_contact_body0 = wp.array(body0, dtype=wp.int32)
-            self.ground_contact_ref = wp.array(point, dtype=wp.vec3)
+            self.ground_contact_ref = wp.array(point, dtype=wp.vec3, requires_grad=self.requires_grad)
             self.ground_contact_shape0 = wp.array(shape0, dtype=wp.int32)
 
 
@@ -764,9 +890,10 @@ class ModelBuilder:
 
     Example:
 
-        >>> import wp as wp
+        >>> import warp as wp
+        >>> import warp.sim
         >>>
-        >>> builder = wp.ModelBuilder()
+        >>> builder = wp.sim.ModelBuilder()
         >>>
         >>> # anchor point (zero mass)
         >>> builder.add_particle((0, 1.0, 0.0), (0.0, 0.0, 0.0), 0.0)
@@ -777,7 +904,15 @@ class ModelBuilder:
         >>>     builder.add_spring(i-1, i, 1.e+3, 0.0, 0)
         >>>
         >>> # create model
-        >>> model = builder.finalize()
+        >>> model = builder.finalize("cuda")
+        >>> 
+        >>> state = model.state()
+        >>> integrator = wp.sim.SemiImplicitIntegrator()
+        >>>
+        >>> for i in range(100):
+        >>>
+        >>>    state.clear_forces()
+        >>>    integrator.simulate(model, state, state, dt=1.0/60.0)
 
     Note:
         It is strongly recommended to use the ModelBuilder to construct a simulation rather
@@ -828,6 +963,8 @@ class ModelBuilder:
         self.shape_volumes = []
         # collision groups within collisions are handled
         self.shape_collision_group = []
+        self.shape_collision_group_map = {}
+        self.last_collision_group = 0
         # radius to use for broadphase collision checking
         self.shape_collision_radius = []
 
@@ -872,6 +1009,8 @@ class ModelBuilder:
         # rigid bodies
         self.body_mass = []
         self.body_inertia = []
+        self.body_inv_mass = []
+        self.body_inv_inertia = []
         self.body_com = []
         self.body_q = []
         self.body_qd = []
@@ -931,6 +1070,9 @@ class ModelBuilder:
         # jitter threshold from
         self.rigid_contact_jitter_threshold = 2.0 * np.linalg.norm(gravity)
 
+        # number of rigid contact points to allocate in the model during self.finalize() per environment
+        self.num_rigid_contacts_per_env = 64
+        
     # an articulation is a set of contiguous bodies bodies from articulation_start[i] to articulation_start[i+1]
     # these are used for computing forward kinematics e.g.:
     #
@@ -942,16 +1084,15 @@ class ModelBuilder:
 
     def add_articulation(self):
         self.articulation_start.append(self.joint_count)
-
-    def add_rigid_articulation(
-        self, articulation, xform=None, update_num_env_count=True
-    ):
+    
+    def add_rigid_articulation(self, articulation, xform=None, update_num_env_count=True, separate_collision_group=True):
         """Copies a rigid articulation from `articulation`, another `ModelBuilder`.
 
         Args:
             articulation: a model builder to add rigid articulation from.
             xform: root position of this body (overrides that in the articulation_builder).
             update_num_env_count: if True, the number of environments is incremented by 1.
+            separate_collision_group: if True, the shapes from the articulation will all be put into a single new collision group, otherwise, only the shapes in collision group > -1 will be moved to a new group.
         """
 
         if xform is not None:
@@ -990,24 +1131,33 @@ class ModelBuilder:
 
         self.shape_body.extend([b + start_body_idx for b in articulation.shape_body])
 
-        last_collision_group = (
-            np.max(self.shape_collision_group)
-            if len(self.shape_collision_group) > 0
-            else 0
-        )
-        self.shape_collision_group.extend(
-            [
-                (g + last_collision_group if g > -1 else -1)
-                for g in articulation.shape_collision_group
-            ]
-        )
+        if separate_collision_group:
+            self.shape_collision_group.extend([self.last_collision_group + 1 for _ in articulation.shape_collision_group])
+        else:
+            self.shape_collision_group.extend([(g + self.last_collision_group if g > -1 else -1) for g in articulation.shape_collision_group])
         shape_count = len(self.shape_geo_type)
         for i, j in articulation.shape_collision_filter_pairs:
             self.shape_collision_filter_pairs.add((i + shape_count, j + shape_count))
+        for group, shapes in articulation.shape_collision_group_map.items():
+            if separate_collision_group:
+                group = self.last_collision_group + 1
+            else:
+                group = (group + self.last_collision_group if group > -1 else -1)
+            if group not in articulation.shape_collision_group_map:
+                self.shape_collision_group_map[group] = []
+            self.shape_collision_group_map[group].extend([s + shape_count for s in shapes])
+
+        # update last collision group counter
+        if separate_collision_group:
+            self.last_collision_group += 1
+        elif articulation.last_collision_group > -1:
+            self.last_collision_group += articulation.last_collision_group
 
         rigid_articulation_attrs = [
             "body_inertia",
             "body_mass",
+            "body_inv_inertia",
+            "body_inv_mass",
             "body_com",
             "body_q",
             "body_qd",
@@ -1112,10 +1262,21 @@ class ModelBuilder:
         child = len(self.body_mass)
 
         # body data
-        self.body_inertia.append(I_m + np.eye(3) * joint_armature)
+        inertia = I_m + np.eye(3)*joint_armature
+        self.body_inertia.append(inertia)
         self.body_mass.append(m)
         self.body_com.append(com)
-
+        
+        if (m > 0.0):
+            self.body_inv_mass.append(1.0/m)
+        else:
+            self.body_inv_mass.append(0.0)
+    
+        if inertia.any():
+            self.body_inv_inertia.append(np.linalg.inv(inertia))
+        else:
+            self.body_inv_inertia.append(inertia)
+        
         self.body_q.append(origin)
         self.body_qd.append(wp.spatial_vector())
 
@@ -1534,6 +1695,10 @@ class ModelBuilder:
         self.shape_material_restitution.append(restitution)
         self.shape_contact_thickness.append(thickness)
         self.shape_collision_group.append(collision_group)
+        if collision_group not in self.shape_collision_group_map:
+            self.shape_collision_group_map[collision_group] = []
+        self.last_collision_group = max(self.last_collision_group, collision_group)
+        self.shape_collision_group_map[collision_group].append(shape)
         self.shape_collision_radius.append(self._shape_radius(type, scale, src))
         if collision_filter_parent and body > -1:
             # XXX we assume joint ID == body ID here
@@ -1645,10 +1810,10 @@ class ModelBuilder:
         e1 = wp.normalize(qp)
         e2 = wp.normalize(wp.cross(n, e1))
 
-        R = np.matrix((e1, e2))
-        M = np.matrix((qp, rp))
+        R = np.array((e1, e2))
+        M = np.array((qp, rp))
 
-        D = R * M.T
+        D = R @ M.T
 
         area = np.linalg.det(D) / 2.0
 
@@ -1666,17 +1831,85 @@ class ModelBuilder:
             self.tri_materials.append((tri_ke, tri_ka, tri_kd, tri_drag, tri_lift))
             return area
 
-    def add_tetrahedron(
-        self,
-        i: int,
-        j: int,
-        k: int,
-        l: int,
-        k_mu: float = 1.0e3,
-        k_lambda: float = 1.0e3,
-        k_damp: float = 0.0,
-    ) -> float:
-        """Adds a tetrahedral FEM element between four particles in the system.
+    def add_triangles(self, i:List[int], j:List[int], k:List[int], tri_ke : Optional[List[float]] = None, tri_ka : Optional[List[float]] = None, tri_kd :Optional[List[float]] = None, tri_drag :Optional[List[float]] = None, tri_lift :Optional[List[float]] = None) -> List[float]:
+
+        """Adds trianglular FEM elements between groups of three particles in the system. 
+
+        Triangles are modeled as viscoelastic elements with elastic stiffness and damping
+        Parameters specfied on the model. See model.tri_ke, model.tri_kd.
+
+        Args:
+            i: The indices of the first particle
+            j: The indices of the second particle
+            k: The indices of the third particle
+
+        Return:
+            The areas of the triangles
+
+        Note:
+            A triangle is created with a rest-length based on the distance
+            between the particles in their initial configuration.
+
+        """      
+        # compute basis for 2D rest pose
+        p = np.array(self.particle_q)[i]
+        q = np.array(self.particle_q)[j]
+        r = np.array(self.particle_q)[k]
+
+        qp = q - p
+        rp = r - p
+
+        def normalized(a):
+            l = np.linalg.norm(a,axis=-1,keepdims=True)
+            l[l==0] = 1.0
+            return a / l
+
+        n = normalized(np.cross(qp,rp))
+        e1 = normalized(qp)
+        e2 = normalized(np.cross(n,e1))
+
+        R = np.concatenate((e1[...,None],e2[...,None]),axis=-1)
+        M = np.concatenate((qp[...,None],rp[...,None]),axis=-1)
+
+        D = np.matmul(R.transpose(0,2,1),M)
+        
+        areas = np.linalg.det(D) / 2.0
+        areas[areas < 0.0] = 0.0
+        valid_inds = (areas>0.0).nonzero()[0]
+        if len(valid_inds) < len(areas):
+            print("inverted or degenerate triangle elements")
+        
+        D[areas == 0.0] = np.eye(2)[None,...]
+        inv_D = np.linalg.inv(D)
+
+        inds = np.concatenate( (i[valid_inds,None],j[valid_inds,None],k[valid_inds,None]), axis=-1 )
+
+        self.tri_indices.extend(inds.tolist())
+        self.tri_poses.extend(inv_D[valid_inds].tolist())
+        self.tri_activations.extend([0.0] * len(valid_inds))
+
+        def init_if_none( arr, defaultValue ):
+            if arr is None:
+                return [defaultValue] * len(areas)
+            return arr
+        
+        tri_ke = init_if_none( tri_ke, self.default_tri_ke )
+        tri_ka = init_if_none( tri_ka, self.default_tri_ka )
+        tri_kd = init_if_none( tri_kd, self.default_tri_kd )
+        tri_drag = init_if_none( tri_drag, self.default_tri_drag )
+        tri_lift = init_if_none( tri_lift, self.default_tri_lift )
+
+        self.tri_materials.extend( zip(
+            np.array(tri_ke)[valid_inds],
+            np.array(tri_ka)[valid_inds],
+            np.array(tri_kd)[valid_inds],
+            np.array(tri_drag)[valid_inds],
+            np.array(tri_lift)[valid_inds]
+        ) )
+        return areas.tolist()
+
+    def add_tetrahedron(self, i: int, j: int, k: int, l: int, k_mu: float=1.e+3, k_lambda: float=1.e+3, k_damp: float=0.0) -> float:
+        """Adds a tetrahedral FEM element between four particles in the system. 
 
         Tetrahdera are modeled as viscoelastic elements with a NeoHookean energy
         density based on [Smith et al. 2018].
@@ -1707,7 +1940,7 @@ class ModelBuilder:
         rp = r - p
         sp = s - p
 
-        Dm = np.matrix((qp, rp, sp)).T
+        Dm = np.array((qp, rp, sp)).T
         volume = np.linalg.det(Dm) / 6.0
 
         if volume <= 0.0:
@@ -1775,29 +2008,89 @@ class ModelBuilder:
         self.edge_rest_angle.append(rest)
         self.edge_bending_properties.append((edge_ke, edge_kd))
 
-    def add_cloth_grid(
-        self,
-        pos: Vec3,
-        rot: Quat,
-        vel: Vec3,
-        dim_x: int,
-        dim_y: int,
-        cell_x: float,
-        cell_y: float,
-        mass: float,
-        reverse_winding: bool = False,
-        fix_left: bool = False,
-        fix_right: bool = False,
-        fix_top: bool = False,
-        fix_bottom: bool = False,
-        tri_ke: float = default_tri_ke,
-        tri_ka: float = default_tri_ka,
-        tri_kd: float = default_tri_kd,
-        tri_drag: float = default_tri_drag,
-        tri_lift: float = default_tri_lift,
-        edge_ke: float = default_edge_ke,
-        edge_kd: float = default_edge_kd,
-    ):
+    def add_edges(self, i, j, k, l, rest: Optional[List[float]] = None, edge_ke: Optional[List[float]] = None, edge_kd: Optional[List[float]] = None):
+        """Adds bending edge elements between groups of four particles in the system. 
+
+        Bending elements are designed to be between two connected triangles. Then
+        bending energy is based of [Bridson et al. 2002]. Bending stiffness is controlled
+        by the `model.tri_kb` parameter.
+
+        Args:
+            i: The indices of the first particle
+            j: The indices of the second particle
+            k: The indices of the third particle
+            l: The indices of the fourth particle
+            rest: The rest angles across the edges in radians, if not specified they will be computed
+
+        Note:
+            The edge lies between the particles indexed by 'k' and 'l' parameters with the opposing
+            vertices indexed by 'i' and 'j'. This defines two connected triangles with counter clockwise
+            winding: (i, k, l), (j, l, k).
+
+        """
+        if rest is None:
+            
+            # compute rest angle
+            x1 = np.array(self.particle_q)[i]
+            x2 = np.array(self.particle_q)[j]
+            x3 = np.array(self.particle_q)[k]
+            x4 = np.array(self.particle_q)[l]
+
+            def normalized(a):
+                l = np.linalg.norm(a,axis=-1,keepdims=True)
+                l[l==0] = 1.0
+                return a / l
+
+            n1 = normalized(np.cross(x3 - x1, x4 - x1))
+            n2 = normalized(np.cross(x4 - x2, x3 - x2))
+            e = normalized(x4 - x3)
+
+            def dot(a,b):
+                return (a * b).sum(axis=-1)
+
+            d = np.clip(dot(n2, n1), -1.0, 1.0)
+
+            angle = np.arccos(d)
+            sign = np.sign(dot(np.cross(n2, n1), e))
+
+            rest = angle * sign
+
+        inds = np.concatenate( (i[:,None],j[:,None],k[:,None],l[:,None]), axis=-1 )
+
+        self.edge_indices.extend(inds.tolist())
+        self.edge_rest_angle.extend(rest.tolist())
+        
+        def init_if_none( arr, defaultValue ):
+            if arr is None:
+                return [defaultValue] * len(i)
+            return arr
+        
+        edge_ke = init_if_none( edge_ke, self.default_edge_ke )
+        edge_kd = init_if_none( edge_kd, self.default_edge_kd )
+
+        self.edge_bending_properties.extend(zip(edge_ke, edge_kd))
+
+    def add_cloth_grid(self,
+                       pos: Vec3,
+                       rot: Quat,
+                       vel: Vec3,
+                       dim_x: int,
+                       dim_y: int,
+                       cell_x: float,
+                       cell_y: float,
+                       mass: float,
+                       reverse_winding: bool=False,
+                       fix_left: bool=False,
+                       fix_right: bool=False,
+                       fix_top: bool=False,
+                       fix_bottom: bool=False,
+                       tri_ke: float=default_tri_ke,
+                       tri_ka: float=default_tri_ka,
+                       tri_kd: float=default_tri_kd,
+                       tri_drag: float=default_tri_drag,
+                       tri_lift: float=default_tri_lift, 
+                       edge_ke: float=default_edge_ke,
+                       edge_kd: float=default_edge_kd):
 
         """Helper to create a regular planar cloth grid
 
@@ -1945,58 +2238,49 @@ class ModelBuilder:
 
             The mesh should be two manifold.
         """
-
         num_tris = int(len(indices) / 3)
 
         start_vertex = len(self.particle_q)
         start_tri = len(self.tri_indices)
 
         # particles
-        for i, v in enumerate(vertices):
+        for v in vertices:
 
             p = np.array(wp.quat_rotate(rot, v * scale)) + pos
 
             self.add_particle(p, vel, 0.0)
 
         # triangles
+        inds = start_vertex + np.array(indices)
+        inds = inds.reshape(-1,3)
+        areas = self.add_triangles(
+            inds[:,0],inds[:,1],inds[:,2],
+            [tri_ke] * num_tris,
+            [tri_ka] * num_tris,
+            [tri_kd] * num_tris,
+            [tri_drag] * num_tris,
+            [tri_lift] * num_tris
+        )
+        
         for t in range(num_tris):
+            area = areas[t]
 
-            i = start_vertex + indices[t * 3 + 0]
-            j = start_vertex + indices[t * 3 + 1]
-            k = start_vertex + indices[t * 3 + 2]
+            self.particle_mass[inds[t,0]] += density * area / 3.0
+            self.particle_mass[inds[t,1]] += density * area / 3.0
+            self.particle_mass[inds[t,2]] += density * area / 3.0
 
-            if face_callback:
-                face_callback(i, j, k)
-
-            area = self.add_triangle(
-                i, j, k, tri_ke, tri_ka, tri_kd, tri_drag, tri_lift
-            )
-
-            # add area fraction to particles
-            if area > 0.0:
-
-                self.particle_mass[i] += density * area / 3.0
-                self.particle_mass[j] += density * area / 3.0
-                self.particle_mass[k] += density * area / 3.0
-
-        end_vertex = len(self.particle_q)
         end_tri = len(self.tri_indices)
 
         adj = wp.utils.MeshAdjacency(
             self.tri_indices[start_tri:end_tri], end_tri - start_tri
         )
 
-        # bend constraints
-        for k, e in adj.edges.items():
-
-            # skip open edges
-            if e.f0 == -1 or e.f1 == -1:
-                continue
-
-            if edge_callback:
-                edge_callback(e.f0, e.f1)
-
-            self.add_edge(e.o0, e.o1, e.v0, e.v1, edge_ke=edge_ke, edge_kd=edge_kd)
+        edgeinds = np.array([[e.o0,e.o1,e.v0,e.v1] for k,e in adj.edges.items()])
+        self.add_edges(
+            edgeinds[:,0], edgeinds[:,1], edgeinds[:,2], edgeinds[:,0],
+            edge_ke=[edge_ke] * len(edgeinds),
+            edge_kd=[edge_kd] * len(edgeinds)
+        )
 
     def add_particle_grid(
         self,
@@ -2327,6 +2611,52 @@ class ModelBuilder:
 
         return (m, I)
 
+    def compute_mesh_inertia(self, density: float, vertices: list, indices: list) -> tuple:
+        com = np.mean(vertices, 0)
+
+        num_tris = len(indices) // 3
+
+        # compute signed inertia for each tetrahedron
+        # formed with the interior point, using an order-2
+        # quadrature: https://www.sciencedirect.com/science/article/pii/S0377042712001604#br000040
+
+        weight = 0.25
+        alpha = math.sqrt(5.0) / 5.0
+
+        I = np.zeros((3, 3))
+        mass = 0.0
+
+        for i in range(num_tris):
+
+            p = np.array(vertices[indices[i * 3 + 0]])
+            q = np.array(vertices[indices[i * 3 + 1]])
+            r = np.array(vertices[indices[i * 3 + 2]])
+
+            mid = (com + p + q + r) / 4.0
+
+            pcom = p - com
+            qcom = q - com
+            rcom = r - com
+
+            Dm = np.matrix((pcom, qcom, rcom)).T
+            volume = np.linalg.det(Dm) / 6.0
+            if volume == 0.0:
+                continue
+
+            # quadrature points lie on the line between the
+            # centroid and each vertex of the tetrahedron
+            quads = (mid + (p - mid) * alpha, mid + (q - mid) * alpha, mid + (r - mid) * alpha, mid + (com - mid) * alpha)
+
+            for j in range(4):
+
+                # displacement of quadrature point from COM
+                d = quads[j] - com
+
+                I += weight * volume * (np.dot(d, d) * np.eye(3, 3) - np.outer(d, d))
+                mass += weight * volume
+
+        return (mass * density, I * density)
+
     def _compute_shape_mass(self, type, scale, src, density):
 
         if density == 0:  # zero density means fixed
@@ -2340,10 +2670,14 @@ class ModelBuilder:
             )
         elif type == GEO_CAPSULE:
             return self.compute_capsule_inertia(density, scale[0], scale[1] * 2.0)
-        elif type == GEO_MESH:
-            # todo: non-uniform scale of inertia tensor
-            s = scale[0]
-            return (density * src.mass * s * s * s, density * src.I * s * s * s * s * s)
+        elif (type == GEO_MESH):
+            #todo: non-uniform scale of inertia tensor
+            if src.mass > 0.0:
+                s = scale[0]
+                return (density * src.mass * s * s * s, density * src.I * s * s * s * s * s)
+            else:
+                # fall back to computing inertia from mesh geometry
+                return self.compute_mesh_inertia(density, src.vertices, src.indices)
 
     def _transform_inertia(self, m, I, p, q):
         R = np.array(wp.quat_to_matrix(q)).reshape(3, 3)
@@ -2377,7 +2711,18 @@ class ModelBuilder:
         self.body_inertia[i] = new_inertia
         self.body_com[i] = new_com
 
-    def finalize(self, device=None) -> Model:
+        if (new_mass > 0.0):
+            self.body_inv_mass[i] = 1.0/new_mass
+        else:
+            self.body_inv_mass[i] = 0.0
+            
+        if new_inertia.any():
+            self.body_inv_inertia[i] = np.linalg.inv(new_inertia)
+        else:
+            self.body_inv_inertia[i] = new_inertia
+
+
+    def finalize(self, device=None, requires_grad=False) -> Model:
         """Convert this builder object to a concrete model for simulation.
 
         After building simulation elements this method should be called to transfer
@@ -2385,6 +2730,7 @@ class ModelBuilder:
 
         Args:
             device: The simulation device to use, e.g.: 'cpu', 'cuda'
+            requires_grad: Whether to enable gradient computation for the model
 
         Returns:
 
@@ -2402,139 +2748,91 @@ class ModelBuilder:
             else:
                 particle_inv_mass.append(0.0)
 
-        # construct rigid inv masses
-        body_inv_mass = []
-        body_inv_inertia = []
-
-        for m in self.body_mass:
-            if m > 0.0:
-                body_inv_mass.append(1.0 / m)
-            else:
-                body_inv_mass.append(0.0)
-
-        for i in self.body_inertia:
-            if i.any():
-                body_inv_inertia.append(np.linalg.inv(i))
-            else:
-                body_inv_inertia.append(i)
-
         with wp.ScopedDevice(device):
 
             # -------------------------------------
             # construct Model (non-time varying) data
 
-            m = Model()
+            m = Model(device)
+            m.requires_grad = requires_grad
 
             # ---------------------
             # particles
 
             # state (initial)
-            m.particle_q = wp.array(self.particle_q, dtype=wp.vec3)
-            m.particle_q_original = wp.array(self.particle_q, dtype=wp.vec3)
-            m.particle_qd = wp.array(self.particle_qd, dtype=wp.vec3)
-            m.particle_mass = wp.array(self.particle_mass, dtype=wp.float32)
-            m.particle_inv_mass = wp.array(particle_inv_mass, dtype=wp.float32)
+            m.particle_q = wp.array(self.particle_q, dtype=wp.vec3, requires_grad=requires_grad)
+            m.particle_q_original = wp.array(self.particle_q, dtype=wp.vec3, requires_grad=requires_grad)
+            m.particle_qd = wp.array(self.particle_qd, dtype=wp.vec3, requires_grad=requires_grad)
+            m.particle_mass = wp.array(self.particle_mass, dtype=wp.float32, requires_grad=requires_grad)
+            m.particle_inv_mass = wp.array(particle_inv_mass, dtype=wp.float32, requires_grad=requires_grad)
 
             # ---------------------
             # collision geometry
 
-            m.shape_transform = wp.array(
-                self.shape_transform, dtype=wp.transform, device=device
-            )
-            m.shape_body = wp.array(self.shape_body, dtype=wp.int32, device=device)
-            m.shape_geo_type = wp.array(
-                self.shape_geo_type, dtype=wp.int32, device=device
-            )
+            m.shape_transform = wp.array(self.shape_transform, dtype=wp.transform, requires_grad=requires_grad)
+            m.shape_body = wp.array(self.shape_body, dtype=wp.int32)
+            m.shape_geo_type = wp.array(self.shape_geo_type, dtype=wp.int32)
             m.shape_geo_src = self.shape_geo_src
 
             # build list of ids for geometry sources (meshes, sdfs)
             shape_geo_id = []
+            # number of mesh vertices per geo (0 if geo is not a mesh)
             mesh_num_points = []
             for geo in self.shape_geo_src:
                 if geo:
                     shape_geo_id.append(geo.finalize(device=device))
-                    # TODO remove this
                     mesh_num_points.append(len(geo.vertices))
                 else:
                     shape_geo_id.append(-1)
                     mesh_num_points.append(0)
 
-            m.shape_geo_id = wp.array(shape_geo_id, dtype=wp.uint64, device=device)
-            m.mesh_num_points = wp.array(mesh_num_points, dtype=wp.int32, device=device)
-            m.shape_geo_scale = wp.array(
-                self.shape_geo_scale, dtype=wp.vec3, device=device
-            )
+            m.shape_geo_id = wp.array(shape_geo_id, dtype=wp.uint64)
+            m.mesh_num_points = wp.array(mesh_num_points, dtype=wp.int32)
+            m.shape_geo_scale = wp.array(self.shape_geo_scale, dtype=wp.vec3, requires_grad=requires_grad)
             m.shape_materials = ShapeContactMaterial()
-            m.shape_materials.ke = wp.array(
-                self.shape_material_ke, dtype=wp.float32, device=device
-            )
-            m.shape_materials.kd = wp.array(
-                self.shape_material_kd, dtype=wp.float32, device=device
-            )
-            m.shape_materials.kf = wp.array(
-                self.shape_material_kf, dtype=wp.float32, device=device
-            )
-            m.shape_materials.mu = wp.array(
-                self.shape_material_mu, dtype=wp.float32, device=device
-            )
-            m.shape_materials.restitution = wp.array(
-                self.shape_material_restitution, dtype=wp.float32, device=device
-            )
-            m.shape_contact_thickness = wp.array(
-                self.shape_contact_thickness, dtype=wp.float32, device=device
-            )
+            m.shape_materials.ke = wp.array(self.shape_material_ke, dtype=wp.float32, requires_grad=requires_grad)
+            m.shape_materials.kd = wp.array(self.shape_material_kd, dtype=wp.float32, requires_grad=requires_grad)
+            m.shape_materials.kf = wp.array(self.shape_material_kf, dtype=wp.float32, requires_grad=requires_grad)
+            m.shape_materials.mu = wp.array(self.shape_material_mu, dtype=wp.float32, requires_grad=requires_grad)
+            m.shape_materials.restitution = wp.array(self.shape_material_restitution, dtype=wp.float32, requires_grad=requires_grad)
+            m.shape_contact_thickness = wp.array(self.shape_contact_thickness, dtype=wp.float32, requires_grad=requires_grad)
 
-            collision_mask = np.ones(
-                (len(self.shape_geo_type), len(self.shape_geo_type)), dtype=np.int32
-            )
-            np.fill_diagonal(collision_mask, 0)  # disable self-collision
-            # create mask out of the list of enabled collision pairs for faster lookup
-            for i, j in self.shape_collision_filter_pairs:
-                collision_mask[i, j] = 0
-                collision_mask[j, i] = 0
-            m.shape_collision_mask = wp.array(
-                collision_mask, ndim=2, dtype=wp.int32, device=device
-            )
-            m.shape_collision_group = wp.array(
-                self.shape_collision_group, dtype=wp.int32, device=device
-            )
-            m.shape_collision_radius = wp.array(
-                self.shape_collision_radius, dtype=wp.float32, device=device
-            )
+            m.shape_collision_filter_pairs = self.shape_collision_filter_pairs
+            m.shape_collision_group = self.shape_collision_group
+            m.shape_collision_group_map = self.shape_collision_group_map
+            m.shape_collision_radius = wp.array(self.shape_collision_radius, dtype=wp.float32, requires_grad=requires_grad)
 
-            # ---------------------
+            #---------------------
             # springs
 
             m.spring_indices = wp.array(self.spring_indices, dtype=wp.int32)
-            m.spring_rest_length = wp.array(self.spring_rest_length, dtype=wp.float32)
-            m.spring_stiffness = wp.array(self.spring_stiffness, dtype=wp.float32)
-            m.spring_damping = wp.array(self.spring_damping, dtype=wp.float32)
-            m.spring_control = wp.array(self.spring_control, dtype=wp.float32)
+            m.spring_rest_length = wp.array(self.spring_rest_length, dtype=wp.float32, requires_grad=requires_grad)
+            m.spring_stiffness = wp.array(self.spring_stiffness, dtype=wp.float32, requires_grad=requires_grad)
+            m.spring_damping = wp.array(self.spring_damping, dtype=wp.float32, requires_grad=requires_grad)
+            m.spring_control = wp.array(self.spring_control, dtype=wp.float32, requires_grad=requires_grad)
 
             # ---------------------
             # triangles
 
             m.tri_indices = wp.array(self.tri_indices, dtype=wp.int32)
-            m.tri_poses = wp.array(self.tri_poses, dtype=wp.mat22)
-            m.tri_activations = wp.array(self.tri_activations, dtype=wp.float32)
-            m.tri_materials = wp.array(self.tri_materials, dtype=wp.float32)
+            m.tri_poses = wp.array(self.tri_poses, dtype=wp.mat22, requires_grad=requires_grad)
+            m.tri_activations = wp.array(self.tri_activations, dtype=wp.float32, requires_grad=requires_grad)
+            m.tri_materials = wp.array(self.tri_materials, dtype=wp.float32, requires_grad=requires_grad)
 
             # ---------------------
             # edges
 
             m.edge_indices = wp.array(self.edge_indices, dtype=wp.int32)
-            m.edge_rest_angle = wp.array(self.edge_rest_angle, dtype=wp.float32)
-            m.edge_bending_properties = wp.array(
-                self.edge_bending_properties, dtype=wp.float32
-            )
+            m.edge_rest_angle = wp.array(self.edge_rest_angle, dtype=wp.float32, requires_grad=requires_grad)
+            m.edge_bending_properties = wp.array(self.edge_bending_properties, dtype=wp.float32, requires_grad=requires_grad)
 
             # ---------------------
             # tetrahedra
 
             m.tet_indices = wp.array(self.tet_indices, dtype=wp.int32)
-            m.tet_poses = wp.array(self.tet_poses, dtype=wp.mat33)
-            m.tet_activations = wp.array(self.tet_activations, dtype=wp.float32)
-            m.tet_materials = wp.array(self.tet_materials, dtype=wp.float32)
+            m.tet_poses = wp.array(self.tet_poses, dtype=wp.mat33, requires_grad=requires_grad)
+            m.tet_activations = wp.array(self.tet_activations, dtype=wp.float32, requires_grad=requires_grad)
+            m.tet_materials = wp.array(self.tet_materials, dtype=wp.float32, requires_grad=requires_grad)
 
             # -----------------------
             # muscles
@@ -2544,21 +2842,20 @@ class ModelBuilder:
             muscle_start.append(len(self.muscle_bodies))
 
             m.muscle_start = wp.array(muscle_start, dtype=wp.int32)
-            m.muscle_params = wp.array(self.muscle_params, dtype=wp.float32)
+            m.muscle_params = wp.array(self.muscle_params, dtype=wp.float32, requires_grad=requires_grad)
             m.muscle_bodies = wp.array(self.muscle_bodies, dtype=wp.int32)
-            m.muscle_points = wp.array(self.muscle_points, dtype=wp.vec3)
-            m.muscle_activation = wp.array(self.muscle_activation, dtype=wp.float32)
+            m.muscle_points = wp.array(self.muscle_points, dtype=wp.vec3, requires_grad=requires_grad)
+            m.muscle_activation = wp.array(self.muscle_activation, dtype=wp.float32, requires_grad=requires_grad)
 
             # --------------------------------------
             # rigid bodies
-
-            m.body_q = wp.array(self.body_q, dtype=wp.transform)
-            m.body_qd = wp.array(self.body_qd, dtype=wp.spatial_vector)
-            m.body_inertia = wp.array(self.body_inertia, dtype=wp.mat33)
-            m.body_inv_inertia = wp.array(body_inv_inertia, dtype=wp.mat33)
-            m.body_mass = wp.array(self.body_mass, dtype=wp.float32)
-            m.body_inv_mass = wp.array(body_inv_mass, dtype=wp.float32)
-            m.body_com = wp.array(self.body_com, dtype=wp.vec3)
+            m.body_q = wp.array(self.body_q, dtype=wp.transform, requires_grad=requires_grad)
+            m.body_qd = wp.array(self.body_qd, dtype=wp.spatial_vector, requires_grad=requires_grad)
+            m.body_inertia = wp.array(self.body_inertia, dtype=wp.mat33, requires_grad=requires_grad)
+            m.body_inv_inertia = wp.array(self.body_inv_inertia, dtype=wp.mat33, requires_grad=requires_grad)
+            m.body_mass = wp.array(self.body_mass, dtype=wp.float32, requires_grad=requires_grad)
+            m.body_inv_mass = wp.array(self.body_inv_mass, dtype=wp.float32, requires_grad=requires_grad)
+            m.body_com = wp.array(self.body_com, dtype=wp.vec3, requires_grad=requires_grad)
             m.body_name = self.body_name
 
             # model
@@ -2566,30 +2863,26 @@ class ModelBuilder:
             m.joint_type = wp.array(self.joint_type, dtype=wp.int32)
             m.joint_parent = wp.array(self.joint_parent, dtype=wp.int32)
             m.joint_child = wp.array(self.joint_child, dtype=wp.int32)
-            m.joint_X_p = wp.array(self.joint_X_p, dtype=wp.transform)
-            m.joint_X_c = wp.array(self.joint_X_c, dtype=wp.transform)
-            m.joint_axis = wp.array(self.joint_axis, dtype=wp.vec3)
-            m.joint_q = wp.array(self.joint_q, dtype=float)
-            m.joint_qd = wp.array(self.joint_qd, dtype=float)
+            m.joint_X_p = wp.array(self.joint_X_p, dtype=wp.transform, requires_grad=requires_grad)
+            m.joint_X_c = wp.array(self.joint_X_c, dtype=wp.transform, requires_grad=requires_grad)
+            m.joint_axis = wp.array(self.joint_axis, dtype=wp.vec3, requires_grad=requires_grad)
+            m.joint_q = wp.array(self.joint_q, dtype=wp.float32, requires_grad=requires_grad)
+            m.joint_qd = wp.array(self.joint_qd, dtype=wp.float32, requires_grad=requires_grad)
             m.joint_name = self.joint_name
 
             # dynamics properties
-            m.joint_armature = wp.array(self.joint_armature, dtype=wp.float32)
-            m.joint_target = wp.array(self.joint_target, dtype=wp.float32)
-            m.joint_target_ke = wp.array(self.joint_target_ke, dtype=wp.float32)
-            m.joint_target_kd = wp.array(self.joint_target_kd, dtype=wp.float32)
-            m.joint_act = wp.array(self.joint_act, dtype=wp.float32)
+            m.joint_armature = wp.array(self.joint_armature, dtype=wp.float32, requires_grad=requires_grad)
+            m.joint_target = wp.array(self.joint_target, dtype=wp.float32, requires_grad=requires_grad)
+            m.joint_target_ke = wp.array(self.joint_target_ke, dtype=wp.float32, requires_grad=requires_grad)
+            m.joint_target_kd = wp.array(self.joint_target_kd, dtype=wp.float32, requires_grad=requires_grad)
+            m.joint_act = wp.array(self.joint_act, dtype=wp.float32, requires_grad=requires_grad)
 
-            m.joint_limit_lower = wp.array(self.joint_limit_lower, dtype=wp.float32)
-            m.joint_limit_upper = wp.array(self.joint_limit_upper, dtype=wp.float32)
-            m.joint_limit_ke = wp.array(self.joint_limit_ke, dtype=wp.float32)
-            m.joint_limit_kd = wp.array(self.joint_limit_kd, dtype=wp.float32)
-            m.joint_linear_compliance = wp.array(
-                self.joint_linear_compliance, dtype=wp.float32
-            )
-            m.joint_angular_compliance = wp.array(
-                self.joint_angular_compliance, dtype=wp.float32
-            )
+            m.joint_limit_lower = wp.array(self.joint_limit_lower, dtype=wp.float32, requires_grad=requires_grad)
+            m.joint_limit_upper = wp.array(self.joint_limit_upper, dtype=wp.float32, requires_grad=requires_grad)
+            m.joint_limit_ke = wp.array(self.joint_limit_ke, dtype=wp.float32, requires_grad=requires_grad)
+            m.joint_limit_kd = wp.array(self.joint_limit_kd, dtype=wp.float32, requires_grad=requires_grad)
+            m.joint_linear_compliance = wp.array(self.joint_linear_compliance, dtype=wp.float32, requires_grad=requires_grad)
+            m.joint_angular_compliance = wp.array(self.joint_angular_compliance, dtype=wp.float32, requires_grad=requires_grad)
 
             # 'close' the start index arrays with a sentinel value
             joint_q_start = copy.copy(self.joint_q_start)
@@ -2599,19 +2892,9 @@ class ModelBuilder:
             articulation_start = copy.copy(self.articulation_start)
             articulation_start.append(self.joint_count)
 
-            m.joint_q_start = wp.array(joint_q_start, dtype=int)
-            m.joint_qd_start = wp.array(joint_qd_start, dtype=int)
-            m.articulation_start = wp.array(articulation_start, dtype=int)
-
-            # contacts
-            m.allocate_soft_contacts(64 * 1024)
-            # TODO reset
-            m.allocate_rigid_contacts(256 * self.num_envs)
-            m.rigid_contact_margin = self.rigid_contact_margin
-            m.rigid_contact_torsional_friction = self.rigid_contact_torsional_friction
-            m.rigid_contact_rolling_friction = self.rigid_contact_rolling_friction
-            # XXX this variable is not used at the moment
-            m.rigid_contact_jitter_threshold = self.rigid_contact_jitter_threshold
+            m.joint_q_start = wp.array(joint_q_start, dtype=wp.int32)
+            m.joint_qd_start = wp.array(joint_qd_start, dtype=wp.int32)
+            m.articulation_start = wp.array(articulation_start, dtype=wp.int32)
 
             # counts
             m.particle_count = len(self.particle_q)
@@ -2624,6 +2907,15 @@ class ModelBuilder:
             m.muscle_count = len(self.muscle_start)
             m.articulation_count = len(self.articulation_start)
 
+            # contacts
+            m.allocate_soft_contacts(1*1024, requires_grad=requires_grad)
+            m.allocate_rigid_contacts(self.num_rigid_contacts_per_env*self.num_envs, requires_grad=requires_grad)
+            m.rigid_contact_margin = self.rigid_contact_margin            
+            m.rigid_contact_torsional_friction = self.rigid_contact_torsional_friction
+            m.rigid_contact_rolling_friction = self.rigid_contact_rolling_friction
+            # XXX this variable is not used at the moment
+            m.rigid_contact_jitter_threshold = self.rigid_contact_jitter_threshold
+            
             m.joint_dof_count = self.joint_dof_count
             m.joint_coord_count = self.joint_coord_count
 
@@ -2636,23 +2928,13 @@ class ModelBuilder:
 
             # store volumes in model to keep the references alive when ModelBuilder gets destroyed
             m.shape_volumes = self.shape_volumes
-            m.shape_volume_id = wp.array(
-                [(v.id if v is not None else 0) for v in m.shape_volumes],
-                dtype=wp.uint64,
-                device=device,
-            )
+            m.shape_volume_id = wp.array([(v.id if v is not None else 0) for v in m.shape_volumes], dtype=wp.uint64)
 
             # enable ground plane
             m.ground = True
-            m.ground_plane = wp.array(
-                [*self.upvector, 0.0], dtype=wp.float32, device=device
-            )
+            m.ground_plane = wp.array([*self.upvector, 0.0], dtype=wp.float32, requires_grad=requires_grad)
             # m.gravity = np.array(self.upvector) * self.gravity
-            m.gravity = wp.array(
-                [*(np.array(self.upvector) * self.gravity)],
-                dtype=wp.float32,
-                device=device,
-            )
+            m.gravity = wp.array([*(np.array(self.upvector) * self.gravity)], dtype=wp.float32, requires_grad=requires_grad)
 
             m.enable_tri_collisions = False
 

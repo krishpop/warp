@@ -81,19 +81,11 @@ def urdf_add_collision(builder, link, collisions, density, shape_ke, shape_kd, s
         if geo.mesh:
 
             for m in geo.mesh.meshes:
-                faces = []
-                vertices = []
-
-                for v in m.vertices:
-                    vertices.append(np.array(v))
-
-                for f in m.faces:
-                    faces.append(int(f[0]))
-                    faces.append(int(f[1]))
-                    faces.append(int(f[2]))
-
+                faces = list(np.array(m.faces).astype('int').flatten())
+                vertices = np.array(m.vertices, dtype=np.float32).reshape((-1, 3))
+                if geo.mesh.scale is not None:
+                    vertices *= geo.mesh.scale
                 mesh = Mesh(vertices, faces)
-
                 builder.add_shape_mesh(
                     body=link,
                     pos=pos,
@@ -105,7 +97,6 @@ def urdf_add_collision(builder, link, collisions, density, shape_ke, shape_kd, s
                     kf=shape_kf,
                     mu=shape_mu,
                     restitution=shape_restitution)
-
 
 def parse_urdf(
         filename,
@@ -123,7 +114,8 @@ def parse_urdf(
         shape_restitution=0.5,
         limit_ke=100.0,
         limit_kd=10.0,
-        parse_visuals_as_colliders=False):
+        parse_visuals_as_colliders=False,
+        enable_self_collisions=True):
 
     robot = urdfpy.URDF.load(filename)
 
@@ -131,6 +123,8 @@ def parse_urdf(
     link_index = {}
 
     builder.add_articulation()
+    
+    start_shape_count = len(builder.shape_geo_type)
 
     # import inertial properties from URDF if density is zero
     if density == 0.0:
@@ -170,8 +164,11 @@ def parse_urdf(
         builder.joint_q[start + 4] = xform.q[1]
         builder.joint_q[start + 5] = xform.q[2]
         builder.joint_q[start + 6] = xform.q[3]
+        # make sure we do not reset inertia to zero if density is zero where we use the inertia from the URDF
+        actual_density = 1.0 if m > 0.0 and density == 0.0 else density
         urdf_add_collision(
-            builder, root, colliders, density, shape_ke, shape_kd, shape_kf, shape_mu, shape_restitution)
+            builder, root, colliders, actual_density, shape_ke, shape_kd, shape_kf, shape_mu, shape_restitution)
+        
     else:
         root = builder.add_body(origin=wp.transform_identity(),
                                 parent=-1,
@@ -265,3 +262,10 @@ def parse_urdf(
 
         # add ourselves to the index
         link_index[joint.child] = link
+    
+    end_shape_count = len(builder.shape_geo_type)
+
+    if not enable_self_collisions:
+        for i in range(start_shape_count, end_shape_count):
+            for j in range(i+1, end_shape_count):
+                builder.shape_collision_filter_pairs.add((i, j))

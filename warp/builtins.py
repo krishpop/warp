@@ -387,6 +387,26 @@ add_builtin("mlp", input_types={"weights": array(dtype=float, ndim=2), "bias": a
 #---------------------------------
 # Geometry
 
+add_builtin("bvh_query_aabb", input_types={"id": uint64, "lower": vec3, "upper": vec3}, value_type=bvh_query_t, group="Geometry",
+    doc="""Construct an axis-aligned bounding box query against a bvh object. This query can be used to iterate over all bounds
+   inside a bvh. Returns an object that is used to track state during bvh traversal.
+    
+   :param id: The bvh identifier
+   :param lower: The lower bound of the bounding box in bvh space
+   :param upper: The upper bound of the bounding box in bvh space""")
+
+add_builtin("bvh_query_ray", input_types={"id": uint64, "start": vec3, "dir": vec3}, value_type=bvh_query_t, group="Geometry",
+    doc="""Construct a ray query against a bvh object. This query can be used to iterate over all bounds
+   that intersect the ray. Returns an object that is used to track state during bvh traversal.
+    
+   :param id: The bvh identifier
+   :param start: The start of the ray in bvh space
+   :param dir: The direction of the ray in bvh space""")
+
+add_builtin("bvh_query_next", input_types={"query": bvh_query_t, "index": int}, value_type=bool, group="Geometry",
+    doc="""Move to the next bound returned by the query. The index of the current bound is stored in ``index``, returns ``False``
+   if there are no more overlapping bound.""")
+
 add_builtin("mesh_query_point", input_types={"id": uint64, "point": vec3, "max_dist": float, "inside": float, "face": int, "bary_u": float, "bary_v": float}, value_type=bool, group="Geometry",
     doc="""Computes the closest point on the mesh with identifier `id` to the given point in space. Returns ``True`` if a point < ``max_dist`` is found.
 
@@ -497,11 +517,17 @@ add_builtin("volume_sample_f", input_types={"id": uint64, "uvw": vec3, "sampling
 add_builtin("volume_lookup_f", input_types={"id": uint64, "i": int, "j": int, "k": int}, value_type=float, group="Volumes",
     doc="""Returns the value of voxel with coordinates ``i``, ``j``, ``k``, if the voxel at this index does not exist this function returns the background value""")
 
+add_builtin("volume_store_f", input_types={"id": uint64, "i": int, "j": int, "k": int, "value": float}, group="Volumes",
+    doc="""Store the value at voxel with coordinates ``i``, ``j``, ``k``.""")
+
 add_builtin("volume_sample_v", input_types={"id": uint64, "uvw": vec3, "sampling_mode": int}, value_type=vec3, group="Volumes",
     doc="""Sample the vector volume given by ``id`` at the volume local-space point ``uvw``. Interpolation should be ``wp.Volume.CLOSEST``, or ``wp.Volume.LINEAR.``""")
 
 add_builtin("volume_lookup_v", input_types={"id": uint64, "i": int, "j": int, "k": int}, value_type=vec3, group="Volumes",
     doc="""Returns the vector value of voxel with coordinates ``i``, ``j``, ``k``, if the voxel at this index does not exist this function returns the background value""")
+
+add_builtin("volume_store_v", input_types={"id": uint64, "i": int, "j": int, "k": int, "value": vec3}, group="Volumes",
+    doc="""Store the value at voxel with coordinates ``i``, ``j``, ``k``.""")
 
 add_builtin("volume_sample_i", input_types={"id": uint64, "uvw": vec3}, value_type=int, group="Volumes",
     doc="""Sample the int32 volume given by ``id`` at the volume local-space point ``uvw``. """)
@@ -610,6 +636,7 @@ add_builtin("tid", input_types={}, value_type=[int, int, int, int], group="Utili
 
 add_builtin("copy", variadic=True, hidden=True, export=False, group="Utility")
 add_builtin("select", input_types={"cond": bool, "arg1": Any, "arg2": Any}, value_func=lambda args: args[1].type, doc="Select between two arguments, if cond is false then return ``arg1``, otherwise return ``arg2``", group="Utility")
+add_builtin("select", input_types={"arr": array(dtype=Any), "arg1": Any, "arg2": Any}, value_func=lambda args: args[1].type, doc="Select between two arguments, if array is null then return ``arg1``, otherwise return ``arg2``", group="Utility")
 
 # does argument checking and type progagation for load()
 def load_value_func(args):
@@ -740,29 +767,35 @@ add_builtin("inc_index", input_types={"a": array(dtype=int), "tid": int, "limit"
 
 
 # used to index into builtin types, i.e.: y = vec3[1]
-add_builtin("index", input_types={"a": vec2, "i": int}, value_type=float,  group="Utility")
-add_builtin("index", input_types={"a": vec3, "i": int}, value_type=float,  group="Utility")
-add_builtin("index", input_types={"a": vec4, "i": int}, value_type=float,  group="Utility")
-add_builtin("index", input_types={"a": quat, "i": int}, value_type=float,  group="Utility")
+add_builtin("index", input_types={"a": vec2, "i": int}, value_type=float, group="Utility")
+add_builtin("index", input_types={"a": vec3, "i": int}, value_type=float, group="Utility")
+add_builtin("index", input_types={"a": vec4, "i": int}, value_type=float, group="Utility")
+add_builtin("index", input_types={"a": quat, "i": int}, value_type=float, group="Utility")
 
-add_builtin("index", input_types={"a": mat22, "i": int}, value_type=vec2,  group="Utility")
-add_builtin("index", input_types={"a": mat22, "i": int, "j": int}, value_type=float,  group="Utility")
+add_builtin("index", input_types={"a": mat22, "i": int}, value_type=vec2, group="Utility")
+add_builtin("index", input_types={"a": mat22, "i": int, "j": int}, value_type=float, group="Utility")
 
-add_builtin("index", input_types={"a": mat33, "i": int}, value_type=vec3,  group="Utility")
-add_builtin("index", input_types={"a": mat33, "i": int, "j": int}, value_type=float,  group="Utility")
+add_builtin("index", input_types={"a": mat33, "i": int}, value_type=vec3, group="Utility")
+add_builtin("index", input_types={"a": mat33, "i": int, "j": int}, value_type=float, group="Utility")
 
-add_builtin("index", input_types={"a": mat44, "i": int}, value_type=vec4,  group="Utility")
-add_builtin("index", input_types={"a": mat44, "i": int, "j": int}, value_type=float,  group="Utility")
+add_builtin("index", input_types={"a": mat44, "i": int}, value_type=vec4, group="Utility")
+add_builtin("index", input_types={"a": mat44, "i": int, "j": int}, value_type=float, group="Utility")
 
-add_builtin("index", input_types={"a": transform, "i": int}, value_type=float,  group="Utility")
-add_builtin("index", input_types={"a": spatial_vector, "i": int}, value_type=float,  group="Utility")
+add_builtin("index", input_types={"a": spatial_matrix, "i": int, "j": int}, value_type=float, group="Utility")
 
+add_builtin("index", input_types={"a": spatial_vector, "i": int}, value_type=float, group="Utility")
+add_builtin("index", input_types={"a": transform, "i": int}, value_type=float, group="Utility")
+
+add_builtin("index", input_types={"s": shape_t, "i": int}, value_type=int, group="Utility")
 
 for t in scalar_types + vector_types:
     add_builtin("expect_eq", input_types={"arg1": t, "arg2": t}, value_type=None, doc="Prints an error to stdout if arg1 and arg2 are not equal", group="Utility")
 
-    if type_is_int(t) == False:
+for t in compute_types + vector_types:
+    if not type_is_int(t):
         add_builtin("lerp", input_types={"a": t, "b": t, "t": float}, value_type=t, doc="Linearly interpolate two values a and b using factor t, computed as ``a*(1-t) + b*t``", group="Utility")
+
+add_builtin("smoothstep", input_types={"a": float, "b": float, "t": float}, value_type=float, doc="Smoothly interpolate two values a and b using factor t, using a cubic Hermite interpolation after clamping", group="Utility")
 
 # fuzzy compare for float values
 add_builtin("expect_near", input_types={"arg1": float, "arg2": float, "tolerance": float}, value_type=None, doc="Prints an error to stdout if arg1 and arg2 are not closer than tolerance in magnitude", group="Utility")

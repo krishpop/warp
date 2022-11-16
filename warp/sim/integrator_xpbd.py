@@ -231,159 +231,6 @@ def apply_deltas(x_orig: wp.array(dtype=wp.vec3),
     v_out[tid] = v_new
 
 
-@wp.func
-def positional_correction(
-    dx: wp.vec3,
-    r1: wp.vec3,
-    r2: wp.vec3,
-    tf1: wp.transform,
-    tf2: wp.transform,
-    m_inv1: float,
-    m_inv2: float,
-    I_inv1: wp.mat33,
-    I_inv2: wp.mat33,
-    alpha_tilde: float,
-    relaxation: float,
-    lambda_in: float,
-    max_lambda: float,
-    deltas: wp.array(dtype=wp.spatial_vector),
-    body_1: int,
-    body_2: int,
-) -> wp.vec3:
-    # Computes and applies the correction impulse for a positional constraint.
-
-    c = wp.length(dx)
-    if c == 0.0:
-        # print("c == 0.0 in positional correction")
-        return wp.vec3(0.0, 0.0, 0.0)
-
-    n = wp.normalize(dx)
-
-    q1 = wp.transform_get_rotation(tf1)
-    q2 = wp.transform_get_rotation(tf2)
-
-    # Eq. 2-3 (make sure to project into the frame of the body)
-    r1xn = wp.quat_rotate_inv(q1, wp.cross(r1, n))
-    r2xn = wp.quat_rotate_inv(q2, wp.cross(r2, n))
-
-    w1 = m_inv1 + wp.dot(r1xn, I_inv1 * r1xn)
-    w2 = m_inv2 + wp.dot(r2xn, I_inv2 * r2xn)
-    w = w1 + w2
-    if w == 0.0:
-        return wp.vec3(0.0, 0.0, 0.0)
-
-    # Eq. 4-5
-    d_lambda = (-c - alpha_tilde * lambda_in) / (w + alpha_tilde)
-    lambda_out = lambda_in + d_lambda
-    # print("d_lambda")
-    # print(d_lambda)
-    if max_lambda > 0.0 and wp.abs(lambda_out) > wp.abs(max_lambda):
-    #     # print("lambda_out > max_lambda")
-    #     # d_lambda = max_lambda
-    #     # d_lambda = wp.min(d_lambda, max_lambda)
-        return wp.vec3(0.0, 0.0, 0.0)
-    p = d_lambda * n * relaxation
-
-    # if wp.abs(d_lambda) > 0.1:
-    #     return wp.vec3(0.0)
-
-    if body_1 >= 0 and m_inv1 > 0.0:
-        # Eq. 6
-        dp = p
-
-        # Eq. 8
-        rd = wp.quat_rotate_inv(q1, wp.cross(r1, p))
-        dq = wp.quat_rotate(q1, I_inv1 * rd) * 0.5
-        w = wp.length(dq)
-        if w > 0.01:
-            dq = wp.normalize(dq) * 0.01
-        wp.atomic_sub(deltas, body_1, wp.spatial_vector(dq, dp))
-
-    if body_2 >= 0 and m_inv2 > 0.0:
-        # Eq. 7
-        dp = p
-
-        # Eq. 9
-        rd = wp.quat_rotate_inv(q2, wp.cross(r2, p))
-        dq = wp.quat_rotate(q2, I_inv2 * rd) * 0.5
-        w = wp.length(dq)
-        if w > 0.01:
-            dq = wp.normalize(dq) * 0.01
-        wp.atomic_add(deltas, body_2, wp.spatial_vector(dq, dp))
-    return p
-
-@wp.func
-def angular_correction(
-    corr: wp.vec3,
-    tf1: wp.transform,
-    tf2: wp.transform,
-    m_inv1: float,
-    m_inv2: float,
-    I_inv1: wp.mat33,
-    I_inv2: wp.mat33,
-    alpha_tilde: float,
-    # lambda_prev: float,
-    relaxation: float,
-    deltas: wp.array(dtype=wp.spatial_vector),
-    body_1: int,
-    body_2: int,
-) -> wp.vec3:
-    # compute and apply the correction impulse for an angular constraint
-    theta = wp.length(corr)
-    if theta == 0.0:
-        # print("theta == 0.0 in angular correction")
-        return wp.vec3(0.0, 0.0, 0.0)
-    n = wp.normalize(corr)
-
-    q1 = wp.transform_get_rotation(tf1)
-    q2 = wp.transform_get_rotation(tf2)
-
-    # project variables to body rest frame as they are in local matrix
-    n1 = wp.quat_rotate_inv(q1, n)
-    n2 = wp.quat_rotate_inv(q2, n)
-
-    # Eq. 11-12
-    w1 = wp.dot(n1, I_inv1 * n1)
-    w2 = wp.dot(n2, I_inv2 * n2)
-    w = w1 + w2
-    if w == 0.0:
-        # print("w == 0.0 in angular correction")
-        # # print("corr:")
-        # # print(corr)
-        # print("n1:")
-        # print(n1)
-        # print("n2:")
-        # print(n2)
-        # print("I_inv1:")
-        # print(I_inv1)
-        # print("I_inv2:")
-        # print(I_inv2)
-        return wp.vec3(0.0, 0.0, 0.0)
-
-    # Eq. 13-14
-    lambda_prev = 0.0
-    d_lambda = (-theta - alpha_tilde * lambda_prev) / (w + alpha_tilde)
-    # TODO consider lambda_prev?
-    p = d_lambda * n * relaxation
-
-    # Eq. 15-16
-    dp = wp.vec3(0.0)
-    if body_1 >= 0 and m_inv1 > 0.0:
-        rd = n1 * d_lambda
-        dq = wp.quat_rotate(q1, I_inv1 * rd) * relaxation
-        w = wp.length(dq)
-        if w > 0.01:
-            dq = wp.normalize(dq) * 0.01
-        wp.atomic_sub(deltas, body_1, wp.spatial_vector(dq, dp))
-    if body_2 >= 0 and m_inv2 > 0.0:
-        rd = n2 * d_lambda
-        dq = wp.quat_rotate(q2, I_inv2 * rd) * relaxation
-        w = wp.length(dq)
-        if w > 0.01:
-            dq = wp.normalize(dq) * 0.01
-        wp.atomic_add(deltas, body_2, wp.spatial_vector(dq, dp))
-    return p
-
 @wp.kernel
 def apply_body_deltas(
     q_in: wp.array(dtype=wp.transform),
@@ -393,7 +240,9 @@ def apply_body_deltas(
     body_inv_m: wp.array(dtype=float),
     body_inv_I: wp.array(dtype=wp.mat33),
     deltas: wp.array(dtype=wp.spatial_vector),
+    constraint_inv_weights: wp.array(dtype=float),
     dt: float,
+    # outputs
     q_out: wp.array(dtype=wp.transform),
     qd_out: wp.array(dtype=wp.spatial_vector),
 ):
@@ -411,44 +260,34 @@ def apply_body_deltas(
 
     x_com = p0 + wp.quat_rotate(q0, body_com[tid])
 
-    dp = wp.spatial_bottom(delta) * inv_m
-    dq = wp.spatial_top(delta)
+    weight = 1.0
+    # if (constraint_inv_weights):
+    #     if (constraint_inv_weights[tid] > 0.0):
+    #         weight = 1.0 / constraint_inv_weights[tid]
+    #     else:
+    #         weight = 1.0
+    # else:
+    #     weight = 1.0
+
+    dp = wp.spatial_bottom(delta) * inv_m * weight
+    dq = wp.spatial_top(delta) * weight
     dq = wp.quat_rotate(q0, inv_I * wp.quat_rotate_inv(q0, dq))
-    # dq = inv_I * wp.quat_rotate_inv(q, dq)
-    # dq = wp.quat_rotate(q, inv_I * dq)
 
     # update position
     p = x_com + dp * dt * dt
-    # p = p0 + dp * dt * dt
 
     # update orientation
     q = q0 + 0.5 * wp.quat(dq * dt * dt, 0.0) * q0
-
-    # if wp.length(q) > 1.01:
-    #     print("quaternion magnitude > 1 in apply_body_delta_positions")
-
-    # if wp.length(q) < 0.98:
-    #     print("quaternion magnitude < 1 in apply_body_delta_positions")
-
     q = wp.normalize(q)
 
     q_out[tid] = wp.transform(p - wp.quat_rotate(q, body_com[tid]), q)
-    # q_out[tid] = wp.transform(p, q)
 
     v0 = wp.spatial_bottom(qd_in[tid])
     w0 = wp.spatial_top(qd_in[tid])
-    # qd_out[tid] = wp.spatial_vector(w + dq * dt, v + dp * dt)
 
-
-
-    
-    # x_com = x0 + wp.quat_rotate(r0, body_com[tid])
-
-    # # linear part
+    # linear part
     v1 = v0 + dp * dt
     # x1 = x_com + v1 * dt
-
-    # # x1 = x0 + v1 * dt
 
     # # angular part
     # # wb = wp.quat_rotate_inv(r0, w0)
@@ -462,11 +301,6 @@ def apply_body_deltas(
     w1 = wp.quat_rotate(q0, wb + inv_I * tb * dt)
     # r1 = wp.normalize(r0 + wp.quat(w1, 0.0) * r0 * 0.5 * dt)
 
-    # # angular damping, todo: expose
-    # # w1 = w1*(1.0-0.1*dt)
-
-    # body_q_new[tid] = wp.transform(x1 - wp.quat_rotate(r1, body_com[tid]), r1)
-    # # body_q_new[tid] = wp.transform(x1, r1)
     qd_out[tid] = wp.spatial_vector(w1, v1)
 
 @wp.kernel
@@ -1000,15 +834,13 @@ def compute_contact_constraint_delta(
     linear_a: wp.vec3, 
     linear_b: wp.vec3, 
     angular_a: wp.vec3, 
-    angular_b: wp.vec3, 
-    inv_weight_a: float,
-    inv_weight_b: float,
+    angular_b: wp.vec3,
     relaxation: float,
     dt: float
 ) -> float:
     denom = 0.0
-    denom += wp.length_sq(linear_a)*m_inv_a*inv_weight_a
-    denom += wp.length_sq(linear_b)*m_inv_b*inv_weight_b
+    denom += wp.length_sq(linear_a)*m_inv_a
+    denom += wp.length_sq(linear_b)*m_inv_b
 
     q1 = wp.transform_get_rotation(tf_a)
     q2 = wp.transform_get_rotation(tf_b)
@@ -1017,8 +849,8 @@ def compute_contact_constraint_delta(
     rot_angular_a = wp.quat_rotate_inv(q1, angular_a)
     rot_angular_b = wp.quat_rotate_inv(q2, angular_b)
 
-    denom += wp.dot(rot_angular_a, I_inv_a * rot_angular_a)*inv_weight_a
-    denom += wp.dot(rot_angular_b, I_inv_b * rot_angular_b)*inv_weight_b
+    denom += wp.dot(rot_angular_a, I_inv_a * rot_angular_a)
+    denom += wp.dot(rot_angular_b, I_inv_b * rot_angular_b)
 
     deltaLambda = -err / (dt*dt*denom)
 
@@ -1066,59 +898,6 @@ def compute_constraint_delta(
 
     return deltaLambda*relaxation
 
-
-@wp.func
-def compute_angular_correction_3d(
-    corr: wp.vec3,
-    q1: wp.quat,
-    q2: wp.quat,
-    m_inv1: float,
-    m_inv2: float,
-    I_inv1: wp.mat33,
-    I_inv2: wp.mat33,
-    alpha_tilde: float,
-    # lambda_prev: float,
-    relaxation: float,
-    dt: float,
-):
-    # compute and apply the correction impulse for an angular constraint
-    theta = wp.length(corr)
-    if theta == 0.0:
-        return 0.0
-
-    n = wp.normalize(corr)
-
-    # project variables to body rest frame as they are in local matrix
-    n1 = wp.quat_rotate_inv(q1, n)
-    n2 = wp.quat_rotate_inv(q2, n)
-
-    # Eq. 11-12
-    w1 = wp.dot(n1, I_inv1 * n1)
-    w2 = wp.dot(n2, I_inv2 * n2)
-    w = w1 + w2
-    if w == 0.0:
-        return 0.0
-    #     # print("w == 0.0 in angular correction")
-    #     # # print("corr:")
-    #     # # print(corr)
-    #     # print("n1:")
-    #     # print(n1)
-    #     # print("n2:")
-    #     # print(n2)
-    #     # print("I_inv1:")
-    #     # print(I_inv1)
-    #     # print("I_inv2:")
-    #     # print(I_inv2)
-    #     return wp.vec3(0.0, 0.0, 0.0)
-
-    # Eq. 13-14
-    lambda_prev = 0.0
-    d_lambda = (-theta - alpha_tilde * lambda_prev) / (w * dt * dt + alpha_tilde)
-    # TODO consider lambda_prev?
-    # p = d_lambda * n * relaxation
-
-    # Eq. 15-16
-    return d_lambda * relaxation
 
 @wp.func
 def compute_positional_correction(
@@ -1219,26 +998,23 @@ def update_body_contact_weights(
 ):
 
     tid = wp.tid()
+    active_contact_point0[tid] = wp.vec3(0.0)
+    active_contact_point1[tid] = wp.vec3(0.0)
 
     count = contact_count[0]
     if (tid >= count):
         return
 
-    if (contact_shape0[tid] == -1 and contact_shape1[tid] == -1):
+    if (contact_shape0[tid] == contact_shape1[tid]):
+        active_contact_distance[tid] = 1.0
         return
         
     body_a = contact_body0[tid]
     body_b = contact_body1[tid]
 
-    # body position in world space
-    thickness = contact_thickness[tid]
-    n = contact_normal[tid]
-    bx_a = contact_point0[tid]
-    bx_b = contact_point1[tid]
-    # body to world transform
+    # find body to world transform
     X_wb_a = wp.transform_identity()
     X_wb_b = wp.transform_identity()
-
     if (body_a >= 0):
         X_wb_a = body_q[body_a]
         if weighting_activated == 0:
@@ -1248,10 +1024,12 @@ def update_body_contact_weights(
         if weighting_activated == 0:
             contact_inv_weight[body_b] = 1.0
     
-    bx_a = wp.transform_point(X_wb_a, bx_a)
-    bx_b = wp.transform_point(X_wb_b, bx_b)
+    # compute body position in world space
+    bx_a = wp.transform_point(X_wb_a, contact_point0[tid])
+    bx_b = wp.transform_point(X_wb_b, contact_point1[tid])
     
     n = contact_normal[tid]
+    thickness = contact_thickness[tid]
     d = wp.dot(n, bx_a-bx_b) - thickness
     active_contact_distance[tid] = d
 
@@ -1263,9 +1041,6 @@ def update_body_contact_weights(
                 wp.atomic_add(contact_inv_weight, body_b, 1.0)
         active_contact_point0[tid] = bx_a
         active_contact_point1[tid] = bx_b
-    else:
-        active_contact_point0[tid] = wp.vec3(0.0)
-        active_contact_point1[tid] = wp.vec3(0.0)
 
 
 @wp.kernel
@@ -1278,16 +1053,15 @@ def solve_body_contact_positions(
     contact_count: wp.array(dtype=int),
     contact_body0: wp.array(dtype=int),
     contact_body1: wp.array(dtype=int),
+    contact_point0: wp.array(dtype=wp.vec3),
+    contact_point1: wp.array(dtype=wp.vec3),
     contact_offset0: wp.array(dtype=wp.vec3),
     contact_offset1: wp.array(dtype=wp.vec3),
     contact_normal: wp.array(dtype=wp.vec3),
+    contact_thickness: wp.array(dtype=float),
     contact_shape0: wp.array(dtype=int),
     contact_shape1: wp.array(dtype=int),
-    active_contact_point0: wp.array(dtype=wp.vec3),
-    active_contact_point1: wp.array(dtype=wp.vec3),
-    active_contact_distance: wp.array(dtype=float),
     shape_materials: ShapeContactMaterial,
-    contact_inv_weight: wp.array(dtype=float),
     relaxation: float,
     dt: float,
     max_penetration: float,
@@ -1295,6 +1069,10 @@ def solve_body_contact_positions(
     contact_rolling_friction: float,
     # outputs
     deltas: wp.array(dtype=wp.spatial_vector),
+    active_contact_point0: wp.array(dtype=wp.vec3),
+    active_contact_point1: wp.array(dtype=wp.vec3),
+    active_contact_distance: wp.array(dtype=float),
+    contact_inv_weight: wp.array(dtype=float),
 ):
     
     tid = wp.tid()
@@ -1302,14 +1080,37 @@ def solve_body_contact_positions(
     count = contact_count[0]
     if (tid >= count):
         return
-    d = active_contact_distance[tid]
-    if d >= 0.0:
-        return
         
     body_a = contact_body0[tid]
     body_b = contact_body1[tid]
 
-    n = contact_normal[tid]
+    if (body_a == body_b):
+        return
+    if (contact_shape0[tid] == contact_shape1[tid]):
+        return
+
+    # find body to world transform
+    X_wb_a = wp.transform_identity()
+    X_wb_b = wp.transform_identity()
+    if (body_a >= 0):
+        X_wb_a = body_q[body_a]
+    if (body_b >= 0):
+        X_wb_b = body_q[body_b]
+    
+    # compute body position in world space
+    bx_a = wp.transform_point(X_wb_a, contact_point0[tid])
+    bx_b = wp.transform_point(X_wb_b, contact_point1[tid])
+    active_contact_point0[tid] = bx_a
+    active_contact_point1[tid] = bx_b
+    
+    thickness = contact_thickness[tid]
+    n = -contact_normal[tid]
+    d = wp.dot(n, bx_b-bx_a) - thickness
+
+    active_contact_distance[tid] = d
+
+    if d >= 0.0:
+        return
     
     m_inv_a = 0.0
     m_inv_b = 0.0
@@ -1318,9 +1119,6 @@ def solve_body_contact_positions(
     # center of mass in body frame
     com_a = wp.vec3(0.0)
     com_b = wp.vec3(0.0)
-    # moment arm in world frame
-    r_a = wp.vec3(0.0)
-    r_b = wp.vec3(0.0)
     # body to world transform
     X_wb_a = wp.transform_identity()
     X_wb_b = wp.transform_identity()
@@ -1330,16 +1128,12 @@ def solve_body_contact_positions(
     # contact offset in body frame
     offset_a = contact_offset0[tid]
     offset_b = contact_offset1[tid]
-    # contact constraint weights
-    inv_weight_a = 1.0
-    inv_weight_b = 1.0
 
     if (body_a >= 0):
         X_wb_a = body_q[body_a]
         com_a = body_com[body_a]
         m_inv_a = body_m_inv[body_a]
         I_inv_a = body_I_inv[body_a]
-        inv_weight_a = contact_inv_weight[body_a]
         omega_a = wp.spatial_top(body_qd[body_a])
 
     if (body_b >= 0):
@@ -1347,7 +1141,6 @@ def solve_body_contact_positions(
         com_b = body_com[body_b]
         m_inv_b = body_m_inv[body_b]
         I_inv_b = body_I_inv[body_b]
-        inv_weight_b = contact_inv_weight[body_b]
         omega_b = wp.spatial_top(body_qd[body_b])
     
     # use average contact material properties
@@ -1364,21 +1157,23 @@ def solve_body_contact_positions(
     if (mat_nonzero > 0):
         mu /= float(mat_nonzero)
 
-    
-    bx_a = active_contact_point0[tid]
-    bx_b = active_contact_point1[tid]
-
     r_a = bx_a - wp.transform_point(X_wb_a, com_a)
     r_b = bx_b - wp.transform_point(X_wb_b, com_b)
 
     angular_a = -wp.cross(r_a, n)
     angular_b = wp.cross(r_b, n)
 
+    if (contact_inv_weight):
+        if (body_a >= 0):
+            wp.atomic_add(contact_inv_weight, body_a, 1.0)
+        if (body_b >= 0):
+            wp.atomic_add(contact_inv_weight, body_b, 1.0)
+
     # limit penetration to prevent extreme constraint deltas
-    d = wp.max(max_penetration, d)
+    # d = wp.max(max_penetration, d)
     lambda_n = compute_contact_constraint_delta(
         d, X_wb_a, X_wb_b, m_inv_a, m_inv_b, I_inv_a, I_inv_b,
-        -n, n, angular_a, angular_b, inv_weight_a, inv_weight_b, relaxation, dt)
+        -n, n, angular_a, angular_b, relaxation, dt)
 
     lin_delta_a = -n * lambda_n
     lin_delta_b = n * lambda_n
@@ -1393,27 +1188,24 @@ def solve_body_contact_positions(
         bx_a += wp.transform_vector(X_wb_a, offset_a)
         bx_b += wp.transform_vector(X_wb_b, offset_b)
 
-        pos_a = bx_a
-        pos_b = bx_b
-
         # update delta
-        delta = pos_b-pos_a
-        frictionDelta = -(delta - wp.dot(n, delta)*n)
+        delta = bx_b-bx_a
+        friction_delta = delta - wp.dot(n, delta)*n
 
-        perp = wp.normalize(frictionDelta)
+        perp = wp.normalize(friction_delta)
 
-        r_a = pos_a - wp.transform_point(X_wb_a, com_a)
-        r_b = pos_b - wp.transform_point(X_wb_b, com_b)
+        r_a = bx_a - wp.transform_point(X_wb_a, com_a)
+        r_b = bx_b - wp.transform_point(X_wb_b, com_b)
         
         angular_a = -wp.cross(r_a, perp)
         angular_b = wp.cross(r_b, perp)
 
-        err = wp.length(frictionDelta)
+        err = wp.length(friction_delta)
 
         if (err > 0.0):
             lambda_fr = compute_contact_constraint_delta(
                 err, X_wb_a, X_wb_b, m_inv_a, m_inv_b, I_inv_a, I_inv_b,
-                -perp, perp, angular_a, angular_b, inv_weight_a, inv_weight_b, 1.0, dt)
+                -perp, perp, angular_a, angular_b, 1.0, dt)
 
             # limit friction based on incremental normal force, good approximation to limiting on total force
             lambda_fr = wp.max(lambda_fr, -lambda_n*mu)
@@ -1434,12 +1226,12 @@ def solve_body_contact_positions(
         if (wp.abs(err) > 0.0):
             lin = wp.vec3(0.0)
             lambda_torsion = compute_contact_constraint_delta(err, X_wb_a, X_wb_b, m_inv_a, m_inv_b, I_inv_a, I_inv_b,
-            lin, lin, -n, n, inv_weight_a, inv_weight_b, 1.0, dt)
+            lin, lin, -n, n, 1.0, dt)
 
             lambda_torsion = wp.clamp(lambda_torsion, -lambda_n*torsional_friction, lambda_n*torsional_friction)
             
-            ang_delta_a += n*lambda_torsion
-            ang_delta_b -= n*lambda_torsion
+            ang_delta_a -= n*lambda_torsion
+            ang_delta_b += n*lambda_torsion
     
     rolling_friction = mu * contact_rolling_friction
     if (rolling_friction > 0.0):
@@ -1449,17 +1241,17 @@ def solve_body_contact_positions(
             lin = wp.vec3(0.0)
             roll_n = wp.normalize(delta_omega)
             lambda_roll = compute_contact_constraint_delta(err, X_wb_a, X_wb_b, m_inv_a, m_inv_b, I_inv_a, I_inv_b,
-            lin, lin, -roll_n, roll_n, inv_weight_a, inv_weight_b, 1.0, dt)
+            lin, lin, -roll_n, roll_n, 1.0, dt)
 
             lambda_roll = wp.max(lambda_roll, -lambda_n*rolling_friction)
             
-            ang_delta_a += roll_n*lambda_roll
-            ang_delta_b -= roll_n*lambda_roll
+            ang_delta_a -= roll_n*lambda_roll
+            ang_delta_b += roll_n*lambda_roll
 
     if (body_a >= 0):
-        wp.atomic_sub(deltas, body_a, wp.spatial_vector(ang_delta_a, lin_delta_a))
+        wp.atomic_add(deltas, body_a, wp.spatial_vector(ang_delta_a, lin_delta_a))
     if (body_b >= 0):
-        wp.atomic_sub(deltas, body_b, wp.spatial_vector(ang_delta_b, lin_delta_b))
+        wp.atomic_add(deltas, body_b, wp.spatial_vector(ang_delta_b, lin_delta_b))
 
 
 @wp.kernel
@@ -1595,7 +1387,11 @@ def apply_rigid_restitution(
         q_a = wp.transform_get_rotation(X_wb_a_prev)
         rxn = wp.quat_rotate_inv(q_a, wp.cross(r_a, n))
         # Eq. 2
-        inv_mass += contact_inv_weight[body_a] * (m_inv_a + wp.dot(rxn, I_inv_a * rxn))
+        inv_mass_a = m_inv_a + wp.dot(rxn, I_inv_a * rxn)
+        # if (contact_inv_weight):
+        #    if (contact_inv_weight[body_a] > 0.0):
+        #        inv_mass_a *= contact_inv_weight[body_a]
+        inv_mass += inv_mass_a
         # inv_mass += m_inv_a + wp.dot(rxn, I_inv_a * rxn)
     if (body_b >= 0):
         v_b = velocity_at_point(body_qd_prev[body_b], r_b) + g*dt
@@ -1603,7 +1399,11 @@ def apply_rigid_restitution(
         q_b = wp.transform_get_rotation(X_wb_b_prev)
         rxn = wp.quat_rotate_inv(q_b, wp.cross(r_b, n))
         # Eq. 3
-        inv_mass += contact_inv_weight[body_b] * (m_inv_b + wp.dot(rxn, I_inv_b * rxn))
+        inv_mass_b = m_inv_b + wp.dot(rxn, I_inv_b * rxn)
+        # if (contact_inv_weight):
+        #    if (contact_inv_weight[body_b] > 0.0):
+        #        inv_mass_b *= contact_inv_weight[body_b]
+        inv_mass += inv_mass_b
         # inv_mass += m_inv_b + wp.dot(rxn, I_inv_b * rxn)
 
     if (inv_mass == 0.0):
@@ -1629,18 +1429,25 @@ def apply_rigid_restitution(
 
     # Eq. 34 (Eq. 33 from the ACM paper, note the max operation)
     dv = n * (-rel_vel_new + wp.max(-restitution * rel_vel_old, 0.0))
+    # dv = n * (-rel_vel_new + wp.min(-restitution * rel_vel_old, 0.0))
 
     # Eq. 33
-    p = dv  / inv_mass
+    p = dv / inv_mass
     if (body_a >= 0):
-        p_a = p #* contact_inv_weight[body_a]
+        p_a = p
+        if (contact_inv_weight):
+            if (contact_inv_weight[body_a] > 0.0):
+                p_a /= contact_inv_weight[body_a]
         q_a = wp.transform_get_rotation(X_wb_a)
         rxp = wp.quat_rotate_inv(q_a, wp.cross(r_a, p_a))
         dq = wp.quat_rotate(q_a, I_inv_a * rxp)
         wp.atomic_add(deltas, body_a, wp.spatial_vector(dq, p_a * m_inv_a))
 
     if (body_b >= 0):
-        p_b = p #* contact_inv_weight[body_b]
+        p_b = p
+        if (contact_inv_weight):
+            if (contact_inv_weight[body_b] > 0.0):
+                p_b /= contact_inv_weight[body_b]
         q_b = wp.transform_get_rotation(X_wb_b)
         rxp = wp.quat_rotate_inv(q_b, wp.cross(r_b, p_b))
         dq = wp.quat_rotate(q_b, I_inv_b * rxp)
@@ -1653,19 +1460,13 @@ class XPBDIntegrator:
     After constructing `Model` and `State` objects this time-integrator
     may be used to advance the simulation state forward in time.
 
-    Semi-implicit time integration is a variational integrator that 
-    preserves energy, however it not unconditionally stable, and requires a time-step
-    small enough to support the required stiffness and damping forces.
-
-    See: https://en.wikipedia.org/wiki/Semi-implicit_Euler_method
-
     Example:
 
         >>> integrator = wp.SemiImplicitIntegrator()
         >>>
         >>> # simulation loop
         >>> for i in range(100):
-        >>>     state = integrator.forward(model, state, dt)
+        >>>     state = integrator.simulate(model, state_in, state_out, dt)
 
     """
 
@@ -1701,7 +1502,7 @@ class XPBDIntegrator:
 
     def simulate(self, model, state_in, state_out, dt, requires_grad=False):
 
-        with wp.ScopedTimer("simulate", False):
+        # with wp.ScopedTimer("simulate", False):
 
             # ----------------------------
             # handle particles
@@ -1821,7 +1622,7 @@ class XPBDIntegrator:
                         body_f = wp.zeros_like(state_out.body_f)
                     else:
                         body_f = state_out.body_f
-                        body_f.zero_()
+                        # body_f.zero_() not needed since we call state.clear_forces()
 
                     wp.launch(
                         kernel=apply_joint_torques,
@@ -1844,7 +1645,8 @@ class XPBDIntegrator:
                         ],
                         device=model.device)
                     
-                    state_out.body_f = body_f
+                    if requires_grad:
+                        state_out.body_f = body_f
 
                 wp.launch(
                     kernel=integrate_bodies,
@@ -1926,6 +1728,7 @@ class XPBDIntegrator:
                                     model.body_inv_mass,
                                     model.body_inv_inertia,
                                     state_out.body_deltas,
+                                    None,
                                     dt
                                 ],
                                 outputs=[
@@ -1934,72 +1737,33 @@ class XPBDIntegrator:
                                 ],
                                 device=model.device)
 
-                    # update state
-                    state_out.body_q = out_body_q
-                    state_out.body_qd = out_body_qd
+                    if requires_grad:
+                        # update state
+                        state_out.body_q = out_body_q
+                        state_out.body_qd = out_body_qd
 
                     # Solve rigid contact constraints
                     if (model.rigid_contact_max and model.body_count):
+
+                        rigid_contact_inv_weight = None
                         if requires_grad:
-                            rigid_contact_inv_weight = wp.zeros_like(model.rigid_contact_inv_weight)
+                            body_deltas = wp.zeros_like(state_out.body_deltas)
                             rigid_active_contact_distance = wp.zeros_like(model.rigid_active_contact_distance)
                             rigid_active_contact_point0 = wp.empty_like(model.rigid_active_contact_point0, requires_grad=True)
                             rigid_active_contact_point1 = wp.empty_like(model.rigid_active_contact_point1, requires_grad=True)
-                        else:
-                            rigid_contact_inv_weight = model.rigid_contact_inv_weight
-                            rigid_active_contact_distance = model.rigid_active_contact_distance
-                            rigid_active_contact_point0 = model.rigid_active_contact_point0
-                            rigid_active_contact_point1 = model.rigid_active_contact_point1
-                            rigid_contact_inv_weight.zero_()
-                            rigid_active_contact_distance.zero_()
-
-                        wp.launch(kernel=update_body_contact_weights,
-                            dim=model.rigid_contact_max,
-                            inputs=[
-                                state_out.body_q,
-                                int(self.contact_con_weighting),
-                                model.rigid_contact_count,
-                                model.rigid_contact_body0,
-                                model.rigid_contact_body1,
-                                model.rigid_contact_point0,
-                                model.rigid_contact_point1,
-                                model.rigid_contact_normal,
-                                model.rigid_contact_thickness,
-                                model.rigid_contact_shape0,
-                                model.rigid_contact_shape1,
-                                model.shape_transform
-                            ],
-                            outputs=[
-                                rigid_contact_inv_weight,
-                                rigid_active_contact_point0,
-                                rigid_active_contact_point1,
-                                rigid_active_contact_distance,
-                            ],
-                            device=model.device)
-
-                        if (i == 0):
-                            # remember the contacts from the first iteration                            
-                            if requires_grad:
-                                model.rigid_active_contact_distance_prev = wp.clone(rigid_active_contact_distance)
-                                model.rigid_active_contact_point0_prev = wp.clone(rigid_active_contact_point0)
-                                model.rigid_active_contact_point1_prev = wp.clone(rigid_active_contact_point1)
-                                model.rigid_contact_inv_weight_prev = wp.clone(rigid_contact_inv_weight)
-                            else:
-                                model.rigid_active_contact_distance_prev.assign(rigid_active_contact_distance)
-                                model.rigid_active_contact_point0_prev.assign(rigid_active_contact_point0)
-                                model.rigid_active_contact_point1_prev.assign(rigid_active_contact_point1)
-                                model.rigid_contact_inv_weight_prev.assign(rigid_contact_inv_weight)
-                        
-                        model.rigid_contact_inv_weight = rigid_contact_inv_weight
-                        model.rigid_active_contact_distance = rigid_active_contact_distance
-                        model.rigid_active_contact_point0 = rigid_active_contact_point0
-                        model.rigid_active_contact_point1 = rigid_active_contact_point1
-
-                        if requires_grad:
-                            body_deltas = wp.zeros_like(state_out.body_deltas)
+                            if self.contact_con_weighting:
+                                rigid_contact_inv_weight = wp.zeros_like(model.rigid_contact_inv_weight)
                         else:
                             body_deltas = state_out.body_deltas
                             body_deltas.zero_()
+                            # rigid_active_contact_distance = model.rigid_active_contact_distance
+                            # rigid_active_contact_point0 = model.rigid_active_contact_point0
+                            # rigid_active_contact_point1 = model.rigid_active_contact_point1
+                            # rigid_active_contact_distance.zero_()
+                            # if self.contact_con_weighting:
+                            #     rigid_contact_inv_weight = model.rigid_contact_inv_weight
+                            #     rigid_contact_inv_weight.zero_()
+                                
                         wp.launch(kernel=solve_body_contact_positions,
                             dim=model.rigid_contact_max,
                             inputs=[
@@ -2011,16 +1775,15 @@ class XPBDIntegrator:
                                 model.rigid_contact_count,
                                 model.rigid_contact_body0,
                                 model.rigid_contact_body1,
+                                model.rigid_contact_point0,
+                                model.rigid_contact_point1,
                                 model.rigid_contact_offset0,
                                 model.rigid_contact_offset1,
                                 model.rigid_contact_normal,
+                                model.rigid_contact_thickness,
                                 model.rigid_contact_shape0,
                                 model.rigid_contact_shape1,
-                                model.rigid_active_contact_point0,
-                                model.rigid_active_contact_point1,
-                                model.rigid_active_contact_distance,
                                 model.shape_materials,
-                                model.rigid_contact_inv_weight,
                                 self.contact_normal_relaxation,
                                 dt,
                                 self.max_rigid_contact_penetration,
@@ -2029,8 +1792,36 @@ class XPBDIntegrator:
                             ],
                             outputs=[
                                 body_deltas,
+                                model.rigid_active_contact_point0,
+                                model.rigid_active_contact_point1,
+                                model.rigid_active_contact_distance,
+                                rigid_contact_inv_weight,
                             ],
                             device=model.device)
+
+                        # if (i == 0):
+                        #     # remember the contacts from the first iteration
+                        #     if requires_grad:
+                        #         model.rigid_active_contact_distance_prev = wp.clone(rigid_active_contact_distance)
+                        #         model.rigid_active_contact_point0_prev = wp.clone(rigid_active_contact_point0)
+                        #         model.rigid_active_contact_point1_prev = wp.clone(rigid_active_contact_point1)
+                        #         if self.contact_con_weighting:
+                        #             model.rigid_contact_inv_weight_prev = wp.clone(rigid_contact_inv_weight)
+                        #     else:
+                        #         model.rigid_active_contact_distance_prev.assign(rigid_active_contact_distance)
+                        #         model.rigid_active_contact_point0_prev.assign(rigid_active_contact_point0)
+                        #         model.rigid_active_contact_point1_prev.assign(rigid_active_contact_point1)
+                        #         if self.contact_con_weighting:
+                        #             model.rigid_contact_inv_weight_prev.assign(rigid_contact_inv_weight)
+                        
+                        # if self.contact_con_weighting:
+                        #     model.rigid_contact_inv_weight = rigid_contact_inv_weight
+                        # else:
+                        #     model.rigid_contact_inv_weight_prev = None
+                        # model.rigid_active_contact_distance = rigid_active_contact_distance
+                        # model.rigid_active_contact_point0 = rigid_active_contact_point0
+                        # model.rigid_active_contact_point1 = rigid_active_contact_point1
+
 
                         if requires_grad:
                             body_q = wp.clone(state_out.body_q)
@@ -2050,6 +1841,7 @@ class XPBDIntegrator:
                                     model.body_inv_mass,
                                     model.body_inv_inertia,
                                     body_deltas,
+                                    rigid_contact_inv_weight,
                                     dt
                                 ],
                                 outputs=[
@@ -2058,8 +1850,9 @@ class XPBDIntegrator:
                                 ],
                                 device=model.device)
 
-                        state_out.body_q = body_q
-                        state_out.body_qd = body_qd
+                        if requires_grad:
+                            state_out.body_q = body_q
+                            state_out.body_qd = body_qd
 
                 if requires_grad:
                     out_body_qd = wp.clone(state_out.body_qd)
@@ -2080,9 +1873,10 @@ class XPBDIntegrator:
                         ],
                         device=model.device)
 
-                state_out.body_qd = out_body_qd
+                if requires_grad:
+                    state_out.body_qd = out_body_qd
 
-                if (False): 
+                if (False):
                     if requires_grad:
                         state_out.body_deltas = wp.zeros_like(state_out.body_deltas)
                     else:

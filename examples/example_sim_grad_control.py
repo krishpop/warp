@@ -75,7 +75,7 @@ class RigidBodySimulator:
     episode_duration = 1.5      # seconds
     episode_frames = int(episode_duration/frame_dt)
 
-    sim_substeps = 1
+    sim_substeps = 10
     sim_dt = frame_dt / sim_substeps
     sim_steps = int(episode_duration / sim_dt)
    
@@ -94,124 +94,135 @@ class RigidBodySimulator:
         self.num_envs = num_envs
 
         for i in range(num_envs):
-            if self.use_single_cartpole:
-                wp.sim.parse_urdf(os.path.join(os.path.dirname(__file__), "assets/cartpole_single.urdf"), builder,
-                    xform=wp.transform(np.array((0.0, 0.0, 0.0)), wp.quat_from_axis_angle((1.0, 0.0, 0.0), -math.pi*0.5)),
-                    floating=True, 
-                    density=0,
-                    armature=0.1,
-                    stiffness=0.0,
-                    damping=0.0,
-                    shape_ke=1.e+4,
-                    shape_kd=1.e+2,
-                    shape_kf=1.e+2,
-                    shape_mu=1.0,
-                    limit_ke=1.e+4,
-                    limit_kd=1.e+1)
-                # joint initial positions
-                builder.joint_q[-2:] = [0.0, 0.3]
-                builder.joint_target[:2] = [0.0, 0.0]
-            else:
-                wp.sim.parse_urdf(os.path.join(os.path.dirname(__file__), "assets/cartpole.urdf"), builder,
-                    xform=wp.transform(np.array((i*2.0, 4.0, 0.0)), wp.quat_from_axis_angle((1.0, 0.0, 0.0), -math.pi*0.5)),
-                    floating=True, 
-                    density=0,
-                    armature=0.1,
-                    stiffness=0.0,
-                    damping=0.0,
-                    shape_ke=1.e+4,
-                    shape_kd=1.e+2,
-                    shape_kf=1.e+2,
-                    shape_mu=1.0,
-                    limit_ke=1.e+4,
-                    limit_kd=1.e+1)
+            # if self.use_single_cartpole:
+            #     wp.sim.parse_urdf(os.path.join(os.path.dirname(__file__), "assets/cartpole_single.urdf"), builder,
+            #         xform=wp.transform(np.array((0.0, 1.0, 0.0)), wp.quat_from_axis_angle((1.0, 0.0, 0.0), -math.pi*0.5)),
+            #         floating=True, 
+            #         density=0,
+            #         armature=0.1,
+            #         stiffness=0.0,
+            #         damping=0.0,
+            #         shape_ke=1.e+4,
+            #         shape_kd=0.0,
+            #         shape_kf=1.e+2,
+            #         shape_mu=1.0,
+            #         limit_ke=1.e+4,
+            #         limit_kd=0.0)
+            #     # joint initial positions
+            #     builder.joint_q[-2:] = [0.0, 0.3]
+            #     builder.joint_target[:2] = [0.0, 0.0]
+            # else:
+            #     wp.sim.parse_urdf(os.path.join(os.path.dirname(__file__), "assets/cartpole.urdf"), builder,
+            #         xform=wp.transform(np.array((i*2.0, 4.0, 0.0)), wp.quat_from_axis_angle((1.0, 0.0, 0.0), -math.pi*0.5)),
+            #         floating=True, 
+            #         density=0,
+            #         armature=0.1,
+            #         stiffness=0.0,
+            #         damping=0.0,
+            #         shape_ke=1.e+4,
+            #         shape_kd=1.e+2,
+            #         shape_kf=1.e+2,
+            #         shape_mu=1.0,
+            #         limit_ke=1.e+4,
+            #         limit_kd=1.e+1)
 
             #     builder.joint_q[-3:] = [0.0, 0.3, 0.0]
             #     builder.joint_target[:3] = [0.0, 0.0, 0.0]
 
             
-            # self.chain_length = 2
-            # self.chain_width = 1.0
-            # self.chain_types = [
-            #     wp.sim.JOINT_REVOLUTE,
-            #     # wp.sim.JOINT_FREE,
-            #     # wp.sim.JOINT_FIXED, 
-            #     # wp.sim.JOINT_BALL,
-            #     # wp.sim.JOINT_UNIVERSAL,
-            #     # wp.sim.JOINT_COMPOUND
-            #     ]
+            self.chain_length = 1
+            self.chain_width = 1.0
+            self.chain_types = [
+                wp.sim.JOINT_REVOLUTE,
+                # wp.sim.JOINT_FREE,
+                # wp.sim.JOINT_FIXED, 
+                # wp.sim.JOINT_BALL,
+                # wp.sim.JOINT_UNIVERSAL,
+                # wp.sim.JOINT_COMPOUND
+                ]
 
-            # builder = wp.sim.ModelBuilder()
+            builder = wp.sim.ModelBuilder()
 
-            # for c, t in enumerate(self.chain_types):
+            for c, t in enumerate(self.chain_types):
 
-            #     # start a new articulation
-            #     builder.add_articulation()
+                # start a new articulation
+                builder.add_articulation()
 
-            #     for i in range(self.chain_length):
+                for i in range(self.chain_length):
 
-            #         if i == 0:
-            #             parent = -1
-            #             parent_joint_xform = wp.transform([0.0, 0.0, c*1.0], wp.quat_identity())           
-            #         else:
-            #             parent = builder.joint_count-1
-            #             parent_joint_xform = wp.transform([self.chain_width, 0.0, 0.0], wp.quat_identity())
+                    if i == 0:
+                        parent = -1
+                        parent_joint_xform = wp.transform([0.0, 0.0, c*1.0], wp.quat_identity())           
+                    else:
+                        parent = builder.joint_count-1
+                        parent_joint_xform = wp.transform([self.chain_width, 0.0, 0.0], wp.quat_identity())
 
-            #         joint_type = t
+                    joint_type = t
 
-            #         if joint_type == wp.sim.JOINT_REVOLUTE:
+                    if joint_type == wp.sim.JOINT_REVOLUTE:
 
-            #             joint_axis=(0.0, 0.0, 1.0)
-            #             joint_limit_lower=-np.deg2rad(60.0)
-            #             joint_limit_upper=np.deg2rad(60.0)
+                        joint_axis=(0.0, 0.0, 1.0)
+                        joint_limit_lower=-np.deg2rad(60.0)
+                        joint_limit_upper=np.deg2rad(60.0)
 
-            #         elif joint_type == wp.sim.JOINT_UNIVERSAL:
-            #             joint_axis=(1.0, 0.0, 0.0)
-            #             joint_limit_lower=-np.deg2rad(60.0),
-            #             joint_limit_upper=np.deg2rad(60.0),
+                    elif joint_type == wp.sim.JOINT_UNIVERSAL:
+                        joint_axis=(1.0, 0.0, 0.0)
+                        joint_limit_lower=-np.deg2rad(60.0),
+                        joint_limit_upper=np.deg2rad(60.0),
 
-            #         elif joint_type == wp.sim.JOINT_BALL:
-            #             joint_axis=(0.0, 0.0, 0.0)
-            #             joint_limit_lower = 100.0
-            #             joint_limit_upper = -100.0
+                    elif joint_type == wp.sim.JOINT_BALL:
+                        joint_axis=(0.0, 0.0, 0.0)
+                        joint_limit_lower = 100.0
+                        joint_limit_upper = -100.0
 
-            #         elif joint_type == wp.sim.JOINT_FIXED:
-            #             joint_axis=(0.0, 0.0, 0.0)
-            #             joint_limit_lower = 0.0
-            #             joint_limit_upper = 0.0
+                    elif joint_type == wp.sim.JOINT_FIXED:
+                        joint_axis=(0.0, 0.0, 0.0)
+                        joint_limit_lower = 0.0
+                        joint_limit_upper = 0.0
                 
-            #         elif joint_type == wp.sim.JOINT_COMPOUND:
-            #             joint_limit_lower=-np.deg2rad(60.0)
-            #             joint_limit_upper=np.deg2rad(60.0)
+                    elif joint_type == wp.sim.JOINT_COMPOUND:
+                        joint_limit_lower=-np.deg2rad(60.0)
+                        joint_limit_upper=np.deg2rad(60.0)
 
-            #         # create body
-            #         b = builder.add_body(
-            #                 parent=parent,
-            #                 origin=wp.transform([i, 0.0, c*1.0], wp.quat_identity()),
-            #                 joint_xform=parent_joint_xform,
-            #                 joint_axis=joint_axis,
-            #                 joint_type=joint_type,
-            #                 joint_limit_lower=joint_limit_lower,
-            #                 joint_limit_upper=joint_limit_upper,
-            #                 joint_target_ke=0.0,
-            #                 joint_target_kd=0.0,
-            #                 joint_limit_ke=30.0,
-            #                 joint_limit_kd=30.0,
-            #                 joint_armature=0.1)
+                    # create body
+                    b = builder.add_body(
+                            parent=parent,
+                            origin=wp.transform([i, 0.0, c*1.0], wp.quat_identity()),
+                            joint_xform=parent_joint_xform,
+                            joint_axis=joint_axis,
+                            joint_type=joint_type,
+                            joint_limit_lower=joint_limit_lower,
+                            joint_limit_upper=joint_limit_upper,
+                            joint_target_ke=0.0,
+                            joint_target_kd=0.0,
+                            joint_limit_ke=30.0,
+                            joint_limit_kd=30.0,
+                            joint_armature=0.1)
 
-            #         # create shape
-            #         s = builder.add_shape_box( 
-            #                 pos=(self.chain_width*0.5, 0.0, 0.0),
-            #                 hx=self.chain_width*0.5,
-            #                 hy=0.1,
-            #                 hz=0.1,
-            #                 density=10.0,
-            #                 body=b)
+                    # create shape
+                    s = builder.add_shape_box( 
+                            pos=(self.chain_width*0.5, 0.0, 0.0),
+                            hx=self.chain_width*0.5,
+                            hy=0.1,
+                            hz=0.1,
+                            density=10.0,
+                            body=b)
+
+        axis = np.array([1.0, 2.0, 3.0])
+        axis /= np.linalg.norm(axis)
+        quat = wp.quat_from_axis_angle(axis, -math.pi*0.5)
+        builder.joint_X_p = [wp.transform((1.0, 2.0, 3.0), quat)]
 
         # finalize model
         self.model = builder.finalize(device)
+
+        # TODO debug body_qd -> body_f
+        self.model.joint_attach_kd = 0.0
+        self.model.joint_limit_ke.zero_()
+        self.model.joint_limit_kd.zero_()
+
         self.builder = builder
-        self.model.ground = True
+        self.model.ground = False
 
         if self.use_single_cartpole:
             self.model.joint_attach_ke = 40000.0
@@ -586,7 +597,7 @@ tau = sim.model.joint_act.numpy()
 
 # randomize inputs
 np.random.seed(123)
-q = np.random.randn(*q.shape) * 0.5
+# q = np.random.randn(*q.shape) * 0.5
 qd = np.random.randn(*qd.shape) * 6.5
 tau = np.zeros(sim.dof_qd)  # np.random.randn(sim.dof_qd) * 10.0
 
@@ -602,7 +613,17 @@ out_q = wp.zeros_like(q)
 out_qd = wp.zeros_like(qd)
 check_backward_pass(
     lambda: sim.warp_step_maximal(q, qd, tau, out_q, out_qd, requires_grad=True),
-    track_inputs=[q, qd, tau], track_outputs=[out_q, out_qd])
+    track_inputs=[q, qd, tau], track_outputs=[out_q, out_qd],
+    visualize_graph=False, plot_jac_on_fail=True)
+
+# state = sim.model.get_state()
+# from wp.sim.integrator_euler import eval_body_joints
+
+# check_kernel_jacobian(
+#     eval_body_joints,
+#     sim.model.joint_count,
+#     inputs=[], [state.body_q_next, state.body_qd_next])
+
 import sys
 sys.exit(0)
 

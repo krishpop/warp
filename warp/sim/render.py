@@ -20,6 +20,7 @@ class SimRenderer(warp.render.UsdRenderer):
         super().__init__(path, scaling=scaling)
 
         self.model = model
+        self.body_names = []
 
         # add ground plane
         if (self.model.ground):
@@ -27,7 +28,9 @@ class SimRenderer(warp.render.UsdRenderer):
 
         # create rigid body root node
         for b in range(model.body_count):
-            xform = UsdGeom.Xform.Define(self.stage, self.root.GetPath().AppendChild("body_" + str(b)))
+            body_name = f"body_{b}_{self.model.body_name[b].replace(' ', '_')}"
+            self.body_names.append(body_name)
+            xform = UsdGeom.Xform.Define(self.stage, self.root.GetPath().AppendChild(body_name))
             wp.render._usd_add_xform(xform)
 
         # create rigid shape children
@@ -42,7 +45,7 @@ class SimRenderer(warp.render.UsdRenderer):
             
                 parent_path = self.root.GetPath()
                 if shape_body[s] >= 0:
-                    parent_path = parent_path.AppendChild("body_" + str(shape_body[s].item()))
+                    parent_path = parent_path.AppendChild(self.body_names[shape_body[s].item()])
 
                 geo_type = shape_geo_type[s]
                 geo_scale = shape_geo_scale[s]
@@ -177,8 +180,8 @@ class SimRenderer(warp.render.UsdRenderer):
                 body_q = state.body_q.numpy()
 
                 for b in range(self.model.body_count):
-
-                    node = UsdGeom.Xform(self.stage.GetPrimAtPath(self.root.GetPath().AppendChild("body_" + str(b))))
+                    node_name = self.body_names[b]
+                    node = UsdGeom.Xform(self.stage.GetPrimAtPath(self.root.GetPath().AppendChild(node_name)))
 
                     # unpack rigid transform
                     X_sb = warp.transform_expand(body_q[b])

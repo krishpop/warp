@@ -262,8 +262,8 @@ def profile_mlp_warp(device):
             wp.synchronize()
 
 
-# profile_mlp_warp("cuda")
-# profile_mlp_torch("cuda")
+profile_mlp_warp("cuda")
+profile_mlp_torch("cuda")
 
 def register(parent):
 
