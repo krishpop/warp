@@ -555,8 +555,8 @@ class Model:
     def allocate_rigid_contacts(self, count=None, requires_grad=False):
         if count is not None:
             self.rigid_contact_max = count
-        # serves as counter and mapping from thread ID to contact ID (for a correct backward pass)
-        self.rigid_contact_count = wp.zeros(self.rigid_contact_max+1, dtype=wp.int32, device=self.device)
+        # serves as counter of the number of active contact points
+        self.rigid_contact_count = wp.zeros(1, dtype=wp.int32, device=self.device)
         # contact point ID within the (shape_a, shape_b) contact pair
         self.rigid_contact_point_id = wp.zeros(self.rigid_contact_max, dtype=wp.int32, device=self.device)
         # ID of first rigid body
