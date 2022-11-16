@@ -48,13 +48,12 @@ class Example:
 
     def __init__(self, stage):
 
-        self.sim_steps = 500
+        self.sim_steps = 1000
         self.sim_dt = 1.0/60.0
         self.sim_time = 0.0
-        self.sim_substeps = 5
+        self.sim_substeps = 8
 
         self.solve_iterations = 2
-        self.relaxation = 1.0
 
         self.num_bodies = 20
         self.scale = 0.5
@@ -78,8 +77,7 @@ class Example:
         # boxes
         for i in range(1, self.num_bodies):
             
-            # b = builder.add_body(origin=wp.transform((0.0, 0.5 * i + 0.3, 0.0), wp.quat_identity()))
-            b = builder.add_body(origin=wp.transform((0.0, 0.5 * i + 1.3, 1.0), rot90s[i%2]))
+            b = builder.add_body(origin=wp.transform((0.0, 0.5 * i + 8.3, 1.0), rot90s[i%2]))
 
             s = builder.add_shape_box( 
                 pos=(0.0, 0.0, 0.0),
@@ -91,7 +89,7 @@ class Example:
                 kd=self.kd,
                 kf=self.kf,
                 mu=0.5,
-                density=(0.0 if i == 0 else 1e3),
+                density=1e3,
                 restitution=self.restitution)
 
         if True:
@@ -112,7 +110,7 @@ class Example:
         # spheres
         for i in range(1, self.num_bodies):
             
-            b = builder.add_body(origin=wp.transform((0.01 * i, 1.3*self.scale * i + 1.5, 2.0), wp.quat_identity()))
+            b = builder.add_body(origin=wp.transform((0.01 * i, 1.3*self.scale * i + 8.5, 2.0), wp.quat_identity()))
 
             s = builder.add_shape_sphere(
                 pos=(0.3, 0.0, 0.0),
@@ -128,7 +126,7 @@ class Example:
         # capsules
         for i in range(1, self.num_bodies):
             
-            b = builder.add_body(origin=wp.transform((0.1*i + 0.0, 2.5 + 0.4*i, 4.0), wp.quat_identity()))
+            b = builder.add_body(origin=wp.transform((0.1*i + 0.0, 12.5 + 0.4*i, 4.0), wp.quat_identity()))
 
             s = builder.add_shape_capsule( 
                 pos=(0.0, 0.0, 0.0),
@@ -143,7 +141,7 @@ class Example:
                 restitution=self.restitution)
 
         if True:
-            b = builder.add_body(origin=wp.transform((0.3, 1.2, 4.0), wp.quat_identity()))
+            b = builder.add_body(origin=wp.transform((0.3, 9.2, 3.0), wp.quat_rpy(0.3, 1.2, 0.6)))
             s = builder.add_shape_box( 
                 pos=(0.0, 0.0, 0.0),
                 hx=1.2*self.scale,
@@ -158,10 +156,10 @@ class Example:
                 restitution=self.restitution)
 
         if True:
-            axis = np.array((1.0, 0.5, 0.0))
+            axis = np.array((1.0, 0.0, 0.0))
             axis /= np.linalg.norm(axis)
             builder.add_shape_plane(
-                pos=(0.0, 3.5, 0.0),
+                pos=(0.0, 3.5, -6.0),
                 rot=wp.quat_from_axis_angle(axis, math.pi*0.15),
                 width=2.5,
                 length=5.0,
@@ -170,27 +168,27 @@ class Example:
                 kf=self.kf,
                 mu=0.5,
                 restitution=self.restitution)
-            # builder.add_shape_plane(
-            #     pos=(0.0, 2.5, 2.0),
-            #     rot=wp.quat_from_axis_angle(axis, -math.pi*0.15),
-            #     width=2.5,
-            #     length=5.0,
-            #     ke=self.ke,
-            #     kd=self.kd,
-            #     kf=self.kf,
-            #     mu=0.5,
-            #     restitution=self.restitution)
+            builder.add_shape_plane(
+                pos=(0.0, 6.5, 2.0),
+                rot=wp.quat_from_axis_angle(axis, -math.pi*0.15),
+                width=2.5,
+                length=5.0,
+                ke=self.ke,
+                kd=self.kd,
+                kf=self.kf,
+                mu=0.5,
+                restitution=self.restitution)
 
         if True:
             axis = np.array((0.2, 0.1, 0.7))
             axis = axis/np.linalg.norm(axis)
             for i in range(1, self.num_bodies):
                 loaded_mesh = self.load_mesh(
-                    os.path.join(os.path.dirname(__file__), f"assets/monkey.obj"))
-                    # os.path.join(os.path.dirname(__file__), f"assets/bowl.obj"))
+                    # os.path.join(os.path.dirname(__file__), f"assets/monkey.obj"))
+                    os.path.join(os.path.dirname(__file__), f"assets/bowl.obj"))
                     # os.path.join(os.path.dirname(__file__), f"assets/icosphere.obj"))
                 b2 = builder.add_body(
-                    origin=wp.transform((1.5, 1.7 + i*1.0, -1.0), wp.quat_from_axis_angle(axis, 0.0)))
+                    origin=wp.transform((1.5, 7.0 + i*1.0, 0.0), wp.quat_from_axis_angle(axis, 0.0)))
                     # origin=wp.transform((1.5, 1.7 + i*1.0, 4.0), wp.quat_from_axis_angle(axis, 0.0)))
                 builder.add_shape_mesh(
                     body=b2,
@@ -208,7 +206,7 @@ class Example:
         # capsules (stable stack)
         for i in range(self.num_bodies):
             
-            b = builder.add_body(origin=wp.transform((0.0, 1.0 + 0.4*i, 0.0), rot90s[i%2]))
+            b = builder.add_body(origin=wp.transform((0.0, 8.0 + 0.4*i, 0.0), rot90s[i%2]))
 
             s = builder.add_shape_capsule( 
                 pos=(0.3, 0.0, 0.0),
@@ -219,33 +217,12 @@ class Example:
                 kd=self.kd,
                 kf=self.kf,
                 mu=1.0,
-                density=(0.0 if i == 0 else 1000.0),
+                density=1e3,
                 restitution=self.restitution)
 
-
-
-        # initial spin 
-        # for i in range(len(builder.body_qd)):
-        #     # builder.body_qd[i] = (0.0, 2.0, 10.0, -1.5, 0.0, 0.0)
-        #     builder.body_qd[i] = (10.0, 0.0, 0.0, 0.3, 2.5, -4.0)
-
-        # ground_angle = np.deg2rad(30.0)
-        # builder.ground = [0.0, np.sin(ground_angle), np.cos(ground_angle), -0.5]
-        builder.ground = False
-        if True:
-            # add ground plane
-            builder.add_shape_plane(
-                plane=(0.0, 1.0, 0.0, 0.0),
-                width=0.0,
-                length=0.0,
-                ke=self.ke,
-                kd=self.kd,
-                kf=self.kf,
-                mu=0.5,
-                restitution=self.restitution)
+        builder.ground = True
         
         self.model = builder.finalize(self.device)
-        self.model.ground = False
 
         self.integrator = wp.sim.XPBDIntegrator(
             self.solve_iterations,
@@ -254,16 +231,13 @@ class Example:
         # self.integrator = wp.sim.SemiImplicitIntegrator()
         self.state = self.model.state()
 
-        self.integrator.enable_restitution = False
+        self.integrator.enable_restitution = True
         # distance threshold at which contacts are generated
         self.model.rigid_contact_margin = 0.05
 
-        # one time collide for ground contact
-        # if self.model.ground:
-        #     self.model.collide(self.state)
-        self.max_contact_count = 30
-        self.points_a = np.zeros((self.max_contact_count, 3))
-        self.points_b = np.zeros((self.max_contact_count, 3))
+        self.viz_contact_count = 0
+        self.points_a = np.zeros((self.viz_contact_count, 3))
+        self.points_b = np.zeros((self.viz_contact_count, 3))
 
         self.renderer = wp.sim.render.SimRenderer(self.model, stage, scaling=100.0)
 
@@ -276,19 +250,20 @@ class Example:
                 wp.sim.collide(self.model, self.state)
 
                 if i == 0:
-                    # visualize contact points
-                    rigid_contact_count = min(self.model.rigid_contact_count.numpy()[0], self.max_contact_count)
-                    self.points_a.fill(0.0)
-                    self.points_b.fill(0.0)
-                    if rigid_contact_count > 0:
-                        self.points_a[:rigid_contact_count] = self.model.rigid_active_contact_point0.numpy()[:rigid_contact_count]
-                        self.points_b[:rigid_contact_count] = self.model.rigid_active_contact_point1.numpy()[:rigid_contact_count]
-                        shape0 = self.model.rigid_contact_shape0.numpy()[:rigid_contact_count]
-                        shape1 = self.model.rigid_contact_shape1.numpy()[:rigid_contact_count]
-                        empty_contacts = np.where(np.all([shape0==-1, shape1==-1], axis=0))[0]
-                        self.points_a[empty_contacts].fill(0.0)
-                        self.points_b[empty_contacts].fill(0.0)
-                    
+                    if self.viz_contact_count > 0:
+                        # visualize contact points
+                        rigid_contact_count = min(self.model.rigid_contact_count.numpy()[0], self.viz_contact_count)
+                        self.points_a.fill(0.0)
+                        self.points_b.fill(0.0)
+                        if rigid_contact_count > 0:
+                            self.points_a[:rigid_contact_count] = self.model.rigid_active_contact_point0.numpy()[:rigid_contact_count]
+                            self.points_b[:rigid_contact_count] = self.model.rigid_active_contact_point1.numpy()[:rigid_contact_count]
+                            shape0 = self.model.rigid_contact_shape0.numpy()[:rigid_contact_count]
+                            shape1 = self.model.rigid_contact_shape1.numpy()[:rigid_contact_count]
+                            empty_contacts = np.where(np.all([shape0==-1, shape1==-1], axis=0))[0]
+                            self.points_a[empty_contacts].fill(0.0)
+                            self.points_b[empty_contacts].fill(0.0)
+                        
                     self.render()
 
                 self.state = self.integrator.simulate(self.model, self.state, self.state, self.sim_dt/self.sim_substeps)   
@@ -301,17 +276,18 @@ class Example:
             self.renderer.begin_frame(time)
             self.renderer.render(self.state)
 
-            self.renderer.render_points("contact_points_a", self.points_a, radius=0.025)
-            self.renderer.render_points("contact_points_b", self.points_b, radius=0.025)
+            if self.viz_contact_count > 0:
+                self.renderer.render_points("contact_points_a", self.points_a, radius=0.025)
+                self.renderer.render_points("contact_points_b", self.points_b, radius=0.025)
 
-            normals = self.model.rigid_contact_normal.numpy()
-            for i in range(len(self.points_a)):
-                p = self.points_a[i]
-                if np.any(p != 0.0):
-                    self.renderer.render_line_strip(f"normal_{i}", [p, p + 0.3 * normals[i]], color=(1.0, 0.0, 0.0), radius=0.005)
-                else:
-                    # disable
-                    self.renderer.render_line_strip(f"normal_{i}", [p, p], color=(1.0, 0.0, 0.0), radius=0.005)
+                normals = self.model.rigid_contact_normal.numpy()
+                for i in range(len(self.points_a)):
+                    p = self.points_a[i]
+                    if np.any(p != 0.0):
+                        self.renderer.render_line_strip(f"normal_{i}", [p, p + 0.3 * normals[i]], color=(1.0, 0.0, 0.0), radius=0.005)
+                    else:
+                        # disable
+                        self.renderer.render_line_strip(f"normal_{i}", [p, p], color=(1.0, 0.0, 0.0), radius=0.005)
 
             self.renderer.end_frame()
         
