@@ -10,6 +10,8 @@ import math
 import warp as wp
 import warp.sim
 
+import numpy as np
+
 class SimRenderer(warp.render.UsdRenderer):
     
     def __init__(self, model: warp.sim.Model, path, scaling=1.0):
@@ -21,10 +23,6 @@ class SimRenderer(warp.render.UsdRenderer):
 
         self.model = model
         self.body_names = []
-
-        # add ground plane
-        if (self.model.ground):
-            self.render_ground(size=20.0)
 
         # create rigid body root node
         for b in range(model.body_count):
@@ -57,20 +55,24 @@ class SimRenderer(warp.render.UsdRenderer):
                 if (geo_type == warp.sim.GEO_PLANE):
 
                     # plane mesh
-                    size = 1000.0
+                    width = (geo_scale[0] if geo_scale[0] > 0.0 else self.scale(100.0))
+                    length = (geo_scale[1] if geo_scale[1] > 0.0 else self.scale(100.0))
 
                     mesh = UsdGeom.Mesh.Define(self.stage, parent_path.AppendChild("plane_" + str(s)))
                     mesh.CreateDoubleSidedAttr().Set(True)
 
-                    points = ((-size, 0.0, -size), (size, 0.0, -size), (size, 0.0, size), (-size, 0.0, size))
+                    points = ((-width, 0.0, -length), (width, 0.0, -length), (width, 0.0, length), (-width, 0.0, length))
                     normals = ((0.0, 1.0, 0.0), (0.0, 1.0, 0.0), (0.0, 1.0, 0.0), (0.0, 1.0, 0.0))
                     counts = (4, )
                     indices = [0, 1, 2, 3]
 
-                    mesh.GetPointsAttr().Set(points)
+                    mesh.GetPointsAttr().Set(np.array(points))
                     mesh.GetNormalsAttr().Set(normals)
                     mesh.GetFaceVertexCountsAttr().Set(counts)
                     mesh.GetFaceVertexIndicesAttr().Set(indices)
+
+                    wp.render._usd_add_xform(mesh)
+                    wp.render._usd_set_xform(mesh, self.scale(X_bs.p), X_bs.q, (1.0, 1.0, 1.0), 0.0)
 
                 elif (geo_type == warp.sim.GEO_SPHERE):
 
@@ -102,8 +104,8 @@ class SimRenderer(warp.render.UsdRenderer):
                 elif (geo_type == warp.sim.GEO_MESH):
 
                     mesh = UsdGeom.Mesh.Define(self.stage, parent_path.AppendChild("mesh_" + str(s)))
-                    mesh.GetPointsAttr().Set(geo_src.vertices)
-                    mesh.GetFaceVertexIndicesAttr().Set(geo_src.indices)
+                    mesh.GetPointsAttr().Set(np.array(geo_src.vertices))
+                    mesh.GetFaceVertexIndicesAttr().Set(np.array(geo_src.indices))
                     mesh.GetFaceVertexCountsAttr().Set([3] * int(len(geo_src.indices) / 3))
 
                     wp.render._usd_add_xform(mesh)

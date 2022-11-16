@@ -24,7 +24,7 @@ Mat33 = List[float]
 Transform = Tuple[Vec3, Quat]
 from typing import Optional
 
-from warp.sim.collide import find_shape_contact_pairs
+from warp.sim.collide import count_contact_points
 
 
 # shape geometry types
@@ -325,6 +325,11 @@ class Model:
 
         self.requires_grad = False
 
+        # indicates whether a ground plane was created for this model during `ModelBuilder.finalize()`
+        # in case the user wants to add a ground plane to the model after it has been finalized
+        # XXX this will be deprecated in the future
+        self._ground = False
+
         self.particle_q = None
         self.particle_qd = None
         self.particle_mass = None
@@ -505,6 +510,67 @@ class Model:
             requires_grad=requires_grad,
         )
 
+    def find_shape_contact_pairs(self):
+        # find potential contact pairs based on collision groups and collision mask (pairwise filtering)
+        if True:
+            # fastest implementation so far, iterate over collision groups (islands)
+            import itertools, copy
+            filters = copy.copy(self.shape_collision_filter_pairs)
+            for a, b in self.shape_collision_filter_pairs:
+                filters.add((b, a))
+            contact_pairs = []
+            for group, shapes in self.shape_collision_group_map.items():
+                for shape_a, shape_b in itertools.product(shapes, shapes):
+                    if shape_a < shape_b and (shape_a, shape_b) not in filters:
+                        contact_pairs.append((shape_a, shape_b))
+                if group != -1 and -1 in self.shape_collision_group_map:
+                    for shape_a, shape_b in itertools.product(shapes, self.shape_collision_group_map[-1]):
+                        if shape_a < shape_b and (shape_a, shape_b) not in filters:
+                            contact_pairs.append((shape_a, shape_b))
+            self.shape_contact_pairs = wp.array(np.array(contact_pairs), dtype=wp.int32, device=self.device)
+            self.shape_contact_pair_count = len(contact_pairs)
+        else:
+            from tqdm import trange
+            contact_pairs = []
+            for shape_a in trange(self.shape_count, desc="Finding contact pairs"):
+                for shape_b in range(shape_a+1, self.shape_count):
+                    if (shape_a, shape_b) in self.shape_collision_filter_pairs:
+                        continue
+                    if (shape_b, shape_a) in self.shape_collision_filter_pairs:
+                        continue
+                    cg_a = self.shape_collision_group[shape_a]
+                    cg_b = self.shape_collision_group[shape_b]
+                    if cg_a != cg_b and cg_a > -1 and cg_b > -1:
+                        continue
+                    if len(contact_pairs) >= self.rigid_contact_max:
+                        raise RuntimeError(f"Number of rigid contacts exceeded limit ({self.rigid_contact_max}). Increase Model.rigid_contact_max.")
+                    contact_pairs.append((shape_a, shape_b))
+            self.shape_contact_pairs = wp.array(np.array(contact_pairs), dtype=wp.int32, device=self.device)
+            self.shape_contact_pair_count = len(contact_pairs)
+
+    def count_contact_points(self):
+        """
+        Counts the maximum number of contact points that need to be allocated.
+        """
+        # calculate the potential number of shape pair contact points
+        contact_count = wp.zeros(1, dtype=wp.int32, device=self.device)
+        wp.launch(
+            kernel=count_contact_points,
+            dim=self.shape_contact_pair_count,
+            inputs=[
+                self.shape_contact_pairs,
+                self.shape_geo_type,
+                self.shape_geo_scale,
+                self.mesh_num_points,
+            ],
+            outputs=[
+                contact_count
+            ],
+            device=self.device,
+            record_tape=False)
+        count = contact_count.numpy()[0]
+        return int(count)
+
     def allocate_rigid_contacts(self, count=None, requires_grad=False):
         if count is not None:
             self.rigid_contact_max = count
@@ -633,84 +699,6 @@ class Model:
             requires_grad=requires_grad,
         )
 
-        # find potential contact pairs based on collision groups and collision mask (pairwise filtering)
-        if True:
-            # fastest implementation so far, iterate over collision groups (islands)
-            import itertools, copy
-            filters = copy.copy(self.shape_collision_filter_pairs)
-            for a, b in self.shape_collision_filter_pairs:
-                filters.add((b, a))
-            contact_pairs = []
-            for group, shapes in self.shape_collision_group_map.items():
-                for shape_a, shape_b in itertools.product(shapes, shapes):
-                    if shape_a < shape_b and (shape_a, shape_b) not in filters:
-                        contact_pairs.append((shape_a, shape_b))
-                if group != -1 and -1 in self.shape_collision_group_map:
-                    for shape_a, shape_b in itertools.product(shapes, self.shape_collision_group_map[-1]):
-                        if shape_a < shape_b and (shape_a, shape_b) not in filters:
-                            contact_pairs.append((shape_a, shape_b))
-            self.shape_contact_pairs = wp.array(np.array(contact_pairs), dtype=wp.int32, device=self.device)
-            self.shape_contact_pair_count = len(contact_pairs)
-        elif False:
-            from tqdm import trange
-            contact_pairs = []
-            for shape_a in trange(self.shape_count, desc="Finding contact pairs"):
-                for shape_b in range(shape_a+1, self.shape_count):
-                    if (shape_a, shape_b) in self.shape_collision_filter_pairs:
-                        continue
-                    if (shape_b, shape_a) in self.shape_collision_filter_pairs:
-                        continue
-                    cg_a = self.shape_collision_group[shape_a]
-                    cg_b = self.shape_collision_group[shape_b]
-                    if cg_a != cg_b and cg_a > -1 and cg_b > -1:
-                        continue
-                    if len(contact_pairs) >= self.rigid_contact_max:
-                        raise RuntimeError(f"Number of rigid contacts exceeded limit ({self.rigid_contact_max}). Increase Model.rigid_contact_max.")
-                    contact_pairs.append((shape_a, shape_b))
-            self.shape_contact_pairs = wp.array(np.array(contact_pairs), dtype=wp.int32, device=self.device)
-            self.shape_contact_pair_count = len(contact_pairs)
-        else:
-            device = "cpu"
-            # collision_mask = np.ones((len(self.shape_geo_type), len(self.shape_geo_type)), dtype=np.int32)
-            # np.fill_diagonal(collision_mask, 0)  # disable self-collision
-            # create mask from the list of enabled collision pairs for faster lookup
-            # for i, j in self.shape_collision_filter_pairs:
-            #     collision_mask[i, j] = 0
-            #     collision_mask[j, i] = 0
-            # shape_collision_mask = wp.array(collision_mask, ndim=2, dtype=wp.int32, device=device)
-            shape_collision_group = wp.array(self.shape_collision_group, dtype=wp.int32, device=device)    
-            shape_contact_pairs = wp.zeros((self.rigid_contact_max, 2), dtype=wp.int32, device=device)
-            contact_count = wp.zeros(1, dtype=wp.int32, device=device)
-            wp.launch(
-                kernel=find_shape_contact_pairs,
-                dim=(self.shape_count, self.shape_count),
-                inputs=[
-                    shape_collision_group,
-                    # shape_collision_mask,
-                    self.rigid_contact_max,
-                ],
-                outputs=[
-                    contact_count,
-                    shape_contact_pairs
-                ],
-                device=device,
-                record_tape=False,
-            )
-            required_contacts = contact_count.numpy()[0]
-            if required_contacts > self.rigid_contact_max:
-                raise RuntimeError(f"Number of rigid contacts exceeded limit ({self.rigid_contact_max}). Increase Model.rigid_contact_max to at least {required_contacts}.")
-            # update the maximum number of contacts based on the number of potential contact pairs
-            pairs = shape_contact_pairs.numpy()
-            # apply collision filters
-            for i, j in self.shape_collision_filter_pairs:
-                pairs[i, j] = 0
-                pairs[j, i] = 0
-            valid_pairs = np.where(pairs.any(axis=1))[0]
-            self.shape_contact_pairs = wp.array(pairs[valid_pairs], dtype=wp.int32, device=self.device)
-            num_pairs = len(valid_pairs)
-            # print("Number of potential shape contact pairs:", num_pairs)
-            self.shape_contact_pair_count = num_pairs
-
     def flatten(self):
         """Returns a list of Tensors stored by the model
 
@@ -727,156 +715,51 @@ class Model:
 
         return tensors
 
-    # builds contacts
     def collide(self, state: State):
-        """Constructs a set of contacts between rigid bodies and ground
+        import warnings
+        warnings.warn("Model.collide is not needed anymore and will be removed in a future Warp version.", DeprecationWarning, stacklevel=2)
 
-        This method performs collision detection between rigid body vertices in the scene and updates
-        the model's set of contacts stored as the following attributes:
+    def __setattr__(self, name: str, value):
+        if name == "ground":
+            # import warnings
+            # warnings.warn("Model.ground has been deprecated in favor of `ModelBuilder.set_ground_plane()`.", DeprecationWarning, stacklevel=2)
+            if value == True and not self._ground:
+                raise ValueError("Model.ground cannot be set to True after the Model has been created. Use `ModelBuilder.set_ground_plane()` instead before calling `ModelBuilder.finalize()`.")
+            elif value == False and self._ground:
+                # we remove the ground plane shape, which is always the last shape                
+                def remove_last_elem(arr: wp.array):
+                    np_arr = arr.numpy()[:-1]
+                    return wp.array(np_arr, device=arr.device, dtype=arr.dtype, requires_grad=arr.requires_grad)
+                self.shape_body = remove_last_elem(self.shape_body)
+                self.shape_transform = remove_last_elem(self.shape_transform)
+                self.shape_geo_type = remove_last_elem(self.shape_geo_type)
+                self.shape_geo_scale = remove_last_elem(self.shape_geo_scale)
+                self.shape_geo_src = self.shape_geo_src[:-1]
+                self.shape_materials.ke = remove_last_elem(self.shape_materials.ke)
+                self.shape_materials.kd = remove_last_elem(self.shape_materials.kd)
+                self.shape_materials.kf = remove_last_elem(self.shape_materials.kf)
+                self.shape_materials.mu = remove_last_elem(self.shape_materials.mu)
+                self.shape_materials.restitution = remove_last_elem(self.shape_materials.restitution)
+                self.shape_contact_thickness = remove_last_elem(self.shape_contact_thickness)
+                ground_shape_id = len(self.shape_geo_type)
+                # remove contact pairs involving the ground plane
+                pairs = self.shape_contact_pairs.numpy()
+                pairs = pairs[pairs[:, 1] != ground_shape_id]
+                self.shape_contact_pairs = wp.array(np.array(pairs), dtype=wp.int32, device=self.device)
+                self.shape_contact_pair_count = len(pairs)
+                self.shape_count = ground_shape_id
+                self._ground = False
+            return
 
-            * **contact_body0**: Tensor of ints with first rigid body index
-            * **contact_body1**: Tensor of ints with second rigid body index (currently always -1 to indicate ground)
-            * **contact_point0**: Tensor of Vec3 representing contact point in local frame of body0
-            * **contact_dist**: Tensor of float values representing the distance to maintain
-            * **contact_material**: Tensor contact material indices
+        super().__setattr__(name, value)
 
-        Args:
-            state: The state of the simulation at which to perform collision detection
+    def __getattr__(self, name: str):
+        if name == "ground":
+            # import warnings
+            # warnings.warn("Model.ground has been deprecated in favor of `ModelBuilder.set_ground_plane()`.", DeprecationWarning, stacklevel=2)
+            return self._ground
+        return super().__getattr__(name)
 
-        Note:
-            Currently this method uses an 'all pairs' approach to contact generation that is
-            state independent. In the future this will change and will create a node in
-            the computational graph to propagate gradients as a function of state.
-
-        Todo:
-
-            Only ground-plane collision is currently implemented. Since the ground is static
-            it is acceptable to call this method once at initialization time.
-        """
-
-        body0 = []
-        body1 = []
-        point = []
-        dist = []
-        shape0 = []
-        shape1 = []
-        normal = []
-        margin = []
-
-        ground_plane = self.ground_plane.numpy()
-
-        def add_contact(b0, b1, t, p0, d, s0, s1):
-            body0.append(b0)
-            body1.append(b1)
-            point.append(p0)
-            dist.append(0.0)
-            shape0.append(s0)
-            shape1.append(s1)
-            normal.append(ground_plane[:3])
-            margin.append(d)
-
-        # pull shape data back to CPU
-        shape_transform = self.shape_transform.to("cpu").numpy()
-        shape_body = self.shape_body.to("cpu").numpy()
-        shape_geo_type = self.shape_geo_type.to("cpu").numpy()
-        shape_geo_scale = self.shape_geo_scale.to("cpu").numpy()
-        shape_geo_src = self.shape_geo_src  # already numpy
-
-        for i in range(self.shape_count):
-
-            # transform from shape to body
-            X_bs = wp.transform_expand(shape_transform[i].tolist())
-
-            geo_type = shape_geo_type[i].item()
-
-            if geo_type == GEO_SPHERE:
-
-                radius = shape_geo_scale[i][0].item()
-
-                add_contact(shape_body[i], -1, X_bs, (0.0, 0.0, 0.0), radius, i, -1)
-
-            elif geo_type == GEO_CAPSULE:
-
-                radius = shape_geo_scale[i][0].item()
-                half_width = shape_geo_scale[i][1].item()
-
-                add_contact(
-                    shape_body[i], -1, X_bs, (-half_width, 0.0, 0.0), radius, i, -1
-                )
-                add_contact(
-                    shape_body[i], -1, X_bs, (half_width, 0.0, 0.0), radius, i, -1
-                )
-
-            elif geo_type == GEO_BOX:
-
-                edges = shape_geo_scale[i].tolist()
-
-                add_contact(
-                    shape_body[i],
-                    -1,
-                    X_bs,
-                    (-edges[0], -edges[1], -edges[2]),
-                    0.0,
-                    i,
-                    -1,
-                )
-                add_contact(
-                    shape_body[i],
-                    -1,
-                    X_bs,
-                    (edges[0], -edges[1], -edges[2]),
-                    0.0,
-                    i,
-                    -1,
-                )
-                add_contact(
-                    shape_body[i],
-                    -1,
-                    X_bs,
-                    (-edges[0], edges[1], -edges[2]),
-                    0.0,
-                    i,
-                    -1,
-                )
-                add_contact(
-                    shape_body[i], -1, X_bs, (edges[0], edges[1], -edges[2]), 0.0, i, -1
-                )
-                add_contact(
-                    shape_body[i],
-                    -1,
-                    X_bs,
-                    (-edges[0], -edges[1], edges[2]),
-                    0.0,
-                    i,
-                    -1,
-                )
-                add_contact(
-                    shape_body[i], -1, X_bs, (edges[0], -edges[1], edges[2]), 0.0, i, -1
-                )
-                add_contact(
-                    shape_body[i], -1, X_bs, (-edges[0], edges[1], edges[2]), 0.0, i, -1
-                )
-                add_contact(
-                    shape_body[i], -1, X_bs, (edges[0], edges[1], edges[2]), 0.0, i, -1
-                )
-
-            elif geo_type == GEO_MESH:
-
-                mesh = shape_geo_src[i]
-                scale = shape_geo_scale[i]
-
-                for v in mesh.vertices:
-
-                    p = (v[0] * scale[0], v[1] * scale[1], v[2] * scale[2])
-
-                    add_contact(shape_body[i], -1, X_bs, p, 0.0, i, -1)
-
-        # send to wp
-        with wp.ScopedDevice(self.device):
-            self.ground_contact_dim = len(body0)
-            self.ground_contact_body0 = wp.array(body0, dtype=wp.int32)
-            self.ground_contact_ref = wp.array(point, dtype=wp.vec3, requires_grad=self.requires_grad)
-            self.ground_contact_shape0 = wp.array(shape0, dtype=wp.int32)
 
 
 class ModelBuilder:
@@ -946,7 +829,7 @@ class ModelBuilder:
         self.particle_qd = []
         self.particle_mass = []
 
-        # shapes (each shape has an entry in this array)
+        # shapes (each shape has an entry in these arrays)
         # transform from shape to body
         self.shape_transform = []
         # maps from shape index to body index
@@ -960,7 +843,6 @@ class ModelBuilder:
         self.shape_material_mu = []
         self.shape_material_restitution = []
         self.shape_contact_thickness = []
-        self.shape_volumes = []
         # collision groups within collisions are handled
         self.shape_collision_group = []
         self.shape_collision_group_map = {}
@@ -1015,7 +897,7 @@ class ModelBuilder:
         self.body_q = []
         self.body_qd = []
         self.body_name = []
-        self.body_shapes = []  # mapping from body to shapes
+        self.body_shapes = {}  # mapping from body to shapes
 
         # rigid joints
         self.joint_parent = (
@@ -1058,6 +940,10 @@ class ModelBuilder:
 
         self.upvector = upvector
         self.gravity = gravity
+        # indicates whether a ground should be created
+        self.ground = True
+        # indicates whether a ground plane has been created via `set_ground_plane`
+        self._ground_created = False
 
         # contacts to be generated within the given distance margin to be generated at
         # every simulation substep (can be 0 if only one PBD solver iteration is used)
@@ -1066,12 +952,10 @@ class ModelBuilder:
         self.rigid_contact_torsional_friction = 0.5
         # rolling friction coefficient (only considered by XPBD so far)
         self.rigid_contact_rolling_friction = 0.001
-        # treat collisions with relative velocity below this (multiplied by dt) as inelastic
-        # jitter threshold from
-        self.rigid_contact_jitter_threshold = 2.0 * np.linalg.norm(gravity)
 
         # number of rigid contact points to allocate in the model during self.finalize() per environment
-        self.num_rigid_contacts_per_env = 64
+        # if setting is None, the number of worst-case number of contacts will be calculated in self.finalize()
+        self.num_rigid_contacts_per_env = None
         
     # an articulation is a set of contiguous bodies bodies from articulation_start[i] to articulation_start[i+1]
     # these are used for computing forward kinematics e.g.:
@@ -1205,31 +1089,30 @@ class ModelBuilder:
 
     # register a rigid body and return its index.
     def add_body(
-        self,
+        self, 
         origin: Transform,
-        parent: int = -1,
-        joint_xform: Transform = wp.transform(),  # transform of joint in parent space
-        joint_xform_child: Transform = wp.transform(),
-        joint_axis: Vec3 = (0.0, 0.0, 0.0),
-        joint_type: wp.constant = JOINT_FREE,
-        joint_target_ke: float = 0.0,
-        joint_target_kd: float = 0.0,
-        joint_target: float = None,
-        joint_limit_ke: float = 100.0,
-        joint_limit_kd: float = 10.0,
-        joint_limit_lower: float = -1.0e3,
-        joint_limit_upper: float = 1.0e3,
-        joint_armature: float = 0.0,
-        joint_twist_lower: float = -1.0e3,
-        joint_twist_upper: float = 1.0e3,
-        joint_linear_compliance: float = 0.0,
-        joint_angular_compliance: float = 0.0,
-        com: Vec3 = np.zeros(3),
-        I_m: Mat33 = np.zeros((3, 3)),
-        m: float = 0.0,
-        body_name: str = None,
-        joint_name: str = None,
-    ) -> int:
+        parent: int=-1,
+        joint_xform: Transform=wp.transform(),    # transform of joint in parent space
+        joint_xform_child: Transform=wp.transform(),
+        joint_axis: Vec3=(0.0, 0.0, 0.0),
+        joint_type: wp.constant=JOINT_FREE,
+        joint_target_ke: float=0.0,
+        joint_target_kd: float=0.0,
+        joint_target: float=None,
+        joint_limit_ke: float=100.0,
+        joint_limit_kd: float=10.0,
+        joint_limit_lower: float=-1.e+3,
+        joint_limit_upper: float=1.e+3,
+        joint_armature: float=0.0,
+        joint_twist_lower: float=-1.e+3,
+        joint_twist_upper: float=1.e+3,
+        joint_linear_compliance: float=0.0,
+        joint_angular_compliance: float=0.0,
+        com: Vec3=np.zeros(3),
+        I_m: Mat33=np.zeros((3, 3)), 
+        m: float=0.0,
+        body_name: str=None,
+        joint_name: str=None) -> int:
 
         """Adds a rigid body to the model.
 
@@ -1281,7 +1164,7 @@ class ModelBuilder:
         self.body_qd.append(wp.spatial_vector())
 
         self.body_name.append(body_name or f"body {child}")
-        self.body_shapes.append([])
+        self.body_shapes[child] = []
 
         # joint data
         self.joint_type.append(joint_type.val)
@@ -1408,21 +1291,30 @@ class ModelBuilder:
         return len(self.muscle_start) - 1
 
     # shapes
-    def add_shape_plane(
-        self,
-        plane: Vec4 = (0.0, 1.0, 0.0, 0.0),
-        width: float = 10.0,
-        length: float = 10.0,
-        ke: float = default_shape_ke,
-        kd: float = default_shape_kd,
-        kf: float = default_shape_kf,
-        mu: float = default_shape_mu,
-        restitution: float = default_shape_restitution,
-    ):
-        """Adds a plane collision shape
+    def add_shape_plane(self,
+                        plane: Vec4=(0.0, 1.0, 0.0, 0.0),
+                        pos: Vec3=None,
+                        rot: Quat=None,
+                        width: float=10.0,
+                        length: float=10.0,
+                        body: int = -1,
+                        ke: float=default_shape_ke,
+                        kd: float=default_shape_kd,
+                        kf: float=default_shape_kf,
+                        mu: float=default_shape_mu,
+                        restitution: float=default_shape_restitution):
+        """
+        Adds a plane collision shape.
+        If pos and rot are defined, the plane is assumed to have its normal as (0, 1, 0).
+        Otherwise, the plane equation is used.
 
         Args:
             plane: The plane equation in form a*x + b*y + c*z + d = 0
+            pos: The position of the plane in world coordinates
+            rot: The rotation of the plane in world coordinates
+            width: The extent along x of the plane (infinite if 0)
+            length: The extent along z of the plane (infinite if 0)
+            body: The body index to attach the shape to (-1 by default to keep the plane static)
             ke: The contact elastic stiffness
             kd: The contact damping stiffness
             kf: The contact friction stiffness
@@ -1430,37 +1322,33 @@ class ModelBuilder:
             restitution: The coefficient of restitution
 
         """
+        if pos is None or rot is None:
+            # compute position and rotation from plane equation
+            normal = np.array(plane[:3])
+            normal /= np.linalg.norm(normal)
+            pos = plane[3] * normal
+            if np.allclose(normal, (0.0, 1.0, 0.0)):
+                # no rotation necessary
+                rot = (0.0, 0.0, 0.0, 1.0)
+            else:
+                c = np.cross(normal, (0.0, 1.0, 0.0))
+                angle = np.arcsin(np.linalg.norm(c))
+                axis = c / np.linalg.norm(c)
+                rot = wp.quat_from_axis_angle(axis, angle)
+        scale = (width, length, 0.0)
+        self._add_shape(body, pos, rot, GEO_PLANE, scale, None, 0.0, ke, kd, kf, mu, restitution)
 
-        # TODO find transform so that normal is (0, 1, 0) and origin is (0, 0, 0), and use (width, length, 0) as scale
-        self._add_shape(
-            -1,
-            (0.0, 0.0, 0.0),
-            (0.0, 0.0, 0.0),
-            GEO_PLANE,
-            plane,
-            None,
-            0.0,
-            ke,
-            kd,
-            kf,
-            mu,
-            restitution,
-        )
-
-    def add_shape_sphere(
-        self,
-        body,
-        pos: Vec3 = (0.0, 0.0, 0.0),
-        rot: Quat = (0.0, 0.0, 0.0, 1.0),
-        radius: float = 1.0,
-        density: float = default_shape_density,
-        ke: float = default_shape_ke,
-        kd: float = default_shape_kd,
-        kf: float = default_shape_kf,
-        mu: float = default_shape_mu,
-        restitution: float = default_shape_restitution,
-        collision_group: int = -1,
-    ):
+    def add_shape_sphere(self,
+                         body,
+                         pos: Vec3=(0.0, 0.0, 0.0),
+                         rot: Quat=(0.0, 0.0, 0.0, 1.0),
+                         radius: float=1.0,
+                         density: float=default_shape_density,
+                         ke: float=default_shape_ke,
+                         kd: float=default_shape_kd,
+                         kf: float=default_shape_kf,
+                         mu: float=default_shape_mu,
+                         restitution: float=default_shape_restitution):
         """Adds a sphere collision shape to a body.
 
         Args:
@@ -1477,39 +1365,22 @@ class ModelBuilder:
 
         """
 
-        self._add_shape(
-            body,
-            pos,
-            rot,
-            GEO_SPHERE,
-            (radius, 0.0, 0.0, 0.0),
-            None,
-            density,
-            ke,
-            kd,
-            kf,
-            mu,
-            restitution,
-            thickness=radius,
-            collision_group=collision_group,
-        )
+        self._add_shape(body, pos, rot, GEO_SPHERE, (radius, 0.0, 0.0, 0.0), None, density, ke, kd, kf, mu, restitution, thickness=radius)
 
-    def add_shape_box(
-        self,
-        body: int,
-        pos: Vec3 = (0.0, 0.0, 0.0),
-        rot: Quat = (0.0, 0.0, 0.0, 1.0),
-        hx: float = 0.5,
-        hy: float = 0.5,
-        hz: float = 0.5,
-        density: float = default_shape_density,
-        ke: float = default_shape_ke,
-        kd: float = default_shape_kd,
-        kf: float = default_shape_kf,
-        mu: float = default_shape_mu,
-        restitution: float = default_shape_restitution,
-        contact_thickness: float = 0.0,
-    ):
+    def add_shape_box(self,
+                      body: int,
+                      pos: Vec3=(0.0, 0.0, 0.0),
+                      rot: Quat=(0.0, 0.0, 0.0, 1.0),
+                      hx: float=0.5,
+                      hy: float=0.5,
+                      hz: float=0.5,
+                      density: float=default_shape_density,
+                      ke: float=default_shape_ke,
+                      kd: float=default_shape_kd,
+                      kf: float=default_shape_kf,
+                      mu: float=default_shape_mu,
+                      restitution: float=default_shape_restitution,
+                      contact_thickness: float=0.0):
         """Adds a box collision shape to a body.
 
         Args:
@@ -1576,39 +1447,21 @@ class ModelBuilder:
 
         """
 
-        self._add_shape(
-            body,
-            pos,
-            rot,
-            GEO_CAPSULE,
-            (radius, half_width, 0.0, 0.0),
-            None,
-            density,
-            ke,
-            kd,
-            kf,
-            mu,
-            restitution,
-            thickness=radius,
-        )
+        self._add_shape(body, pos, rot, GEO_CAPSULE, (radius, half_width, 0.0, 0.0), None, density, ke, kd, kf, mu, restitution, thickness=radius)
 
-    def add_shape_mesh(
-        self,
-        body: int,
-        pos: Vec3 = (0.0, 0.0, 0.0),
-        rot: Quat = (0.0, 0.0, 0.0, 1.0),
-        mesh: Mesh = None,
-        volume: Volume = None,
-        scale: Vec3 = (1.0, 1.0, 1.0),
-        density: float = default_shape_density,
-        ke: float = default_shape_ke,
-        kd: float = default_shape_kd,
-        kf: float = default_shape_kf,
-        mu: float = default_shape_mu,
-        restitution: float = default_shape_restitution,
-        contact_thickness: float = 0.0,
-        collision_group: int = -1,
-    ):
+    def add_shape_mesh(self,
+                       body: int,
+                       pos: Vec3=(0.0, 0.0, 0.0),
+                       rot: Quat=(0.0, 0.0, 0.0, 1.0),
+                       mesh: Mesh=None,
+                       scale: Vec3=(1.0, 1.0, 1.0),
+                       density: float=default_shape_density,
+                       ke: float=default_shape_ke,
+                       kd: float=default_shape_kd,
+                       kf: float=default_shape_kf,
+                       mu: float=default_shape_mu,
+                       restitution: float=default_shape_restitution,
+                       contact_thickness: float=0.0):
         """Adds a triangle mesh collision shape to a body.
 
         Args:
@@ -1627,25 +1480,12 @@ class ModelBuilder:
 
         """
 
-        self._add_shape(
-            body,
-            pos,
-            rot,
-            GEO_MESH,
-            (scale[0], scale[1], scale[2], 0.0),
-            mesh,
-            density,
-            ke,
-            kd,
-            kf,
-            mu,
-            restitution,
-            thickness=contact_thickness,
-            volume=volume,
-            collision_group=collision_group,
-        )
+        self._add_shape(body, pos, rot, GEO_MESH, (scale[0], scale[1], scale[2], 0.0), mesh, density, ke, kd, kf, mu, restitution, thickness=contact_thickness)
 
     def _shape_radius(self, type, scale, src):
+        """
+        Calculates the squared radius of a sphere that encloses the shape, used for broadphase collision detection.
+        """
         if type == GEO_SPHERE:
             return scale[0]
         elif type == GEO_BOX:
@@ -1653,37 +1493,26 @@ class ModelBuilder:
         elif type == GEO_CAPSULE:
             return scale[0] + scale[1]
         elif type == GEO_MESH:
-            vmin = np.min(src.vertices, axis=0)
-            vmax = np.max(src.vertices, axis=0)
-            radius = np.linalg.norm(vmax - vmin) * 0.5
-            return radius
+            vmax = np.max(np.abs(src.vertices), axis=0) * scale[0]
+            return np.linalg.norm(vmax)
+        elif type == GEO_PLANE:
+            if scale[0] > 0.0 and scale[1] > 0.0:
+                # finite plane
+                return np.linalg.norm(scale)
+            else:
+                return 1.0e6
         else:
             return 10.0
-
-    def _add_shape(
-        self,
-        body,
-        pos,
-        rot,
-        type,
-        scale,
-        src,
-        density,
-        ke,
-        kd,
-        kf,
-        mu,
-        restitution,
-        thickness=0.0,
-        volume=None,
-        collision_group=-1,
-        collision_filter_parent=True,
-    ):
+    
+    def _add_shape(self, body, pos, rot, type, scale, src, density, ke, kd, kf, mu, restitution, thickness=0.0, collision_group=-1, collision_filter_parent=True):
         self.shape_body.append(body)
         shape = len(self.shape_geo_type)
-        for same_body_shape in self.body_shapes[body]:
-            self.shape_collision_filter_pairs.add((same_body_shape, shape))
-        self.body_shapes[body].append(shape)
+        if body in self.body_shapes:
+            for same_body_shape in self.body_shapes[body]:
+                self.shape_collision_filter_pairs.add((same_body_shape, shape))
+            self.body_shapes[body].append(shape)
+        else:
+            self.body_shapes[body] = [shape]
         self.shape_transform.append(wp.transform(pos, rot))
         self.shape_geo_type.append(type.val)
         self.shape_geo_scale.append((scale[0], scale[1], scale[2]))
@@ -1710,8 +1539,6 @@ class ModelBuilder:
         (m, I) = self._compute_shape_mass(type, scale, src, density)
 
         self._update_body_mass(body, m, I, np.array(pos), np.array(rot))
-
-        self.shape_volumes.append(volume)
 
     # particles
     def add_particle(self, pos: Vec3, vel: Vec3, mass: float) -> int:
@@ -2721,6 +2548,31 @@ class ModelBuilder:
         else:
             self.body_inv_inertia[i] = new_inertia
 
+    def set_ground_plane(self,
+                         normal=None,
+                         ke: float=default_shape_ke,
+                         kd: float=default_shape_kd,
+                         kf: float=default_shape_kf,
+                         mu: float=default_shape_mu,
+                         restitution: float=default_shape_restitution):
+        """
+        Creates a ground plane for the world. If the normal is not specified,
+        the upvector of the ModelBuilder is used.
+        """
+        if normal is None:
+            normal = self.upvector
+        self.add_shape_plane(
+            plane=(*normal, 0.0),
+            width=0.0,
+            length=0.0,
+            ke=ke,
+            kd=kd,
+            kf=kf,
+            mu=mu,
+            restitution=restitution)
+        self.ground = True
+        self._ground_created = True
+
 
     def finalize(self, device=None, requires_grad=False) -> Model:
         """Convert this builder object to a concrete model for simulation.
@@ -2737,7 +2589,12 @@ class ModelBuilder:
             A model object.
         """
 
+        # ensure the env count is set correctly
         self.num_envs = max(1, self.num_envs)
+
+        # add ground plane if not already created
+        if self.ground and not self._ground_created:
+            self.set_ground_plane()
 
         # construct particle inv masses
         particle_inv_mass = []
@@ -2761,7 +2618,6 @@ class ModelBuilder:
 
             # state (initial)
             m.particle_q = wp.array(self.particle_q, dtype=wp.vec3, requires_grad=requires_grad)
-            m.particle_q_original = wp.array(self.particle_q, dtype=wp.vec3, requires_grad=requires_grad)
             m.particle_qd = wp.array(self.particle_qd, dtype=wp.vec3, requires_grad=requires_grad)
             m.particle_mass = wp.array(self.particle_mass, dtype=wp.float32, requires_grad=requires_grad)
             m.particle_inv_mass = wp.array(particle_inv_mass, dtype=wp.float32, requires_grad=requires_grad)
@@ -2909,12 +2765,16 @@ class ModelBuilder:
 
             # contacts
             m.allocate_soft_contacts(1*1024, requires_grad=requires_grad)
-            m.allocate_rigid_contacts(self.num_rigid_contacts_per_env*self.num_envs, requires_grad=requires_grad)
+            m.find_shape_contact_pairs()
+            if self.num_rigid_contacts_per_env is None:
+                contact_count = m.count_contact_points()
+            else:
+                contact_count = self.num_rigid_contacts_per_env*self.num_envs
+            print(f"Allocating {contact_count} rigid contacts.")
+            m.allocate_rigid_contacts(contact_count, requires_grad=requires_grad)
             m.rigid_contact_margin = self.rigid_contact_margin            
             m.rigid_contact_torsional_friction = self.rigid_contact_torsional_friction
             m.rigid_contact_rolling_friction = self.rigid_contact_rolling_friction
-            # XXX this variable is not used at the moment
-            m.rigid_contact_jitter_threshold = self.rigid_contact_jitter_threshold
             
             m.joint_dof_count = self.joint_dof_count
             m.joint_coord_count = self.joint_coord_count
@@ -2926,12 +2786,8 @@ class ModelBuilder:
             m.geo_meshes = self.geo_meshes
             m.geo_sdfs = self.geo_sdfs
 
-            # store volumes in model to keep the references alive when ModelBuilder gets destroyed
-            m.shape_volumes = self.shape_volumes
-            m.shape_volume_id = wp.array([(v.id if v is not None else 0) for v in m.shape_volumes], dtype=wp.uint64)
-
             # enable ground plane
-            m.ground = True
+            m._ground = self.ground
             m.ground_plane = wp.array([*self.upvector, 0.0], dtype=wp.float32, requires_grad=requires_grad)
             # m.gravity = np.array(self.upvector) * self.gravity
             m.gravity = wp.array([*(np.array(self.upvector) * self.gravity)], dtype=wp.float32, requires_grad=requires_grad)

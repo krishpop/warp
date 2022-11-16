@@ -261,13 +261,9 @@ def apply_body_deltas(
     x_com = p0 + wp.quat_rotate(q0, body_com[tid])
 
     weight = 1.0
-    # if (constraint_inv_weights):
-    #     if (constraint_inv_weights[tid] > 0.0):
-    #         weight = 1.0 / constraint_inv_weights[tid]
-    #     else:
-    #         weight = 1.0
-    # else:
-    #     weight = 1.0
+    if (constraint_inv_weights):
+        if (constraint_inv_weights[tid] > 0.0):
+            weight = 1.0 / constraint_inv_weights[tid]
 
     dp = wp.spatial_bottom(delta) * inv_m * weight
     dq = wp.spatial_top(delta) * weight
@@ -1064,7 +1060,6 @@ def solve_body_contact_positions(
     shape_materials: ShapeContactMaterial,
     relaxation: float,
     dt: float,
-    max_penetration: float,
     contact_torsional_friction: float,
     contact_rolling_friction: float,
     # outputs
@@ -1169,8 +1164,6 @@ def solve_body_contact_positions(
         if (body_b >= 0):
             wp.atomic_add(contact_inv_weight, body_b, 1.0)
 
-    # limit penetration to prevent extreme constraint deltas
-    # d = wp.max(max_penetration, d)
     lambda_n = compute_contact_constraint_delta(
         d, X_wb_a, X_wb_b, m_inv_a, m_inv_b, I_inv_a, I_inv_b,
         -n, n, angular_a, angular_b, relaxation, dt)
@@ -1309,7 +1302,6 @@ def apply_rigid_restitution(
     active_contact_point1: wp.array(dtype=wp.vec3),
     contact_inv_weight: wp.array(dtype=float),
     gravity: wp.array(dtype=float),
-    jitter_threshold: float,
     dt: float,
     # outputs
     deltas: wp.array(dtype=wp.spatial_vector),
@@ -1411,21 +1403,7 @@ def apply_rigid_restitution(
 
     # Eq. 29
     rel_vel_old = wp.dot(n, v_a - v_b)
-
-    # if (wp.abs(rel_vel_old) < jitter_threshold or inv_mass == 0.0):
-    #     return
-
     rel_vel_new = wp.dot(n, v_a_new - v_b_new)
-
-    # jitter_threshold = 2.0*wp.length(g)*dt
-    jitter_threshold *= dt
-
-    # if (wp.abs(rel_vel_new) < jitter_threshold):
-    #     # restitution = 0.0
-    #     return
-    # if (wp.abs(rel_vel_old) < jitter_threshold):
-    #     # restitution = 0.0
-    #     return
 
     # Eq. 34 (Eq. 33 from the ACM paper, note the max operation)
     dv = n * (-rel_vel_new + wp.max(-restitution * rel_vel_old, 0.0))
@@ -1478,8 +1456,8 @@ class XPBDIntegrator:
                  contact_normal_relaxation=1.0,
                  contact_friction_relaxation=1.0,
                  contact_con_weighting=True,
-                 max_rigid_contact_penetration=-100.0,
-                 angular_damping=0.0):
+                 angular_damping=0.0,
+                 enable_restitution=False):
 
         self.iterations = iterations
 
@@ -1493,16 +1471,13 @@ class XPBDIntegrator:
 
         self.contact_con_weighting = contact_con_weighting
 
-        # maximum penetration depth to be used for contact handling in order
-        # to clip the contact impulse to reasonable levels in case of strong
-        # interpenetrations between rigid bodies (has to be a value < 0)
-        self.max_rigid_contact_penetration = max_rigid_contact_penetration
-
         self.angular_damping = angular_damping
+
+        self.enable_restitution = enable_restitution
 
     def simulate(self, model, state_in, state_out, dt, requires_grad=False):
 
-        # with wp.ScopedTimer("simulate", False):
+        with wp.ScopedTimer("simulate", False):
 
             # ----------------------------
             # handle particles
@@ -1622,7 +1597,7 @@ class XPBDIntegrator:
                         body_f = wp.zeros_like(state_out.body_f)
                     else:
                         body_f = state_out.body_f
-                        # body_f.zero_() not needed since we call state.clear_forces()
+                        # body_f.zero_() not needed since we always call state.clear_forces()
 
                     wp.launch(
                         kernel=apply_joint_torques,
@@ -1744,7 +1719,6 @@ class XPBDIntegrator:
 
                     # Solve rigid contact constraints
                     if (model.rigid_contact_max and model.body_count):
-
                         rigid_contact_inv_weight = None
                         if requires_grad:
                             body_deltas = wp.zeros_like(state_out.body_deltas)
@@ -1756,13 +1730,13 @@ class XPBDIntegrator:
                         else:
                             body_deltas = state_out.body_deltas
                             body_deltas.zero_()
-                            # rigid_active_contact_distance = model.rigid_active_contact_distance
-                            # rigid_active_contact_point0 = model.rigid_active_contact_point0
-                            # rigid_active_contact_point1 = model.rigid_active_contact_point1
-                            # rigid_active_contact_distance.zero_()
-                            # if self.contact_con_weighting:
-                            #     rigid_contact_inv_weight = model.rigid_contact_inv_weight
-                            #     rigid_contact_inv_weight.zero_()
+                            rigid_active_contact_distance = model.rigid_active_contact_distance
+                            rigid_active_contact_point0 = model.rigid_active_contact_point0
+                            rigid_active_contact_point1 = model.rigid_active_contact_point1
+                            rigid_active_contact_distance.zero_()
+                            if self.contact_con_weighting:
+                                rigid_contact_inv_weight = model.rigid_contact_inv_weight
+                                rigid_contact_inv_weight.zero_()
                                 
                         wp.launch(kernel=solve_body_contact_positions,
                             dim=model.rigid_contact_max,
@@ -1786,44 +1760,41 @@ class XPBDIntegrator:
                                 model.shape_materials,
                                 self.contact_normal_relaxation,
                                 dt,
-                                self.max_rigid_contact_penetration,
                                 model.rigid_contact_torsional_friction,
                                 model.rigid_contact_rolling_friction,
                             ],
                             outputs=[
                                 body_deltas,
-                                model.rigid_active_contact_point0,
-                                model.rigid_active_contact_point1,
-                                model.rigid_active_contact_distance,
+                                rigid_active_contact_point0,
+                                rigid_active_contact_point1,
+                                rigid_active_contact_distance,
                                 rigid_contact_inv_weight,
                             ],
                             device=model.device)
 
-                        # if (i == 0):
-                        #     # remember the contacts from the first iteration
-                        #     if requires_grad:
-                        #         model.rigid_active_contact_distance_prev = wp.clone(rigid_active_contact_distance)
-                        #         model.rigid_active_contact_point0_prev = wp.clone(rigid_active_contact_point0)
-                        #         model.rigid_active_contact_point1_prev = wp.clone(rigid_active_contact_point1)
-                        #         if self.contact_con_weighting:
-                        #             model.rigid_contact_inv_weight_prev = wp.clone(rigid_contact_inv_weight)
-                        #     else:
-                        #         model.rigid_active_contact_distance_prev.assign(rigid_active_contact_distance)
-                        #         model.rigid_active_contact_point0_prev.assign(rigid_active_contact_point0)
-                        #         model.rigid_active_contact_point1_prev.assign(rigid_active_contact_point1)
-                        #         if self.contact_con_weighting:
-                        #             model.rigid_contact_inv_weight_prev.assign(rigid_contact_inv_weight)
-                        
-                        # if self.contact_con_weighting:
-                        #     model.rigid_contact_inv_weight = rigid_contact_inv_weight
-                        # else:
-                        #     model.rigid_contact_inv_weight_prev = None
-                        # model.rigid_active_contact_distance = rigid_active_contact_distance
-                        # model.rigid_active_contact_point0 = rigid_active_contact_point0
-                        # model.rigid_active_contact_point1 = rigid_active_contact_point1
-
+                        if (self.enable_restitution and i == 0):
+                            # remember the contacts from the first iteration
+                            if requires_grad:
+                                model.rigid_active_contact_distance_prev = wp.clone(rigid_active_contact_distance)
+                                model.rigid_active_contact_point0_prev = wp.clone(rigid_active_contact_point0)
+                                model.rigid_active_contact_point1_prev = wp.clone(rigid_active_contact_point1)
+                                if self.contact_con_weighting:
+                                    model.rigid_contact_inv_weight_prev = wp.clone(rigid_contact_inv_weight)
+                                else:
+                                    model.rigid_contact_inv_weight_prev = None
+                            else:
+                                model.rigid_active_contact_distance_prev.assign(rigid_active_contact_distance)
+                                model.rigid_active_contact_point0_prev.assign(rigid_active_contact_point0)
+                                model.rigid_active_contact_point1_prev.assign(rigid_active_contact_point1)
+                                if self.contact_con_weighting:
+                                    model.rigid_contact_inv_weight_prev.assign(rigid_contact_inv_weight)
+                                else:
+                                    model.rigid_contact_inv_weight_prev = None
 
                         if requires_grad:
+                            model.rigid_active_contact_distance = rigid_active_contact_distance
+                            model.rigid_active_contact_point0 = rigid_active_contact_point0
+                            model.rigid_active_contact_point1 = rigid_active_contact_point1
                             body_q = wp.clone(state_out.body_q)
                             body_qd = wp.clone(state_out.body_qd)
                         else:
@@ -1876,7 +1847,7 @@ class XPBDIntegrator:
                 if requires_grad:
                     state_out.body_qd = out_body_qd
 
-                if (False):
+                if (self.enable_restitution):
                     if requires_grad:
                         state_out.body_deltas = wp.zeros_like(state_out.body_deltas)
                     else:
@@ -1903,7 +1874,6 @@ class XPBDIntegrator:
                                 model.rigid_active_contact_point1_prev,
                                 model.rigid_contact_inv_weight_prev,
                                 model.gravity,
-                                model.rigid_contact_jitter_threshold,
                                 dt,
                             ],
                             outputs=[
