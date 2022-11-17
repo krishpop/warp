@@ -135,7 +135,7 @@ def parse_mjcf(
             joint_type = type_map[joint.attrib["type"]]
             joint_axis = wp.normalize(parse_vec(joint, "axis", (0.0, 0.0, 0.0)))
             joint_pos = parse_vec(joint, "pos", (0.0, 0.0, 0.0))
-            joint_range = parse_vec(joint, "range", (-3.0, 3.0))
+            joint_range = parse_vec(joint, "range", (-180, 180))
             joint_armature = parse_float(joint, "armature", armature) * armature_scale
             joint_stiffness = parse_float(joint, "stiffness", stiffness)
             joint_damping = parse_float(joint, "damping", damping)
