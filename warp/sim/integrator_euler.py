@@ -1455,7 +1455,7 @@ def compute_forces(model, state, particle_f, body_f, requires_grad):
                   outputs=[particle_f],
                   device=model.device)
 
-    if (model.body_count):
+    if (model.rigid_contact_max and model.shape_contact_pair_count):
         wp.launch(kernel=eval_rigid_contacts,
                   dim=model.rigid_contact_max,
                   inputs=[
@@ -1478,35 +1478,35 @@ def compute_forces(model, state, particle_f, body_f, requires_grad):
                   ],
                   device=model.device)
 
-        if (model.joint_count):
-            wp.launch(kernel=eval_body_joints,
-                    dim=model.joint_count,
-                    inputs=[
-                        state.body_q,
-                        state.body_qd,
-                        model.body_com,
-                        model.joint_q_start,
-                        model.joint_qd_start,
-                        model.joint_type,
-                        model.joint_parent,
-                        model.joint_X_p,
-                        model.joint_X_c,
-                        model.joint_axis,
-                        model.joint_target,
-                        model.joint_act,
-                        model.joint_target_ke,
-                        model.joint_target_kd,
-                        model.joint_limit_lower,
-                        model.joint_limit_upper,
-                        model.joint_limit_ke,
-                        model.joint_limit_kd,
-                        model.joint_attach_ke,
-                        model.joint_attach_kd,
-                    ],
-                    outputs=[
-                        body_f
-                    ],
-                    device=model.device)
+    if (model.joint_count):
+        wp.launch(kernel=eval_body_joints,
+                dim=model.joint_count,
+                inputs=[
+                    state.body_q,
+                    state.body_qd,
+                    model.body_com,
+                    model.joint_q_start,
+                    model.joint_qd_start,
+                    model.joint_type,
+                    model.joint_parent,
+                    model.joint_X_p,
+                    model.joint_X_c,
+                    model.joint_axis,
+                    model.joint_target,
+                    model.joint_act,
+                    model.joint_target_ke,
+                    model.joint_target_kd,
+                    model.joint_limit_lower,
+                    model.joint_limit_upper,
+                    model.joint_limit_ke,
+                    model.joint_limit_kd,
+                    model.joint_attach_ke,
+                    model.joint_attach_kd,
+                ],
+                outputs=[
+                    body_f
+                ],
+                device=model.device)
 
     # particle shape contact
     if (model.particle_count and model.shape_count):
