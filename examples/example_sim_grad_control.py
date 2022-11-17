@@ -15,8 +15,6 @@
 
 
 import os
-import math
-from typing import List
 
 import numpy as np
 
@@ -27,23 +25,6 @@ import warp.sim.render
 from warp.tests.grad_utils import *
 
 from tqdm import trange
-
-import dash
-from dash_extensions import Mermaid
-
-# chart = """
-# graph TD;
-# A-->B;";
-# A-->C[test];
-# B-->D;
-# C-->D;
-# """
-# app = dash.Dash()
-# app.layout = Mermaid(chart=chart)
-
-# if __name__ == "__main__":
-#     app.run_server()
-
 
 # wp.config.verify_fp = True
 wp.init()
@@ -70,12 +51,12 @@ class RigidBodySimulator:
     joint torques tau. The system state is updated by calling the warp_step() function.
     """
 
-    frame_dt = 1.0/160.0
+    frame_dt = 1.0/60.0
 
     episode_duration = 1.5      # seconds
     episode_frames = int(episode_duration/frame_dt)
 
-    sim_substeps = 10
+    sim_substeps = 30
     sim_dt = frame_dt / sim_substeps
     sim_steps = int(episode_duration / sim_dt)
    
@@ -94,129 +75,137 @@ class RigidBodySimulator:
         self.num_envs = num_envs
 
         for i in range(num_envs):
-            # if self.use_single_cartpole:
-            #     wp.sim.parse_urdf(os.path.join(os.path.dirname(__file__), "assets/cartpole_single.urdf"), builder,
-            #         xform=wp.transform(np.array((0.0, 1.0, 0.0)), wp.quat_from_axis_angle((1.0, 0.0, 0.0), -math.pi*0.5)),
-            #         floating=True, 
-            #         density=0,
-            #         armature=0.1,
-            #         stiffness=0.0,
-            #         damping=0.0,
-            #         shape_ke=1.e+4,
-            #         shape_kd=0.0,
-            #         shape_kf=1.e+2,
-            #         shape_mu=1.0,
-            #         limit_ke=1.e+4,
-            #         limit_kd=0.0)
-            #     # joint initial positions
-            #     builder.joint_q[-2:] = [0.0, 0.3]
-            #     builder.joint_target[:2] = [0.0, 0.0]
-            # else:
-            #     wp.sim.parse_urdf(os.path.join(os.path.dirname(__file__), "assets/cartpole.urdf"), builder,
-            #         xform=wp.transform(np.array((i*2.0, 4.0, 0.0)), wp.quat_from_axis_angle((1.0, 0.0, 0.0), -math.pi*0.5)),
-            #         floating=True, 
-            #         density=0,
-            #         armature=0.1,
-            #         stiffness=0.0,
-            #         damping=0.0,
-            #         shape_ke=1.e+4,
-            #         shape_kd=1.e+2,
-            #         shape_kf=1.e+2,
-            #         shape_mu=1.0,
-            #         limit_ke=1.e+4,
-            #         limit_kd=1.e+1)
+            if self.use_single_cartpole:
+                wp.sim.parse_urdf(
+                    os.path.join(os.path.dirname(__file__), "assets/cartpole_single.urdf"),
+                    builder,
+                    xform=wp.transform(
+                        np.array((0.0, 1.0, 0.0)),
+                        wp.quat_from_axis_angle((1.0, 0.0, 0.0), -np.pi*0.5)),
+                    floating=False, 
+                    density=0,
+                    armature=0.1,
+                    stiffness=0.0,
+                    damping=0.0,
+                    shape_ke=1.e+4,
+                    shape_kd=0.0,
+                    shape_kf=1.e+2,
+                    shape_mu=1.0,
+                    limit_ke=1.e+4,
+                    limit_kd=0.0)
+                # joint initial positions
+                builder.joint_q[-2:] = [0.0, 0.3]
+                builder.joint_target[:2] = [0.0, 0.0]
+            else:
+                wp.sim.parse_urdf(
+                    os.path.join(os.path.dirname(__file__), "assets/cartpole.urdf"),
+                    builder,
+                    xform=wp.transform(
+                        np.array((i*2.0, 4.0, 0.0)),
+                        wp.quat_from_axis_angle((1.0, 0.0, 0.0), -np.pi*0.5)),
+                    floating=False, 
+                    density=0,
+                    armature=0.1,
+                    stiffness=0.0,
+                    damping=0.0,
+                    shape_ke=1.e+4,
+                    shape_kd=1.e+2,
+                    shape_kf=1.e+2,
+                    shape_mu=1.0,
+                    limit_ke=1.e+4,
+                    limit_kd=1.e+1)
 
-            #     builder.joint_q[-3:] = [0.0, 0.3, 0.0]
-            #     builder.joint_target[:3] = [0.0, 0.0, 0.0]
+                builder.joint_q[-3:] = [0.0, 0.3, 0.0]
+                builder.joint_target[:3] = [0.0, 0.0, 0.0]
 
-            
-            self.chain_length = 1
-            self.chain_width = 1.0
-            self.chain_types = [
-                wp.sim.JOINT_REVOLUTE,
-                # wp.sim.JOINT_FREE,
-                # wp.sim.JOINT_FIXED, 
-                # wp.sim.JOINT_BALL,
-                # wp.sim.JOINT_UNIVERSAL,
-                # wp.sim.JOINT_COMPOUND
-                ]
+            if False:
+                self.chain_length = 1
+                self.chain_width = 1.0
+                self.chain_types = [
+                    wp.sim.JOINT_REVOLUTE,
+                    # wp.sim.JOINT_FREE,
+                    # wp.sim.JOINT_FIXED, 
+                    # wp.sim.JOINT_BALL,
+                    # wp.sim.JOINT_UNIVERSAL,
+                    # wp.sim.JOINT_COMPOUND
+                    ]
 
-            builder = wp.sim.ModelBuilder()
+                builder = wp.sim.ModelBuilder()
 
-            for c, t in enumerate(self.chain_types):
+                for c, t in enumerate(self.chain_types):
 
-                # start a new articulation
-                builder.add_articulation()
+                    # start a new articulation
+                    builder.add_articulation()
 
-                for i in range(self.chain_length):
+                    for i in range(self.chain_length):
 
-                    if i == 0:
-                        parent = -1
-                        parent_joint_xform = wp.transform([0.0, 0.0, c*1.0], wp.quat_identity())           
-                    else:
-                        parent = builder.joint_count-1
-                        parent_joint_xform = wp.transform([self.chain_width, 0.0, 0.0], wp.quat_identity())
+                        if i == 0:
+                            parent = -1
+                            parent_joint_xform = wp.transform([0.0, 0.0, c*1.0], wp.quat_identity())           
+                        else:
+                            parent = builder.joint_count-1
+                            parent_joint_xform = wp.transform([self.chain_width, 0.0, 0.0], wp.quat_identity())
 
-                    joint_type = t
+                        joint_type = t
 
-                    if joint_type == wp.sim.JOINT_REVOLUTE:
+                        if joint_type == wp.sim.JOINT_REVOLUTE:
 
-                        joint_axis=(0.0, 0.0, 1.0)
-                        joint_limit_lower=-np.deg2rad(60.0)
-                        joint_limit_upper=np.deg2rad(60.0)
+                            joint_axis=(0.0, 0.0, 1.0)
+                            joint_limit_lower=-np.deg2rad(60.0)
+                            joint_limit_upper=np.deg2rad(60.0)
 
-                    elif joint_type == wp.sim.JOINT_UNIVERSAL:
-                        joint_axis=(1.0, 0.0, 0.0)
-                        joint_limit_lower=-np.deg2rad(60.0),
-                        joint_limit_upper=np.deg2rad(60.0),
+                        elif joint_type == wp.sim.JOINT_UNIVERSAL:
+                            joint_axis=(1.0, 0.0, 0.0)
+                            joint_limit_lower=-np.deg2rad(60.0),
+                            joint_limit_upper=np.deg2rad(60.0),
 
-                    elif joint_type == wp.sim.JOINT_BALL:
-                        joint_axis=(0.0, 0.0, 0.0)
-                        joint_limit_lower = 100.0
-                        joint_limit_upper = -100.0
+                        elif joint_type == wp.sim.JOINT_BALL:
+                            joint_axis=(0.0, 0.0, 0.0)
+                            joint_limit_lower = 100.0
+                            joint_limit_upper = -100.0
 
-                    elif joint_type == wp.sim.JOINT_FIXED:
-                        joint_axis=(0.0, 0.0, 0.0)
-                        joint_limit_lower = 0.0
-                        joint_limit_upper = 0.0
-                
-                    elif joint_type == wp.sim.JOINT_COMPOUND:
-                        joint_limit_lower=-np.deg2rad(60.0)
-                        joint_limit_upper=np.deg2rad(60.0)
+                        elif joint_type == wp.sim.JOINT_FIXED:
+                            joint_axis=(0.0, 0.0, 0.0)
+                            joint_limit_lower = 0.0
+                            joint_limit_upper = 0.0
+                    
+                        elif joint_type == wp.sim.JOINT_COMPOUND:
+                            joint_limit_lower=-np.deg2rad(60.0)
+                            joint_limit_upper=np.deg2rad(60.0)
 
-                    # create body
-                    b = builder.add_body(
-                            parent=parent,
-                            origin=wp.transform([i, 0.0, c*1.0], wp.quat_identity()),
-                            joint_xform=parent_joint_xform,
-                            joint_axis=joint_axis,
-                            joint_type=joint_type,
-                            joint_limit_lower=joint_limit_lower,
-                            joint_limit_upper=joint_limit_upper,
-                            joint_target_ke=0.0,
-                            joint_target_kd=0.0,
-                            joint_limit_ke=30.0,
-                            joint_limit_kd=30.0,
-                            joint_armature=0.1)
+                        # create body
+                        b = builder.add_body(
+                                parent=parent,
+                                origin=wp.transform([i, 0.0, c*1.0], wp.quat_identity()),
+                                joint_xform=parent_joint_xform,
+                                joint_axis=joint_axis,
+                                joint_type=joint_type,
+                                joint_limit_lower=joint_limit_lower,
+                                joint_limit_upper=joint_limit_upper,
+                                joint_target_ke=0.0,
+                                joint_target_kd=0.0,
+                                joint_limit_ke=30.0,
+                                joint_limit_kd=30.0,
+                                joint_armature=0.1)
 
-                    # create shape
-                    s = builder.add_shape_box( 
-                            pos=(self.chain_width*0.5, 0.0, 0.0),
-                            hx=self.chain_width*0.5,
-                            hy=0.1,
-                            hz=0.1,
-                            density=10.0,
-                            body=b)
-
-        axis = np.array([1.0, 2.0, 3.0])
-        axis /= np.linalg.norm(axis)
-        quat = wp.quat_from_axis_angle(axis, -math.pi*0.5)
-        builder.joint_X_p = [wp.transform((1.0, 2.0, 3.0), quat)]
+                        # create shape
+                        s = builder.add_shape_box( 
+                                pos=(self.chain_width*0.5, 0.0, 0.0),
+                                hx=self.chain_width*0.5,
+                                hy=0.1,
+                                hz=0.1,
+                                density=10.0,
+                                body=b)
+        
+        # create quaternions away from singularities so that finite differences can be used directly
+        # axis = np.array([1.0, 2.0, 3.0])
+        # axis /= np.linalg.norm(axis)
+        # quat = wp.quat_from_axis_angle(axis, -math.pi*0.5)
+        # builder.joint_X_p = [wp.transform((1.0, 2.0, 3.0), quat)]
 
         # finalize model
-        self.model = builder.finalize(device)
+        self.model = builder.finalize(device, requires_grad=True)
 
-        # TODO debug body_qd -> body_f
         self.model.joint_attach_kd = 0.0
         self.model.joint_limit_ke.zero_()
         self.model.joint_limit_kd.zero_()
@@ -236,171 +225,83 @@ class RigidBodySimulator:
         self.dof_qd = self.model.joint_dof_count
         self.num_bodies = self.model.body_count
 
-        self.state = self.model.state()
-        if (self.model.ground):
-            self.model.collide(self.state)
 
-        self.solve_iterations = 1
-        # self.integrator = wp.sim.XPBDIntegrator(self.solve_iterations, contact_con_weighting=False)
+        # XXX apply initial transforms to the model
+        # (subsequent state constructions via `model.state()` will
+        # use these transforms)
+        state = self.model.state()
+        wp.sim.eval_fk(
+            self.model,
+            self.model.joint_q,
+            self.model.joint_qd,
+            None,
+            state)
+        self.model.body_q.assign(state.body_q)
+        self.model.body_qd.assign(state.body_qd)
+
+        solve_iterations = 1
+        # self.integrator = wp.sim.XPBDIntegrator(solve_iterations, contact_con_weighting=True)
         self.integrator = wp.sim.SemiImplicitIntegrator()
-        # from warp.sim.diff_xpbd import DifferentiableXPBDIntegrator
-        # self.integrator = DifferentiableXPBDIntegrator(iterations=self.solve_iterations, contact_con_weighting=False)
-        
-        
 
         #-----------------------
         # set up Usd renderer
         if (self.render):
-            self.renderer = wp.sim.render.SimRenderer(self.model, os.path.join(os.path.dirname(__file__), "outputs/example_sim_cartpole.usd"))
+            self.renderer = wp.sim.render.SimRenderer(
+                self.model, os.path.join(os.path.dirname(__file__), "outputs/example_sim_grad_control.usd"))
         self.render_time = 0.0
 
-    def simulate(self, states: List[wp.sim.State], requires_grad=False):
+    def simulate(self, state: wp.sim.State, requires_grad=False) -> wp.sim.State:
         """
         Simulate the system for the given states.
         """
-        for i in range(len(states)-1):
-            states[i].clear_forces()
+        for _ in range(self.sim_substeps):
+            if requires_grad:
+                next_state = self.model.state(requires_grad=True)
+            else:
+                next_state = state
+                next_state.clear_forces()
             if self.model.ground:
                 self.model.allocate_rigid_contacts(requires_grad=requires_grad)
-                wp.sim.collide(self.model, states[i])
-            self.integrator.simulate(self.model, states[i], states[i+1], self.sim_dt, requires_grad=requires_grad)
-
-    @property
-    def requires_grad(self):
-        return self.model.body_inv_mass.requires_grad
-
-    @requires_grad.setter
-    def requires_grad(self, value):
-        self.model.joint_act.requires_grad = value
-        self.model.body_q.requires_grad = value
-        self.model.body_qd.requires_grad = value
-
-        self.model.body_mass.requires_grad = value
-        self.model.body_inv_mass.requires_grad = value
-        self.model.body_inertia.requires_grad = value
-        self.model.body_inv_inertia.requires_grad = value
-        self.model.body_com.requires_grad = value
-
-        # just enable requires_grad for all arrays in the model
-        for name in dir(self.model):
-            attr = getattr(self.model, name)
-            if isinstance(attr, wp.array):
-                attr.requires_grad = value
-        
-        # XXX activate requires_grad for all arrays in the material struct
-        self.model.shape_materials.ke.requires_grad = value
-        self.model.shape_materials.kd.requires_grad = value
-        self.model.shape_materials.kf.requires_grad = value
-        self.model.shape_materials.mu.requires_grad = value
-        self.model.shape_materials.restitution.requires_grad = value
+                wp.sim.collide(self.model, state)
+            state = self.integrator.simulate(self.model, state, next_state, self.sim_dt, requires_grad=requires_grad)
+        return state
 
     def _render(self, state: wp.sim.State):
         if (self.render):
-            self.render_time += self.frame_dt            
             self.renderer.begin_frame(self.render_time)
             self.renderer.render(state)
             self.renderer.end_frame()
+            self.render_time += self.frame_dt
             self.renderer.save()
 
-    def warp_step_maximal(self, body_q: wp.array, body_qd: wp.array, tau: wp.array, body_q_next: wp.array, body_qd_next: wp.array, joint_q_next: wp.array = None, joint_qd_next: wp.array = None, requires_grad=False, check_diffs=True):
+    def warp_step_maximal(self, body_q: wp.array, body_qd: wp.array, tau: wp.array, body_q_next: wp.array, body_qd_next: wp.array, joint_q_next: wp.array = None, joint_qd_next: wp.array = None, requires_grad=False, check_diffs=False):
         """
         Advances the system dynamics given the rigid-body state in maximal coordinates and generalized joint torques [body_q, body_qd, tau].
         Simulates for the set number of substeps and returns the next state in maximal and (optional) generalized coordinates [body_q_next, body_qd_next, joint_q_next, joint_qd_next].
         """
-        if requires_grad:
-            self.model.joint_act.requires_grad = True
-            # ground = self.model.ground
-            # self.model = self.builder.finalize(self.device)
-            # self.model.ground = ground
-            self.requires_grad = requires_grad
-            for name, var in self.model.__dict__.items():
-                if isinstance(var, wp.array):
-                    var.requires_grad = requires_grad
-        #     self.model.shape_materials.ke.requires_grad = requires_grad
-        #     self.model.shape_materials.kd.requires_grad = requires_grad
-        #     self.model.shape_materials.kf.requires_grad = requires_grad
-        #     self.model.shape_materials.mu.requires_grad = requires_grad
-        #     self.model.shape_materials.restitution.requires_grad = requires_grad
-        states = [self.model.state(requires_grad=requires_grad) for _ in range(self.sim_substeps+1)]
 
         if check_diffs:
             model_before = self.builder.finalize(self.device)
+
+        start_state = self.model.state(requires_grad=requires_grad)
 
         # assign maximal state coordinates        
-        wp.launch(inplace_assign_transform, dim=self.num_bodies, inputs=[body_q], outputs=[states[0].body_q], device=self.device)
-        wp.launch(inplace_assign_spatial_vector, dim=self.num_bodies, inputs=[body_qd], outputs=[states[0].body_qd], device=self.device)
+        wp.launch(inplace_assign_transform, dim=self.num_bodies, inputs=[body_q], outputs=[start_state.body_q], device=self.device)
+        wp.launch(inplace_assign_spatial_vector, dim=self.num_bodies, inputs=[body_qd], outputs=[start_state.body_qd], device=self.device)
 
         # assign input controls as joint torques
         wp.launch(inplace_assign, dim=self.dof_qd, inputs=[tau], outputs=[self.model.joint_act], device=self.device)
         
-        for i in range(self.sim_substeps):
-            states[i].clear_forces()
-            if self.model.ground:
-                self.model.allocate_rigid_contacts(requires_grad=requires_grad)
-                wp.sim.collide(self.model, states[i])
-            self.integrator.simulate(self.model, states[i], states[i+1], self.sim_dt, requires_grad=requires_grad)
+        end_state = self.simulate(start_state, requires_grad=requires_grad)
 
         if joint_q_next is not None and joint_qd_next is not None:
-            wp.sim.eval_ik(self.model, states[-1], joint_q_next, joint_qd_next)
+            wp.sim.eval_ik(self.model, end_state, joint_q_next, joint_qd_next)
             
-        wp.launch(inplace_assign_transform, dim=self.num_bodies, inputs=[states[-1].body_q], outputs=[body_q_next], device=self.device)
-        wp.launch(inplace_assign_spatial_vector, dim=self.num_bodies, inputs=[states[-1].body_qd], outputs=[body_qd_next], device=self.device)
-
-        # if check_diffs:
-        #     # check which arrays in model were modified
-        #     for key, value in vars(model_before).items():
-        #         if isinstance(value, wp.array) and len(value) > 0:
-        #             if not np.allclose(value.numpy(), getattr(self.model, key).numpy()):
-        #                 print(f"model.{key} was modified")
-        #                 print("  before:", value.numpy().flatten())
-        #                 print("  after: ", getattr(self.model, key).numpy().flatten())
-        #     # check which arrays in state were modified
-        #     for key, value in vars(states[0]).items():
-        #         if isinstance(value, wp.array) and len(value) > 0:
-        #             if not np.allclose(value.numpy(), getattr(states[-1], key).numpy()):
-        #                 print(f"state.{key} was modified")
-        #                 print("  before:", value.numpy().flatten())
-        #                 print("  after: ", getattr(states[-1], key).numpy().flatten())
-
-        if (self.render):
-            self._render(states[-1])
-
-    def warp_step_generalized(self, q: wp.array, qd: wp.array, tau: wp.array, q_next: wp.array, qd_next: wp.array, requires_grad=False, check_diffs=True):
-        """
-        Advances the system dynamics given the generalized rigid-body state and joint torques [q, qd, tau].
-        Simulates for the set number of substeps and returns the next state in generalized coordinates [q_next, qd_next].
-        XXX The forward kinematics and inverse kinematics projection steps may lead to known numerical issues where the
-        32-bit floating point precision is not sufficient to represent the state updates, leading to a damped/frozen system.
-        """
-        if requires_grad:
-            self.model.joint_act.requires_grad = True
-        #     ground = self.model.ground
-        #     self.model = self.builder.finalize(self.device)
-        #     self.model.ground = ground
-        self.requires_grad = requires_grad
-        states = [self.model.state(requires_grad=requires_grad) for _ in range(self.sim_substeps+1)]
+        wp.launch(inplace_assign_transform, dim=self.num_bodies, inputs=[end_state.body_q], outputs=[body_q_next], device=self.device)
+        wp.launch(inplace_assign_spatial_vector, dim=self.num_bodies, inputs=[end_state.body_qd], outputs=[body_qd_next], device=self.device)
 
         if check_diffs:
-            model_before = self.builder.finalize(self.device)
-
-        wp.sim.eval_fk(self.model, q, qd, None, states[0])
-
-        # assign input controls as joint torques
-        wp.launch(inplace_assign, dim=self.dof_qd, inputs=[tau], outputs=[self.model.joint_act], device=self.device)
-        
-        for i in range(self.sim_substeps):
-            states[i].clear_forces()
-            if self.model.ground:
-                self.model.allocate_rigid_contacts(requires_grad=requires_grad)
-                wp.sim.collide(self.model, states[i])
-            self.integrator.simulate(self.model, states[i], states[i+1], self.sim_dt, requires_grad=requires_grad)
-
-        wp.sim.eval_ik(self.model, states[-1], q_next, qd_next)
-
-        if (self.render):
-            self._render(states[-1])
-
-        if check_diffs:
+            assert requires_grad, "check_diffs requires requires_grad=True because the state gets overwritten otherwise"
             # check which arrays in model were modified
             for key, value in vars(model_before).items():
                 if isinstance(value, wp.array) and len(value) > 0:
@@ -409,12 +310,57 @@ class RigidBodySimulator:
                         print("  before:", value.numpy().flatten())
                         print("  after: ", getattr(self.model, key).numpy().flatten())
             # check which arrays in state were modified
-            for key, value in vars(states[0]).items():
+            for key, value in vars(start_state).items():
                 if isinstance(value, wp.array) and len(value) > 0:
-                    if not np.allclose(value.numpy(), getattr(states[-1], key).numpy()):
+                    if not np.allclose(value.numpy(), getattr(end_state, key).numpy()):
                         print(f"state.{key} was modified")
                         print("  before:", value.numpy().flatten())
-                        print("  after: ", getattr(states[-1], key).numpy().flatten())
+                        print("  after: ", getattr(end_state, key).numpy().flatten())
+
+        if (self.render):
+            self._render(end_state)
+
+    def warp_step_generalized(self, q: wp.array, qd: wp.array, tau: wp.array, q_next: wp.array, qd_next: wp.array, requires_grad=False, check_diffs=False):
+        """
+        Advances the system dynamics given the generalized rigid-body state and joint torques [q, qd, tau].
+        Simulates for the set number of substeps and returns the next state in generalized coordinates [q_next, qd_next].
+        XXX The forward kinematics and inverse kinematics projection steps may lead to known numerical issues where the
+        32-bit floating point precision is not sufficient to represent the state updates, leading to a damped/frozen system.
+        """
+
+        if check_diffs:
+            model_before = self.builder.finalize(self.device)
+
+        start_state = self.model.state(requires_grad=requires_grad)
+
+        wp.sim.eval_fk(self.model, q, qd, None, start_state)
+
+        # assign input controls as joint torques
+        wp.launch(inplace_assign, dim=self.dof_qd, inputs=[tau], outputs=[self.model.joint_act], device=self.device)
+        
+        end_state = self.simulate(start_state, requires_grad=requires_grad)
+
+        wp.sim.eval_ik(self.model, end_state, q_next, qd_next)
+
+        if check_diffs:
+            assert requires_grad, "check_diffs requires requires_grad=True because the state gets overwritten otherwise"
+            # check which arrays in model were modified
+            for key, value in vars(model_before).items():
+                if isinstance(value, wp.array) and len(value) > 0:
+                    if not np.allclose(value.numpy(), getattr(self.model, key).numpy()):
+                        print(f"model.{key} was modified")
+                        print("  before:", value.numpy().flatten())
+                        print("  after: ", getattr(self.model, key).numpy().flatten())
+            # check which arrays in state were modified
+            for key, value in vars(start_state).items():
+                if isinstance(value, wp.array) and len(value) > 0:
+                    if not np.allclose(value.numpy(), getattr(end_state, key).numpy()):
+                        print(f"state.{key} was modified")
+                        print("  before:", value.numpy().flatten())
+                        print("  after: ", getattr(end_state, key).numpy().flatten())
+
+        if (self.render):
+            self._render(end_state)
 
     def generalized_deviation(self, q: np.ndarray, qd: np.ndarray):
         """
@@ -423,9 +369,6 @@ class RigidBodySimulator:
         """
         wp_q = wp.array(q, device=self.device, dtype=wp.float32)
         wp_qd = wp.array(qd, device=self.device, dtype=wp.float32)
-        # ground = self.model.ground
-        # self.model = self.builder.finalize(self.device)
-        # self.model.ground = ground
         state = self.model.state()
         wp.sim.eval_fk(self.model, wp_q, wp_qd, None, state)
         wp_q_out = wp.zeros(self.dof_q, device=self.device, dtype=wp.float32)
@@ -565,25 +508,8 @@ class RigidBodySimulator:
 np.set_printoptions(precision=16, linewidth=2000, suppress=True)
 
 
-if False:
-    # check some kernels
-
-    @wp.kernel
-    def check_transform_point(tf: wp.array(dtype=wp.transform), point: wp.array(dtype=wp.vec3), output: wp.array(dtype=wp.vec3)):
-        tid = wp.tid()
-        output[tid] = wp.transform_point(tf[tid], point[tid])
-    from warp.tests.grad_utils import check_kernel_jacobian
-    for _ in range(10):
-        tf = np.random.randn(1, 7).astype(np.float32)
-        tf[3:] /= np.linalg.norm(tf[3:])
-        point = np.random.randn(1, 3).astype(np.float32)
-        tf = wp.array(tf, dtype=wp.transform, requires_grad=True)
-        point = wp.array(point, dtype=wp.vec3, requires_grad=True)
-        output = wp.zeros_like(point)
-        check_kernel_jacobian(check_transform_point, 1, [tf, point], [output])
-
-# sim = RigidBodySimulator(render=True, device=wp.get_preferred_device())
-sim = RigidBodySimulator(render=True, device="cpu")
+sim = RigidBodySimulator(render=True, device=wp.get_preferred_device())
+# sim = RigidBodySimulator(render=True, device="cpu")
 
 use_maximal = True
 if use_maximal:
@@ -598,58 +524,61 @@ tau = sim.model.joint_act.numpy()
 # randomize inputs
 np.random.seed(123)
 # q = np.random.randn(*q.shape) * 0.5
-qd = np.random.randn(*qd.shape) * 6.5
+# qd = np.random.randn(*qd.shape) * 6.5
 tau = np.zeros(sim.dof_qd)  # np.random.randn(sim.dof_qd) * 10.0
 
 print("q:  ", q)
 print("qd: ", qd)
 print("tau:", tau)
 
-q = wp.array(q, dtype=wp.transform, device=sim.device, requires_grad=True)
-qd = wp.array(qd, dtype=wp.spatial_vector, device=sim.device, requires_grad=True)
-tau = wp.clone(sim.model.joint_act)
-tau.requires_grad = True
-out_q = wp.zeros_like(q)
-out_qd = wp.zeros_like(qd)
-check_backward_pass(
-    lambda: sim.warp_step_maximal(q, qd, tau, out_q, out_qd, requires_grad=True),
-    track_inputs=[q, qd, tau], track_outputs=[out_q, out_qd],
-    visualize_graph=False, plot_jac_on_fail=True)
-
-# state = sim.model.get_state()
-# from wp.sim.integrator_euler import eval_body_joints
-
-# check_kernel_jacobian(
-#     eval_body_joints,
-#     sim.model.joint_count,
-#     inputs=[], [state.body_q_next, state.body_qd_next])
-
-import sys
-sys.exit(0)
-
-
-if use_maximal:
-    jac_ad = sim.ad_jacobian_maximal(q, qd, tau)
-    print("AD Jacobian:")
-    print(jac_ad)
-
-    jac_fd = sim.fd_jacobian_maximal(q, qd, tau, eps=1e-4)
-    print("FD Jacobian:")
-    print(jac_fd)
-else:
-    jac_ad = sim.ad_jacobian_generalized(q, qd, tau)
-    print("AD Jacobian:")
-    print(jac_ad)
-
-    jac_fd = sim.fd_jacobian_generalized(q, qd, tau, eps=1e-4)
-    print("FD Jacobian:")
-    print(jac_fd)
-
-
-print("Jacobian difference:")
-print((jac_ad - jac_fd))
-
 if False:
+    # check backward pass
+    q = wp.array(q, dtype=wp.transform, device=sim.device, requires_grad=True)
+    qd = wp.array(qd, dtype=wp.spatial_vector, device=sim.device, requires_grad=True)
+    tau = wp.clone(sim.model.joint_act)
+    tau.requires_grad = True
+    out_q = wp.zeros_like(q)
+    out_qd = wp.zeros_like(qd)
+
+    tape = wp.Tape()
+    with tape:
+        sim.warp_step_maximal(q, qd, tau, out_q, out_qd, requires_grad=True)
+    check_backward_pass(
+        tape,
+        track_inputs=[q, qd, tau], track_outputs=[out_q, out_qd],
+        visualize_graph=False, plot_jac_on_fail=True)
+
+    import sys
+    sys.exit(0)
+
+if True:
+    # check dynamics step Jacobian
+    if use_maximal:
+        jac_ad = sim.ad_jacobian_maximal(q, qd, tau)
+        print("AD Jacobian:")
+        print(jac_ad)
+
+        jac_fd = sim.fd_jacobian_maximal(q, qd, tau, eps=1e-4)
+        print("FD Jacobian:")
+        print(jac_fd)
+    else:
+        jac_ad = sim.ad_jacobian_generalized(q, qd, tau)
+        print("AD Jacobian:")
+        print(jac_ad)
+
+        jac_fd = sim.fd_jacobian_generalized(q, qd, tau, eps=1e-4)
+        print("FD Jacobian:")
+        print(jac_fd)
+
+
+    print("Jacobian difference:")
+    print((jac_ad - jac_fd))
+
+    from warp.tests.grad_utils import plot_jacobian_comparison
+    plot_jacobian_comparison(jac_ad, jac_fd, title="Jacobian comparison")
+
+if True:
+    # plot trajectory (joint positions)
     qs = []
     qds = []
     if use_maximal:
@@ -694,13 +623,13 @@ if False:
 
     joint_id = 0
     joint_names = {
-        wp.sim.JOINT_BALL.val : "ball", 
-        wp.sim.JOINT_REVOLUTE.val : "hinge", 
-        wp.sim.JOINT_PRISMATIC.val : "slide", 
-        wp.sim.JOINT_UNIVERSAL.val : "universal",
-        wp.sim.JOINT_COMPOUND.val : "compound",
-        wp.sim.JOINT_FREE.val : "free", 
-        wp.sim.JOINT_FIXED.val : "fixed"
+        wp.sim.JOINT_BALL.val: "ball", 
+        wp.sim.JOINT_REVOLUTE.val: "hinge", 
+        wp.sim.JOINT_PRISMATIC.val: "slide", 
+        wp.sim.JOINT_UNIVERSAL.val: "universal",
+        wp.sim.JOINT_COMPOUND.val: "compound",
+        wp.sim.JOINT_FREE.val: "free", 
+        wp.sim.JOINT_FIXED.val: "fixed"
     }
     joint_lower = sim.model.joint_limit_lower.numpy()
     joint_upper = sim.model.joint_limit_upper.numpy()
