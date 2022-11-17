@@ -45,6 +45,7 @@ JOINT_FREE = wp.constant(4)
 JOINT_COMPOUND = wp.constant(5)
 JOINT_UNIVERSAL = wp.constant(6)
 JOINT_REVOLUTE_SPRING = wp.constant(7)
+JOINT_REVOLUTE_TIGHT = wp.constant(8)
 
 
 
@@ -1461,7 +1462,8 @@ class ModelBuilder:
                        kf: float=default_shape_kf,
                        mu: float=default_shape_mu,
                        restitution: float=default_shape_restitution,
-                       contact_thickness: float=0.0):
+                       contact_thickness: float=0.0,
+                       collision_group: int=-1):
         """Adds a triangle mesh collision shape to a body.
 
         Args:
@@ -1480,7 +1482,7 @@ class ModelBuilder:
 
         """
 
-        self._add_shape(body, pos, rot, GEO_MESH, (scale[0], scale[1], scale[2], 0.0), mesh, density, ke, kd, kf, mu, restitution, thickness=contact_thickness)
+        self._add_shape(body, pos, rot, GEO_MESH, (scale[0], scale[1], scale[2], 0.0), mesh, density, ke, kd, kf, mu, restitution, thickness=contact_thickness, collision_group=collision_group)
 
     def _shape_radius(self, type, scale, src):
         """

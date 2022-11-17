@@ -1285,7 +1285,11 @@ def eval_body_joints(
             + w_err * joint_attach_kd * angular_damping_scale
         )
 
-    if type == wp.sim.JOINT_REVOLUTE or type == wp.sim.JOINT_REVOLUTE_SPRING:
+    if (
+        type == wp.sim.JOINT_REVOLUTE
+        or type == wp.sim.JOINT_REVOLUTE_SPRING
+        or type == wp.sim.JOINT_REVOLUTE_TIGHT
+    ):
 
         axis_p = wp.transform_vector(X_wp, axis)
         axis_c = wp.transform_vector(X_wc, axis)
@@ -1299,14 +1303,15 @@ def eval_body_joints(
             * wp.sign(wp.dot(axis, wp.vec3(twist[0], twist[1], twist[2])))
         )
 
-        # if type is wp.sim.JOINT_REVOLUTE_SPRING:
-        #     lim_range = limit_upper - limit_lower
-        #     # distance from range center
-        #     dist = limit_lower + lim_range / 2 - q
-        #     # target_ke increases linearly from target_ke -> 2 * target_ke
-        #     target_ke = target_ke * (1 - wp.min((0.0).dist) * 2 / lim_range)
-        #     # set spring target
-        #     target = q - 0.1 * lim_range
+        lim_range = limit_upper - limit_lower
+        # distance from range center
+        dist = limit_lower + lim_range / 2.0 - q
+
+        if type == wp.sim.JOINT_REVOLUTE_SPRING:
+            # target_ke increases linearly from target_ke -> 2 * target_ke
+            target_kd = target_kd * (1.0 - wp.min(0.0, dist) * 2.0 / lim_range)
+            # set spring target
+            target = q - 0.1 * lim_range
 
         qd = wp.dot(w_err, axis_p)
 
@@ -1328,6 +1333,14 @@ def eval_body_joints(
         swing_err = wp.cross(axis_p, axis_c)
 
         f_total += x_err * joint_attach_ke + v_err * joint_attach_kd
+
+        if type == wp.sim.JOINT_REVOLUTE_TIGHT:
+            joint_friction = 0.5
+            t_friction = joint_friction * wp.abs(
+                1.0 - wp.min(0.0, dist) * 2.0 / lim_range
+            )
+            t_total -= t_friction
+
         t_total += (
             swing_err * joint_attach_ke
             + (w_err - qd * axis_p) * joint_attach_kd * angular_damping_scale
