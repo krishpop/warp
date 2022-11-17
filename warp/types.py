@@ -99,7 +99,7 @@ def vector(length, type):
 
         def __getitem__(self, key):
             # used to terminate iterations
-            if key >= self._length_:
+            if isinstance(key, int) and key >= self._length_:
                 raise IndexError()
             else:
                 return super().__getitem__(key)
