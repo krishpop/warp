@@ -462,7 +462,6 @@ def apply_joint_torques(
         wp.atomic_add(body_f, id_p, wp.spatial_vector(t_total + wp.cross(r_p, f_total), f_total)) 
     wp.atomic_sub(body_f, id_c, wp.spatial_vector(t_total + wp.cross(r_c, f_total), f_total))
 
-
 @wp.func
 def quat_dof_limit(limit: float) -> float:
     # we cannot handle joint limits outside of [-2pi, 2pi]
@@ -1593,12 +1592,6 @@ class XPBDIntegrator:
                     state_out.body_qd_prev.assign(state_in.body_qd)
 
                 if (model.joint_count):
-                    if requires_grad:
-                        body_f = wp.zeros_like(state_out.body_f)
-                    else:
-                        body_f = state_out.body_f
-                        # body_f.zero_() not needed since we always call state.clear_forces()
-
                     wp.launch(
                         kernel=apply_joint_torques,
                         dim=model.joint_count,
@@ -1616,12 +1609,9 @@ class XPBDIntegrator:
                             model.joint_act,
                         ],
                         outputs=[
-                            body_f
+                            state_in.body_f
                         ],
                         device=model.device)
-                    
-                    if requires_grad:
-                        state_out.body_f = body_f
 
                 wp.launch(
                     kernel=integrate_bodies,
@@ -1629,7 +1619,7 @@ class XPBDIntegrator:
                     inputs=[
                         state_in.body_q,
                         state_in.body_qd,
-                        state_out.body_f,
+                        state_in.body_f,
                         model.body_com,
                         model.body_mass,
                         model.body_inertia,
@@ -1718,7 +1708,7 @@ class XPBDIntegrator:
                         state_out.body_qd = out_body_qd
 
                     # Solve rigid contact constraints
-                    if (model.rigid_contact_max and model.body_count):
+                    if (model.rigid_contact_max and model.shape_contact_pair_count):
                         rigid_contact_inv_weight = None
                         if requires_grad:
                             body_deltas = wp.zeros_like(state_out.body_deltas)
@@ -1825,27 +1815,30 @@ class XPBDIntegrator:
                             state_out.body_q = body_q
                             state_out.body_qd = body_qd
 
-                if requires_grad:
-                    out_body_qd = wp.clone(state_out.body_qd)
-                else:
-                    out_body_qd = state_out.body_qd
+                if False:
+                    # TODO check if this step is really optional
+                    # (currently causes gradient explosion)
+                    if requires_grad:
+                        out_body_qd = wp.clone(state_out.body_qd)
+                    else:
+                        out_body_qd = state_out.body_qd
 
-                # update body velocities
-                wp.launch(kernel=update_body_velocities,
-                        dim=model.body_count,
-                        inputs=[
-                            state_out.body_q,
-                            state_out.body_q_prev,
-                            model.body_com,
-                            dt
-                        ],
-                        outputs=[
-                            out_body_qd
-                        ],
-                        device=model.device)
+                    # update body velocities
+                    wp.launch(kernel=update_body_velocities,
+                            dim=model.body_count,
+                            inputs=[
+                                state_out.body_q,
+                                state_out.body_q_prev,
+                                model.body_com,
+                                dt
+                            ],
+                            outputs=[
+                                out_body_qd
+                            ],
+                            device=model.device)
 
-                if requires_grad:
-                    state_out.body_qd = out_body_qd
+                    if requires_grad:
+                        state_out.body_qd = out_body_qd
 
                 if (self.enable_restitution):
                     if requires_grad:
