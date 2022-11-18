@@ -19,6 +19,7 @@ from .model import GEO_NONE
 from .model import JOINT_PRISMATIC
 from .model import JOINT_REVOLUTE
 from .model import JOINT_REVOLUTE_SPRING
+from .model import JOINT_REVOLUTE_TIGHT
 from .model import JOINT_BALL
 from .model import JOINT_FIXED
 from .model import JOINT_FREE

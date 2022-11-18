@@ -231,7 +231,7 @@ class Environment:
         # initial guess
         actions = wp.array(np.ones(self.episode_frames*self.action_dim)*100.0, dtype=wp.float32, device=self.device, requires_grad=True)
 
-        optimizer = Adam([actions], lr=lr)
+        optimizer = Adam(actions, lr=lr)
         loss = wp.zeros(1, dtype=wp.float32, device=self.device, requires_grad=True)
         progress = trange(num_iter, desc="Optimizing")
 

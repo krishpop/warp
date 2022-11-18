@@ -1181,7 +1181,9 @@ class ModelBuilder:
         if joint_type == JOINT_PRISMATIC:
             dof_count = 1
             coord_count = 1
-        elif joint_type == JOINT_REVOLUTE:
+        elif (joint_type == JOINT_REVOLUTE
+                or joint_type == JOINT_REVOLUTE_SPRING
+                or joint_type == JOINT_REVOLUTE_TIGHT):
             dof_count = 1
             coord_count = 1
         elif joint_type == JOINT_BALL:
