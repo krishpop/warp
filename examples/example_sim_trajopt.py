@@ -131,9 +131,9 @@ class Environment:
             self.model.body_q.assign(state.body_q)
             self.model.body_qd.assign(state.body_qd)
 
-        # solve_iterations = 1
-        # self.integrator = wp.sim.XPBDIntegrator(solve_iterations, contact_con_weighting=True)
-        self.integrator = wp.sim.SemiImplicitIntegrator()
+        solve_iterations = 1
+        self.integrator = wp.sim.XPBDIntegrator(solve_iterations, contact_con_weighting=True)
+        # self.integrator = wp.sim.SemiImplicitIntegrator()
 
     def simulate(self, state: wp.sim.State, action: wp.array, action_index: int, requires_grad=False) -> wp.sim.State:
         """
@@ -244,6 +244,7 @@ class Environment:
 
             # check_backward_pass(
             #     tape,
+            #     visualize_graph=False,
             #     plot_jac_on_fail=True,
             #     track_inputs=[actions],
             #     track_outputs=[loss],
@@ -264,7 +265,7 @@ np.set_printoptions(precision=4, linewidth=2000, suppress=True)
 
 sim = Environment(device=wp.get_preferred_device())
 
-best_actions = sim.optimize(num_iter=250, lr=1e3)
+best_actions = sim.optimize(num_iter=250, lr=1e2)
 # print("best actions", best_actions.numpy())
 # render
 opt_traj = sim.forward(best_actions, render=True)
