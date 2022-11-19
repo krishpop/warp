@@ -98,6 +98,7 @@ class UsdRenderer:
         self.upaxis = upaxis
         self.fps = float(fps)
         self.scaling = scaling
+        self.time = 0.0
 
         self.draw_points = True
         self.draw_springs = False
