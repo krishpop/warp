@@ -200,6 +200,9 @@ class Mesh:
             self.mesh = wp.Mesh(points=pos, velocities=vel, indices=indices)
             return self.mesh.id
 
+    def __hash__(self):
+        return hash((tuple(np.array(self.vertices).flatten()), tuple(np.array(self.indices).flatten())))
+
 
 class State:
     """The State object holds all *time-varying* data for a model.
@@ -838,8 +841,18 @@ class ModelBuilder:
         self.gravity = gravity
         # indicates whether a ground should be created
         self.ground = True
-        # indicates whether a ground plane has been created via `set_ground_plane`
+        # indicates whether a ground plane has been created
         self._ground_created = False
+        # constructor parameters for ground plane shape
+        self._ground_params = dict(
+            plane=(*upvector, 0.0),
+            width=0.0,
+            length=0.0,
+            ke=self.default_shape_ke,
+            kd=self.default_shape_kd,
+            kf=self.default_shape_kf,
+            mu=self.default_shape_mu,
+            restitution=self.default_shape_restitution)
 
         # contacts to be generated within the given distance margin to be generated at
         # every simulation substep (can be 0 if only one PBD solver iteration is used)
@@ -871,25 +884,17 @@ class ModelBuilder:
         
         Args:
             articulation: a model builder to add rigid articulation from.
-            xform: root position of this body (overrides that in the articulation_builder).
+            xform: offset transform applied to root bodies.
             update_num_env_count: if True, the number of environments is incremented by 1.
             separate_collision_group: if True, the shapes from the articulation will all be put into a single new collision group, otherwise, only the shapes in collision group > -1 will be moved to a new group.
         """
 
+        joint_X_p = copy.deepcopy(articulation.joint_X_p)
         if xform is not None:
-            if articulation.joint_type[0] == wp.sim.JOINT_FREE:
-                start = articulation.joint_q_start[0]
-
-                articulation.joint_q[start + 0] = xform.p[0]
-                articulation.joint_q[start + 1] = xform.p[1]
-                articulation.joint_q[start + 2] = xform.p[2]
-
-                articulation.joint_q[start + 3] = xform.q[0]
-                articulation.joint_q[start + 4] = xform.q[1]
-                articulation.joint_q[start + 5] = xform.q[2]
-                articulation.joint_q[start + 6] = xform.q[3]
-            else:
-                articulation.joint_X_p[0] = xform
+            for i in range(len(joint_X_p)):
+                if articulation.joint_parent[i] == -1:
+                    joint_X_p[i] = xform * joint_X_p[i]
+        self.joint_X_p.extend(joint_X_p)
 
         self.add_articulation() 
 
@@ -904,6 +909,7 @@ class ModelBuilder:
 
         self.shape_body.extend([b + start_body_idx for b in articulation.shape_body])
 
+        # apply collision group
         if separate_collision_group:
             self.shape_collision_group.extend([self.last_collision_group + 1 for _ in articulation.shape_collision_group])
         else:
@@ -936,7 +942,6 @@ class ModelBuilder:
             "body_qd",
             "body_name",
             "joint_type",
-            "joint_X_p",
             "joint_X_c",
             "joint_armature",
             "joint_axis",
@@ -2346,7 +2351,7 @@ class ModelBuilder:
         """
         if normal is None:
             normal = self.upvector
-        self.add_shape_plane(
+        self._ground_params = dict(
             plane=(*normal, 0.0),
             width=0.0,
             length=0.0,
@@ -2356,8 +2361,10 @@ class ModelBuilder:
             mu=mu,
             restitution=restitution)
         self.ground = True
-        self._ground_created = True
 
+    def _create_ground_plane(self):
+        self.add_shape_plane(**self._ground_params)
+        self._ground_created = True
 
     def finalize(self, device=None, requires_grad=False) -> Model:
         """Convert this builder object to a concrete model for simulation.
@@ -2379,7 +2386,7 @@ class ModelBuilder:
 
         # add ground plane if not already created
         if self.ground and not self._ground_created:
-            self.set_ground_plane()
+            self._create_ground_plane()
 
         # construct particle inv masses
         particle_inv_mass = []
@@ -2418,11 +2425,15 @@ class ModelBuilder:
 
             # build list of ids for geometry sources (meshes, sdfs)
             shape_geo_id = []
+            finalized_meshes = {}  # do not duplicate meshes
             # number of mesh vertices per geo (0 if geo is not a mesh)
             mesh_num_points = []
             for geo in self.shape_geo_src:
+                geo_hash = hash(geo)  # avoid repeated hash computations
                 if (geo):
-                    shape_geo_id.append(geo.finalize(device=device))
+                    if geo_hash not in finalized_meshes:
+                        finalized_meshes[geo_hash] = geo.finalize(device=device)
+                    shape_geo_id.append(finalized_meshes[geo_hash])
                     mesh_num_points.append(len(geo.vertices))
                 else:
                     shape_geo_id.append(-1)
