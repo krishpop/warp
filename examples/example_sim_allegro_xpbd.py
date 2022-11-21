@@ -22,7 +22,7 @@ import numpy as np
 import warp as wp
 
 # wp.config.mode = "debug"
-# wp.config.check_cuda = True
+# wp.config.verify_cuda = True
 # wp.config.verify_fp = True
 
 import warp.sim
@@ -40,7 +40,7 @@ class Robot:
     episode_duration = 10.0      # seconds
     episode_frames = int(episode_duration/frame_dt)
 
-    use_graph = True
+    use_graph = False
 
     sim_substeps = 8
     sim_dt = frame_dt / sim_substeps
@@ -75,6 +75,15 @@ class Robot:
             limit_ke=1.e+4,
             limit_kd=1.e+1,
             enable_self_collisions=False)
+        
+        # ensure all joint positions are within limits
+        q_offset = (7 if floating_base else 0)
+        qd_offset = (6 if floating_base else 0)
+        for i in range(16):
+            articulation_builder.joint_q[i+q_offset] = 0.5 * (articulation_builder.joint_limit_lower[i+qd_offset] + articulation_builder.joint_limit_upper[i+qd_offset])
+            articulation_builder.joint_target[i+q_offset] = articulation_builder.joint_q[i+q_offset]
+            articulation_builder.joint_target_ke[i+q_offset] = 500000.0
+            articulation_builder.joint_target_kd[i+q_offset] = 500.0
         
         wp.sim.parse_urdf(
             os.path.join(os.path.dirname(__file__), "assets/isaacgymenvs/objects/cube_multicolor_allegro.urdf"),
@@ -143,30 +152,23 @@ class Robot:
             limit_kd=1.e+1,
             parse_visuals_as_colliders=False)
 
-        box_id = len(articulation_builder.shape_geo_type)-1
-        articulation_builder.shape_collision_filter_pairs.add((0, box_id))
-        # TODO deactivate
+        self.bodies_per_env = len(articulation_builder.body_q)
+
+        # box_id = len(articulation_builder.shape_geo_type)-1
+        # articulation_builder.shape_collision_filter_pairs.add((0, box_id))
         # for i in range(2, 18):
         #     articulation_builder.shape_collision_filter_pairs.add((i, box_id))
 
+        square_side = max(1, int(np.sqrt(num_envs)))
         for i in range(num_envs):
-            # articulation_builder.joint_X_p[0] = wp.transform(np.array((0.0, 0.0, 0.0)), wp.quat_from_axis_angle((1.0, 0.0, 0.0), -math.pi*0.5))
-            
+            builder.add_rigid_articulation(
+                articulation_builder,
+                xform=wp.transform(((i%square_side)*0.4, 0.0, (i//square_side)*0.4), wp.quat_identity()))
 
-            builder.add_rigid_articulation(articulation_builder)
-
-            # ensure all joint positions are within limits
-            q_offset = (7 if floating_base else 0)
-            qd_offset = (6 if floating_base else 0)
-            for i in range(16):
-                builder.joint_q[i+q_offset] = 0.5 * (builder.joint_limit_lower[i+qd_offset] + builder.joint_limit_upper[i+qd_offset])
-                builder.joint_target[i+q_offset] = builder.joint_q[i+q_offset]
-                builder.joint_target_ke[i+q_offset] = 500000.0
-                builder.joint_target_kd[i+q_offset] = 500.0
 
         # finalize model
         self.model = builder.finalize(device)
-        self.model.allocate_rigid_contacts(2**18)
+        # self.model.allocate_rigid_contacts(2**18)
         # self.model.allocate_rigid_contacts(7000)
         self.model.ground = True
         # distance threshold at which contacts are generated
@@ -185,6 +187,7 @@ class Robot:
         self.solve_iterations = 20
         self.integrator = wp.sim.XPBDIntegrator(self.solve_iterations)
         self.integrator.contact_con_weighting = True
+        self.integrator.enable_restitution = False
         # self.integrator = wp.sim.SemiImplicitIntegrator()
 
 
@@ -194,7 +197,7 @@ class Robot:
             self.renderer = wp.sim.render.SimRenderer(self.model, os.path.join(os.path.dirname(__file__), "outputs/example_sim_allegro.usd"), scaling=1000.0)
 
 
-    def run(self, render=True, plot=True):
+    def run(self, plot=True):
 
         #---------------
         # run simulation
@@ -209,9 +212,11 @@ class Robot:
             None,
             self.state)
 
+        # apply some motion to the hand
         body_qd = self.state.body_qd.numpy()
-        body_qd[0][2] = 0.4
-        body_qd[0][1] = 0.2
+        for i in range(self.num_envs):
+            body_qd[i*self.bodies_per_env][2] = 0.4
+            body_qd[i*self.bodies_per_env][1] = 0.2
         self.state.body_qd = wp.array(body_qd, dtype=wp.spatial_vector, device=self.device)
 
         if (self.model.ground):
@@ -239,12 +244,13 @@ class Robot:
                     
             graph = wp.capture_end()
 
-        q_history = []
-        q_history.append(self.state.body_q.numpy().copy())
-        qd_history = []
-        qd_history.append(self.state.body_qd.numpy().copy())
-        delta_history = []
-        delta_history.append(self.state.body_deltas.numpy().copy())
+        if plot:
+            q_history = []
+            q_history.append(self.state.body_q.numpy().copy())
+            qd_history = []
+            qd_history.append(self.state.body_qd.numpy().copy())
+            delta_history = []
+            delta_history.append(self.state.body_deltas.numpy().copy())
 
         # simulate
         with wp.ScopedTimer("simulate", detailed=False, print=False, active=True, dict=profiler):
@@ -388,7 +394,7 @@ class Robot:
 
         return 1000.0*float(self.num_envs)/avg_time
 
-profile = False
+profile = True
 
 if profile:
 
@@ -396,10 +402,11 @@ if profile:
     env_times = []
     env_size = []
 
-    for i in range(15):
+    for i in range(12):
 
         robot = Robot(render=False, device='cuda', num_envs=env_count)
-        steps_per_second = robot.run()
+        robot.use_graph = True
+        steps_per_second = robot.run(plot=False)
 
         env_size.append(env_count)
         env_times.append(steps_per_second)
@@ -423,6 +430,7 @@ if profile:
 
 else:
 
-    robot = Robot(render=True, device=wp.get_preferred_device(), num_envs=1)
-    # robot = Robot(render=True, device="cpu", num_envs=1)
-    robot.run()
+    robot = Robot(render=True, device=wp.get_preferred_device(), num_envs=100)
+    # robot = Robot(render=True, device="cpu", num_envs=2)
+    robot.use_graph = True
+    robot.run(plot=False)
