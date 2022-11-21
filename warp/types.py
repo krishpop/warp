@@ -1000,8 +1000,14 @@ class Bvh:
 
 
 class Mesh:
+    from warp.codegen import Var
+    vars = {
+        "points": Var("points", array(dtype=vec3)),
+        "velocities": Var("velocities", array(dtype=vec3)),
+        "indices": Var("indices", array(dtype=int32, ndim=2))
+    }
 
-    def __init__(self, points, indices, velocities=None):
+    def __init__(self, points=None, indices=None, velocities=None):
         """ Class representing a triangle mesh.
 
         Attributes:
