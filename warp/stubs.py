@@ -7,7 +7,7 @@ from typing import overload
 from warp.types import array, array2d, array3d, array4d, constant
 from warp.types import int8, uint8, int16, uint16, int32, uint32, int64, uint64, float16, float32, float64
 from warp.types import vec2, vec3, vec4, mat22, mat33, mat44, quat, transform, spatial_vector, spatial_matrix
-from warp.types import bvh_query_t, mesh_query_aabb_t, hash_grid_query_t, shape_t
+from warp.types import bvh_query_t, mesh_query_aabb_t, hash_grid_query_t, shape_t, Mesh
 
 
 @overload
@@ -767,6 +767,13 @@ def bvh_query_next(query: bvh_query_t, index: int32) -> bool:
    """
    Move to the next bound returned by the query. The index of the current bound is stored in ``index``, returns ``False``
       if there are no more overlapping bound.
+   """
+   ...
+
+@overload
+def get_mesh(id: uint64) -> Mesh:
+   """
+   Retrieve the mesh associated with the given identifier.
    """
    ...
 
