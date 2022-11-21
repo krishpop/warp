@@ -129,6 +129,55 @@ struct array_t
     array_t() {}    
     array_t(int) {} // for backward a = 0 initialization syntax
 
+    array_t(T* data, int size) : data(data) {
+        // constructor for 1d array
+        shape.dims[0] = size;
+        shape.dims[1] = 0;
+        shape.dims[2] = 0;
+        shape.dims[3] = 0;
+        ndim = 1;
+        strides[0] = sizeof(T);
+        strides[1] = 0;
+        strides[2] = 0;
+        strides[3] = 0;
+    }
+    array_t(T* data, int dim0, int dim1) : data(data) {
+        // constructor for 2d array
+        shape.dims[0] = dim0;
+        shape.dims[1] = dim1;
+        shape.dims[2] = 0;
+        shape.dims[3] = 0;
+        ndim = 2;
+        strides[0] = sizeof(T);
+        strides[1] = dim0 * sizeof(T);
+        strides[2] = 0;
+        strides[3] = 0;
+    }
+    array_t(T* data, int dim0, int dim1, int dim2) : data(data) {
+        // constructor for 3d array
+        shape.dims[0] = dim0;
+        shape.dims[1] = dim1;
+        shape.dims[2] = dim2;
+        shape.dims[3] = 0;
+        ndim = 3;
+        strides[0] = sizeof(T);
+        strides[1] = dim0 * sizeof(T);
+        strides[2] = dim0 * dim1 * sizeof(T);
+        strides[3] = 0;
+    }
+    array_t(T* data, int dim0, int dim1, int dim2, int dim3) : data(data) {
+        // constructor for 4d array
+        shape.dims[0] = dim0;
+        shape.dims[1] = dim1;
+        shape.dims[2] = dim2;
+        shape.dims[3] = dim3;
+        ndim = 4;
+        strides[0] = sizeof(T);
+        strides[1] = dim0 * sizeof(T);
+        strides[2] = dim0 * dim1 * sizeof(T);
+        strides[3] = dim0 * dim1 * dim2 * sizeof(T);
+    }
+
     T* data;
     shape_t shape;
     int strides[ARRAY_MAX_DIMS];
