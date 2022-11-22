@@ -168,8 +168,6 @@ class Robot:
 
         # finalize model
         self.model = builder.finalize(device)
-        # self.model.allocate_rigid_contacts(2**18)
-        # self.model.allocate_rigid_contacts(7000)
         self.model.ground = True
         # distance threshold at which contacts are generated
         self.model.rigid_contact_margin = 0.02
@@ -394,7 +392,7 @@ class Robot:
 
         return 1000.0*float(self.num_envs)/avg_time
 
-profile = True
+profile = False
 
 if profile:
 
