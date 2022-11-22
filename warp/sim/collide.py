@@ -1064,8 +1064,8 @@ def handle_contact_pairs(
 
     elif (geo_type_a == wp.sim.GEO_MESH and geo_type_b == wp.sim.GEO_CAPSULE):
         # vertex-based contact
-        mesh_a = shape_geo_id[shape_a]
-        body_a_pos = wp.mesh_get_point(mesh_a, point_id) * geo_scale_a[0]
+        mesh = wp.mesh_get(shape_geo_id[shape_a])
+        body_a_pos = mesh.points[point_id] * geo_scale_a[0]
         p_a_world = wp.transform_point(X_ws_a, body_a_pos)
         # find closest point + contact normal on capsule B
         half_width_b = geo_scale_b[1]
@@ -1117,8 +1117,8 @@ def handle_contact_pairs(
 
     elif (geo_type_a == wp.sim.GEO_MESH and geo_type_b == wp.sim.GEO_BOX):
         # vertex-based contact
-        mesh_a = shape_geo_id[shape_a]
-        body_a_pos = wp.mesh_get_point(mesh_a, point_id) * geo_scale_a[0]
+        mesh = wp.mesh_get(shape_geo_id[shape_a])
+        body_a_pos = mesh.points[point_id] * geo_scale_a[0]
         p_a_world = wp.transform_point(X_ws_a, body_a_pos)
         # find closest point + contact normal on box B
         query_b = wp.transform_point(X_sw_b, p_a_world)
@@ -1159,10 +1159,10 @@ def handle_contact_pairs(
 
     elif (geo_type_a == wp.sim.GEO_MESH and geo_type_b == wp.sim.GEO_MESH):
         # vertex-based contact
-        mesh_a = shape_geo_id[shape_a]
+        mesh = wp.mesh_get(shape_geo_id[shape_a])
         mesh_b = shape_geo_id[shape_b]
 
-        body_a_pos = wp.mesh_get_point(mesh_a, point_id) * geo_scale_a[0]
+        body_a_pos = mesh.points[point_id] * geo_scale_a[0]
         p_a_world = wp.transform_point(X_ws_a, body_a_pos)
         query_b_local = wp.transform_point(X_sw_b, p_a_world)
 
@@ -1189,8 +1189,8 @@ def handle_contact_pairs(
 
     elif (geo_type_a == wp.sim.GEO_MESH and geo_type_b == wp.sim.GEO_PLANE):
         # vertex-based contact
-        mesh_a = shape_geo_id[shape_a]
-        body_a_pos = wp.mesh_get_point(mesh_a, point_id) * geo_scale_a[0]
+        mesh = wp.mesh_get(shape_geo_id[shape_a])
+        body_a_pos = mesh.points[point_id] * geo_scale_a[0]
         p_a_world = wp.transform_point(X_ws_a, body_a_pos)
         query_b = wp.transform_point(X_sw_b, p_a_world)
         p_b_body = closest_point_plane(geo_scale_b[0], geo_scale_b[1], query_b)
