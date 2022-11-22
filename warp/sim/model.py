@@ -344,6 +344,7 @@ class Model:
         self.shape_geo_type = None
         self.shape_geo_src = None
         self.shape_geo_scale = None
+        self.shape_geo_id = None
         self.shape_materials = None
         self.shape_contact_thickness = None
 
@@ -545,7 +546,7 @@ class Model:
                 self.shape_contact_pairs,
                 self.shape_geo_type,
                 self.shape_geo_scale,
-                self.mesh_num_points,
+                self.shape_geo_id,
             ],
             outputs=[
                 contact_count
@@ -2426,21 +2427,16 @@ class ModelBuilder:
             # build list of ids for geometry sources (meshes, sdfs)
             shape_geo_id = []
             finalized_meshes = {}  # do not duplicate meshes
-            # number of mesh vertices per geo (0 if geo is not a mesh)
-            mesh_num_points = []
             for geo in self.shape_geo_src:
                 geo_hash = hash(geo)  # avoid repeated hash computations
                 if (geo):
                     if geo_hash not in finalized_meshes:
                         finalized_meshes[geo_hash] = geo.finalize(device=device)
                     shape_geo_id.append(finalized_meshes[geo_hash])
-                    mesh_num_points.append(len(geo.vertices))
                 else:
                     shape_geo_id.append(-1)
-                    mesh_num_points.append(0)
 
             m.shape_geo_id = wp.array(shape_geo_id, dtype=wp.uint64)
-            m.mesh_num_points = wp.array(mesh_num_points, dtype=wp.int32)
             m.shape_geo_scale = wp.array(self.shape_geo_scale, dtype=wp.vec3, requires_grad=requires_grad)
             m.shape_materials = ShapeContactMaterial()
             m.shape_materials.ke = wp.array(self.shape_material_ke, dtype=wp.float32, requires_grad=requires_grad)
