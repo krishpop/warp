@@ -1711,9 +1711,9 @@ class XPBDIntegrator:
                             state_out.body_q = body_q
                             state_out.body_qd = body_qd
 
-                if False:
-                    # TODO check if this step is really optional
-                    # (currently causes gradient explosion)
+                if not requires_grad:
+                    # causes gradient issues (probably due to numerical problems 
+                    # when computing velocities from position changes)
                     if requires_grad:
                         out_body_qd = wp.clone(state_out.body_qd)
                     else:
