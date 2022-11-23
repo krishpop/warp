@@ -7,7 +7,7 @@
 
 import warp as wp
 from .model import ShapeContactMaterial
-from .utils import velocity_at_point
+from .utils import velocity_at_point, quat_decompose
 from .integrator_euler import integrate_bodies, integrate_particles
 
 @wp.kernel
@@ -308,42 +308,6 @@ def apply_body_delta_velocities(
     tid = wp.tid()
     qd_out[tid] = qd_in[tid] + deltas[tid]
 
-
-# @wp.func
-# def quat_basis_vector_a(q: wp.quat) -> wp.vec3:
-#     x2 = q[0] * 2.0
-#     w2 = q[3] * 2.0
-#     return wp.vec3((q[3] * w2) - 1.0 + q[0] * x2, (q[2] * w2) + q[1] * x2, (-q[1] * w2) + q[2] * x2)
-
-# @wp.func
-# def quat_basis_vector_b(q: wp.quat) -> wp.vec3:
-#     y2 = q[1] * 2.0
-#     w2 = q[3] * 2.0
-#     return wp.vec3((-q[2] * w2) + q[0] * y2, (q[3] * w2) - 1.0 + q[1] * y2, (q[0] * w2) + q[2] * y2)
-
-# @wp.func
-# def quat_basis_vector_c(q: wp.quat) -> wp.vec3:
-#     z2 = q[2] * 2.0
-#     w2 = q[3] * 2.0
-#     return wp.vec3((q[1] * w2) + q[0] * z2, (-q[0] * w2) + q[1] * z2, (q[3] * w2) - 1.0 + q[2] * z2)
-
-
-
-# decompose a quaternion into a sequence of 3 rotations around x,y',z' respectively, i.e.: q = q_z''q_y'q_x
-@wp.func
-def quat_decompose(q: wp.quat):
-
-    R = wp.mat33(
-            wp.quat_rotate(q, wp.vec3(1.0, 0.0, 0.0)),
-            wp.quat_rotate(q, wp.vec3(0.0, 1.0, 0.0)),
-            wp.quat_rotate(q, wp.vec3(0.0, 0.0, 1.0)))
-
-    # https://www.sedris.org/wg8home/Documents/WG80485.pdf
-    phi = wp.atan2(R[1, 2], R[2, 2])
-    theta = wp.asin(-R[0, 2])
-    psi = wp.atan2(R[0, 1], R[0, 0])
-
-    return -wp.vec3(phi, theta, psi)
 
 @wp.kernel
 def apply_joint_torques(
@@ -969,74 +933,6 @@ def compute_angular_correction(
     deltaLambda = -(err + alpha*lambda_in + gamma*derr) / (dt*(dt + gamma)*denom + alpha)
 
     return deltaLambda
-
-
-@wp.kernel
-def update_body_contact_weights(
-    body_q: wp.array(dtype=wp.transform),
-    weighting_activated: int,
-    contact_count: wp.array(dtype=int),
-    contact_body0: wp.array(dtype=int),
-    contact_body1: wp.array(dtype=int),
-    contact_point0: wp.array(dtype=wp.vec3),
-    contact_point1: wp.array(dtype=wp.vec3),
-    contact_normal: wp.array(dtype=wp.vec3),
-    contact_thickness: wp.array(dtype=float),
-    contact_shape0: wp.array(dtype=int),
-    contact_shape1: wp.array(dtype=int),
-    shape_X_co: wp.array(dtype=wp.transform),
-    # outputs
-    contact_inv_weight: wp.array(dtype=float),
-    active_contact_point0: wp.array(dtype=wp.vec3),
-    active_contact_point1: wp.array(dtype=wp.vec3),
-    active_contact_distance: wp.array(dtype=float),
-):
-
-    tid = wp.tid()
-    active_contact_point0[tid] = wp.vec3(0.0)
-    active_contact_point1[tid] = wp.vec3(0.0)
-
-    count = contact_count[0]
-    if (tid >= count):
-        return
-
-    if (contact_shape0[tid] == contact_shape1[tid]):
-        active_contact_distance[tid] = 1.0
-        return
-        
-    body_a = contact_body0[tid]
-    body_b = contact_body1[tid]
-
-    # find body to world transform
-    X_wb_a = wp.transform_identity()
-    X_wb_b = wp.transform_identity()
-    if (body_a >= 0):
-        X_wb_a = body_q[body_a]
-        if weighting_activated == 0:
-            contact_inv_weight[body_a] = 1.0
-    if (body_b >= 0):
-        X_wb_b = body_q[body_b]
-        if weighting_activated == 0:
-            contact_inv_weight[body_b] = 1.0
-    
-    # compute body position in world space
-    bx_a = wp.transform_point(X_wb_a, contact_point0[tid])
-    bx_b = wp.transform_point(X_wb_b, contact_point1[tid])
-    
-    n = contact_normal[tid]
-    thickness = contact_thickness[tid]
-    d = wp.dot(n, bx_a-bx_b) - thickness
-    active_contact_distance[tid] = d
-
-    if d < 0.0:
-        if weighting_activated == 1:
-            if (body_a >= 0):
-                wp.atomic_add(contact_inv_weight, body_a, 1.0)
-            if (body_b >= 0):
-                wp.atomic_add(contact_inv_weight, body_b, 1.0)
-        active_contact_point0[tid] = bx_a
-        active_contact_point1[tid] = bx_b
-
 
 @wp.kernel
 def solve_body_contact_positions(
