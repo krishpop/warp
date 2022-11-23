@@ -167,7 +167,7 @@ class Robot:
 
         return 1000.0*float(self.num_envs)/avg_time
 
-profile = True
+profile = False
 
 if profile:
 
