@@ -24,7 +24,6 @@ import warp as wp
 # wp.config.mode = 'debug'
 import warp.sim
 import warp.sim.render
-from warp.sim.integrator_xpbd import update_body_contact_weights
 
 from tqdm import trange
 
@@ -77,21 +76,26 @@ class Robot:
             limit_kd=1.e+1,
             enable_self_collisions=True)
 
+        side_length = max(int(np.sqrt(num_envs)), 1)
         for i in range(num_envs):
-            builder.add_rigid_articulation(articulation_builder)
+            pos = ((i%side_length)*2.0 + 2.3, 1.70, (i//side_length)*1.2)
+            rot = wp.quat_from_axis_angle((1.0, 0.0, 0.0), -math.pi*0.5)
+            builder.add_rigid_articulation(
+                articulation_builder,
+                xform=wp.transform(pos, rot))
             if i == 0:
                 self.dof_q = len(builder.joint_q)
                 self.dof_qd = len(builder.joint_qd)
  
-            coord_count = 28 
-            dof_count = 27
+            # coord_count = 28 
+            # dof_count = 27
             
-            coord_start = i*coord_count
-            dof_start = i*dof_count
+            # coord_start = i*coord_count
+            # dof_start = i*dof_count
 
-            # position above ground and rotate to +y up
-            builder.joint_q[coord_start:coord_start+3] = [i*2.0 + 2.3, 1.70, 1.2]
-            builder.joint_q[coord_start+3:coord_start+7] = wp.quat_from_axis_angle((1.0, 0.0, 0.0), -math.pi*0.5)
+            # # position above ground and rotate to +y up
+            # builder.joint_q[coord_start:coord_start+3] = [i*2.0 + 2.3, 1.70, 1.2]
+            # builder.joint_q[coord_start+3:coord_start+7] = wp.quat_from_axis_angle((1.0, 0.0, 0.0), -math.pi*0.5)
 
             # # throw sideways
             # builder.joint_qd[coord_start+3:coord_start+6] = [0.0, 0.0, 1.0]
@@ -119,11 +123,11 @@ class Robot:
         # self.integrator = wp.sim.SemiImplicitIntegrator()
         self.integrator = wp.sim.XPBDIntegrator(
             iterations=2,
-            joint_positional_relaxation=0.7,
-            joint_angular_relaxation=0.4,
-            contact_normal_relaxation=1.0)
-        # self.integrator.contact_con_weighting = False
-        # self.integrator = wp.sim.XPBDIntegrator()
+            joint_positional_relaxation=0.9,
+            joint_angular_relaxation=0.7,
+            contact_normal_relaxation=0.7)
+        self.integrator.contact_con_weighting = True
+        # self.integrator.enable_restitution = True
 
         # print("Collision filters:")
         # print(builder.shape_collision_filter_pairs)
@@ -221,7 +225,7 @@ class Robot:
                         #     None,
                         #     self.state)
                         
-                        random_actions = False
+                        random_actions = True
                         if (random_actions):
                             act = np.zeros(len(self.model.joint_qd))
                             scale = np.array([200.0,
@@ -494,6 +498,6 @@ if profile:
 
 else:
 
-    # robot = Robot(render=True, num_envs=10, device=wp.get_preferred_device())
-    robot = Robot(render=True, num_envs=1, device="cpu")
+    robot = Robot(render=True, num_envs=10, device=wp.get_preferred_device())
+    # robot = Robot(render=True, num_envs=1, device="cpu")
     robot.run(use_graph_capture=False, profile=True)
