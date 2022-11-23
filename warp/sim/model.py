@@ -891,11 +891,17 @@ class ModelBuilder:
         """
 
         joint_X_p = copy.deepcopy(articulation.joint_X_p)
+        joint_q = copy.deepcopy(articulation.joint_q)
         if xform is not None:
             for i in range(len(joint_X_p)):
-                if articulation.joint_parent[i] == -1:
+                if articulation.joint_type[i] == wp.sim.JOINT_FREE:
+                    qi = articulation.joint_q_start[i]
+                    joint_q[qi:qi+3] = xform.p
+                    joint_q[qi+3:qi+7] = xform.q
+                elif articulation.joint_parent[i] == -1:
                     joint_X_p[i] = xform * joint_X_p[i]
         self.joint_X_p.extend(joint_X_p)
+        self.joint_q.extend(joint_q)
 
         self.add_articulation() 
 
@@ -947,7 +953,6 @@ class ModelBuilder:
             "joint_armature",
             "joint_axis",
             "joint_name",
-            "joint_q",
             "joint_qd",
             "joint_act",
             "joint_limit_lower",
