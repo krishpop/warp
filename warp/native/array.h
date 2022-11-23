@@ -126,8 +126,8 @@ inline CUDA_CALLABLE void adj_print(shape_t s, shape_t& shape_t) {}
 template <typename T>
 struct array_t
 {
-    array_t() {}    
-    array_t(int) {} // for backward a = 0 initialization syntax
+    inline CUDA_CALLABLE array_t() {}    
+    inline CUDA_CALLABLE array_t(int) {} // for backward a = 0 initialization syntax
 
     array_t(T* data, int size) : data(data) {
         // constructor for 1d array
