@@ -259,8 +259,7 @@ def closest_edge_coordinate_box(upper: wp.vec3, edge_a: wp.vec3, edge_b: wp.vec3
 
     if yc < yd:
         return 0.5 * (a + d)
-    else:
-        return 0.5 * (c + b)
+    return 0.5 * (c + b)
 
 @wp.func
 def closest_edge_coordinate_plane(plane_width: float, plane_length: float, edge_a: wp.vec3, edge_b: wp.vec3, max_iter: int,):
@@ -298,8 +297,7 @@ def closest_edge_coordinate_plane(plane_width: float, plane_length: float, edge_
 
     if yc < yd:
         return 0.5 * (a + d)
-    else:
-        return 0.5 * (c + b)
+    return 0.5 * (c + b)
 
 @wp.func
 def closest_edge_coordinate_capsule(radius: float, half_width: float, edge_a: wp.vec3, edge_b: wp.vec3, max_iter: int) -> float:
@@ -400,8 +398,7 @@ def closest_edge_coordinate_mesh(mesh: wp.uint64, edge_a: wp.vec3, edge_b: wp.ve
 
     if yc < yd:
         return 0.5 * (a + d)
-    else:
-        return 0.5 * (c + b)
+    return 0.5 * (c + b)
 
 @wp.kernel
 def create_soft_contacts(

@@ -2569,7 +2569,8 @@ class ModelBuilder:
                 contact_count = m.count_contact_points()
             else:
                 contact_count = self.num_rigid_contacts_per_env*self.num_envs
-            print(f"Allocating {contact_count} rigid contacts.")
+            if wp.config.verbose:
+                print(f"Allocating {contact_count} rigid contacts.")
             m.allocate_rigid_contacts(contact_count, requires_grad=requires_grad)
             m.rigid_contact_margin = self.rigid_contact_margin            
             m.rigid_contact_torsional_friction = self.rigid_contact_torsional_friction
