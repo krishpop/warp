@@ -1455,7 +1455,7 @@ def compute_forces(model, state, particle_f, body_f, requires_grad):
                   outputs=[particle_f],
                   device=model.device)
 
-    if (model.rigid_contact_max and model.shape_contact_pair_count):
+    if (model.rigid_contact_max and (model.ground and model.shape_ground_contact_pair_count or model.shape_contact_pair_count)):
         wp.launch(kernel=eval_rigid_contacts,
                   dim=model.rigid_contact_max,
                   inputs=[
