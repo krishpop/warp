@@ -1604,7 +1604,7 @@ class XPBDIntegrator:
                         state_out.body_qd = out_body_qd
 
                     # Solve rigid contact constraints
-                    if (model.rigid_contact_max and model.shape_contact_pair_count):
+                    if (model.rigid_contact_max and (model.ground and model.shape_ground_contact_pair_count or model.shape_contact_pair_count)):
                         rigid_contact_inv_weight = None
                         if requires_grad:
                             body_deltas = wp.zeros_like(state_out.body_deltas)
