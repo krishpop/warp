@@ -15,19 +15,12 @@
 ###########################################################################
 
 import os
-import math
 
 import numpy as np
-
 import warp as wp
-
-# wp.config.mode = "debug"
-# wp.config.verify_cuda = True
-# wp.config.verify_fp = True
 
 import warp.sim
 import warp.sim.render
-
 
 from tqdm import trange
 
@@ -60,7 +53,9 @@ class Robot:
         articulation_builder = wp.sim.ModelBuilder()
         floating_base = False
         wp.sim.parse_urdf(
-            os.path.join(os.path.dirname(__file__), "assets/isaacgymenvs/kuka_allegro_description/allegro.urdf"),
+            os.path.join(
+                os.path.dirname(__file__),
+                "assets/isaacgymenvs/kuka_allegro_description/allegro.urdf"),
             articulation_builder,
             xform=wp.transform(np.array((0.0, 0.3, 0.0)), wp.quat_rpy(-np.pi/2, np.pi*0.75, np.pi/2)),
             floating=floating_base,
@@ -86,7 +81,9 @@ class Robot:
             articulation_builder.joint_target_kd[i+q_offset] = 500.0
         
         wp.sim.parse_urdf(
-            os.path.join(os.path.dirname(__file__), "assets/isaacgymenvs/objects/cube_multicolor_allegro.urdf"),
+            os.path.join(
+                os.path.dirname(__file__),
+                "assets/isaacgymenvs/objects/cube_multicolor_allegro.urdf"),
             articulation_builder,
             xform=wp.transform(np.array((-0.1, 0.5, 0.0)), wp.quat_identity()),
             floating=True,
@@ -154,11 +151,6 @@ class Robot:
 
         self.bodies_per_env = len(articulation_builder.body_q)
 
-        # box_id = len(articulation_builder.shape_geo_type)-1
-        # articulation_builder.shape_collision_filter_pairs.add((0, box_id))
-        # for i in range(2, 18):
-        #     articulation_builder.shape_collision_filter_pairs.add((i, box_id))
-
         square_side = max(1, int(np.sqrt(num_envs)))
         for i in range(num_envs):
             builder.add_rigid_articulation(
@@ -176,9 +168,6 @@ class Robot:
         self.points_a = np.zeros((self.max_contact_count, 3))
         self.points_b = np.zeros((self.max_contact_count, 3))
 
-        # print("collision filters:")
-        # print(builder.shape_collision_filter_pairs)
-
         self.model.joint_attach_ke = 1600.0
         self.model.joint_attach_kd = 20.0
 
@@ -186,8 +175,6 @@ class Robot:
         self.integrator = wp.sim.XPBDIntegrator(self.solve_iterations)
         self.integrator.contact_con_weighting = True
         self.integrator.enable_restitution = False
-        # self.integrator = wp.sim.SemiImplicitIntegrator()
-
 
         #-----------------------
         # set up Usd renderer
@@ -216,9 +203,6 @@ class Robot:
             body_qd[i*self.bodies_per_env][2] = 0.4
             body_qd[i*self.bodies_per_env][1] = 0.2
         self.state.body_qd = wp.array(body_qd, dtype=wp.spatial_vector, device=self.device)
-
-        if (self.model.ground):
-            self.model.collide(self.state)
 
         profiler = {}
 
@@ -262,38 +246,8 @@ class Robot:
                         wp.sim.collide(self.model, self.state)
                         self.state = self.integrator.simulate(self.model, self.state, self.state, self.sim_dt)
                         self.sim_time += self.sim_dt
-                    # self.sim_time += self.frame_dtself.model.rigid_contact_inv_weight.zero_()
-                    self.model.rigid_active_contact_distance.zero_()
-
-                    # update contact points for rendering
-                    # wp.launch(kernel=update_body_contact_weights,
-                    #     dim=self.model.rigid_contact_max,
-                    #     inputs=[
-                    #         self.state.body_q,
-                    #         1,
-                    #         self.model.rigid_contact_count,
-                    #         self.model.rigid_contact_body0,
-                    #         self.model.rigid_contact_body1,
-                    #         self.model.rigid_contact_point0,
-                    #         self.model.rigid_contact_point1,
-                    #         self.model.rigid_contact_normal,
-                    #         self.model.rigid_contact_thickness,
-                    #         self.model.rigid_contact_shape0,
-                    #         self.model.rigid_contact_shape1,
-                    #         self.model.shape_transform
-                    #     ],
-                    #     outputs=[
-                    #         self.model.rigid_contact_inv_weight,
-                    #         self.model.rigid_active_contact_point0,
-                    #         self.model.rigid_active_contact_point1,
-                    #         self.model.rigid_active_contact_distance,
-                    #     ],
-                    #     device=self.model.device)
-                    # self.model.rigid_active_contact_point0_prev = self.model.rigid_active_contact_point0
-                    # self.model.rigid_active_contact_point1_prev = self.model.rigid_active_contact_point1
 
                 if (self.render):
-                    # print("contacts:", self.model.rigid_contact_count.numpy()[0])
                     distance = self.model.rigid_active_contact_distance.numpy()
                     with wp.ScopedTimer("render", False):
                         rigid_contact_count = min(self.model.rigid_contact_count.numpy()[0], self.max_contact_count)
@@ -311,7 +265,6 @@ class Robot:
                                 no_contact = np.where(distance[:rigid_contact_count]>=0.0)[0]
                                 self.points_a[no_contact].fill(0.0)
                                 self.points_b[no_contact].fill(0.0)
-
 
                         self.render_time += self.frame_dt
                         
