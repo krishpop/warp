@@ -21,7 +21,6 @@ import math
 import numpy as np
 
 import warp as wp
-# wp.config.mode = 'debug'
 import warp.sim
 import warp.sim.render
 
@@ -49,19 +48,14 @@ class Robot:
         articulation_builder = wp.sim.ModelBuilder()
 
         self.render = render
-
         self.num_envs = num_envs
 
-        # number of contact points to visualize
-        self.max_contact_count = 1421
-
+        self.max_contact_count = 100
         self.points_a = np.zeros((self.max_contact_count, 3), dtype=np.float32)
         self.points_b = np.zeros((self.max_contact_count, 3), dtype=np.float32)
 
         wp.sim.parse_mjcf(
-            # r"C:\Users\eric-\Downloads\claw_warp.xml",
             os.path.join(os.path.dirname(__file__), "assets/nv_humanoid.xml"),
-            # os.path.join(os.path.dirname(__file__), "assets/nv_ujoint.xml"),
             articulation_builder,
             stiffness=0.0,
             damping=0.1,
@@ -86,34 +80,9 @@ class Robot:
             if i == 0:
                 self.dof_q = len(builder.joint_q)
                 self.dof_qd = len(builder.joint_qd)
- 
-            # coord_count = 28 
-            # dof_count = 27
-            
-            # coord_start = i*coord_count
-            # dof_start = i*dof_count
-
-            # # position above ground and rotate to +y up
-            # builder.joint_q[coord_start:coord_start+3] = [i*2.0 + 2.3, 1.70, 1.2]
-            # builder.joint_q[coord_start+3:coord_start+7] = wp.quat_from_axis_angle((1.0, 0.0, 0.0), -math.pi*0.5)
-
-            # # throw sideways
-            # builder.joint_qd[coord_start+3:coord_start+6] = [0.0, 0.0, 1.0]
-
-        if False:
-            builder.ground = True
-        else:
-            builder.ground = False
-            # add ground plane
-            builder.add_shape_plane(
-                plane=(0.0, 1.0, 0.0, 0.0),
-                width=0.0, length=0.0,
-                mu=0.5,
-                restitution=0.0)
 
         # finalize model
         self.model = builder.finalize(device)
-        self.model.ground = builder.ground
         self.model.joint_attach_ke *= 8.0
         self.model.joint_attach_kd *= 2.0
 
@@ -128,11 +97,6 @@ class Robot:
             contact_normal_relaxation=0.7)
         self.integrator.contact_con_weighting = True
         # self.integrator.enable_restitution = True
-
-        # print("Collision filters:")
-        # print(builder.shape_collision_filter_pairs)
-        # print("Collision mask:")
-        # print(self.model.shape_collision_mask.numpy())
 
         self.requires_grad = False
 
