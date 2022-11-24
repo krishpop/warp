@@ -14,13 +14,12 @@
 ###########################################################################
 
 import os
-import math
-
-import numpy as np
 
 import warp as wp
 import warp.sim
 import warp.sim.render
+
+from tqdm import trange
 
 wp.init()
 
@@ -29,7 +28,7 @@ class Example:
 
     def __init__(self, stage):
 
-        self.sim_steps = 2000
+        self.sim_steps = 300
         self.sim_dt = 1.0/60.0
         self.sim_time = 0.0
         self.sim_substeps = 8
@@ -39,6 +38,8 @@ class Example:
         self.ke = 1.e+5
         self.kd = 250.0
         self.kf = 500.0
+
+        self.use_xpbd = True
 
         builder = wp.sim.ModelBuilder()
 
@@ -91,26 +92,26 @@ class Example:
         self.model = builder.finalize()
         self.model.ground = True
 
-        self.integrator = wp.sim.SemiImplicitIntegrator()
+        if self.use_xpbd:
+            self.integrator = wp.sim.XPBDIntegrator()
+        else:
+            self.integrator = wp.sim.SemiImplicitIntegrator()
         self.state = self.model.state()
-
-        # one time collide for ground contact
-        self.model.collide(self.state)
 
         self.renderer = wp.sim.render.SimRenderer(self.model, stage)
 
     def update(self):
 
-        with wp.ScopedTimer("simulate", active=True):
+        with wp.ScopedTimer("simulate", active=False):
             
-            for i in range(self.sim_substeps):
+            for _ in range(self.sim_substeps):
                 self.state.clear_forces()
                 wp.sim.collide(self.model, self.state)
                 self.state = self.integrator.simulate(self.model, self.state, self.state, self.sim_dt/self.sim_substeps)   
 
     def render(self, is_live=False):
 
-        with wp.ScopedTimer("render", active=True):
+        with wp.ScopedTimer("render", active=False):
             time = 0.0 if is_live else self.sim_time
 
             self.renderer.begin_frame(time)
@@ -125,7 +126,7 @@ if __name__ == '__main__':
 
     example = Example(stage_path)
 
-    for i in range(example.sim_steps):
+    for i in trange(example.sim_steps):
         example.update()
         example.render()
 
