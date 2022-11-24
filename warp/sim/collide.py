@@ -1302,7 +1302,33 @@ def collide(model, state, edge_sdf_iter: int = 5):
             ],
             device=model.device,
             record_tape=False)
+
+    if (model.ground and model.shape_ground_contact_pair_count):
+        wp.launch(
+            kernel=broadphase_collision_pairs,
+            dim=model.shape_ground_contact_pair_count,
+            inputs=[
+                model.shape_ground_contact_pairs,
+                state.body_q,
+                model.shape_transform,
+                model.shape_body,
+                model.shape_geo_type,
+                model.shape_geo_scale,
+                model.shape_geo_id,
+                model.shape_collision_radius,
+                model.rigid_contact_max,
+                model.rigid_contact_margin,
+            ],
+            outputs=[
+                model.rigid_contact_count,
+                model.rigid_contact_shape0,
+                model.rigid_contact_shape1,
+                model.rigid_contact_point_id,
+            ],
+            device=model.device,
+            record_tape=False)
             
+    if (model.shape_contact_pair_count or model.ground and model.shape_ground_contact_pair_count):
         wp.launch(
             kernel=handle_contact_pairs,
             dim=model.rigid_contact_max,

@@ -53,6 +53,8 @@ class SimRenderer(warp.render.UsdRenderer):
                 X_bs = warp.transform_expand(shape_transform[s])
 
                 if (geo_type == warp.sim.GEO_PLANE):
+                    if (s == model.shape_count-1 and not model.ground):
+                        continue  # hide ground plane
 
                     # plane mesh
                     width = (geo_scale[0] if geo_scale[0] > 0.0 else self.scale(100.0))

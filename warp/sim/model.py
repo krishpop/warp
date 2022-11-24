@@ -329,11 +329,6 @@ class Model:
 
         self.requires_grad = False
 
-        # indicates whether a ground plane was created for this model during `ModelBuilder.finalize()`
-        # in case the user wants to add a ground plane to the model after it has been finalized
-        # XXX this will be deprecated in the future
-        self._ground = False
-
         self.particle_q = None
         self.particle_qd = None
         self.particle_mass = None
@@ -375,7 +370,9 @@ class Model:
         self.shape_collision_group_map = None
         self.shape_collision_filter_pairs = None
         self.shape_collision_radius = None
+        self.shape_ground_collision = None
         self.shape_contact_pairs = None
+        self.shape_ground_contact_pairs = None
 
         self.joint_type = None
         self.joint_parent = None
@@ -426,6 +423,9 @@ class Model:
         self.particle_grid = None
 
         self.device = wp.get_device(device)
+
+        # toggles ground contact for all shapes
+        self.ground = True
 
     def state(self, requires_grad=False) -> State:
         """Returns a state object for the model
@@ -497,41 +497,30 @@ class Model:
 
     def find_shape_contact_pairs(self):
         # find potential contact pairs based on collision groups and collision mask (pairwise filtering)
-        if True:
-            # fastest implementation so far, iterate over collision groups (islands)
-            import itertools, copy
-            filters = copy.copy(self.shape_collision_filter_pairs)
-            for a, b in self.shape_collision_filter_pairs:
-                filters.add((b, a))
-            contact_pairs = []
-            for group, shapes in self.shape_collision_group_map.items():
-                for shape_a, shape_b in itertools.product(shapes, shapes):
+        import itertools, copy
+        filters = copy.copy(self.shape_collision_filter_pairs)
+        for a, b in self.shape_collision_filter_pairs:
+            filters.add((b, a))
+        contact_pairs = []
+        # iterate over collision groups (islands)
+        for group, shapes in self.shape_collision_group_map.items():
+            for shape_a, shape_b in itertools.product(shapes, shapes):
+                if shape_a < shape_b and (shape_a, shape_b) not in filters:
+                    contact_pairs.append((shape_a, shape_b))
+            if group != -1 and -1 in self.shape_collision_group_map:
+                for shape_a, shape_b in itertools.product(shapes, self.shape_collision_group_map[-1]):
                     if shape_a < shape_b and (shape_a, shape_b) not in filters:
                         contact_pairs.append((shape_a, shape_b))
-                if group != -1 and -1 in self.shape_collision_group_map:
-                    for shape_a, shape_b in itertools.product(shapes, self.shape_collision_group_map[-1]):
-                        if shape_a < shape_b and (shape_a, shape_b) not in filters:
-                            contact_pairs.append((shape_a, shape_b))
-            self.shape_contact_pairs = wp.array(np.array(contact_pairs), dtype=wp.int32, device=self.device)
-            self.shape_contact_pair_count = len(contact_pairs)
-        else:
-            from tqdm import trange
-            contact_pairs = []
-            for shape_a in trange(self.shape_count, desc="Finding contact pairs"):
-                for shape_b in range(shape_a+1, self.shape_count):
-                    if (shape_a, shape_b) in self.shape_collision_filter_pairs:
-                        continue
-                    if (shape_b, shape_a) in self.shape_collision_filter_pairs:
-                        continue
-                    cg_a = self.shape_collision_group[shape_a]
-                    cg_b = self.shape_collision_group[shape_b]
-                    if cg_a != cg_b and cg_a > -1 and cg_b > -1:
-                        continue
-                    if len(contact_pairs) >= self.rigid_contact_max:
-                        raise RuntimeError(f"Number of rigid contacts exceeded limit ({self.rigid_contact_max}). Increase Model.rigid_contact_max.")
-                    contact_pairs.append((shape_a, shape_b))
-            self.shape_contact_pairs = wp.array(np.array(contact_pairs), dtype=wp.int32, device=self.device)
-            self.shape_contact_pair_count = len(contact_pairs)
+        self.shape_contact_pairs = wp.array(np.array(contact_pairs), dtype=wp.int32, device=self.device)
+        self.shape_contact_pair_count = len(contact_pairs)
+        # find ground contact pairs
+        ground_contact_pairs = []
+        ground_id = self.shape_count-1
+        for i in range(ground_id):
+            if self.shape_ground_collision[i]:
+                ground_contact_pairs.append((i,ground_id))
+        self.shape_ground_contact_pairs = wp.array(np.array(ground_contact_pairs), dtype=wp.int32, device=self.device)
+        self.shape_ground_contact_pair_count = len(ground_contact_pairs)
 
     def count_contact_points(self):
         """
@@ -544,6 +533,20 @@ class Model:
             dim=self.shape_contact_pair_count,
             inputs=[
                 self.shape_contact_pairs,
+                self.shape_geo_type,
+                self.shape_geo_scale,
+                self.shape_geo_id,
+            ],
+            outputs=[
+                contact_count
+            ],
+            device=self.device,
+            record_tape=False)
+        wp.launch(
+            kernel=count_contact_points,
+            dim=self.shape_ground_contact_pair_count,
+            inputs=[
+                self.shape_ground_contact_pairs,
                 self.shape_geo_type,
                 self.shape_geo_scale,
                 self.shape_geo_id,
@@ -620,49 +623,7 @@ class Model:
 
     def collide(self, state: State):
         import warnings
-        warnings.warn("Model.collide is not needed anymore and will be removed in a future Warp version.", DeprecationWarning, stacklevel=2)
-
-    def __setattr__(self, name: str, value):
-        if name == "ground":
-            import warnings
-            warnings.warn("Model.ground has been deprecated in favor of `ModelBuilder.set_ground_plane()`.", DeprecationWarning, stacklevel=2)
-            if value == True and not self._ground:
-                raise ValueError("Model.ground cannot be set to True after the Model has been created. Use `ModelBuilder.set_ground_plane()` instead before calling `ModelBuilder.finalize()`.")
-            elif value == False and self._ground:
-                # we remove the ground plane shape, which is always the last shape                
-                def remove_last_elem(arr: wp.array):
-                    np_arr = arr.numpy()[:-1]
-                    return wp.array(np_arr, device=arr.device, dtype=arr.dtype, requires_grad=arr.requires_grad)
-                self.shape_body = remove_last_elem(self.shape_body)
-                self.shape_transform = remove_last_elem(self.shape_transform)
-                self.shape_geo_type = remove_last_elem(self.shape_geo_type)
-                self.shape_geo_scale = remove_last_elem(self.shape_geo_scale)
-                self.shape_geo_src = self.shape_geo_src[:-1]
-                self.shape_materials.ke = remove_last_elem(self.shape_materials.ke)
-                self.shape_materials.kd = remove_last_elem(self.shape_materials.kd)
-                self.shape_materials.kf = remove_last_elem(self.shape_materials.kf)
-                self.shape_materials.mu = remove_last_elem(self.shape_materials.mu)
-                self.shape_materials.restitution = remove_last_elem(self.shape_materials.restitution)
-                self.shape_contact_thickness = remove_last_elem(self.shape_contact_thickness)
-                ground_shape_id = len(self.shape_geo_type)
-                # remove contact pairs involving the ground plane
-                pairs = self.shape_contact_pairs.numpy()
-                pairs = pairs[pairs[:, 1] != ground_shape_id]
-                self.shape_contact_pairs = wp.array(np.array(pairs), dtype=wp.int32, device=self.device)
-                self.shape_contact_pair_count = len(pairs)
-                self.shape_count = ground_shape_id
-                self._ground = False
-            return
-
-        super().__setattr__(name, value)
-
-    def __getattr__(self, name: str):
-        if name == "ground":
-            import warnings
-            warnings.warn("Model.ground has been deprecated in favor of `ModelBuilder.set_ground_plane()`.", DeprecationWarning, stacklevel=2)
-            return self._ground
-        return super().__getattr__(name)
-
+        warnings.warn("Model.collide() is not needed anymore and will be removed in a future Warp version.", DeprecationWarning, stacklevel=2)
 
 
 class ModelBuilder:
@@ -753,6 +714,8 @@ class ModelBuilder:
         self.last_collision_group = 0
         # radius to use for broadphase collision checking
         self.shape_collision_radius = []
+        # whether the shape collides with the ground
+        self.shape_ground_collision = []
 
         # filtering to ignore certain collision pairs
         self.shape_collision_filter_pairs = set()
@@ -840,8 +803,6 @@ class ModelBuilder:
 
         self.upvector = upvector
         self.gravity = gravity
-        # indicates whether a ground should be created
-        self.ground = True
         # indicates whether a ground plane has been created
         self._ground_created = False
         # constructor parameters for ground plane shape
@@ -975,6 +936,7 @@ class ModelBuilder:
             "shape_material_restitution",
             "shape_contact_thickness",
             "shape_collision_radius",
+            "shape_ground_collision",
         ]
 
         for attr in rigid_articulation_attrs:
@@ -1379,7 +1341,7 @@ class ModelBuilder:
         else:
             return 10.0
     
-    def _add_shape(self, body, pos, rot, type, scale, src, density, ke, kd, kf, mu, restitution, thickness=0.0, collision_group=-1, collision_filter_parent=True):
+    def _add_shape(self, body, pos, rot, type, scale, src, density, ke, kd, kf, mu, restitution, thickness=0.0, collision_group=-1, collision_filter_parent=True, has_ground_collision=True):
         self.shape_body.append(body)
         shape = len(self.shape_geo_type)
         if body in self.body_shapes:
@@ -1410,6 +1372,7 @@ class ModelBuilder:
             if parent_body > -1:
                 for parent_shape in self.body_shapes[parent_body]:
                     self.shape_collision_filter_pairs.add((parent_shape, shape))
+        self.shape_ground_collision.append(has_ground_collision)
 
         (m, I) = self._compute_shape_mass(type, scale, src, density)
 
@@ -2366,11 +2329,14 @@ class ModelBuilder:
             kf=kf,
             mu=mu,
             restitution=restitution)
-        self.ground = True
 
     def _create_ground_plane(self):
         self.add_shape_plane(**self._ground_params)
         self._ground_created = True
+        # disable ground collisions as they will be treated separately
+        ground_id = len(self.shape_geo_type)-1
+        for i in range(len(self.shape_geo_type)-1):
+            self.shape_collision_filter_pairs.add((i, ground_id))
 
     def finalize(self, device=None, requires_grad=False) -> Model:
         """Convert this builder object to a concrete model for simulation.
@@ -2391,7 +2357,7 @@ class ModelBuilder:
         self.num_envs = max(1, self.num_envs)
 
         # add ground plane if not already created
-        if self.ground and not self._ground_created:
+        if not self._ground_created:
             self._create_ground_plane()
 
         # construct particle inv masses
@@ -2455,6 +2421,7 @@ class ModelBuilder:
             m.shape_collision_group = self.shape_collision_group
             m.shape_collision_group_map = self.shape_collision_group_map
             m.shape_collision_radius = wp.array(self.shape_collision_radius, dtype=wp.float32, requires_grad=requires_grad)
+            m.shape_ground_collision = self.shape_ground_collision
 
             #---------------------
             # springs
@@ -2587,7 +2554,8 @@ class ModelBuilder:
             m.geo_sdfs = self.geo_sdfs
 
             # enable ground plane
-            m._ground = self.ground
+            m._ground = True
+            # XXX unused variable
             m.ground_plane = wp.array([*self.upvector, 0.0], dtype=wp.float32, requires_grad=requires_grad)
             # m.gravity = np.array(self.upvector) * self.gravity
             m.gravity = wp.array([*(np.array(self.upvector) * self.gravity)], dtype=wp.float32, requires_grad=requires_grad)
