@@ -121,9 +121,6 @@ class Robot:
             None,
             self.state)
 
-        if (self.model.ground):
-            self.model.collide(self.state)
-
         profiler = {}
 
         if use_graph_capture:
@@ -175,20 +172,6 @@ class Robot:
                     for i in range(0, self.sim_substeps):
                         self.state.clear_forces()
                         
-                        # keep floating base fixed
-                        # wp.sim.eval_ik(self.model, self.state, joint_q, joint_qd)
-                        # q = joint_q.numpy().copy()
-                        # q[:3] = [2.3, 1.70, 1.2]
-                        # q[3:7] = wp.quat_from_axis_angle((1.0, 0.0, 0.0), -math.pi*0.5)
-                        # qd = joint_qd.numpy().copy()
-                        # qd[:6] = 0.0
-                        # wp.sim.eval_fk(
-                        #     self.model,
-                        #     wp.array(q, dtype=wp.float32, device=joint_q.device),
-                        #     wp.array(qd, dtype=wp.float32, device=joint_q.device),
-                        #     None,
-                        #     self.state)
-                        
                         random_actions = True
                         if (random_actions):
                             act = np.zeros(len(self.model.joint_qd))
@@ -216,7 +199,6 @@ class Robot:
                             for j in range(self.num_envs):
                                 act[j*self.dof_qd+6:(j+1)*self.dof_qd] = np.clip((np.random.rand(self.dof_qd-6)*2.0 - 1.0)*1000.0, a_min=-1.0, a_max=1.0)*scale*0.35
 
-                            # act[6:] = np.clip((np.random.rand(len(self.model.joint_qd)-6)*2.0 - 1.0)*1000.0, a_min=-1.0, a_max=1.0)*scale*0.35
                             self.model.joint_act.assign(act)
 
                         wp.sim.collide(self.model, self.state)
