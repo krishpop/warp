@@ -857,8 +857,10 @@ class ModelBuilder:
             for i in range(len(joint_X_p)):
                 if articulation.joint_type[i] == wp.sim.JOINT_FREE:
                     qi = articulation.joint_q_start[i]
-                    joint_q[qi:qi+3] = xform.p
-                    joint_q[qi+3:qi+7] = xform.q
+                    xform_prev = wp.transform(joint_q[qi:qi+3], joint_q[qi+3:qi+7])
+                    tf = xform * xform_prev
+                    joint_q[qi:qi+3] = tf.p
+                    joint_q[qi+3:qi+7] = tf.q
                 elif articulation.joint_parent[i] == -1:
                     joint_X_p[i] = xform * joint_X_p[i]
         self.joint_X_p.extend(joint_X_p)
@@ -1097,6 +1099,9 @@ class ModelBuilder:
                     self.joint_target.append(0.5 * (joint_limit_lower[i] + joint_limit_upper[i]))
                 else:
                     self.joint_target.append(0.0)
+        if (joint_type == JOINT_FREE):
+            # ensure that a valid quaternion is used for the free joint angular dofs
+            self.joint_q[-1] = 1.0
             
         self.joint_linear_compliance.append(joint_linear_compliance)
         self.joint_angular_compliance.append(joint_angular_compliance)
