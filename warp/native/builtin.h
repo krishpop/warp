@@ -14,10 +14,14 @@
 
 #include "crt.h"
 
-#if _WIN32
-#define WP_API __declspec(dllexport)
+#if !defined(__CUDA_ARCH__)
+    #if defined(_WIN32)
+        #define WP_API __declspec(dllexport)
+    #else
+        #define WP_API __attribute__ ((visibility ("default")))
+    #endif
 #else
-#define WP_API
+    #define WP_API
 #endif
 
 #ifdef _WIN32
@@ -84,6 +88,13 @@ struct half
     unsigned short u;
 
     CUDA_CALLABLE inline bool operator==(const half& h) const { return u == h.u; }
+
+    CUDA_CALLABLE inline half operator+=(const half& h)
+    {
+        half sum = half(float32(*this) + float32(h));
+        this->u = sum.u;
+        return *this;
+    }
 
     CUDA_CALLABLE inline operator float32() const { return float32(half_to_float(*this)); }
     CUDA_CALLABLE inline operator float64() const { return float64(half_to_float(*this)); }

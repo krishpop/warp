@@ -105,6 +105,18 @@ void array_sum_host(uint64_t a, uint64_t out, int len)
 
 int cuda_init() { return -1; }
 
+void* alloc_pinned(size_t s)
+{
+    // CUDA is not available, fall back on system allocator
+    return alloc_host(s);
+}
+
+void free_pinned(void* ptr)
+{
+    // CUDA is not available, fall back on system allocator
+    free_host(ptr);
+}
+
 void* alloc_device(void* context, size_t s)
 {
     return NULL;
@@ -134,6 +146,12 @@ void memcpy_peer(void* context, void* dest, void* src, size_t n)
 void memset_device(void* context, void* dest, int value, size_t n)
 {
 }
+
+WP_API int cuda_driver_version() { return 0; }
+WP_API int cuda_toolkit_version() { return 0; }
+
+WP_API int nvrtc_supported_arch_count() { return 0; }
+WP_API void nvrtc_supported_archs(int* archs) {}
 
 WP_API int cuda_device_get_count() { return 0; }
 WP_API void* cuda_device_primary_context_retain(int ordinal) { return NULL; }

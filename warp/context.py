@@ -534,6 +534,8 @@ class Module:
 
         self.options = {"max_unroll": 16,
                         "enable_backward": True,
+                        "fast_math": False,
+                        "cuda_output": None,         # supported values: "ptx", "cubin", or None (automatic)
                         "mode": warp.config.mode}
 
         # kernel hook lookup per device
@@ -609,9 +611,8 @@ class Module:
         for node in ast.walk(adj.tree):
             if isinstance(node, ast.Call):
                 try:
-                    # try and look up path in function globals
-                    path = adj.resolve_path(node.func)
-                    func = eval(".".join(path), adj.func.__globals__)
+                    # try to resolve the function
+                    func, _ = adj.resolve_path(node.func)
 
                     # if this is a user-defined function, add a module reference
                     if isinstance(func, warp.context.Function) and func.module is not None:
@@ -705,8 +706,6 @@ class Module:
                 return False
             if not warp.is_cpu_available():
                 raise RuntimeError("Failed to build CPU module because no CPU buildchain was found")
-            build_cpu = True
-            build_cuda = False
         else:
             # check if already loaded
             if device.context in self.cuda_modules:
@@ -716,8 +715,6 @@ class Module:
                 return False
             if not warp.is_cuda_available():
                 raise RuntimeError("Failed to build CUDA module because CUDA is not available")
-            build_cpu = False
-            build_cuda = True
 
         with warp.utils.ScopedTimer(f"Module {self.name} load on device '{device}'"):
 
@@ -731,55 +728,31 @@ class Module:
 
             module_name = "wp_" + self.name
             module_path = os.path.join(build_path, module_name)
-
-            if os.name == 'nt':
-                dll_path = module_path + ".dll"
-            else:
-                dll_path = module_path + ".so"
-
-            ptx_arch = min(device.arch, warp.config.ptx_target_arch)
-            ptx_path = module_path + f".sm{ptx_arch}.ptx"
-
-            cpu_hash_path = module_path + ".cpu.hash"
-            ptx_hash_path = module_path + f".sm{ptx_arch}.hash"
-
-            # test cache
             module_hash = self.hash_module()
 
-            # check CPU cache
-            if build_cpu and warp.config.cache_kernels and os.path.exists(cpu_hash_path):
+            builder = ModuleBuilder(self, self.options)
 
-                f = open(cpu_hash_path, 'rb')
-                cache_hash = f.read()
-                f.close()
+            if device.is_cpu:
 
-                if cache_hash == module_hash:
-                    if os.path.isfile(dll_path):
+                if os.name == 'nt':
+                    dll_path = module_path + ".dll"
+                else:
+                    dll_path = module_path + ".so"
+
+                cpu_hash_path = module_path + ".cpu.hash"
+
+                # check cache
+                if warp.config.cache_kernels and os.path.isfile(cpu_hash_path) and os.path.isfile(dll_path):
+
+                    with open(cpu_hash_path, 'rb') as f:
+                        cache_hash = f.read()
+
+                    if cache_hash == module_hash:
                         self.dll = warp.build.load_dll(dll_path)
                         if self.dll is not None:
                             return True
 
-            # check GPU cache
-            elif build_cuda and warp.config.cache_kernels and os.path.exists(ptx_hash_path):
-
-                f = open(ptx_hash_path, 'rb')
-                cache_hash = f.read()
-                f.close()
-
-                if cache_hash == module_hash:
-                    if os.path.isfile(ptx_path):
-                        cuda_module = warp.build.load_cuda(ptx_path, device)
-                        if cuda_module is not None:
-                            self.cuda_modules[device.context] = cuda_module
-                            return True
-
-
-            if warp.config.verbose:
-                print(f"Warp: Rebuilding kernels for module {self.name} on device {device.alias}")
-
-            builder = ModuleBuilder(self, self.options)
-            
-            if build_cpu:
+                # build
                 try:
                     cpp_path = os.path.join(gen_path, module_name + ".cpp")
 
@@ -792,24 +765,59 @@ class Module:
 
                     # build DLL
                     with warp.utils.ScopedTimer("Compile x86", active=warp.config.verbose):
-                        warp.build.build_dll(cpp_path, None, dll_path, config=self.options["mode"], verify_fp=warp.config.verify_fp)
-
-                    # update cpu hash
-                    f = open(cpu_hash_path, 'wb')
-                    f.write(module_hash)
-                    f.close()
+                        warp.build.build_dll(cpp_path, None, dll_path, config=self.options["mode"], fast_math=self.options["fast_math"], verify_fp=warp.config.verify_fp)
 
                     # load the DLL
                     self.dll = warp.build.load_dll(dll_path)
                     if self.dll is None:
                         raise Exception("Failed to load CPU module")
 
+                    # update cpu hash
+                    with open(cpu_hash_path, 'wb') as f:
+                        f.write(module_hash)
+
                 except Exception as e:
                     self.cpu_build_failed = True
-                    # print(e)
                     raise(e)
 
-            elif build_cuda:
+            elif device.is_cuda:
+
+                # determine whether to use PTX or CUBIN
+                if device.is_cubin_supported:
+                    # get user preference specified either per module or globally
+                    preferred_cuda_output = self.options.get("cuda_output") or warp.config.cuda_output
+                    if preferred_cuda_output is not None:
+                        use_ptx = preferred_cuda_output == "ptx"
+                    else:
+                        # determine automatically: older drivers may not be able to handle PTX generated using newer
+                        # CUDA Toolkits, in which case we fall back on generating CUBIN modules
+                        use_ptx = runtime.driver_version >= runtime.toolkit_version
+                else:
+                    # CUBIN not an option, must use PTX (e.g. CUDA Toolkit too old)
+                    use_ptx = True
+
+                if use_ptx:
+                    output_arch = min(device.arch, warp.config.ptx_target_arch)
+                    output_path = module_path + f".sm{output_arch}.ptx"
+                else:
+                    output_arch = device.arch
+                    output_path = module_path + f".sm{output_arch}.cubin"
+
+                cuda_hash_path = module_path + f".sm{output_arch}.hash"
+
+                # check cache
+                if warp.config.cache_kernels and os.path.isfile(cuda_hash_path) and os.path.isfile(output_path):
+
+                    with open(cuda_hash_path, 'rb') as f:
+                        cache_hash = f.read()
+
+                    if cache_hash == module_hash:
+                        cuda_module = warp.build.load_cuda(output_path, device)
+                        if cuda_module is not None:
+                            self.cuda_modules[device.context] = cuda_module
+                            return True
+
+                # build
                 try:
                     cu_path = os.path.join(gen_path, module_name + ".cu")
 
@@ -820,26 +828,23 @@ class Module:
                     cu_file.write(cu_source)
                     cu_file.close()
 
-                    # generate PTX
-                    ptx_arch = min(device.arch, warp.config.ptx_target_arch)
+                    # generate PTX or CUBIN
                     with warp.utils.ScopedTimer("Compile CUDA", active=warp.config.verbose):
-                        warp.build.build_cuda(cu_path, ptx_arch, ptx_path, config=self.options["mode"], verify_fp=warp.config.verify_fp)
+                        warp.build.build_cuda(cu_path, output_arch, output_path, config=self.options["mode"], fast_math=self.options["fast_math"], verify_fp=warp.config.verify_fp)
 
-                    # update cuda hash
-                    f = open(ptx_hash_path, 'wb')
-                    f.write(module_hash)
-                    f.close()
-
-                    # load the PTX
-                    cuda_module = warp.build.load_cuda(ptx_path, device)
+                    # load the module
+                    cuda_module = warp.build.load_cuda(output_path, device)
                     if cuda_module is not None:
                         self.cuda_modules[device.context] = cuda_module
                     else:
                         raise Exception("Failed to load CUDA module")
 
+                    # update cuda hash
+                    with open(cuda_hash_path, 'wb') as f:
+                        f.write(module_hash)
+
                 except Exception as e:
                     self.cuda_build_failed = True
-                    # print(e)
                     raise(e)
 
             return True
@@ -877,20 +882,25 @@ class Allocator:
 
         self.device = device
 
-        if self.device.is_cpu:
-            self._alloc_func = self.device.runtime.core.alloc_host
-            self._free_func = self.device.runtime.core.free_host
-        else:
-            self._alloc_func = lambda size: self.device.runtime.core.alloc_device(self.device.context, size)
-            self._free_func = lambda ptr: self.device.runtime.core.free_device(self.device.context, ptr)
-
-    def alloc(self, size_in_bytes):
+    def alloc(self, size_in_bytes, pinned=False):
         
-        return self._alloc_func(size_in_bytes)
+        if self.device.is_cuda:
+            return runtime.core.alloc_device(self.device.context, size_in_bytes)
+        elif self.device.is_cpu:
+            if pinned:
+                return runtime.core.alloc_pinned(size_in_bytes)
+            else:
+                return runtime.core.alloc_host(size_in_bytes)
 
-    def free(self, ptr, size_in_bytes):
+    def free(self, ptr, size_in_bytes, pinned=False):
 
-        self._free_func(ptr)
+        if self.device.is_cuda:
+            return runtime.core.free_device(self.device.context, ptr)
+        elif self.device.is_cpu:
+            if pinned:
+                return runtime.core.free_pinned(ptr)
+            else:
+                return runtime.core.free_host(ptr)
 
 
 class ContextGuard:
@@ -1025,6 +1035,7 @@ class Device:
             self.name = platform.processor() or "CPU"
             self.arch = 0
             self.is_uva = False
+            self.is_cubin_supported = False
 
             # TODO: add more device-specific dispatch functions
             self.memset = runtime.core.memset_host
@@ -1035,6 +1046,8 @@ class Device:
             self.name = runtime.core.cuda_device_get_name(ordinal).decode()
             self.arch = runtime.core.cuda_device_get_arch(ordinal)
             self.is_uva = runtime.core.cuda_device_is_uva(ordinal)
+            # check whether our NVRTC can generate CUBINs for this architecture
+            self.is_cubin_supported = self.arch in runtime.nvrtc_supported_archs
 
             # initialize streams unless context acquisition is postponed
             if self._context is not None:
@@ -1187,11 +1200,15 @@ class Runtime:
         # setup c-types for warp.dll
         self.core.alloc_host.argtypes = [ctypes.c_size_t]
         self.core.alloc_host.restype = ctypes.c_void_p
+        self.core.alloc_pinned.argtypes = [ctypes.c_size_t]
+        self.core.alloc_pinned.restype = ctypes.c_void_p
         self.core.alloc_device.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
         self.core.alloc_device.restype = ctypes.c_void_p
 
         self.core.free_host.argtypes = [ctypes.c_void_p]
         self.core.free_host.restype = None
+        self.core.free_pinned.argtypes = [ctypes.c_void_p]
+        self.core.free_pinned.restype = None
         self.core.free_device.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
         self.core.free_device.restype = None
 
@@ -1261,6 +1278,16 @@ class Runtime:
         self.core.volume_get_buffer_info_device.argtypes = [ctypes.c_uint64, ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(ctypes.c_uint64)]
         self.core.volume_destroy_device.argtypes = [ctypes.c_uint64]
 
+        self.core.cuda_driver_version.argtypes = None
+        self.core.cuda_driver_version.restype = ctypes.c_int
+        self.core.cuda_toolkit_version.argtypes = None
+        self.core.cuda_toolkit_version.restype = ctypes.c_int
+
+        self.core.nvrtc_supported_arch_count.argtypes = None
+        self.core.nvrtc_supported_arch_count.restype = ctypes.c_int
+        self.core.nvrtc_supported_archs.argtypes = [ctypes.POINTER(ctypes.c_int)]
+        self.core.nvrtc_supported_archs.restype = None
+
         self.core.cuda_device_get_count.argtypes = None
         self.core.cuda_device_get_count.restype = ctypes.c_int
         self.core.cuda_device_primary_context_retain.argtypes = [ctypes.c_int]
@@ -1327,7 +1354,7 @@ class Runtime:
         self.core.cuda_graph_destroy.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
         self.core.cuda_graph_destroy.restype = None
 
-        self.core.cuda_compile_program.argtypes = [ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_bool, ctypes.c_bool, ctypes.c_bool, ctypes.c_char_p]
+        self.core.cuda_compile_program.argtypes = [ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_bool, ctypes.c_bool, ctypes.c_bool, ctypes.c_bool, ctypes.c_char_p]
         self.core.cuda_compile_program.restype = ctypes.c_size_t
 
         self.core.cuda_load_module.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
@@ -1362,8 +1389,23 @@ class Runtime:
         self.context_map[None] = self.cpu_device
         self.graph_capture_map[None] = False
 
-        # register CUDA devices
         cuda_device_count = self.core.cuda_device_get_count()
+
+        if cuda_device_count > 0:
+            # get CUDA Toolkit and driver versions
+            self.toolkit_version = self.core.cuda_toolkit_version()
+            self.driver_version = self.core.cuda_driver_version()
+ 
+            # get all architectures supported by NVRTC
+            num_archs = self.core.nvrtc_supported_arch_count()
+            if num_archs > 0:
+                archs = (ctypes.c_int * num_archs)()
+                self.core.nvrtc_supported_archs(archs)
+                self.nvrtc_supported_archs = list(archs)
+            else:
+                self.nvrtc_supported_archs = []
+
+        # register CUDA devices
         self.cuda_devices = []
         self.cuda_primary_devices = []
         for i in range(cuda_device_count):
@@ -1390,12 +1432,17 @@ class Runtime:
         warp.build.init_kernel_cache(warp.config.kernel_cache_dir)
 
         # print device and version information
-        print("Warp initialized:")
-        print(f"   Version: {warp.config.version}")
+        print(f"Warp {warp.config.version} initialized:")
+        if cuda_device_count > 0:
+            toolkit_version = (self.toolkit_version // 1000, (self.toolkit_version % 1000) // 10)
+            driver_version = (self.driver_version // 1000, (self.driver_version % 1000) // 10)
+            print(f"   CUDA Toolkit: {toolkit_version[0]}.{toolkit_version[1]}, Driver: {driver_version[0]}.{driver_version[1]}")
+        else:
+            print(f"   CUDA not available")
         print("   Devices:")
         print(f"     \"{self.cpu_device.alias}\"    | {self.cpu_device.name}")
         for cuda_device in self.cuda_devices:
-            print(f"     \"{cuda_device.alias}\" | {cuda_device.name}")
+            print(f"     \"{cuda_device.alias}\" | {cuda_device.name} (sm_{cuda_device.arch})")
         print(f"   Kernel cache: {warp.config.kernel_cache_dir}")
 
         # global tape
@@ -1692,7 +1739,7 @@ def wait_stream(stream:Stream, event:Event=None):
     get_stream().wait_stream(stream, event=event)
 
 
-def zeros(shape: Tuple=None, dtype=float, device: Devicelike=None, requires_grad: bool=False, **kwargs)-> warp.array:
+def zeros(shape: Tuple=None, dtype=float, device:Devicelike=None, requires_grad:bool=False, pinned:bool=False, **kwargs)-> warp.array:
     """Return a zero-initialized array
 
     Args:
@@ -1700,6 +1747,7 @@ def zeros(shape: Tuple=None, dtype=float, device: Devicelike=None, requires_grad
         dtype: Type of each element, e.g.: warp.vec3, warp.mat33, etc
         device: Device that array will live on
         requires_grad: Whether the array will be tracked for back propagation
+        pinned: Whether the array uses pinned host memory (only applicable to CPU arrays)
 
     Returns:
         A warp.array object representing the allocation                
@@ -1725,7 +1773,7 @@ def zeros(shape: Tuple=None, dtype=float, device: Devicelike=None, requires_grad
         if device.is_capturing:
             raise RuntimeError(f"Cannot allocate memory while graph capture is active on device {device}.")
 
-        ptr = device.allocator.alloc(num_bytes)
+        ptr = device.allocator.alloc(num_bytes, pinned=pinned)
         if ptr is None:
             raise RuntimeError("Memory allocation failed on device: {} for {} bytes".format(device, num_bytes))
 
@@ -1737,37 +1785,53 @@ def zeros(shape: Tuple=None, dtype=float, device: Devicelike=None, requires_grad
         ptr = None
 
     # construct array
-    return warp.types.array(dtype=dtype, shape=shape, capacity=num_bytes, ptr=ptr, device=device, owner=True, requires_grad=requires_grad)
+    return warp.types.array(dtype=dtype, shape=shape, capacity=num_bytes, ptr=ptr, device=device, owner=True, requires_grad=requires_grad, pinned=pinned)
 
-def zeros_like(src: warp.array) -> warp.array:
+def zeros_like(src: warp.array, requires_grad:bool=None, pinned:bool=None) -> warp.array:
     """Return a zero-initialized array with the same type and dimension of another array
 
     Args:
         src: The template array to use for length, data type, and device
+        requires_grad: Whether the array will be tracked for back propagation
+        pinned: Whether the array uses pinned host memory (only applicable to CPU arrays)
 
     Returns:
         A warp.array object representing the allocation
     """
 
-    arr = zeros(shape=src.shape, dtype=src.dtype, device=src.device, requires_grad=src.requires_grad)
+    if requires_grad is None:
+        requires_grad = src.requires_grad
+    
+    if pinned is None:
+        pinned = src.pinned
+
+    arr = zeros(shape=src.shape, dtype=src.dtype, device=src.device, requires_grad=requires_grad, pinned=pinned)
     return arr
 
-def clone(src: warp.array) -> warp.array:
+def clone(src: warp.array, requires_grad:bool=None, pinned:bool=None) -> warp.array:
     """Clone an existing array, allocates a copy of the src memory
 
     Args:
         src: The source array to copy
+        requires_grad: Whether the array will be tracked for back propagation
+        pinned: Whether the array uses pinned host memory (only applicable to CPU arrays)
 
     Returns:
         A warp.array object representing the allocation
     """
 
-    dest = empty(shape = src.shape, dtype=src.dtype, device=src.device, requires_grad=src.requires_grad)
+    if requires_grad is None:
+        requires_grad = src.requires_grad
+    
+    if pinned is None:
+        pinned = src.pinned
+
+    dest = empty(shape = src.shape, dtype=src.dtype, device=src.device, requires_grad=requires_grad, pinned=pinned)
     copy(dest, src)
 
     return dest
 
-def empty(shape: Tuple=None, dtype=float, device:Devicelike=None, requires_grad:bool=False, **kwargs) -> warp.array:
+def empty(shape: Tuple=None, dtype=float, device:Devicelike=None, requires_grad:bool=False, pinned:bool=False, **kwargs) -> warp.array:
     """Returns an uninitialized array
 
     Args:
@@ -1775,25 +1839,34 @@ def empty(shape: Tuple=None, dtype=float, device:Devicelike=None, requires_grad:
         dtype: Type of each element, e.g.: `warp.vec3`, `warp.mat33`, etc
         device: Device that array will live on
         requires_grad: Whether the array will be tracked for back propagation
+        pinned: Whether the array uses pinned host memory (only applicable to CPU arrays)
 
     Returns:
         A warp.array object representing the allocation
     """
 
     # todo: implement uninitialized allocation
-    return zeros(shape, dtype, device, requires_grad=requires_grad, **kwargs)  
+    return zeros(shape, dtype, device, requires_grad=requires_grad, pinned=pinned, **kwargs)
 
-def empty_like(src: warp.array, requires_grad:bool=False) -> warp.array:
+def empty_like(src: warp.array, requires_grad:bool=None, pinned:bool=None) -> warp.array:
     """Return an uninitialized array with the same type and dimension of another array
 
     Args:
         src: The template array to use for length, data type, and device
         requires_grad: Whether the array will be tracked for back propagation
+        pinned: Whether the array uses pinned host memory (only applicable to CPU arrays)
 
     Returns:
         A warp.array object representing the allocation
     """
-    arr = empty(shape=src.shape, dtype=src.dtype, device=src.device, requires_grad=requires_grad)
+
+    if requires_grad is None:
+        requires_grad = src.requires_grad
+    
+    if pinned is None:
+        pinned = src.pinned
+
+    arr = empty(shape=src.shape, dtype=src.dtype, device=src.device, requires_grad=requires_grad, pinned=pinned)
     return arr
 
 
@@ -1914,7 +1987,8 @@ def launch(kernel, dim: Tuple[int], inputs:List, outputs:List=[], adj_inputs:Lis
                     try:
                         # try to pack as a scalar type
                         params.append(arg_type._type_(a))
-                    except:
+                    except Exception as e: 
+                        print(e)
                         raise RuntimeError(f"Error launching kernel, unable to pack kernel parameter type {type(a)} for param {arg_name}, expected {arg_type}")
 
 
@@ -2075,6 +2149,8 @@ def set_module_options(options: Dict[str, Any]):
     m = inspect.getmodule(inspect.stack()[1][0])
 
     get_module(m.__name__).options.update(options)
+    get_module(m.__name__).unload()
+
 
 def get_module_options() -> Dict[str, Any]:
     """Returns a list of options for the current module.
@@ -2324,13 +2400,13 @@ def export_stubs(file):
     print("from typing import Callable", file=file)
     print("from typing import overload", file=file)
 
-    print("from warp.types import array, array2d, array3d, array4d, constant", file=file)
-    print("from warp.types import int8, uint8, int16, uint16, int32, uint32, int64, uint64, float16, float32, float64", file=file)
-    print("from warp.types import vec2, vec3, vec4, mat22, mat33, mat44, quat, transform, spatial_vector, spatial_matrix", file=file)
-    print("from warp.types import bvh_query_t, mesh_query_aabb_t, hash_grid_query_t, shape_t", file=file)
+    # prepend __init__.py
+    with open(os.path.join(os.path.dirname(file.name), "__init__.py")) as header_file:
+        # strip comment lines
+        lines = [line for line in header_file if not line.startswith("#")]
+        header = ''.join(lines)
 
-
-    #print("from warp.types import *", file=file)
+    print(header, file=file)
     print("\n", file=file)
 
     for k, g in builtin_functions.items():
