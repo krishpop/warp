@@ -127,7 +127,7 @@ class SimRenderer(warp.render.UsdRenderer):
             particle_q = state.particle_q.numpy()
 
             # render particles
-            self.render_points("particles", particle_q, radius=0.1)
+            self.render_points("particles", particle_q, radius=self.model.soft_contact_distance)
 
             # render tris
             if (self.model.tri_count):
