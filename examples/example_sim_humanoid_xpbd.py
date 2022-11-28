@@ -35,7 +35,7 @@ class Robot:
     episode_duration = 5.0      # seconds
     episode_frames = int(episode_duration/frame_dt)
 
-    sim_substeps = 5
+    sim_substeps = 8
     sim_dt = frame_dt / sim_substeps
     sim_steps = int(episode_duration / sim_dt)
    
@@ -92,10 +92,10 @@ class Robot:
         # self.integrator = wp.sim.SemiImplicitIntegrator()
         self.integrator = wp.sim.XPBDIntegrator(
             iterations=2,
-            joint_positional_relaxation=0.9,
-            joint_angular_relaxation=0.7,
-            contact_normal_relaxation=0.7)
-        self.integrator.contact_con_weighting = True
+            joint_positional_relaxation=1.0,
+            joint_angular_relaxation=0.6,
+            rigid_contact_relaxation=1.0)
+        self.integrator.rigid_contact_con_weighting = True
         # self.integrator.enable_restitution = True
 
         self.requires_grad = False
