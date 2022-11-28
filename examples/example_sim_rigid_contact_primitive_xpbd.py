@@ -226,8 +226,8 @@ class Example:
 
         self.integrator = wp.sim.XPBDIntegrator(
             self.solve_iterations,
-            contact_normal_relaxation=1.0)
-        self.integrator.contact_con_weighting = True
+            rigid_contact_relaxation=1.0)
+        self.integrator.rigid_contact_con_weighting = True
         # self.integrator = wp.sim.SemiImplicitIntegrator()
         self.state = self.model.state()
 

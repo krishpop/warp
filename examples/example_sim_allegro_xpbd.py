@@ -173,7 +173,7 @@ class Robot:
 
         self.solve_iterations = 20
         self.integrator = wp.sim.XPBDIntegrator(self.solve_iterations)
-        self.integrator.contact_con_weighting = True
+        self.integrator.rigid_contact_con_weighting = True
         self.integrator.enable_restitution = False
 
         #-----------------------

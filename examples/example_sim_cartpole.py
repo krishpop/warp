@@ -50,7 +50,7 @@ class Robot:
         articulation_builder = wp.sim.ModelBuilder()
 
         wp.sim.parse_urdf(os.path.join(os.path.dirname(__file__), "assets/cartpole.urdf"), articulation_builder,
-            xform=wp.transform(np.array((0.0, 0.0, 0.0)), wp.quat_from_axis_angle((1.0, 0.0, 0.0), -math.pi*0.5)),
+            xform=wp.transform_identity(),
             floating=False, 
             density=0,
             armature=0.1,
@@ -78,17 +78,18 @@ class Robot:
 
         # finalize model
         self.model = builder.finalize(device)
-        self.model.ground = True
+        self.model.ground = False
 
-        self.model.joint_attach_ke = 1600.0
-        self.model.joint_attach_kd = 20.0
+        self.model.joint_attach_ke = 40000.0
+        self.model.joint_attach_kd = 200.0
 
-        self.integrator = wp.sim.SemiImplicitIntegrator()
+        # self.integrator = wp.sim.SemiImplicitIntegrator()
+        self.integrator = wp.sim.XPBDIntegrator()
 
         #-----------------------
         # set up Usd renderer
         if (self.render):
-            self.renderer = wp.sim.render.SimRenderer(self.model, os.path.join(os.path.dirname(__file__), "outputs/example_sim_cartpole.usd"))
+            self.renderer = wp.sim.render.SimRenderer(self.model, os.path.join(os.path.dirname(__file__), "outputs/example_sim_cartpole.usd"), scaling=20.0)
 
 
     def run(self, render=True):

@@ -41,7 +41,7 @@ class Example:
         self.relaxation = 1.0
 
         self.num_bodies = 1
-        self.scale = 0.5
+        self.scale = 1.5
         self.ke = 1.e+5
         self.kd = 250.0
         self.kf = 500.0
@@ -49,7 +49,7 @@ class Example:
         # self.device = wp.get_preferred_device()
         self.device = "cpu"
 
-        self.plot = True
+        self.plot = False
 
         builder = wp.sim.ModelBuilder()
 
@@ -58,7 +58,7 @@ class Example:
         # boxes
         for i in range(self.num_bodies):
             
-            b = builder.add_body(origin=wp.transform((i, 0.0, 0.0), wp.quat_identity()))
+            b = builder.add_body(origin=wp.transform((i, 2.2, 0.0), wp.quat_identity()))
             # b = builder.add_body(origin=wp.transform((i, 0.6, 0.0), wp.quat_rpy(0.2, 0.5, 0.8)))
 
             s = builder.add_shape_box( 
@@ -76,7 +76,7 @@ class Example:
         # spheres
         for i in range(self.num_bodies):
             
-            b = builder.add_body(origin=wp.transform((0.01 * i, 1.3*self.scale * i + 0.5, 1.0), wp.quat_identity()))
+            b = builder.add_body(origin=wp.transform((0.01 * i + 1.0, 1.3*self.scale * i + 2.5, 1.0), wp.quat_identity()))
 
             s = builder.add_shape_sphere(
                 pos=(0.0, 0.0, 0.0),
@@ -105,6 +105,26 @@ class Example:
                 mu=0.01,
                 restitution=restitution)
 
+        if True:
+            builder.add_shape_plane(
+                plane=(0.3, 1.0, 0.0, 1.5),
+                width=1.5,
+                ke=self.ke,
+                kd=self.kd,
+                kf=self.kf,
+                mu=0.0,
+                restitution=restitution)
+
+        # add ground plane
+        builder.add_shape_plane(
+            plane=(0.0, 1.0, 0.0, 0.0),
+            width=0.0, length=0.0,
+            ke=self.ke,
+            kd=self.kd,
+            kf=self.kf,
+            mu=0.0,
+            restitution=restitution)
+            
         # initial spin 
         # for i in range(len(builder.body_qd)):
         #     # builder.body_qd[i] = (0.0, 2.0, 10.0, -1.5, 0.0, 0.0)
@@ -115,10 +135,10 @@ class Example:
         builder.ground = [0.0, 1.0, 0.0, 0.0]
         
         self.model = builder.finalize(self.device)
-        self.model.ground = True
+        self.model.ground = False
 
         self.integrator = wp.sim.XPBDIntegrator(self.solve_iterations)
-        self.integrator.contact_con_weighting = False
+        self.integrator.rigid_contact_con_weighting = False
         # self.integrator = wp.sim.SemiImplicitIntegrator()
         self.state = self.model.state()
 

@@ -132,7 +132,7 @@ class Environment:
             self.model.body_qd.assign(state.body_qd)
 
         solve_iterations = 1
-        self.integrator = wp.sim.XPBDIntegrator(solve_iterations, contact_con_weighting=True)
+        self.integrator = wp.sim.XPBDIntegrator(solve_iterations, rigid_contact_con_weighting=True)
         # self.integrator = wp.sim.SemiImplicitIntegrator()
 
     def simulate(self, state: wp.sim.State, action: wp.array, action_index: int, requires_grad=False) -> wp.sim.State:

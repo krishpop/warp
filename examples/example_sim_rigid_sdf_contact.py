@@ -73,21 +73,14 @@ class Example:
         self.sim_margin = 15.0
 
         self.device = wp.get_preferred_device()
+        # self.device = "cpu"
 
         # model_name = "icosphere"
         model_name = "monkey"
 
-
-        bowl_volume = self.load_volume(os.path.join(os.path.dirname(__file__), f"assets/bowl.nvdb"))
         bowl_mesh = self.load_mesh(os.path.join(os.path.dirname(__file__), f"assets/bowl.obj"))
-
-        body1_volume = self.load_volume(os.path.join(os.path.dirname(__file__), f"assets/{model_name}.nvdb"))
         body1_mesh = self.load_mesh(os.path.join(os.path.dirname(__file__), f"assets/{model_name}.obj"))
-
-        body2_volume = self.load_volume(os.path.join(os.path.dirname(__file__), f"assets/{model_name}.nvdb"))
         body2_mesh = self.load_mesh(os.path.join(os.path.dirname(__file__), f"assets/{model_name}.obj"))
-
-        body3_volume = self.load_volume(os.path.join(os.path.dirname(__file__), f"assets/{model_name}.nvdb"))
         body3_mesh = self.load_mesh(os.path.join(os.path.dirname(__file__), f"assets/{model_name}.obj"))
 
         builder = wp.sim.ModelBuilder()
@@ -100,8 +93,7 @@ class Example:
         builder.add_shape_mesh(
             body=bowl,
             mesh=bowl_mesh,
-            volume=bowl_volume,
-            pos=(0.0, 0.0, 0.0),
+            pos=(0.0, 5.0, 0.0),
             scale=(1.0, 1.0, 1.0),
             ke=1e6,
             kd=0.0, # 1e2,
@@ -111,22 +103,21 @@ class Example:
             density=1e3,
         )
 
-        b1 = builder.add_body(
-            origin=wp.transform((-0.8, 1.7, -0.8), wp.quat_identity())
-        )
-        builder.add_shape_mesh(
-            body=b1,
-            mesh=body1_mesh,
-            volume=body1_volume,
-            pos=(0.0, 0.0, 0.0),
-            scale=(1.0, 1.0, 1.0),
-            ke=1e6,
-            kd=0.0,
-            kf=0.0, # 1e1, 
-            mu=0.3,
-            restitution=restitution,
-            density=1e3,
-        )
+        # b1 = builder.add_body(
+        #     origin=wp.transform((-0.8, 1.7, -0.8), wp.quat_identity())
+        # )
+        # builder.add_shape_mesh(
+        #     body=b1,
+        #     mesh=body1_mesh,
+        #     pos=(0.0, 0.0, 0.0),
+        #     scale=(1.0, 1.0, 1.0),
+        #     ke=1e6,
+        #     kd=0.0,
+        #     kf=0.0, # 1e1, 
+        #     mu=0.3,
+        #     restitution=restitution,
+        #     density=1e3,
+        # )
 
         axis = np.array((0.2, 0.1, 0.7))
         axis = axis/np.linalg.norm(axis)
@@ -135,8 +126,7 @@ class Example:
         builder.add_shape_mesh(
             body=b2,
             mesh=body2_mesh,
-            volume=body2_volume,
-            pos=(0.0, 0.0, 0.0),
+            pos=(0.0, -2.0, 0.0),
             scale=(1.0, 1.0, 1.0),
             ke=1e6,  
             kd=0.0,
@@ -153,7 +143,6 @@ class Example:
         # builder.add_shape_mesh(
         #     body=b3,
         #     mesh=body3_mesh,
-        #     volume=body3_volume,
         #     pos=(0.0, 0.0, 0.0),
         #     scale=(1.0, 1.0, 1.0),
         #     ke=1e6,
@@ -170,8 +159,8 @@ class Example:
 
         self.integrator = wp.sim.XPBDIntegrator(
             iterations=1,
-            contact_con_weighting=True,
-            contact_normal_relaxation=1.0)
+            rigid_contact_con_weighting=True,
+            rigid_contact_relaxation=1.0)
         # self.integrator = wp.sim.SemiImplicitIntegrator()
         self.state = self.model.state()
 
@@ -180,7 +169,7 @@ class Example:
             self.model.collide(self.state)
 
         self.renderer = wp.sim.render.SimRenderer(
-            self.model, stage, scaling=100.0)
+            self.model, stage, scaling=1.0)
 
         self.points_a = []
         self.points_b = []
@@ -194,26 +183,41 @@ class Example:
             
             for i in range(self.sim_substeps):
                 self.state.clear_forces()
-                wp.sim.collide(self.model, self.state, experimental_sdf_collision=True)
-
+                wp.sim.collide(self.model, self.state)
                 
                 if not self.use_cuda_graphs and i == 0:                    
                     qs = self.state.body_q.numpy()
                     rigid_contact_count = self.model.rigid_contact_count.numpy()[0]
                     self.max_contact_count = max(self.max_contact_count, rigid_contact_count)
 
-                    self.points_a = np.zeros((self.max_contact_count, 3))
-                    self.points_b = np.zeros((self.max_contact_count, 3))
+                    self.points_a = []
+                    self.points_b = []
 
                     body_a = self.model.rigid_contact_body0.numpy()[:rigid_contact_count]
                     body_b = self.model.rigid_contact_body1.numpy()[:rigid_contact_count]
 
-                    if rigid_contact_count > 0:
-                        contact_points_a = self.model.rigid_contact_point0.numpy()
-                        self.points_a[:rigid_contact_count] = [wp.transform_point(qs[body], wp.vec3(*contact_points_a[i])) for i, body in enumerate(body_a)]
+                    shape_a = self.model.rigid_contact_shape0.numpy()[:rigid_contact_count]
+                    shape_b = self.model.rigid_contact_shape1.numpy()[:rigid_contact_count]
 
-                        contact_points_b = self.model.rigid_contact_point1.numpy()
-                        self.points_b[:rigid_contact_count] = [wp.transform_point(qs[body], wp.vec3(*contact_points_b[i])) for i, body in enumerate(body_b)]
+                    point_a = self.model.rigid_contact_point0.numpy()[:rigid_contact_count]
+                    point_b = self.model.rigid_contact_point1.numpy()[:rigid_contact_count]
+
+                    for i in range(min(self.max_contact_count, rigid_contact_count)):
+                        if shape_a[i]==-1 and shape_b[i]==-1:
+                            continue
+                        tf_a = qs[body_a[i]]
+                        tf_b = qs[body_b[i]]
+                        p_a = wp.vec3(*point_a[i])
+                        p_b = wp.vec3(*point_b[i])
+                        self.points_a.append(wp.transform_point(tf_a, p_a))
+                        self.points_b.append(wp.transform_point(tf_b, p_b))
+
+                    # if rigid_contact_count > 0:
+                    #     contact_points_a = self.model.rigid_contact_point0.numpy()
+                    #     self.points_a[:rigid_contact_count] = [wp.transform_point(qs[body], wp.vec3(*contact_points_a[i])) for i, body in enumerate(body_a)]
+
+                    #     contact_points_b = self.model.rigid_contact_point1.numpy()
+                    #     self.points_b[:rigid_contact_count] = [wp.transform_point(qs[body], wp.vec3(*contact_points_b[i])) for i, body in enumerate(body_b)]
 
                     self.render()
 
