@@ -402,7 +402,6 @@ def closest_edge_coordinate_mesh(mesh: wp.uint64, edge_a: wp.vec3, edge_b: wp.ve
 
 @wp.kernel
 def create_soft_contacts(
-    num_particles: int,
     particle_x: wp.array(dtype=wp.vec3), 
     body_X_wb: wp.array(dtype=wp.transform),
     shape_X_bs: wp.array(dtype=wp.transform),
@@ -411,7 +410,7 @@ def create_soft_contacts(
     shape_geo_id: wp.array(dtype=wp.uint64),
     shape_geo_scale: wp.array(dtype=wp.vec3),
     margin: float,
-    #outputs,
+    # outputs
     soft_contact_count: wp.array(dtype=int),
     soft_contact_particle: wp.array(dtype=int),
     soft_contact_body: wp.array(dtype=int),
@@ -420,10 +419,7 @@ def create_soft_contacts(
     soft_contact_normal: wp.array(dtype=wp.vec3),
     soft_contact_max: int):
     
-    tid = wp.tid()           
-
-    shape_index = tid // num_particles     # which shape
-    particle_index = tid % num_particles   # which particle
+    particle_index, shape_index = wp.tid()
     rigid_index = shape_body[shape_index]
 
     px = particle_x[particle_index]
@@ -482,6 +478,9 @@ def create_soft_contacts(
             n = wp.normalize(delta)*sign
             v = shape_v
 
+    if (geo_type == wp.sim.GEO_PLANE):
+        d = plane_sdf(geo_scale[0], geo_scale[1], x_local)
+        n = wp.vec3(0.0, 1.0, 0.0)
 
     if (d < margin):
 
@@ -500,10 +499,6 @@ def create_soft_contacts(
             soft_contact_body_vel[index] = body_vel
             soft_contact_particle[index] = particle_index
             soft_contact_normal[index] = world_normal
-
-    if (geo_type == wp.sim.GEO_PLANE):
-        d = plane_sdf(geo_scale[0], geo_scale[1], x_local)
-        n = wp.vec3(0.0, 1.0, 0.0)
 
 
 @wp.func
@@ -1249,13 +1244,13 @@ def collide(model, state, edge_sdf_iter: int = 5):
     # clear old count
     model.soft_contact_count.zero_()
     
-    if (model.particle_count and model.shape_count):
+    # generate soft contacts for particles and shapes exept ground plane (last shape)
+    if (model.particle_count and model.shape_count > 1):
         wp.launch(
             kernel=create_soft_contacts,
-            dim=model.particle_count*model.shape_count,
+            dim=(model.particle_count, model.shape_count-1),
             inputs=[
-                model.particle_count,
-                state.particle_q, 
+                state.particle_q,
                 state.body_q,
                 model.shape_transform,
                 model.shape_body,
@@ -1359,6 +1354,4 @@ def collide(model, state, edge_sdf_iter: int = 5):
                 model.rigid_contact_thickness,
             ],
             device=model.device)
-
-        # print("rigid_contact_count:", model.rigid_contact_count.numpy()[0])
     

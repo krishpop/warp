@@ -1509,7 +1509,7 @@ def compute_forces(model, state, particle_f, body_f, requires_grad):
                 device=model.device)
 
     # particle shape contact
-    if (model.particle_count and model.shape_count):
+    if (model.particle_count and model.shape_count > 1):
         
         wp.launch(kernel=eval_soft_contacts,
                     dim=model.soft_contact_max,
