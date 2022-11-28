@@ -68,6 +68,10 @@ class Robot:
 
             builder.add_rigid_articulation(
                 articulation_builder,
+                xform=wp.transform(
+                    [i*2.0, 0.70, 0.0],
+                    wp.quat_from_axis_angle((1.0, 0.0, 0.0), -math.pi*0.5)
+                )
             )
 
             coord_count = 15
@@ -77,12 +81,6 @@ class Robot:
             dof_start = i*dof_count
 
             # set joint targets to rest pose in mjcf
-
-            # # base
-            builder.joint_q[coord_start:coord_start+3] = [i*2.0, 0.70, 0.0]
-            builder.joint_q[coord_start+3:coord_start+7] = wp.quat_from_axis_angle((1.0, 0.0, 0.0), -math.pi*0.5)
-
-            # joints
             builder.joint_q[coord_start+7:coord_start+coord_count] = [0.0, 1.0, 0.0, -1.0, 0.0, -1.0, 0.0, 1.0]
 
 
@@ -100,7 +98,10 @@ class Robot:
         #-----------------------
         # set up Usd renderer
         if (self.render):
-            self.renderer = wp.sim.render.SimRenderer(self.model, os.path.join(os.path.dirname(__file__), "outputs/example_sim_ant.usd"))
+            self.renderer = wp.sim.render.SimRenderer(
+                self.model,
+                os.path.join(os.path.dirname(__file__), "outputs/example_sim_ant.usd"),
+                scaling=100.0)
 
 
     def run(self, render=True):
