@@ -34,7 +34,7 @@ class Robot:
     episode_duration = 1.5  # 3.0      # seconds
     episode_frames = int(episode_duration/frame_dt)
 
-    sim_substeps = 20
+    sim_substeps = 5
     sim_dt = frame_dt / sim_substeps
     sim_steps = int(episode_duration / sim_dt)
    
@@ -53,7 +53,7 @@ class Robot:
 
         wp.sim.parse_urdf(os.path.join(os.path.dirname(__file__), "assets/quadruped.urdf"), 
             articulation_builder,
-            xform=wp.transform(np.array((0.0, 0.0, 0.0)), wp.quat_from_axis_angle((1.0, 0.0, 0.0), -math.pi*0.5)),
+            xform=wp.transform_identity(),
             floating=True,
             density=1000,
             armature=0.01,
@@ -97,17 +97,24 @@ class Robot:
         self.model.joint_attach_ke = 16000.0
         self.model.joint_attach_kd = 200.0
 
+<<<<<<< HEAD
         # self.integrator = wp.sim.SemiImplicitIntegrator()
         self.solve_iterations = 10
         self.integrator = wp.sim.XPBDIntegrator(self.solve_iterations)
+=======
+        self.integrator = wp.sim.XPBDIntegrator()
+>>>>>>> 272dc69b977c1c999d3a06408d219b86301864f9
 
         #-----------------------
         # set up Usd renderer
         if (self.render):
-            self.renderer = wp.sim.render.SimRenderer(self.model, os.path.join(os.path.dirname(__file__), "outputs/example_sim_quadruped.usd"))
+            self.renderer = wp.sim.render.SimRenderer(
+                self.model,
+                os.path.join(os.path.dirname(__file__), "outputs/example_sim_quadruped.usd"),
+                scaling=100.0)
 
 
-    def run(self, render=True):
+    def run(self):
 
         #---------------
         # run simulation
@@ -122,9 +129,6 @@ class Robot:
             None,
             self.state)
 
-        if (self.model.ground):
-            self.model.collide(self.state)
-
         profiler = {}
 
         # create update graph
@@ -133,10 +137,18 @@ class Robot:
         from tqdm import trange
 
         # simulate
+<<<<<<< HEAD
         # for i in range(self.sim_substeps):
         #     self.state.clear_forces()
         #     self.state = self.integrator.simulate(self.model, self.state, self.state, self.sim_dt)
         #     self.sim_time += self.sim_dt
+=======
+        for i in range(0, self.sim_substeps):
+            self.state.clear_forces()
+            wp.sim.collide(self.model, self.state)
+            self.state = self.integrator.simulate(self.model, self.state, self.state, self.sim_dt)
+            self.sim_time += self.sim_dt
+>>>>>>> 272dc69b977c1c999d3a06408d219b86301864f9
                 
         # graph = wp.capture_end()
 

@@ -126,8 +126,13 @@ inline CUDA_CALLABLE void adj_print(shape_t s, shape_t& shape_t) {}
 template <typename T>
 struct array_t
 {
+<<<<<<< HEAD
     inline CUDA_CALLABLE array_t() {}    
     inline CUDA_CALLABLE array_t(int) {} // for backward a = 0 initialization syntax
+=======
+    CUDA_CALLABLE inline array_t() {}    
+    CUDA_CALLABLE inline array_t(int) {} // for backward a = 0 initialization syntax
+>>>>>>> 272dc69b977c1c999d3a06408d219b86301864f9
 
     array_t(T* data, int size) : data(data) {
         // constructor for 1d array
@@ -410,6 +415,19 @@ template<typename T> inline CUDA_CALLABLE T inc_index(const array_t<T>& buf, int
 
 template<typename T> inline CUDA_CALLABLE void adj_inc_index(const array_t<T>& buf, int tid, T idx_limit, const array_t<T>& adj_buf, int& adj_tid, const T& adj_idx_limit, const T& adj_output) {
     
+}
+
+// select operator to check for array being null
+template <typename T1, typename T2>
+CUDA_CALLABLE inline T2 select(const array_t<T1>& arr, const T2& a, const T2& b) { return arr.data?b:a; }
+
+template <typename T1, typename T2>
+CUDA_CALLABLE inline void adj_select(const array_t<T1>& arr, const T2& a, const T2& b, const array_t<T1>& adj_cond, T2& adj_a, T2& adj_b, const T2& adj_ret)
+{
+    if (arr.data)
+        adj_b += adj_ret;
+    else
+        adj_a += adj_ret;
 }
 
 // select operator to check for array being null

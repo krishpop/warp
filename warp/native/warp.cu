@@ -750,7 +750,8 @@ size_t cuda_compile_program(const char* cuda_src, int arch, const char* include_
     {
         opts.push_back("--define-macro=DEBUG");
         opts.push_back("--generate-line-info");
-        opts.push_back("--device-debug");
+        // disabling since it causes issues with `Unresolved extern function 'cudaGetParameterBufferV2'
+        //opts.push_back("--device-debug");
     }
     else
         opts.push_back("--define-macro=NDEBUG");
@@ -1013,6 +1014,7 @@ size_t cuda_launch_kernel(void* context, void* kernel, size_t dim, void** args)
 #include "sort.cu"
 #include "hashgrid.cu"
 #include "marching.cu"
+#include "volume.cu"
 #include "volume_builder.cu"
 
 //#include "spline.inl"

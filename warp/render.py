@@ -97,7 +97,6 @@ class UsdRenderer:
             print("Failed to create stage in renderer. Please construct with stage path or stage object.")
         self.upaxis = upaxis
         self.fps = float(fps)
-        self.scaling = 1.0
         self.time = 0.0
 
         self.draw_points = True
@@ -106,6 +105,7 @@ class UsdRenderer:
 
         self.root = UsdGeom.Xform.Define(stage, '/root')
         
+        # apply scaling
         self.root.ClearXformOpOrder()
         s = self.root.AddScaleOp()
         s.Set(Gf.Vec3d(float(scaling), float(scaling), float(scaling)), 0.0)

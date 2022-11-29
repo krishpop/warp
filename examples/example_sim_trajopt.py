@@ -19,17 +19,25 @@ import os
 import numpy as np
 
 import warp as wp
+<<<<<<< HEAD
 # wp.config.mode = "debug"
 import warp.sim
 import warp.sim.render
 from warp.tests.grad_utils import *
+=======
+import warp.sim
+import warp.sim.render
+>>>>>>> 272dc69b977c1c999d3a06408d219b86301864f9
 from warp.optim import Adam
 
 import matplotlib.pyplot as plt
 
 from tqdm import trange
 
+<<<<<<< HEAD
 # wp.config.verify_fp = True
+=======
+>>>>>>> 272dc69b977c1c999d3a06408d219b86301864f9
 wp.init()
 
 @wp.kernel
@@ -180,6 +188,7 @@ class Environment:
             if (render):
                 self._render(state)
 
+<<<<<<< HEAD
         if False:
             np_states = states.numpy().reshape((-1, 2))
             print("states", np_states)
@@ -191,6 +200,8 @@ class Environment:
             plt.axis('equal')
             plt.show()
 
+=======
+>>>>>>> 272dc69b977c1c999d3a06408d219b86301864f9
         # compute loss
         if loss is None:
             loss = wp.zeros(1, dtype=wp.float32, device=self.device, requires_grad=requires_grad)
@@ -218,6 +229,7 @@ class Environment:
             with tape:
                 self.forward(actions, requires_grad=True, loss=loss)
 
+<<<<<<< HEAD
             # check_backward_pass(
             #     tape,
             #     visualize_graph=False,
@@ -227,6 +239,8 @@ class Environment:
             #     track_input_names=["actions"],
             #     track_output_names=["loss"],)
 
+=======
+>>>>>>> 272dc69b977c1c999d3a06408d219b86301864f9
             progress.set_description(f"Optimizing, loss: {loss.numpy()[0]:.3f}")
 
             tape.backward(loss=loss)
@@ -254,6 +268,9 @@ plt.grid()
 plt.legend()
 plt.axis('equal')
 plt.show()
+<<<<<<< HEAD
 
 import sys
 sys.exit(0)
+=======
+>>>>>>> 272dc69b977c1c999d3a06408d219b86301864f9

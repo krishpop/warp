@@ -104,7 +104,7 @@ class Robot:
                 scaling=100.0)
 
 
-    def run(self, render=True):
+    def run(self):
 
         #---------------
         # run simulation
@@ -118,9 +118,6 @@ class Robot:
             self.model.joint_qd,
             None,
             self.state)
-
-        if (self.model.ground):
-            self.model.collide(self.state)
 
         profiler = {}
 

@@ -9,7 +9,7 @@
 # Example Sim Rigid Contact
 #
 # Shows how to set up free rigid bodies with different shape types falling
-# and colliding against the ground using wp.sim.ModelBuilder().
+# and colliding against each other and the ground using wp.sim.ModelBuilder().
 #
 ###########################################################################
 
@@ -28,7 +28,11 @@ class Example:
 
     def __init__(self, stage):
 
+<<<<<<< HEAD
         self.sim_steps = 300
+=======
+        self.sim_steps = 1000
+>>>>>>> 272dc69b977c1c999d3a06408d219b86301864f9
         self.sim_dt = 1.0/60.0
         self.sim_time = 0.0
         self.sim_substeps = 8
@@ -74,7 +78,7 @@ class Example:
         # capsules
         for i in range(self.num_bodies):
             
-            b = builder.add_body(origin=wp.transform((i, 1.0, 4.0), wp.quat_identity()))
+            b = builder.add_body(origin=wp.transform((i, 1.0, 6.0), wp.quat_identity()))
 
             s = builder.add_shape_capsule( 
                 pos=(0.0, 0.0, 0.0),
@@ -88,10 +92,30 @@ class Example:
         # initial spin 
         for i in range(len(builder.body_qd)):
             builder.body_qd[i] = (0.0, 2.0, 10.0, 0.0, 0.0, 0.0)
+
+        # meshes
+        monkey = self.load_mesh(os.path.join(os.path.dirname(__file__), f"assets/monkey.obj"))
+        for i in range(self.num_bodies):
+            
+            b = builder.add_body(origin=wp.transform(
+                (i*0.5*self.scale, 1.0 + i*1.7*self.scale, 4.0 + i*0.5*self.scale),
+                wp.quat_from_axis_angle((0.0, 1.0, 0.0), math.pi*0.1*i)))
+
+            s = builder.add_shape_mesh(
+                    body=b,
+                    mesh=monkey,
+                    pos=(0.0, 0.0, 0.0),
+                    scale=(self.scale, self.scale, self.scale),
+                    ke=self.ke,
+                    kd=self.kd,
+                    kf=self.kf,
+                    density=1e3,
+                )
         
         self.model = builder.finalize()
         self.model.ground = True
 
+<<<<<<< HEAD
         if self.use_xpbd:
             self.integrator = wp.sim.XPBDIntegrator()
         else:
@@ -99,6 +123,25 @@ class Example:
         self.state = self.model.state()
 
         self.renderer = wp.sim.render.SimRenderer(self.model, stage)
+=======
+        self.integrator = wp.sim.XPBDIntegrator()
+        self.state = self.model.state()
+
+        self.renderer = wp.sim.render.SimRenderer(self.model, stage, scaling=30.0)
+
+    def load_mesh(self, filename, use_meshio=False):
+        if use_meshio:
+            import meshio
+            m = meshio.read(filename)
+            mesh_points = np.array(m.points)
+            mesh_indices = np.array(m.cells[0].data, dtype=np.int32).flatten()
+        else:
+            import openmesh
+            m = openmesh.read_trimesh(filename)
+            mesh_points = np.array(m.points())
+            mesh_indices = np.array(m.face_vertex_indices(), dtype=np.int32).flatten()
+        return wp.sim.Mesh(mesh_points, mesh_indices)
+>>>>>>> 272dc69b977c1c999d3a06408d219b86301864f9
 
     def update(self):
 
@@ -126,8 +169,21 @@ if __name__ == '__main__':
 
     example = Example(stage_path)
 
+<<<<<<< HEAD
     for i in trange(example.sim_steps):
+=======
+    use_graph = True
+    if use_graph:
+        wp.capture_begin()
+>>>>>>> 272dc69b977c1c999d3a06408d219b86301864f9
         example.update()
+        graph = wp.capture_end()
+
+    for i in range(example.sim_steps):
+        if use_graph:
+            wp.capture_launch(graph)
+        else:
+            example.update()
         example.render()
 
     example.renderer.save()

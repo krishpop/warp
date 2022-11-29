@@ -8,7 +8,6 @@
 import math
 import os
 import sys
-import inspect
 import hashlib
 import ctypes
 import platform
@@ -20,6 +19,7 @@ from typing import Dict
 from typing import Any
 from typing import Callable
 from typing import Union
+from typing import Mapping
 
 import warp
 import warp.utils
@@ -44,7 +44,8 @@ class Function:
                  doc="",
                  group="",
                  hidden=False,
-                 skip_replay=False):
+                 skip_replay=False,
+                 missing_grad=False):
         
         self.func = func   # points to Python function decorated with @wp.func, may be None for builtins
         self.key = key
@@ -58,6 +59,7 @@ class Function:
         self.variadic = variadic        # function can take arbitrary number of inputs, e.g.: printf()
         self.hidden = hidden            # function will not be listed in docs
         self.skip_replay = skip_replay  # whether or not operation will be performed during the forward replay in the backward pass
+        self.missing_grad = missing_grad # whether or not builtin is missing a corresponding adjoint
 
         # embedded linked list of all overloads
         # the module's function dictionary holds 
@@ -332,7 +334,7 @@ def struct(c):
 builtin_functions = {}
 
 
-def add_builtin(key, input_types={}, value_type=None, value_func=None, doc="", namespace="wp::", variadic=False, export=True, group="Other", hidden=False, skip_replay=False):
+def add_builtin(key, input_types={}, value_type=None, value_func=None, doc="", namespace="wp::", variadic=False, export=True, group="Other", hidden=False, skip_replay=False, missing_grad=False):
 
     # wrap simple single-type functions with a value_func()
     if value_func == None:
@@ -349,7 +351,8 @@ def add_builtin(key, input_types={}, value_type=None, value_func=None, doc="", n
                     doc=doc,
                     group=group,
                     hidden=hidden,
-                    skip_replay=skip_replay)
+                    skip_replay=skip_replay,
+                    missing_grad=missing_grad)
 
     if key in builtin_functions:
         builtin_functions[key].add_overload(func)
@@ -632,6 +635,14 @@ class Module:
 
     def hash_module(self):
 
+        def get_annotations(obj: Any) -> Mapping[str, Any]:
+            """Alternative to `inspect.get_annotations()` for Python 3.9 and older."""
+            # See https://docs.python.org/3/howto/annotations.html#accessing-the-annotations-dict-of-an-object-in-python-3-9-and-older
+            if isinstance(obj, type):
+                return obj.__dict__.get("__annotations__", {})
+
+            return getattr(obj, "__annotations__", {})
+
         def hash_recursive(module, visited):
 
             # Hash this module, including all referenced modules recursively.
@@ -645,7 +656,11 @@ class Module:
 
                 # struct source
                 for struct in module.structs:
-                    s = inspect.getsource(struct.cls)
+                    s = ",".join(
+                        "{}: {}".format(name, type_hint)
+                        for name, type_hint
+                        in get_annotations(struct.cls).items()
+                    )
                     ch.update(bytes(s, 'utf-8'))
 
                 # functions source
@@ -1267,6 +1282,7 @@ class Runtime:
         self.core.volume_create_host.argtypes = [ctypes.c_void_p, ctypes.c_uint64]
         self.core.volume_create_host.restype = ctypes.c_uint64
         self.core.volume_get_buffer_info_host.argtypes = [ctypes.c_uint64, ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(ctypes.c_uint64)]
+        self.core.volume_get_tiles_host.argtypes = [ctypes.c_uint64, ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(ctypes.c_uint64)]
         self.core.volume_destroy_host.argtypes = [ctypes.c_uint64]
 
         self.core.volume_create_device.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint64]
@@ -1275,8 +1291,13 @@ class Runtime:
         self.core.volume_f_from_tiles_device.restype = ctypes.c_uint64
         self.core.volume_v_from_tiles_device.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_float, ctypes.c_float, ctypes.c_float, ctypes.c_float, ctypes.c_float, ctypes.c_float, ctypes.c_float, ctypes.c_bool]
         self.core.volume_v_from_tiles_device.restype = ctypes.c_uint64
+        self.core.volume_i_from_tiles_device.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_float, ctypes.c_int, ctypes.c_float, ctypes.c_float, ctypes.c_float, ctypes.c_bool]
+        self.core.volume_i_from_tiles_device.restype = ctypes.c_uint64
         self.core.volume_get_buffer_info_device.argtypes = [ctypes.c_uint64, ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(ctypes.c_uint64)]
+        self.core.volume_get_tiles_device.argtypes = [ctypes.c_uint64, ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(ctypes.c_uint64)]
         self.core.volume_destroy_device.argtypes = [ctypes.c_uint64]
+
+        self.core.volume_get_voxel_size.argtypes = [ctypes.c_uint64, ctypes.POINTER(ctypes.c_float), ctypes.POINTER(ctypes.c_float), ctypes.POINTER(ctypes.c_float)]
 
         self.core.cuda_driver_version.argtypes = None
         self.core.cuda_driver_version.restype = ctypes.c_int
@@ -1983,6 +2004,13 @@ def launch(kernel, dim: Tuple[int], inputs:List, outputs:List=[], adj_inputs:Lis
 
                     params.append(x)
 
+                elif isinstance(a, arg_type):
+                    try:
+                        # try to pack as a scalar type
+                        params.append(arg_type._type_(a.value))
+                    except:
+                        raise RuntimeError(f"Error launching kernel, unable to pack kernel parameter type {type(a)} for param {arg_name}, expected {arg_type}")
+
                 else:
                     try:
                         # try to pack as a scalar type
@@ -2333,7 +2361,10 @@ def print_function(f, file):
     print("", file=file)
     
     if (f.doc != ""):
-        print(f"   {f.doc}", file=file)
+        if not f.missing_grad:
+            print(f"   {f.doc}", file=file)
+        else:
+            print(f"   {f.doc} [1]_", file=file)
         print("", file=file)
 
     print(file=file)
@@ -2386,6 +2417,10 @@ def print_builtins(file):
 
         for f in g:
             print_function(f, file=file)
+
+    # footnotes
+    print(".. rubric:: Footnotes", file=file)
+    print(".. [1] Note: function gradients not implemented for backpropagation.", file=file)
 
 
 def export_stubs(file):

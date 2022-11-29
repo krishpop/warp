@@ -825,7 +825,13 @@ def handle_contact_pairs(
     point_id = contact_point_id[tid]
 
     rigid_a = shape_body[shape_a]
+<<<<<<< HEAD
     X_wb_a = body_q[rigid_a]
+=======
+    X_wb_a = wp.transform_identity()
+    if rigid_a >= 0:
+        X_wb_a = body_q[rigid_a]
+>>>>>>> 272dc69b977c1c999d3a06408d219b86301864f9
     X_bs_a = shape_X_bs[shape_a]
     X_ws_a = wp.transform_multiply(X_wb_a, X_bs_a)
     X_sw_a = wp.transform_inverse(X_ws_a)
@@ -836,9 +842,14 @@ def handle_contact_pairs(
     thickness_a = shape_contact_thickness[shape_a]
 
     rigid_b = shape_body[shape_b]
+<<<<<<< HEAD
     if rigid_b == -1:
         X_wb_b = wp.transform_identity()
     else:
+=======
+    X_wb_b = wp.transform_identity()
+    if rigid_b >= 0:
+>>>>>>> 272dc69b977c1c999d3a06408d219b86301864f9
         X_wb_b = body_q[rigid_b]    
     X_bs_b = shape_X_bs[shape_b]
     X_ws_b = wp.transform_multiply(X_wb_b, X_bs_b)

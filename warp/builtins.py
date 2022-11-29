@@ -225,6 +225,8 @@ add_builtin("quat_identity", input_types={}, value_type=quat, group="Quaternion 
     doc="Construct an identity quaternion with zero imaginary part and real part of 1.0")
 add_builtin("quat_from_axis_angle", input_types={"axis": vec3, "angle": float}, value_type=quat, group="Quaternion Math",
     doc="Construct a quaternion representing a rotation of angle radians around the given axis.")
+add_builtin("quat_to_axis_angle", input_types={"q": quat, "axis": vec3, "angle": float}, value_type=None, group="Quaternion Math",
+    doc="Extract the rotation axis and angle radians a quaternion represents.")
 add_builtin("quat_from_matrix", input_types={"m": mat33}, value_type=quat, group="Quaternion Math",
     doc="Construct a quaternion from a 3x3 matrix.")
 add_builtin("quat_rpy", input_types={"roll": float, "pitch": float, "yaw": float}, value_type=quat, group="Quaternion Math",
@@ -235,6 +237,10 @@ add_builtin("quat_rotate", input_types={"q": quat, "p": vec3}, value_type=vec3, 
     doc="Rotate a vector by a quaternion.")
 add_builtin("quat_rotate_inv", input_types={"q": quat, "p": vec3}, value_type=vec3, group="Quaternion Math",
     doc="Rotate a vector the inverse of a quaternion.")
+add_builtin("rotate_rodriguez", input_types={"r": vec3, "x": vec3}, value_type=vec3, group="Quaternion Math",
+    doc="Rotate the vector x by the rotator r encoding rotation axis and angle radians.")
+add_builtin("quat_slerp", input_types={"q0": quat, "q1": quat, "t": float}, value_type=quat, group="Quaternion Math",
+    doc="Linearly interpolate between two quaternions.")
 add_builtin("quat_to_matrix", input_types={"q": quat}, value_type=mat33, group="Quaternion Math",
     doc="Convert a quaternion to a 3x3 rotation matrix.")
 
@@ -530,6 +536,9 @@ add_builtin("volume_sample_i", input_types={"id": uint64, "uvw": vec3}, value_ty
 add_builtin("volume_lookup_i", input_types={"id": uint64, "i": int, "j": int, "k": int}, value_type=int, group="Volumes",
     doc="""Returns the int32 value of voxel with coordinates ``i``, ``j``, ``k``, if the voxel at this index does not exist this function returns the background value""")
 
+add_builtin("volume_store_i", input_types={"id": uint64, "i": int, "j": int, "k": int, "value": int}, group="Volumes",
+    doc="""Store the value at voxel with coordinates ``i``, ``j``, ``k``.""")
+
 add_builtin("volume_index_to_world", input_types={"id": uint64, "uvw": vec3}, value_type=vec3, group="Volumes",
     doc="""Transform a point defined in volume index space to world space given the volume's intrinsic affine transformation.""")
 add_builtin("volume_world_to_index", input_types={"id": uint64, "xyz": vec3}, value_type=vec3, group="Volumes",
@@ -602,11 +611,11 @@ add_builtin("pnoise", input_types={"state": uint32, "xyzt": vec4, "px": int, "py
     doc="Periodic Perlin-style noise in 4d.")
 
 add_builtin("curlnoise", input_types={"state": uint32, "xy": vec2}, value_type=vec2, group="Random",
-    doc="Divergence-free vector field based on the gradient of a Perlin noise function.")
+    doc="Divergence-free vector field based on the gradient of a Perlin noise function.", missing_grad=True)
 add_builtin("curlnoise", input_types={"state": uint32, "xyz": vec3}, value_type=vec3, group="Random",
-    doc="Divergence-free vector field based on the curl of three Perlin noise functions.")
+    doc="Divergence-free vector field based on the curl of three Perlin noise functions.", missing_grad=True)
 add_builtin("curlnoise", input_types={"state": uint32, "xyzt": vec4}, value_type=vec3, group="Random",
-    doc="Divergence-free vector field based on the curl of three Perlin noise functions.")
+    doc="Divergence-free vector field based on the curl of three Perlin noise functions.", missing_grad=True)
 
 # note printf calls directly to global CRT printf (no wp:: namespace prefix)
 add_builtin("printf", input_types={}, namespace="", variadic=True, group="Utility",
