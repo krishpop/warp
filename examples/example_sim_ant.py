@@ -32,7 +32,7 @@ class Robot:
     episode_duration = 5.0      # seconds
     episode_frames = int(episode_duration/frame_dt)
 
-    sim_substeps = 5
+    sim_substeps = 10
     sim_dt = frame_dt / sim_substeps
     sim_steps = int(episode_duration / sim_dt)
    
@@ -60,18 +60,13 @@ class Robot:
             contact_kf=1.e+4,
             contact_mu=1.0,
             limit_ke=1.e+4,
-            limit_kd=1.e+1,
-            enable_self_collisions=False)
+            limit_kd=1.e+1)
 
 
         for i in range(num_envs):
 
             builder.add_rigid_articulation(
                 articulation_builder,
-                xform=wp.transform(
-                    [i*2.0, 0.70, 0.0],
-                    wp.quat_from_axis_angle((1.0, 0.0, 0.0), -math.pi*0.5)
-                )
             )
 
             coord_count = 15
@@ -81,6 +76,12 @@ class Robot:
             dof_start = i*dof_count
 
             # set joint targets to rest pose in mjcf
+
+            # # base
+            builder.joint_q[coord_start:coord_start+3] = [i*2.0, 0.70, 0.0]
+            builder.joint_q[coord_start+3:coord_start+7] = wp.quat_from_axis_angle((1.0, 0.0, 0.0), -math.pi*0.5)
+
+            # joints
             builder.joint_q[coord_start+7:coord_start+coord_count] = [0.0, 1.0, 0.0, -1.0, 0.0, -1.0, 0.0, 1.0]
 
 
@@ -90,10 +91,7 @@ class Robot:
         self.model.joint_attach_ke *= 32.0
         self.model.joint_attach_kd *= 4.0
 
-        # self.integrator = wp.sim.SemiImplicitIntegrator()
-        self.integrator = wp.sim.XPBDIntegrator(
-            iterations=2
-        )
+        self.integrator = wp.sim.SemiImplicitIntegrator()
 
         #-----------------------
         # set up Usd renderer
@@ -173,21 +171,15 @@ if profile:
     env_times = []
     env_size = []
 
-    # first compile
-    robot = Robot(render=False, num_envs=2)
-    steps_per_second = robot.run()
+    for i in range(15):
 
-    env_count = 32768
+        robot = Robot(render=False, num_envs=env_count)
+        steps_per_second = robot.run()
 
-    # for i in range(15):
-
-    robot = Robot(render=False, num_envs=env_count)
-    steps_per_second = robot.run()
-
-    env_size.append(env_count)
-    env_times.append(steps_per_second)
-    
-    # env_count *= 2
+        env_size.append(env_count)
+        env_times.append(steps_per_second)
+        
+        env_count *= 2
 
     # dump times
     for i in range(len(env_times)):

@@ -23,15 +23,12 @@ import warp.sim
 import warp.sim.render
 
 wp.init()
-wp.config.verify_fp = True
-wp.config.mode = "debug"
-wp.config.cache_kernels = True
 
 class Robot:
 
     frame_dt = 1.0/100.0
 
-    episode_duration = 1.5  # 3.0      # seconds
+    episode_duration = 5.0      # seconds
     episode_frames = int(episode_duration/frame_dt)
 
     sim_substeps = 5
@@ -83,13 +80,7 @@ class Robot:
                                           -0.2, -0.4, 0.6,
                                           -0.2, 0.4, -0.6,
                                           0.2, -0.4, 0.6]
-
         np.set_printoptions(suppress=True)
-
-        # TODO remove
-        # builder.body_com = np.zeros_like(builder.body_com)
-        # builder.joint_target_ke = np.zeros_like(builder.joint_target_ke)
-
         # finalize model
         self.model = builder.finalize(self.device)
         self.model.ground = True
@@ -97,13 +88,7 @@ class Robot:
         self.model.joint_attach_ke = 16000.0
         self.model.joint_attach_kd = 200.0
 
-<<<<<<< HEAD
-        # self.integrator = wp.sim.SemiImplicitIntegrator()
-        self.solve_iterations = 10
-        self.integrator = wp.sim.XPBDIntegrator(self.solve_iterations)
-=======
         self.integrator = wp.sim.XPBDIntegrator()
->>>>>>> 272dc69b977c1c999d3a06408d219b86301864f9
 
         #-----------------------
         # set up Usd renderer
@@ -132,39 +117,24 @@ class Robot:
         profiler = {}
 
         # create update graph
-        # wp.capture_begin()
-
-        from tqdm import trange
+        wp.capture_begin()
 
         # simulate
-<<<<<<< HEAD
-        # for i in range(self.sim_substeps):
-        #     self.state.clear_forces()
-        #     self.state = self.integrator.simulate(self.model, self.state, self.state, self.sim_dt)
-        #     self.sim_time += self.sim_dt
-=======
         for i in range(0, self.sim_substeps):
             self.state.clear_forces()
             wp.sim.collide(self.model, self.state)
             self.state = self.integrator.simulate(self.model, self.state, self.state, self.sim_dt)
             self.sim_time += self.sim_dt
->>>>>>> 272dc69b977c1c999d3a06408d219b86301864f9
                 
-        # graph = wp.capture_end()
+        graph = wp.capture_end()
 
 
         # simulate
         with wp.ScopedTimer("simulate", detailed=False, print=False, active=True, dict=profiler):
 
-            for f in trange(0, self.episode_frames):
+            for f in range(0, self.episode_frames):
                 
-                # wp.capture_launch(graph)
-
-                for i in range(self.sim_substeps):
-                    self.state.clear_forces()
-                    self.state = self.integrator.simulate(self.model, self.state, self.state, self.sim_dt)
-                    self.sim_time += self.sim_dt
-                    
+                wp.capture_launch(graph)
                 self.sim_time += self.frame_dt
 
                 if (self.render):
@@ -225,8 +195,5 @@ if profile:
 
 else:
 
-    device = wp.get_preferred_device()
-    # device = "cpu"
-
-    robot = Robot(render=True, device=device, num_envs=2)
+    robot = Robot(render=True, num_envs=10)
     robot.run()
