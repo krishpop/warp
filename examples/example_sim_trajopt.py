@@ -9,7 +9,7 @@
 # Example Trajectory Optimization
 #
 # Shows how to optimize torque trajectories for a simple planar environment
-# using the simulation gradients.
+# using Warp's provided Adam optimizer.
 #
 ###########################################################################
 
@@ -54,13 +54,10 @@ def save_state(body_q: wp.array(dtype=wp.transform), start_index: int, states: w
 class Environment:
 
     frame_dt = 1.0/60.0
-
-    episode_duration = 1.5      # seconds
-    episode_frames = 100  # int(episode_duration/frame_dt)
+    episode_frames = 100
 
     sim_substeps = 1
     sim_dt = frame_dt / sim_substeps
-    sim_steps = int(episode_duration / sim_dt)
    
     sim_time = 0.0
     render_time = 0.0
@@ -92,10 +89,6 @@ class Environment:
         # set initial joint configuration to first reference state
         builder.body_q[0] = wp.transform(p=[self.ref_traj[0][0], 0.0, self.ref_traj[0][1]])
 
-        builder.ground = False
-        # plt.plot(self.ref_traj[:,0], self.ref_traj[:,1])
-        # plt.show()
-
         self.ref_traj = wp.array(self.ref_traj.flatten(), dtype=wp.float32, device=self.device, requires_grad=True)
 
         # finalize model
@@ -117,22 +110,8 @@ class Environment:
 
         assert len(self.ref_traj) == self.episode_frames * self.state_dim
 
-        if False:
-            # XXX apply initial generalized coordinates to the model
-            # (subsequent state constructions via `model.state()` will
-            # use these transforms)
-            state = self.model.state()
-            wp.sim.eval_fk(
-                self.model,
-                self.model.joint_q,
-                self.model.joint_qd,
-                None,
-                state)
-            self.model.body_q.assign(state.body_q)
-            self.model.body_qd.assign(state.body_qd)
-
         solve_iterations = 1
-        self.integrator = wp.sim.XPBDIntegrator(solve_iterations, rigid_contact_con_weighting=True)
+        self.integrator = wp.sim.XPBDIntegrator(solve_iterations)
         # self.integrator = wp.sim.SemiImplicitIntegrator()
 
     def simulate(self, state: wp.sim.State, action: wp.array, action_index: int, requires_grad=False) -> wp.sim.State:
@@ -153,9 +132,6 @@ class Environment:
                 inputs=[action, action_index],
                 outputs=[state.body_f],
                 device=action.device)
-            # if self.model.ground:
-            #     self.model.allocate_rigid_contacts(requires_grad=requires_grad)
-            #     wp.sim.collide(self.model, state)
             state = self.integrator.simulate(self.model, state, next_state, self.sim_dt, requires_grad=requires_grad)
         return state
 
