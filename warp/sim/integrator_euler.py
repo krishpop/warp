@@ -28,7 +28,7 @@ def integrate_particles(x: wp.array(dtype=wp.vec3),
                         v: wp.array(dtype=wp.vec3),
                         f: wp.array(dtype=wp.vec3),
                         w: wp.array(dtype=float),
-                        gravity: wp.array(dtype=float),
+                        gravity: wp.vec3,
                         dt: float,
                         x_new: wp.array(dtype=wp.vec3),
                         v_new: wp.array(dtype=wp.vec3)):
@@ -41,9 +41,8 @@ def integrate_particles(x: wp.array(dtype=wp.vec3),
 
     inv_mass = w[tid]
 
-    g = wp.vec3(gravity[0], gravity[1], gravity[2])
     # simple semi-implicit Euler. v1 = v0 + a dt, x1 = x0 + v1 dt
-    v1 = v0 + (f0 * inv_mass + g * wp.step(0.0 - inv_mass)) *dt
+    v1 = v0 + (f0 * inv_mass + gravity * wp.step(0.0 - inv_mass)) *dt
     x1 = x0 + v1 * dt
 
     x_new[tid] = x1
@@ -1294,8 +1293,6 @@ def eval_body_joints(body_q: wp.array(dtype=wp.transform),
         t_total += eval_joint_force(angles[1], wp.dot(wp.quat_rotate(q_w, axis_1), w_err), joint_target[qd_start+1], joint_target_ke[qd_start+1],joint_target_kd[qd_start+1], joint_act[qd_start+1], joint_limit_lower[qd_start+1], joint_limit_upper[qd_start+1], joint_limit_ke[qd_start+1], joint_limit_kd[qd_start+1], wp.quat_rotate(q_w, axis_1))
         
         # last axis (fixed)
-        # if angles[2] < -1e-3:
-            # XXX prevent numerical instability at singularity
         t_total += eval_joint_force(angles[2], wp.dot(wp.quat_rotate(q_w, axis_2), w_err), 0.0, joint_attach_ke, joint_attach_kd*angular_damping_scale, 0.0, 0.0, 0.0, 0.0, 0.0, wp.quat_rotate(q_w, axis_2))
 
         f_total += x_err*joint_attach_ke + v_err*joint_attach_kd

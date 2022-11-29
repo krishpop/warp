@@ -79,15 +79,15 @@ class SimRenderer(warp.render.UsdRenderer):
                 elif (geo_type == warp.sim.GEO_SPHERE):
 
                     mesh = UsdGeom.Sphere.Define(self.stage, parent_path.AppendChild("sphere_" + str(s)))
-                    mesh.GetRadiusAttr().Set((float(geo_scale[0])))
+                    mesh.GetRadiusAttr().Set(float(geo_scale[0]))
 
                     wp.render._usd_add_xform(mesh)
                     wp.render._usd_set_xform(mesh, X_bs.p, X_bs.q, (1.0, 1.0, 1.0), 0.0)
 
                 elif (geo_type == warp.sim.GEO_CAPSULE):
                     mesh = UsdGeom.Capsule.Define(self.stage, parent_path.AppendChild("capsule_" + str(s)))
-                    mesh.GetRadiusAttr().Set((float(geo_scale[0])))
-                    mesh.GetHeightAttr().Set((float(geo_scale[1] * 2.0)))
+                    mesh.GetRadiusAttr().Set(float(geo_scale[0]))
+                    mesh.GetHeightAttr().Set(float(geo_scale[1] * 2.0))
 
                     # geometry transform w.r.t shape, convert USD geometry to physics engine convention
                     X_sg = warp.transform((0.0, 0.0, 0.0), warp.utils.quat_from_axis_angle((0.0, 1.0, 0.0), math.pi * 0.5))

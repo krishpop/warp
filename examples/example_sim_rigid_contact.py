@@ -14,12 +14,13 @@
 ###########################################################################
 
 import os
+import math
+
+import numpy as np
 
 import warp as wp
 import warp.sim
 import warp.sim.render
-
-from tqdm import trange
 
 wp.init()
 
@@ -28,11 +29,7 @@ class Example:
 
     def __init__(self, stage):
 
-<<<<<<< HEAD
-        self.sim_steps = 300
-=======
         self.sim_steps = 1000
->>>>>>> 272dc69b977c1c999d3a06408d219b86301864f9
         self.sim_dt = 1.0/60.0
         self.sim_time = 0.0
         self.sim_substeps = 8
@@ -42,8 +39,6 @@ class Example:
         self.ke = 1.e+5
         self.kd = 250.0
         self.kf = 500.0
-
-        self.use_xpbd = True
 
         builder = wp.sim.ModelBuilder()
 
@@ -115,15 +110,6 @@ class Example:
         self.model = builder.finalize()
         self.model.ground = True
 
-<<<<<<< HEAD
-        if self.use_xpbd:
-            self.integrator = wp.sim.XPBDIntegrator()
-        else:
-            self.integrator = wp.sim.SemiImplicitIntegrator()
-        self.state = self.model.state()
-
-        self.renderer = wp.sim.render.SimRenderer(self.model, stage)
-=======
         self.integrator = wp.sim.XPBDIntegrator()
         self.state = self.model.state()
 
@@ -141,13 +127,12 @@ class Example:
             mesh_points = np.array(m.points())
             mesh_indices = np.array(m.face_vertex_indices(), dtype=np.int32).flatten()
         return wp.sim.Mesh(mesh_points, mesh_indices)
->>>>>>> 272dc69b977c1c999d3a06408d219b86301864f9
 
     def update(self):
 
         with wp.ScopedTimer("simulate", active=False):
             
-            for _ in range(self.sim_substeps):
+            for i in range(self.sim_substeps):
                 self.state.clear_forces()
                 wp.sim.collide(self.model, self.state)
                 self.state = self.integrator.simulate(self.model, self.state, self.state, self.sim_dt/self.sim_substeps)   
@@ -169,13 +154,9 @@ if __name__ == '__main__':
 
     example = Example(stage_path)
 
-<<<<<<< HEAD
-    for i in trange(example.sim_steps):
-=======
     use_graph = True
     if use_graph:
         wp.capture_begin()
->>>>>>> 272dc69b977c1c999d3a06408d219b86301864f9
         example.update()
         graph = wp.capture_end()
 

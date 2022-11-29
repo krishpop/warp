@@ -743,9 +743,6 @@ inline CUDA_CALLABLE void adj_quat_to_matrix(const quat& q, quat& adj_q, mat33& 
 
 inline CUDA_CALLABLE void adj_quat_from_matrix(const mat33& m, mat33& adj_m, const quat& adj_ret)
 {
-<<<<<<< HEAD
-    printf("todo: adj_quat_from_matrix\n");
-=======
     const float tr = m.data[0][0] + m.data[1][1] + m.data[2][2];
     float x, y, z, w, h = 0.0f;
 
@@ -904,7 +901,6 @@ inline CUDA_CALLABLE void adj_quat_from_matrix(const mat33& m, mat33& adj_m, con
     adj_m.data[2][0] += dot(dq_dm20, adj_q);
     adj_m.data[2][1] += dot(dq_dm21, adj_q);
     adj_m.data[2][2] += dot(dq_dm22, adj_q);
->>>>>>> 272dc69b977c1c999d3a06408d219b86301864f9
 }
 
 } // namespace wp

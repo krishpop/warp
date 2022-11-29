@@ -1921,11 +1921,7 @@ class XPBDIntegrator:
             state_out.particle_qd = particle_qd
             
             # update body velocities from position changes
-<<<<<<< HEAD
-            if False and not requires_grad:
-=======
             if not requires_grad:
->>>>>>> 272dc69b977c1c999d3a06408d219b86301864f9
                 # causes gradient issues (probably due to numerical problems 
                 # when computing velocities from position changes)
                 if requires_grad:

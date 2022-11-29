@@ -31,11 +31,9 @@
 #if !defined(__CUDACC__)
     #define CUDA_CALLABLE
     #define CUDA_CALLABLE_DEVICE
-    bool WARP_FORWARD_MODE;
 #else
     #define CUDA_CALLABLE __host__ __device__ 
     #define CUDA_CALLABLE_DEVICE __device__
-    __device__ bool WARP_FORWARD_MODE;
 #endif
 
 #ifdef WP_VERIFY_FP
@@ -580,15 +578,16 @@ inline CUDA_CALLABLE void adj_acos(float x, float& adj_x, float adj_ret)
 {
     float d = sqrt(1.0f-x*x);
 #if FP_CHECK
-    if (!isfinite(d) || !isfinite(adj_x) || d == 0.0f)
+    adj_x -= (1.0f/d)*adj_ret;
+    if (!isfinite(d) || !isfinite(adj_x))
     {
-        float unguarded_adj_x = adj_x - (1.0f/d)*adj_ret;
-        printf("%s:%d - adj_acos(%f, %f, %f)\n", __FILE__, __LINE__, x, unguarded_adj_x, adj_ret);        
+        printf("%s:%d - adj_acos(%f, %f, %f)\n", __FILE__, __LINE__, x, adj_x, adj_ret);        
         assert(0);
     }
-#endif   
+#else    
     if (d > 0.0f)
         adj_x -= (1.0f/d)*adj_ret;
+#endif
 }
 
 inline CUDA_CALLABLE void adj_asin(float x, float& adj_x, float adj_ret)
