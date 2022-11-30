@@ -2539,7 +2539,8 @@ class ModelBuilder:
             m.articulation_count = len(self.articulation_start)
 
             # contacts
-            m.allocate_soft_contacts(1*1024, requires_grad=requires_grad)
+            if (m.particle_count):
+                m.allocate_soft_contacts(1*1024, requires_grad=requires_grad)
             m.find_shape_contact_pairs()
             if self.num_rigid_contacts_per_env is None:
                 contact_count = m.count_contact_points()
