@@ -136,7 +136,7 @@ struct array_t
         shape.dims[2] = 0;
         shape.dims[3] = 0;
         ndim = 1;
-        strides[0] = 1;
+        strides[0] = sizeof(T);
         strides[1] = 0;
         strides[2] = 0;
         strides[3] = 0;
