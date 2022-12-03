@@ -25,7 +25,7 @@ from warp.context import print_builtins, export_builtins, export_stubs
 from warp.context import Kernel, Function
 
 from warp.tape import Tape
-from warp.utils import ScopedTimer, ScopedCudaGuard, ScopedDevice
+from warp.utils import ScopedTimer, ScopedCudaGuard, ScopedDevice, ScopedStream
 from warp.utils import transform_expand
 
 from warp.torch import from_torch, to_torch
