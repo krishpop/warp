@@ -24,16 +24,14 @@ from .utils import quat_decompose, quat_twist
 
 
 @wp.kernel
-def integrate_particles(
-    x: wp.array(dtype=wp.vec3),
-    v: wp.array(dtype=wp.vec3),
-    f: wp.array(dtype=wp.vec3),
-    w: wp.array(dtype=float),
-    gravity: wp.array(dtype=float),
-    dt: float,
-    x_new: wp.array(dtype=wp.vec3),
-    v_new: wp.array(dtype=wp.vec3),
-):
+def integrate_particles(x: wp.array(dtype=wp.vec3),
+                        v: wp.array(dtype=wp.vec3),
+                        f: wp.array(dtype=wp.vec3),
+                        w: wp.array(dtype=float),
+                        gravity: wp.vec3,
+                        dt: float,
+                        x_new: wp.array(dtype=wp.vec3),
+                        v_new: wp.array(dtype=wp.vec3)):
 
     tid = wp.tid()
 
@@ -43,9 +41,8 @@ def integrate_particles(
 
     inv_mass = w[tid]
 
-    g = wp.vec3(gravity[0], gravity[1], gravity[2])
     # simple semi-implicit Euler. v1 = v0 + a dt, x1 = x0 + v1 dt
-    v1 = v0 + (f0 * inv_mass + g * wp.step(0.0 - inv_mass)) * dt
+    v1 = v0 + (f0 * inv_mass + gravity * wp.step(0.0 - inv_mass)) *dt
     x1 = x0 + v1 * dt
 
     x_new[tid] = x1
@@ -54,22 +51,20 @@ def integrate_particles(
 
 # semi-implicit Euler integration
 @wp.kernel
-def integrate_bodies(
-    body_q: wp.array(dtype=wp.transform),
-    body_qd: wp.array(dtype=wp.spatial_vector),
-    body_f: wp.array(dtype=wp.spatial_vector),
-    body_com: wp.array(dtype=wp.vec3),
-    m: wp.array(dtype=float),
-    I: wp.array(dtype=wp.mat33),
-    inv_m: wp.array(dtype=float),
-    inv_I: wp.array(dtype=wp.mat33),
-    gravity: wp.array(dtype=float),
-    angular_damping: float,
-    dt: float,
-    # outputs
-    body_q_new: wp.array(dtype=wp.transform),
-    body_qd_new: wp.array(dtype=wp.spatial_vector),
-):
+def integrate_bodies(body_q: wp.array(dtype=wp.transform),
+                     body_qd: wp.array(dtype=wp.spatial_vector),
+                     body_f: wp.array(dtype=wp.spatial_vector),
+                     body_com: wp.array(dtype=wp.vec3),
+                     m: wp.array(dtype=float),
+                     I: wp.array(dtype=wp.mat33),
+                     inv_m: wp.array(dtype=float),
+                     inv_I: wp.array(dtype=wp.mat33),
+                     gravity: wp.vec3,
+                     angular_damping: float,
+                     dt: float,
+                     # outputs
+                     body_q_new: wp.array(dtype=wp.transform),
+                     body_qd_new: wp.array(dtype=wp.spatial_vector)):
 
     tid = wp.tid()
 
@@ -100,8 +95,7 @@ def integrate_bodies(
     x_com = x0 + wp.quat_rotate(r0, body_com[tid])
 
     # linear part
-    g = wp.vec3(gravity[0], gravity[1], gravity[2])
-    v1 = v0 + (f0 * inv_mass + g * wp.nonzero(inv_mass)) * dt
+    v1 = v0 + (f0 * inv_mass + gravity * wp.nonzero(inv_mass)) * dt
     x1 = x_com + v1 * dt
 
     # angular part (compute in body frame)
@@ -1454,23 +1448,9 @@ def eval_body_joints(
         )
 
         # last axis (fixed)
-        # if angles[2] < -1e-3:
-        # XXX prevent numerical instability at singularity
-        t_total += eval_joint_force(
-            angles[2],
-            wp.dot(wp.quat_rotate(q_w, axis_2), w_err),
-            0.0,
-            joint_attach_ke,
-            joint_attach_kd * angular_damping_scale,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            wp.quat_rotate(q_w, axis_2),
-        )
+        t_total += eval_joint_force(angles[2], wp.dot(wp.quat_rotate(q_w, axis_2), w_err), 0.0, joint_attach_ke, joint_attach_kd*angular_damping_scale, 0.0, 0.0, 0.0, 0.0, 0.0, wp.quat_rotate(q_w, axis_2))
 
-        f_total += x_err * joint_attach_ke + v_err * joint_attach_kd
+        f_total += x_err*joint_attach_ke + v_err*joint_attach_kd
 
     # write forces
     if c_parent >= 0:
@@ -1656,49 +1636,39 @@ def compute_forces(model, state, particle_f, body_f, requires_grad):
         )
 
     # tetrahedral FEM
-    if model.tet_count:
+    if (model.tet_count):
 
-        wp.launch(
-            kernel=eval_tetrahedra,
-            dim=model.tet_count,
-            inputs=[
-                state.particle_q,
-                state.particle_qd,
-                model.tet_indices,
-                model.tet_poses,
-                model.tet_activations,
-                model.tet_materials,
-            ],
-            outputs=[particle_f],
-            device=model.device,
-        )
+        wp.launch(kernel=eval_tetrahedra,
+                  dim=model.tet_count,
+                  inputs=[state.particle_q, state.particle_qd, model.tet_indices, model.tet_poses, model.tet_activations, model.tet_materials],
+                  outputs=[particle_f],
+                  device=model.device)
 
-    if model.body_count:
-        wp.launch(
-            kernel=eval_rigid_contacts,
-            dim=model.rigid_contact_max,
-            inputs=[
-                state.body_q,
-                state.body_qd,
-                model.body_com,
-                model.shape_materials,
-                model.shape_contact_thickness,
-                model.rigid_contact_count,
-                model.rigid_contact_body0,
-                model.rigid_contact_body1,
-                model.rigid_contact_point0,
-                model.rigid_contact_point1,
-                model.rigid_contact_normal,
-                model.rigid_contact_shape0,
-                model.rigid_contact_shape1,
-            ],
-            outputs=[body_f],
-            device=model.device,
-        )
+    if (model.rigid_contact_max and (model.ground and model.shape_ground_contact_pair_count or model.shape_contact_pair_count)):
+        wp.launch(kernel=eval_rigid_contacts,
+                  dim=model.rigid_contact_max,
+                  inputs=[
+                      state.body_q,
+                      state.body_qd,
+                      model.body_com,
+                      model.shape_materials,
+                      model.shape_contact_thickness,                      
+                      model.rigid_contact_count,
+                      model.rigid_contact_body0,
+                      model.rigid_contact_body1,
+                      model.rigid_contact_point0,
+                      model.rigid_contact_point1,
+                      model.rigid_contact_normal,
+                      model.rigid_contact_shape0,
+                      model.rigid_contact_shape1,
+                  ],
+                  outputs=[
+                      body_f
+                  ],
+                  device=model.device)
 
-        if model.joint_count:
-            wp.launch(
-                kernel=eval_body_joints,
+    if (model.joint_count):
+        wp.launch(kernel=eval_body_joints,
                 dim=model.joint_count,
                 inputs=[
                     state.body_q,
@@ -1722,12 +1692,40 @@ def compute_forces(model, state, particle_f, body_f, requires_grad):
                     model.joint_attach_ke,
                     model.joint_attach_kd,
                 ],
-                outputs=[body_f],
-                device=model.device,
-            )
+                outputs=[
+                    body_f
+                ],
+                device=model.device)
 
     # particle shape contact
-    if model.particle_count and model.shape_count:
+    if (model.particle_count and model.shape_count > 1):
+        
+        wp.launch(kernel=eval_soft_contacts,
+                    dim=model.soft_contact_max,
+                    inputs=[
+                        state.particle_q, 
+                        state.particle_qd,
+                        state.body_q,
+                        state.body_qd,
+                        model.body_com,
+                        model.soft_contact_ke,
+                        model.soft_contact_kd, 
+                        model.soft_contact_kf, 
+                        model.particle_adhesion,
+                        model.soft_contact_mu,
+                        model.soft_contact_count,
+                        model.soft_contact_particle,
+                        model.soft_contact_body,
+                        model.soft_contact_body_pos,
+                        model.soft_contact_body_vel,
+                        model.soft_contact_normal,
+                        model.soft_contact_distance,
+                        model.soft_contact_max],
+                        # outputs
+                    outputs=[
+                        particle_f,
+                        body_f],
+                    device=model.device)
 
         wp.launch(
             kernel=eval_soft_contacts,

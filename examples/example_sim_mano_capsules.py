@@ -6,13 +6,14 @@
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
 ###########################################################################
-# Example Sim Ant
+# Example Sim mano_capsules
 #
-# Shows how to set up a simulation of a rigid-body Ant articulation based on
-# the OpenAI gym environment using the wp.sim.ModelBuilder() and MCJF
+# Shows how to set up a simulation of a rigid-body mano_capsules articulation based
+# on the OpenAI gym environment using the wp.sim.ModelBuilder() and MCJF
 # importer. Note this example does not include a trained policy.
 #
 ###########################################################################
+
 
 import os
 import math
@@ -23,6 +24,8 @@ import warp as wp
 import warp.sim
 import warp.sim.render
 
+from tqdm import trange
+
 wp.init()
 
 class Robot:
@@ -32,7 +35,7 @@ class Robot:
     episode_duration = 5.0      # seconds
     episode_frames = int(episode_duration/frame_dt)
 
-    sim_substeps = 10
+    sim_substeps = 16
     sim_dt = frame_dt / sim_substeps
     sim_steps = int(episode_duration / sim_dt)
    
@@ -42,67 +45,58 @@ class Robot:
     def __init__(self, render=True, num_envs=1, device=None):
 
         builder = wp.sim.ModelBuilder()
+        articulation_builder = wp.sim.ModelBuilder()
 
         self.render = render
 
         self.num_envs = num_envs
 
-        builder = wp.sim.ModelBuilder()
-
-        articulation_builder = wp.sim.ModelBuilder()
-
-        wp.sim.parse_mjcf(os.path.join(os.path.dirname(__file__), "assets/nv_ant.xml"), articulation_builder,
+        wp.sim.parse_mjcf(os.path.join(os.path.dirname(__file__), "assets/hand_5finger (1).xml"), articulation_builder,
             stiffness=0.0,
-            damping=1.0,
-            armature=0.1,
+            damping=0.1,
+            armature=0.007,
+            armature_scale=10.0,
             contact_ke=1.e+4,
             contact_kd=1.e+2,
-            contact_kf=1.e+4,
-            contact_mu=1.0,
-            limit_ke=1.e+4,
+            contact_kf=1.e+2,
+            contact_mu=0.5,
+            contact_restitution=0.0,
+            limit_ke=1.e+2,
             limit_kd=1.e+1)
 
-
         for i in range(num_envs):
-
-            builder.add_rigid_articulation(
-                articulation_builder,
-            )
-
-            coord_count = 15
-            dof_count = 14
+            builder.add_rigid_articulation(articulation_builder)
+ 
+            coord_count = 28 
+            dof_count = 27
             
             coord_start = i*coord_count
             dof_start = i*dof_count
 
-            # set joint targets to rest pose in mjcf
-
-            # # base
-            builder.joint_q[coord_start:coord_start+3] = [i*2.0, 0.70, 0.0]
+            # position above ground and rotate to +y up
+            builder.joint_q[coord_start:coord_start+3] = [i*2.0, 1.70, 0.0]
             builder.joint_q[coord_start+3:coord_start+7] = wp.quat_from_axis_angle((1.0, 0.0, 0.0), -math.pi*0.5)
-
-            # joints
-            builder.joint_q[coord_start+7:coord_start+coord_count] = [0.0, 1.0, 0.0, -1.0, 0.0, -1.0, 0.0, 1.0]
 
 
         # finalize model
         self.model = builder.finalize(device)
         self.model.ground = True
-        self.model.joint_attach_ke *= 32.0
-        self.model.joint_attach_kd *= 4.0
+        # self.model.joint_attach_ke *= 18.0
+        # self.model.joint_attach_kd *= 2.0
 
-        self.integrator = wp.sim.SemiImplicitIntegrator()
+
+        # self.integrator = wp.sim.SemiImplicitIntegrator()
+        self.integrator = wp.sim.XPBDIntegrator(
+            iterations=5, joint_positional_relaxation=0.25,
+            joint_angular_relaxation=0.2)
 
         #-----------------------
         # set up Usd renderer
         if (self.render):
-            self.renderer = wp.sim.render.SimRenderer(
-                self.model,
-                os.path.join(os.path.dirname(__file__), "outputs/example_sim_ant.usd"),
-                scaling=100.0)
+            self.renderer = wp.sim.render.SimRenderer(self.model, os.path.join(os.path.dirname(__file__), "outputs/example_sim_mano_capsules.usd"))
 
-
-    def run(self):
+ 
+    def run(self, render=True):
 
         #---------------
         # run simulation
@@ -116,6 +110,9 @@ class Robot:
             self.model.joint_qd,
             None,
             self.state)
+
+        if (self.model.ground):
+            self.model.collide(self.state)
 
         profiler = {}
 
@@ -132,16 +129,64 @@ class Robot:
         graph = wp.capture_end()
 
 
-        # simulate
+        # simulate 
         with wp.ScopedTimer("simulate", detailed=False, print=False, active=True, dict=profiler):
 
-            for f in range(0, self.episode_frames):
+            if (self.render):
+ 
+                with wp.ScopedTimer("render", False):
+
+                    if (self.render):
+                        self.render_time += self.frame_dt
+                        
+                        self.renderer.begin_frame(self.render_time)
+                        self.renderer.render(self.state)
+                        self.renderer.end_frame()
+
+                self.renderer.save()
+
+
+            for f in trange(0, self.episode_frames):
                 
-                wp.capture_launch(graph)
-                self.sim_time += self.frame_dt
+                for i in range(0, self.sim_substeps):
+                    self.state.clear_forces()                    
+                    wp.sim.collide(self.model, self.state)
+                    
+                    random_actions = False
+                    
+                    if (random_actions):
+                        scale = np.array([200.0,
+                                        200.0,
+                                        200.0,
+                                        200.0,
+                                        200.0,
+                                        600.0,
+                                        400.0,
+                                        100.0,
+                                        100.0,
+                                        200.0,
+                                        200.0,
+                                        600.0,
+                                        400.0,
+                                        100.0,
+                                        100.0,
+                                        100.0,
+                                        100.0,
+                                        200.0,
+                                        100.0,
+                                        100.0,
+                                        200.0])
+
+                        act = np.zeros(len(self.model.joint_qd))
+                        act[6:] = np.clip((np.random.rand(len(self.model.joint_qd)-6)*2.0 - 1.0)*1000.0, a_min=-1.0, a_max=1.0)*scale*0.35
+                        self.model.joint_act.assign(act)
+
+                    self.state = self.integrator.simulate(self.model, self.state, self.state, self.sim_dt)
+                    self.sim_time += self.sim_dt
+
 
                 if (self.render):
-
+ 
                     with wp.ScopedTimer("render", False):
 
                         if (self.render):
@@ -173,7 +218,7 @@ if profile:
 
     for i in range(15):
 
-        robot = Robot(render=False, num_envs=env_count)
+        robot = Robot(render=False, device='cuda', num_envs=env_count)
         steps_per_second = robot.run()
 
         env_size.append(env_count)
@@ -198,5 +243,5 @@ if profile:
 
 else:
 
-    robot = Robot(render=True, num_envs=64)
+    robot = Robot(render=True, num_envs=1)
     robot.run()

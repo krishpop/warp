@@ -21,8 +21,10 @@ import math
 import numpy as np
 
 import warp as wp
+wp.config.mode = 'debug'
 import warp.sim
 import warp.sim.render
+from warp.sim.integrator_xpbd import update_body_contact_weights
 
 wp.init()
 
@@ -30,7 +32,7 @@ class Robot:
 
     frame_dt = 1.0/ (60.0)
 
-    episode_duration = 2.6  # 5.0      # seconds
+    episode_duration = 5.0      # seconds
     episode_frames = int(episode_duration/frame_dt)
 
     sim_substeps = 5
@@ -49,13 +51,16 @@ class Robot:
 
         self.num_envs = num_envs
 
-        self.points_a = []
-        self.points_b = []
         # number of contact points to visualize
-        self.max_contact_count = 0
+        self.max_contact_count = 256
+
+        self.points_a = np.zeros((self.max_contact_count, 3), dtype=np.float32)
+        self.points_b = np.zeros((self.max_contact_count, 3), dtype=np.float32)
 
         wp.sim.parse_mjcf(
+            # r"C:\Users\eric-\Downloads\claw_warp.xml",
             os.path.join(os.path.dirname(__file__), "assets/nv_humanoid.xml"),
+            # os.path.join(os.path.dirname(__file__), "assets/nv_ujoint.xml"),
             articulation_builder,
             stiffness=0.0,
             damping=0.1,
@@ -65,9 +70,10 @@ class Robot:
             contact_kd=1.e+2,
             contact_kf=1.e+2,
             contact_mu=0.5,
-            contact_restitution=0.8,
+            contact_restitution=0.0,
             limit_ke=1.e+2,
-            limit_kd=1.e+1)
+            limit_kd=1.e+1,
+            enable_self_collisions=True)
 
         for i in range(num_envs):
             builder.add_rigid_articulation(articulation_builder)
@@ -85,11 +91,17 @@ class Robot:
             builder.joint_q[coord_start:coord_start+3] = [i*2.0 + 2.3, 1.70, 1.2]
             builder.joint_q[coord_start+3:coord_start+7] = wp.quat_from_axis_angle((1.0, 0.0, 0.0), -math.pi*0.5)
 
+            # throw sideways
+            builder.joint_qd[coord_start+3:coord_start+6] = [0.0, 0.0, 1.0]
+
         # finalize model
         self.model = builder.finalize(device)
         self.model.ground = True
         self.model.joint_attach_ke *= 8.0
         self.model.joint_attach_kd *= 2.0
+
+        self.model.rigid_contact_margin = 0.1
+        self.model.allocate_rigid_contacts(self.max_contact_count)
 
         print("joint_target: ", self.model.joint_target.numpy())
         print("joint_target_ke: ", self.model.joint_target_ke.numpy())
@@ -99,13 +111,21 @@ class Robot:
             iterations=1,
             joint_positional_relaxation=0.7,
             joint_angular_relaxation=0.4,
-            contact_normal_relaxation=0.9)
-        self.integrator.contact_con_weighting = True
+            contact_normal_relaxation=1.0)
+        # self.integrator.contact_con_weighting = False
+        # self.integrator = wp.sim.XPBDIntegrator()
+
+        print("Collision filters:")
+        print(builder.shape_collision_filter_pairs)
+        print("Collision mask:")
+        print(self.model.shape_collision_mask.numpy())
+
+        self.requires_grad = False
 
         #-----------------------
         # set up Usd renderer
         if (self.render):
-            self.renderer = wp.sim.render.SimRenderer(self.model, os.path.join(os.path.dirname(__file__), "outputs/example_sim_humanoid.usd"))
+            self.renderer = wp.sim.render.SimRenderer(self.model, os.path.join(os.path.dirname(__file__), "outputs/example_sim_humanoid.usd"), scaling=100.0)
 
  
     def run(self, render=True):
@@ -221,22 +241,66 @@ class Robot:
                         self.model.joint_act.assign(act)
 
                     wp.sim.collide(self.model, self.state)
-                    self.state = self.integrator.simulate(self.model, self.state, self.state, self.sim_dt)
+
+                    if self.requires_grad:
+                        rigid_contact_inv_weight = wp.zeros_like(self.model.rigid_contact_inv_weight)
+                        rigid_active_contact_distance = wp.zeros_like(self.model.rigid_active_contact_distance)
+                        rigid_active_contact_point0 = wp.empty_like(self.model.rigid_active_contact_point0, requires_grad=True)
+                        rigid_active_contact_point1 = wp.empty_like(self.model.rigid_active_contact_point1, requires_grad=True)
+                    else:
+                        rigid_contact_inv_weight = self.model.rigid_contact_inv_weight
+                        rigid_active_contact_distance = self.model.rigid_active_contact_distance
+                        rigid_active_contact_point0 = self.model.rigid_active_contact_point0
+                        rigid_active_contact_point1 = self.model.rigid_active_contact_point1
+                        rigid_contact_inv_weight.zero_()
+                        rigid_active_contact_distance.zero_()
+
+                    wp.launch(kernel=update_body_contact_weights,
+                        dim=self.model.rigid_contact_max,
+                        inputs=[
+                            self.state.body_q,
+                            0,
+                            self.model.rigid_contact_count,
+                            self.model.rigid_contact_body0,
+                            self.model.rigid_contact_body1,
+                            self.model.rigid_contact_point0,
+                            self.model.rigid_contact_point1,
+                            self.model.rigid_contact_normal,
+                            self.model.rigid_contact_thickness,
+                            self.model.rigid_contact_shape0,
+                            self.model.rigid_contact_shape1,
+                            self.model.shape_transform
+                        ],
+                        outputs=[
+                            rigid_contact_inv_weight,
+                            rigid_active_contact_point0,
+                            rigid_active_contact_point1,
+                            rigid_active_contact_distance,
+                        ],
+                        device=self.model.device)
+
+                    if (i == 0):
+                        # remember the contacts from the first iteration                            
+                        if self.requires_grad:
+                            self.model.rigid_active_contact_distance_prev = wp.clone(rigid_active_contact_distance)
+                            self.model.rigid_active_contact_point0_prev = wp.clone(rigid_active_contact_point0)
+                            self.model.rigid_active_contact_point1_prev = wp.clone(rigid_active_contact_point1)
+                            self.model.rigid_contact_inv_weight_prev = wp.clone(rigid_contact_inv_weight)
+                        else:
+                            self.model.rigid_active_contact_distance_prev.assign(rigid_active_contact_distance)
+                            self.model.rigid_active_contact_point0_prev.assign(rigid_active_contact_point0)
+                            self.model.rigid_active_contact_point1_prev.assign(rigid_active_contact_point1)
+                            self.model.rigid_contact_inv_weight_prev.assign(rigid_contact_inv_weight)
+                    
+
+                    self.state = self.integrator.simulate(self.model, self.state, self.state, self.sim_dt, requires_grad=self.requires_grad)
                     self.sim_time += self.sim_dt
 
-                    # rigid_contact_count = self.model.rigid_contact_count.numpy()[0]
-                    # self.max_contact_count = max(self.max_contact_count, rigid_contact_count)                    
-                    # if i == 0 and rigid_contact_count > 0:
-                    #     qs = self.state.body_q.numpy()
-
-                    #     contact_points_a = self.model.rigid_contact_point0.numpy()
-                    #     body_a = self.model.rigid_contact_body0.numpy()
-                    #     self.points_a[:rigid_contact_count] = [wp.transform_point(qs[body], wp.vec3(*contact_points_a[i])) for i, body in enumerate(body_a)]
-
-                    #     contact_points_b = self.model.rigid_contact_point1.numpy()
-                    #     body_b = self.model.rigid_contact_body1.numpy()
-                    #     self.points_b[:rigid_contact_count] = [wp.transform_point(qs[body], wp.vec3(*contact_points_b[i])) for i, body in enumerate(body_b)]
-
+                    rigid_contact_count = min(self.model.rigid_contact_count.numpy()[0], self.max_contact_count)
+                    self.points_a.fill(0.0)
+                    self.points_b.fill(0.0)
+                    self.points_a[:rigid_contact_count] = self.model.rigid_active_contact_point0_prev.numpy()[:rigid_contact_count]
+                    self.points_b[:rigid_contact_count] = self.model.rigid_active_contact_point1_prev.numpy()[:rigid_contact_count]
                     
                     q_history.append(self.state.body_q.numpy().copy())
                     qd_history.append(self.state.body_qd.numpy().copy())
@@ -246,41 +310,21 @@ class Robot:
                     wp.sim.eval_ik(self.model, self.state, joint_q, joint_qd)
                     joint_q_history.append(joint_q.numpy().copy())
 
-
-
-                    if self.max_contact_count > 0:
-                        rigid_contact_count = self.model.rigid_contact_count.numpy()[0]
-                        self.max_contact_count = max(self.max_contact_count, rigid_contact_count)
-                        
-                        if rigid_contact_count > 0:
-                            qs = self.state.body_q.numpy()
-
-                            contact_points_a = self.model.rigid_contact_point0.numpy()
-                            body_a = self.model.rigid_contact_body0.numpy()
-                            self.points_a[:rigid_contact_count] = [(wp.transform_point(qs[body], wp.vec3(*contact_points_a[i])) if body >= 0 else wp.vec3(*contact_points_a[i])) for i, body in enumerate(body_a)]
-
-                            contact_points_b = self.model.rigid_contact_point1.numpy()
-                            body_b = self.model.rigid_contact_body1.numpy()
-                            self.points_b[:rigid_contact_count] = [(wp.transform_point(qs[body], wp.vec3(*contact_points_b[i])) if body >= 0 else wp.vec3(*contact_points_b[i])) for i, body in enumerate(body_b)]
-
-
                 if (self.render):
  
                     with wp.ScopedTimer("render", False):
 
-                        if (self.render):
-                            self.render_time += self.frame_dt
-                            
-                            self.renderer.begin_frame(self.render_time)
-                            self.renderer.render(self.state)
+                        self.render_time += self.frame_dt #* 300.0
+                        
+                        self.renderer.begin_frame(self.render_time)
+                        self.renderer.render(self.state)
 
-                            if self.max_contact_count > 0:
-                                self.renderer.render_points("contact_points_a", np.array(self.points_a), radius=0.05)
-                                self.renderer.render_points("contact_points_b", np.array(self.points_b), radius=0.05)
+                        if self.max_contact_count > 0:
+                            self.renderer.render_points("contact_points_a", np.array(self.points_a), radius=0.05)
+                            self.renderer.render_points("contact_points_b", np.array(self.points_b), radius=0.05)
 
-                            self.renderer.end_frame()
+                        self.renderer.end_frame()
 
-                    self.renderer.save()
 
             wp.synchronize()
 
@@ -289,6 +333,9 @@ class Robot:
         avg_steps_second = 1000.0*float(self.num_envs)/avg_time
 
         print(f"envs: {self.num_envs} steps/second {avg_steps_second} avg_time {avg_time}")
+
+        if (self.render):
+            self.renderer.save()
 
         
         if False:
@@ -335,7 +382,7 @@ class Robot:
                 ax[i,6].yaxis.get_major_locator().set_params(integer=True)
             plt.show()
 
-        if True:
+        if False:
             import matplotlib.pyplot as plt
             joint_q_history = np.array(joint_q_history)
             dof_q = joint_q_history.shape[1]
@@ -430,5 +477,6 @@ if profile:
 
 else:
 
-    robot = Robot(render=True, num_envs=1, device=wp.get_preferred_device())
+    # robot = Robot(render=True, num_envs=1, device=wp.get_preferred_device())
+    robot = Robot(render=True, num_envs=1, device="cpu")
     robot.run()

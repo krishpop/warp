@@ -41,7 +41,6 @@ def quat_decompose(q: wp.quat):
     sinp = -R[0, 2]
     if wp.abs(sinp) >= 1.0:
         theta = 1.57079632679 * wp.sign(sinp)
-        print("wp.abs(sinp) >= 1.0")
     else:
         theta = wp.asin(-R[0, 2])
     psi = wp.atan2(R[0, 1], R[0, 0])

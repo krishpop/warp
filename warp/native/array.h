@@ -126,8 +126,57 @@ inline CUDA_CALLABLE void adj_print(shape_t s, shape_t& shape_t) {}
 template <typename T>
 struct array_t
 {
-    array_t() {}    
-    array_t(int) {} // for backward a = 0 initialization syntax
+    CUDA_CALLABLE inline array_t() {}    
+    CUDA_CALLABLE inline array_t(int) {} // for backward a = 0 initialization syntax
+
+    array_t(T* data, int size) : data(data) {
+        // constructor for 1d array
+        shape.dims[0] = size;
+        shape.dims[1] = 0;
+        shape.dims[2] = 0;
+        shape.dims[3] = 0;
+        ndim = 1;
+        strides[0] = sizeof(T);
+        strides[1] = 0;
+        strides[2] = 0;
+        strides[3] = 0;
+    }
+    array_t(T* data, int dim0, int dim1) : data(data) {
+        // constructor for 2d array
+        shape.dims[0] = dim0;
+        shape.dims[1] = dim1;
+        shape.dims[2] = 0;
+        shape.dims[3] = 0;
+        ndim = 2;
+        strides[0] = sizeof(T);
+        strides[1] = dim0 * sizeof(T);
+        strides[2] = 0;
+        strides[3] = 0;
+    }
+    array_t(T* data, int dim0, int dim1, int dim2) : data(data) {
+        // constructor for 3d array
+        shape.dims[0] = dim0;
+        shape.dims[1] = dim1;
+        shape.dims[2] = dim2;
+        shape.dims[3] = 0;
+        ndim = 3;
+        strides[0] = sizeof(T);
+        strides[1] = dim0 * sizeof(T);
+        strides[2] = dim0 * dim1 * sizeof(T);
+        strides[3] = 0;
+    }
+    array_t(T* data, int dim0, int dim1, int dim2, int dim3) : data(data) {
+        // constructor for 4d array
+        shape.dims[0] = dim0;
+        shape.dims[1] = dim1;
+        shape.dims[2] = dim2;
+        shape.dims[3] = dim3;
+        ndim = 4;
+        strides[0] = sizeof(T);
+        strides[1] = dim0 * sizeof(T);
+        strides[2] = dim0 * dim1 * sizeof(T);
+        strides[3] = dim0 * dim1 * dim2 * sizeof(T);
+    }
 
     T* data;
     shape_t shape;
@@ -346,22 +395,6 @@ template<typename T> inline CUDA_CALLABLE void store(const array_t<T>& buf, int 
     index(buf, i, j, k, l) = value;
 }
 
-template<typename T> inline CUDA_CALLABLE T inc_index(const array_t<T>& buf, int tid, T idx_limit) {
-    if (WARP_FORWARD_MODE) {
-        T next = atomic_add(buf.data, T(1));
-        if (next < idx_limit) {
-            store(buf, tid+1, next);
-            return next;
-        }
-        store(buf, tid+1, T(-1));
-        return T(-1);
-    }
-    return index(buf, tid+1);
-}
-
-template<typename T> inline CUDA_CALLABLE void adj_inc_index(const array_t<T>& buf, int tid, T idx_limit, const array_t<T>& adj_buf, int& adj_tid, const T& adj_idx_limit, const T& adj_output) {
-    
-}
 
 // select operator to check for array being null
 template <typename T1, typename T2>

@@ -11,7 +11,7 @@ import os
 import xml.etree.ElementTree as ET
 
 import numpy as np
-import trimesh
+
 import warp as wp
 from warp.sim.model import JOINT_COMPOUND, JOINT_UNIVERSAL
 from warp.sim.model import Mesh
@@ -32,8 +32,7 @@ def parse_mjcf(
     limit_kd=10.0,
     armature=0.0,
     armature_scale=1.0,
-    add_particles=False,
-    add_mesh=False,
+    parse_meshes=False,
     enable_self_collisions=True,
 ):
 
@@ -61,6 +60,7 @@ def parse_mjcf(
             return np.array(default)
 
     def parse_mesh(geom):
+        import trimesh
         faces = []
         vertices = []
         stl_file = next(
@@ -86,7 +86,6 @@ def parse_mjcf(
     def parse_body(body, parent):
 
         body_name = body.attrib["name"]
-        # body_pos = np.fromstring(body.attrib["pos"], sep=" ")
         body_pos = parse_vec(body, "pos", (0.0, 0.0, 0.0))
         body_ori_euler = parse_vec(body, "euler", (0.0, 0.0, 0.0))
         if len(np.nonzero(body_ori_euler)[0]) > 0:
@@ -260,7 +259,7 @@ def parse_mjcf(
                     restitution=contact_restitution,
                 )
 
-            elif geom_type == "mesh" and add_mesh:
+            elif geom_type == "mesh" and parse_meshes:
 
                 mesh, scale = parse_mesh(geom)
                 geom_size = tuple([scale * s for s in geom_size])
@@ -324,7 +323,7 @@ def parse_mjcf(
                 )
 
             else:
-                print("Type: " + geom_type + " unsupported")
+                print("MJCF parsing issue: geom type", geom_type, "is unsupported")
 
         # -----------------
         # recurse

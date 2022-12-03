@@ -66,7 +66,7 @@ class Robot:
             # joint initial positions
             builder.joint_q[-3:] = [0.0, 0.3, 0.0]
 
-            builder.joint_target[:3] = [0.0, 0.0, 0.0]
+            builder.joint_target[-3:] = [0.0, 0.0, 0.0]
 
         # finalize model
         self.model = builder.finalize(device)
@@ -75,9 +75,8 @@ class Robot:
         self.model.joint_attach_ke = 1600.0
         self.model.joint_attach_kd = 20.0
 
-        self.solve_iterations = 1
-        self.relaxation = 0.1
-        self.integrator = wp.sim.XPBDIntegrator(self.solve_iterations, self.relaxation)
+        self.solve_iterations = 5
+        self.integrator = wp.sim.XPBDIntegrator(self.solve_iterations)
 
         #-----------------------
         # set up Usd renderer
