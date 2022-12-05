@@ -26,6 +26,7 @@ import warp as wp
 # wp.config.print_launches = False
 import warp.sim
 import warp.sim.render
+import warp.sim.tiny_render
 
 # wp.config.verify_fp = True
 wp.init()
@@ -179,6 +180,7 @@ class Example:
                 mu=0.5,
                 restitution=self.restitution)
 
+
         if True:
             axis = np.array((0.2, 0.1, 0.7))
             axis = axis/np.linalg.norm(axis)
@@ -239,7 +241,8 @@ class Example:
         self.points_a = np.zeros((self.viz_contact_count, 3))
         self.points_b = np.zeros((self.viz_contact_count, 3))
 
-        self.renderer = wp.sim.render.SimRenderer(self.model, stage, scaling=100.0)
+        # self.renderer = wp.sim.render.SimRenderer(self.model, stage, scaling=100.0)
+        self.renderer = wp.sim.tiny_render.TinyRenderer(self.model, stage, scaling=1.0)
 
     def update(self):
 

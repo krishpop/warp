@@ -14,12 +14,12 @@ import numpy as np
 
 class SimRenderer(warp.render.UsdRenderer):
     
-    def __init__(self, model: warp.sim.Model, path, scaling=1.0):
+    def __init__(self, model: warp.sim.Model, path, scaling=1.0, fps=60, upaxis="y"):
 
         from pxr import UsdGeom
 
         # create USD stage
-        super().__init__(path, scaling=scaling)
+        super().__init__(path, scaling=scaling, fps=fps, upaxis=upaxis)
 
         self.model = model
         self.body_names = []

@@ -952,6 +952,9 @@ class ModelBuilder:
         if update_num_env_count:
             self.num_envs += 1
 
+        self.upvector = articulation.upvector
+        self.gravity = articulation.gravity
+
 
     # register a rigid body and return its index.
     def add_body(
