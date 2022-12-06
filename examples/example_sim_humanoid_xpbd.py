@@ -23,6 +23,7 @@ import numpy as np
 import warp as wp
 import warp.sim
 import warp.sim.render
+import warp.sim.tiny_render
 
 from tqdm import trange
 
@@ -73,6 +74,7 @@ class Robot:
         side_length = max(int(np.sqrt(num_envs)), 1)
         for i in range(num_envs):
             pos = ((i%side_length)*2.0 + 2.3, 1.70, (i//side_length)*1.2)
+            pos = (0.0, 1.70, 0.0)
             rot = wp.quat_from_axis_angle((1.0, 0.0, 0.0), -math.pi*0.5)
             builder.add_rigid_articulation(
                 articulation_builder,
@@ -103,7 +105,11 @@ class Robot:
         #-----------------------
         # set up Usd renderer
         if (self.render):
-            self.renderer = wp.sim.render.SimRenderer(self.model, os.path.join(os.path.dirname(__file__), "outputs/example_sim_humanoid.usd"), scaling=100.0)
+            self.renderer = wp.sim.tiny_render.TinyRenderer(
+                self.model, os.path.join(os.path.dirname(__file__),
+                "outputs/example_sim_humanoid.usd"), scaling=3.0)
+            self.max_contact_count = 0
+            # self.renderer = wp.sim.render.SimRenderer(self.model, os.path.join(os.path.dirname(__file__), "outputs/example_sim_humanoid.usd"), scaling=100.0)
 
  
     def run(self, use_graph_capture=False, profile=False):
@@ -162,8 +168,6 @@ class Robot:
                         self.renderer.begin_frame(self.render_time)
                         self.renderer.render(self.state)
                         self.renderer.end_frame()
-
-                self.renderer.save()
 
             for f in trange(self.episode_frames):
                 if use_graph_capture:
@@ -444,6 +448,6 @@ if profile:
 
 else:
 
-    robot = Robot(render=True, num_envs=10, device=wp.get_preferred_device())
+    robot = Robot(render=True, num_envs=4000, device=wp.get_preferred_device())
     # robot = Robot(render=True, num_envs=1, device="cpu")
-    robot.run(use_graph_capture=False, profile=True)
+    robot.run(use_graph_capture=True, profile=True)

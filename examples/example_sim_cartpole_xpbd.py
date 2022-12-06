@@ -22,6 +22,7 @@ import numpy as np
 import warp as wp
 import warp.sim
 import warp.sim.render
+import warp.sim.tiny_render
 
 wp.init()
 
@@ -29,7 +30,7 @@ class Robot:
 
     frame_dt = 1.0/60.0
 
-    episode_duration = 20.0      # seconds
+    episode_duration = 60.0      # seconds
     episode_frames = int(episode_duration/frame_dt)
 
     sim_substeps = 10
@@ -66,9 +67,14 @@ class Robot:
             enable_self_collisions=False)
 
         for i in range(num_envs):
-            articulation_builder.joint_X_p[0] = wp.transform(np.array((i*2.0, 4.0, 0.0)), wp.quat_from_axis_angle((1.0, 0.0, 0.0), -math.pi*0.5))
+            # articulation_builder.joint_X_p[0] = wp.transform(np.array((i*2.0, 4.0, 0.0)), wp.quat_from_axis_angle((1.0, 0.0, 0.0), -math.pi*0.5))
 
-            builder.add_rigid_articulation(articulation_builder)
+            builder.add_rigid_articulation(
+                articulation_builder,
+                xform=wp.transform(
+                    # np.array((i*2.0, 2.5, 0.0)),
+                    np.array((0.0, 2.5, 0.0)),
+                    wp.quat_identity()))
 
             # joint initial positions
             builder.joint_q[-3:] = [0.0, 0.3, 0.0]
@@ -88,7 +94,11 @@ class Robot:
         #-----------------------
         # set up Usd renderer
         if (self.render):
-            self.renderer = wp.sim.render.SimRenderer(self.model, os.path.join(os.path.dirname(__file__), "outputs/example_sim_cartpole.usd"))
+            self.renderer = wp.sim.tiny_render.TinyRenderer(
+                self.model, os.path.join(os.path.dirname(__file__),
+                "outputs/example_sim_cartpole.usd"), scaling=1.0, env_offset=(1.0, 0.0, 2.0))
+            # self.renderer = wp.sim.render.SimRenderer(
+            #     self.model, os.path.join(os.path.dirname(__file__), "outputs/example_sim_cartpole.usd"))
 
 
     def run(self, render=True, plot=True):
@@ -153,7 +163,7 @@ class Robot:
                             self.renderer.render(self.state)
                             self.renderer.end_frame()
 
-                    self.renderer.save()
+                    # self.renderer.save()
 
                 q_history.append(self.state.body_q.numpy().copy())
                 qd_history.append(self.state.body_qd.numpy().copy())
@@ -280,5 +290,5 @@ if profile:
 
 else:
 
-    robot = Robot(render=True, device=wp.get_preferred_device(), num_envs=2)
+    robot = Robot(render=True, device=wp.get_preferred_device(), num_envs=16000)
     robot.run()
