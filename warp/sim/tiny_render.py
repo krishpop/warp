@@ -51,12 +51,13 @@ class TinyRenderer:
         fps=60,
         upaxis="y",
         env_offset=(5.0, 0.0, 5.0),
-        suppress_keyboard_help=False):
+        suppress_keyboard_help=False,
+        start_paused=False):
 
         import pytinyopengl3 as p
         self.p = p
 
-        self.paused = False
+        self.paused = start_paused
         self.skip_rendering = False
 
         self.app = p.TinyOpenGL3App(title)
@@ -392,8 +393,10 @@ class TinyRenderer:
 
     def begin_frame(self, time: float):
         self.time = time
-        while self.paused:
+        while self.paused and not self.app.window.requested_exit():
             self.update()
+        if self.app.window.requested_exit():
+            sys.exit(0)
 
     def end_frame(self):
         self.update()
@@ -410,6 +413,8 @@ class TinyRenderer:
     def save(self):
         while not self.app.window.requested_exit():
             self.update()
+        if self.app.window.requested_exit():
+            sys.exit(0)
 
     def create_check_texture(self, width=256, height=256, color1=(0, 128, 256), color2=(255, 255, 255)):
         pixels = np.zeros((width, height, 3), dtype=np.uint8)
