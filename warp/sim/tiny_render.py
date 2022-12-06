@@ -6,6 +6,7 @@
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
 import math
+import sys
 
 import warp as wp
 import warp.sim
@@ -20,8 +21,19 @@ class TinyRenderer:
         import pytinyopengl3 as p
         self.p = p
 
+        self.paused = False
+
         self.app = p.TinyOpenGL3App(title)
         self.app.renderer.init()
+        def keypress(key, pressed):
+            if not pressed:
+                return
+            if key == 27:  # ESC
+                self.app.window.set_request_exit()
+                sys.exit(0)
+            if key == 32:  # space
+                self.paused = not self.paused
+        self.app.window.set_keyboard_callback(keypress)
         self.cam = p.TinyCamera()
         self.cam.set_camera_distance(15.)
         self.cam.set_camera_pitch(-30)
@@ -235,16 +247,21 @@ class TinyRenderer:
 
     def begin_frame(self, time: float):
         self.time = time
+        while self.paused:
+            self.update()
 
     def end_frame(self):
         self.app.renderer.render_scene()
         self.app.swap_buffer()
 
+    def update(self):
+        self.app.renderer.update_camera(self.cam_axis)
+        self.app.renderer.render_scene()
+        self.app.swap_buffer()
+
     def save(self):
         while not self.app.window.requested_exit():
-            self.app.renderer.update_camera(self.cam_axis)
-            self.app.renderer.render_scene()
-            self.app.swap_buffer()
+            self.update()
 
     def create_check_texture(self, width=256, height=256, color1=(0, 128, 256), color2=(255, 255, 255)):
         pixels = np.zeros((width, height, 3), dtype=np.uint8)
