@@ -1198,7 +1198,7 @@ class ModelBuilder:
                 axis = c / np.linalg.norm(c)
                 rot = wp.quat_from_axis_angle(axis, angle)
         scale = (width, length, 0.0)
-        self._add_shape(body, pos, rot, GEO_PLANE, scale, None, 0.0, ke, kd, kf, mu, restitution)
+        return self._add_shape(body, pos, rot, GEO_PLANE, scale, None, 0.0, ke, kd, kf, mu, restitution)
 
     def add_shape_sphere(self,
                          body,
@@ -1227,7 +1227,7 @@ class ModelBuilder:
 
         """
 
-        self._add_shape(body, pos, rot, GEO_SPHERE, (radius, 0.0, 0.0, 0.0), None, density, ke, kd, kf, mu, restitution, thickness=radius)
+        return self._add_shape(body, pos, rot, GEO_SPHERE, (radius, 0.0, 0.0, 0.0), None, density, ke, kd, kf, mu, restitution, thickness=radius)
 
     def add_shape_box(self,
                       body: int,
@@ -1262,7 +1262,7 @@ class ModelBuilder:
 
         """
 
-        self._add_shape(body, pos, rot, GEO_BOX, (hx, hy, hz, 0.0), None, density, ke, kd, kf, mu, restitution, thickness=contact_thickness)
+        return self._add_shape(body, pos, rot, GEO_BOX, (hx, hy, hz, 0.0), None, density, ke, kd, kf, mu, restitution, thickness=contact_thickness)
 
     def add_shape_capsule(self,
                           body: int,
@@ -1293,7 +1293,7 @@ class ModelBuilder:
 
         """
 
-        self._add_shape(body, pos, rot, GEO_CAPSULE, (radius, half_width, 0.0, 0.0), None, density, ke, kd, kf, mu, restitution, thickness=radius)
+        return self._add_shape(body, pos, rot, GEO_CAPSULE, (radius, half_width, 0.0, 0.0), None, density, ke, kd, kf, mu, restitution, thickness=radius)
 
     def add_shape_mesh(self,
                        body: int,
@@ -1326,7 +1326,7 @@ class ModelBuilder:
 
         """
 
-        self._add_shape(body, pos, rot, GEO_MESH, (scale[0], scale[1], scale[2], 0.0), mesh, density, ke, kd, kf, mu, restitution, thickness=contact_thickness)
+        return self._add_shape(body, pos, rot, GEO_MESH, (scale[0], scale[1], scale[2], 0.0), mesh, density, ke, kd, kf, mu, restitution, thickness=contact_thickness)
 
     def _shape_radius(self, type, scale, src):
         """
@@ -1389,6 +1389,7 @@ class ModelBuilder:
         (m, I) = self._compute_shape_mass(type, scale, src, density)
 
         self._update_body_mass(body, m, I, np.array(pos), np.array(rot))
+        return shape
 
     # particles
     def add_particle(self, pos : Vec3, vel : Vec3, mass : float) -> int:
@@ -2389,6 +2390,8 @@ class ModelBuilder:
 
             m = Model(device)
             m.requires_grad = requires_grad
+
+            m.num_envs = self.num_envs
 
             #---------------------        
             # particles
