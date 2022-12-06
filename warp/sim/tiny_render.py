@@ -50,12 +50,14 @@ class TinyRenderer:
         scaling=1.0,
         fps=60,
         upaxis="y",
-        env_offset=(5.0, 0.0, 5.0)):
+        env_offset=(5.0, 0.0, 5.0),
+        suppress_keyboard_help=False):
 
         import pytinyopengl3 as p
         self.p = p
 
         self.paused = False
+        self.skip_rendering = False
 
         self.app = p.TinyOpenGL3App(title)
         self.app.renderer.init()
@@ -67,6 +69,9 @@ class TinyRenderer:
                 sys.exit(0)
             if key == 32:  # space
                 self.paused = not self.paused
+            if key == ord('s'):
+                self.skip_rendering = not self.skip_rendering
+
         self.app.window.set_keyboard_callback(keypress)
         self.cam = p.TinyCamera()
         self.cam.set_camera_distance(15.)
@@ -292,10 +297,18 @@ class TinyRenderer:
             device="cuda", owner=False, ndim=1)
         self._graph = None  # for CUDA graph recording
 
+        if not suppress_keyboard_help:
+            print("Keyboard commands for the TinyRenderer window:")
+            print("  [Space] - pause simulation")
+            print("  [S]     - skip rendering")
+            print("  [ESC]   - exit")
+
     def __del__(self):
         self.app.cuda_unmap_vbo()
 
     def render(self, state: warp.sim.State):
+        if self.skip_rendering:
+            return
 
         if (self.model.particle_count):
             pass
@@ -377,13 +390,6 @@ class TinyRenderer:
             else:
                 wp.capture_launch(self._graph)
 
-    def update_pose(self, instance_id, pose: wp.transform):
-        self.app.renderer.write_single_instance_transform_to_cpu(
-            self.p.TinyVector3f(pose.p[0] * self.scaling, pose.p[1] * self.scaling, pose.p[2] * self.scaling),
-            self.p.TinyQuaternionf(*pose.q),
-            instance_id
-        )
-
     def begin_frame(self, time: float):
         self.time = time
         while self.paused:
@@ -393,6 +399,10 @@ class TinyRenderer:
         self.update()
 
     def update(self):
+        if self.skip_rendering:
+            # ensure we receive key events
+            self.app.swap_buffer()
+            return
         self.app.renderer.update_camera(self.cam_axis)
         self.app.renderer.render_scene()
         self.app.swap_buffer()
