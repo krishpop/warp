@@ -299,10 +299,11 @@ class TinyRenderer:
         self._graph = None  # for CUDA graph recording
 
         if not suppress_keyboard_help:
-            print("Keyboard commands for the TinyRenderer window:")
-            print("  [Space] - pause simulation")
-            print("  [S]     - skip rendering")
-            print("  [ESC]   - exit")
+            print("Control commands for the TinyRenderer window:")
+            print("  [Space]                                   pause simulation")
+            print("  [S]                                       skip rendering")
+            print("  [Alt] + mouse drag (left/middle button)   rotate/pan camera")
+            print("  [ESC]                                     exit")
 
     def __del__(self):
         self.app.cuda_unmap_vbo()
