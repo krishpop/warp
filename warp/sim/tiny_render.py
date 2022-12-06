@@ -13,10 +13,44 @@ import warp.sim
 
 import numpy as np
 
+@wp.kernel
+def update_vbo(
+    shape_ids: wp.array(dtype=int),
+    shape_body: wp.array(dtype=int),
+    shape_transform: wp.array(dtype=wp.transform),
+    body_q: wp.array(dtype=wp.transform),
+    instance_envs: wp.array(dtype=int),
+    env_offsets: wp.array(dtype=wp.vec3),
+    scaling: float,
+    bodies_per_env: int,
+    # outputs
+    vbo_positions: wp.array(dtype=wp.vec4),
+    vbo_orientations: wp.array(dtype=wp.quat)):
+
+    tid = wp.tid()
+    shape = shape_ids[tid]
+    body = shape_body[shape]
+    env = instance_envs[tid]
+    X_ws = shape_transform[shape]
+    if body >= 0:
+        X_ws = body_q[body+env*bodies_per_env] * X_ws
+    p = wp.transform_get_translation(X_ws)
+    q = wp.transform_get_rotation(X_ws)
+    p *= scaling
+    p += env_offsets[env]
+    vbo_positions[tid] = wp.vec4(p[0], p[1], p[2], 0.0)
+    vbo_orientations[tid] = q
 
 class TinyRenderer:
     
-    def __init__(self, model: warp.sim.Model, title="Warp sim", scaling=1.0, fps=60, upaxis="y"):
+    def __init__(
+        self,
+        model: warp.sim.Model,
+        title="Warp sim",
+        scaling=1.0,
+        fps=60,
+        upaxis="y",
+        env_offset=(5.0, 0.0, 5.0)):
 
         import pytinyopengl3 as p
         self.p = p
@@ -37,13 +71,14 @@ class TinyRenderer:
         self.cam = p.TinyCamera()
         self.cam.set_camera_distance(15.)
         self.cam.set_camera_pitch(-30)
-        self.cam.set_camera_yaw(-20)
+        self.cam.set_camera_yaw(45)
         self.cam.set_camera_target_position(0.0, 0.0, 0.0)
         self.cam_axis = "xyz".index(upaxis.lower())
         self.cam.set_camera_up_axis(self.cam_axis)
         self.app.renderer.set_camera(self.cam)
 
         self.model = model
+        self.num_envs = model.num_envs
         self.shape_body = model.shape_body.numpy()
         self.shape_transform = model.shape_transform.numpy()
 
@@ -51,12 +86,11 @@ class TinyRenderer:
 
         # mapping from visual index to simulation shape
         self.shape_ids = {}
-
-        self.instance_ids = {}
+        # mapping from instance to shape ID
+        self.instance_shape = []
 
         # render meshes double sided
-        double_sided_meshes = True
-        
+        double_sided_meshes = False
 
         # create rigid shape children
         if (self.model.shape_count):
@@ -71,8 +105,7 @@ class TinyRenderer:
             cmap = cm.get_cmap('tab20')
             colors20 = [(np.array(cmap(i)[:3])*255).astype(int) for i in np.linspace(0, 1, 20)]
 
-            for s in range(model.shape_count):
-
+            for s in range((model.shape_count-1) // self.num_envs):
                 geo_type = shape_geo_type[s]
                 geo_scale = shape_geo_scale[s] * self.scaling
                 geo_src = shape_geo_src[s]
@@ -86,16 +119,13 @@ class TinyRenderer:
                 scale = np.ones(3)
 
                 if (geo_type == warp.sim.GEO_PLANE):
-                    if (s == model.shape_count-1 and not model.ground):
-                        continue  # hide ground plane
-
                     color1 = (np.array(colors20[s%20]) + 50.0).clip(0, 255).astype(int)
                     color2 = (np.array(colors20[s%20]) + 90.0).clip(0, 255).astype(int)
                     texture = self.create_check_texture(256, 256, color1=color1, color2=color2)
                     faces = [0, 1, 2, 2, 3, 0]
                     normal = (0.0, 1.0, 0.0)
-                    width = (geo_scale[0] if geo_scale[0] > 0.0 else 100.0) * scaling
-                    length = (geo_scale[1] if geo_scale[1] > 0.0 else 100.0) * scaling
+                    width = (geo_scale[0] if geo_scale[0] > 0.0 else 100.0)
+                    length = (geo_scale[1] if geo_scale[1] > 0.0 else 100.0)
                     aspect = width / length
                     u = width / scaling * aspect
                     v = length / scaling
@@ -113,8 +143,8 @@ class TinyRenderer:
                     scale *= float(geo_scale[0]) * 2.0  # diameter
 
                 elif (geo_type == warp.sim.GEO_CAPSULE):
-                    radius = float(geo_scale[0]) * scaling
-                    half_width = float(geo_scale[1]) * scaling
+                    radius = float(geo_scale[0])
+                    half_width = float(geo_scale[1])
                     up_axis = 0
                     texture = self.create_check_texture(color1=colors20[s%20])
                     shape = self.app.register_graphics_capsule_shape(radius, half_width, up_axis, texture)
@@ -156,22 +186,116 @@ class TinyRenderer:
                 else:
                     print("Unknown geometry type: ", geo_type)
                     continue
-                pos = p.TinyVector3f(*X_ws.p)
-                orn = p.TinyQuaternionf(*X_ws.q)
-                color = p.TinyVector3f(1.,1.,1.)
-                scale = p.TinyVector3f(*scale)
+                instance_pos = [p.TinyVector3f(*X_ws.p)] * self.num_envs
+                instance_orn = [p.TinyQuaternionf(*X_ws.q)] * self.num_envs
+                instance_color = [p.TinyVector3f(1.,1.,1.)] * self.num_envs
+                instance_scale = [p.TinyVector3f(*scale)] * self.num_envs
                 opacity = 1
                 rebuild = True
-                i = self.app.renderer.register_graphics_instance(shape, pos, orn, color, scale, opacity, rebuild)
                 self.shape_ids[shape] = s
-                self.instance_ids[i] = s
-        
-        self.app.renderer.write_transforms()
+                self.instance_shape.extend([s] * self.num_envs)
+                self.app.renderer.register_graphics_instances(
+                    shape, instance_pos, instance_orn,
+                    instance_color, instance_scale, opacity, rebuild
+                )
 
+        if model.ground:
+            color1 = (200, 200, 200)
+            color2 = (150, 150, 150)
+            texture = self.create_check_texture(256, 256, color1=color1, color2=color2)
+            faces = [0, 1, 2, 2, 3, 0]
+            normal = (0.0, 1.0, 0.0)
+            geo_scale = shape_geo_scale[-1]
+            width = 100.0 * scaling
+            length = 100.0 * scaling
+            u = 100.0
+            v = 100.0
+            gfx_vertices = [
+                -width, 0.0, -length, 0.0, *normal, 0.0, 0.0,
+                -width, 0.0,  length, 0.0, *normal, 0.0, v,
+                 width, 0.0,  length, 0.0, *normal, u, v,
+                 width, 0.0, -length, 0.0, *normal, u, 0.0,
+            ]
+            shape = self.app.renderer.register_shape(gfx_vertices, faces, texture, double_sided_meshes)
+            X_ws = wp.transform_expand(shape_transform[-1])
+            pos = p.TinyVector3f(*X_ws.p)
+            orn = p.TinyQuaternionf(*X_ws.q)
+            color = p.TinyVector3f(1.,1.,1.)
+            scale = p.TinyVector3f(1.,1.,1.)
+            opacity = 1
+            rebuild = True
+            self.app.renderer.register_graphics_instance(shape, pos, orn, color, scale, opacity, rebuild)
+
+        self.app.renderer.write_transforms()
+        
+        self.num_shapes = len(self.shape_ids)
+        self.num_instances = self.num_shapes * self.num_envs
+        self.bodies_per_env = len(self.model.body_q) // self.num_envs
+        
+        # mapping from shape instance to environment ID
+        self.instance_envs = wp.array(
+            np.tile(np.arange(self.num_envs, dtype=np.int32), self.num_instances), dtype=wp.int32,
+            device="cuda", owner=False, ndim=1)
+        # compute offsets per environment
+        nonzeros = np.nonzero(env_offset)[0]
+        num_dim = nonzeros.shape[0]
+        if num_dim > 0:
+            side_length = int(np.ceil(self.num_envs**(1.0/num_dim)))
+            self.env_offsets = []
+        else:
+            self.env_offsets = np.zeros((self.num_envs, 3))
+        if num_dim == 1:
+            for i in range(self.num_envs):
+                self.env_offsets.append(i*env_offset)
+        elif num_dim == 2:
+            for i in range(self.num_envs):
+                d0 = i // side_length
+                d1 = i % side_length
+                offset = np.zeros(3)
+                offset[nonzeros[0]] = d0 * env_offset[nonzeros[0]]
+                offset[nonzeros[1]] = d1 * env_offset[nonzeros[1]]
+                self.env_offsets.append(offset)
+        elif num_dim == 3:
+            for i in range(self.num_envs):
+                d0 = i // (side_length*side_length)
+                d1 = (i // side_length) % side_length
+                d2 = i % side_length
+                offset = np.zeros(3)
+                offset[0] = d0 * env_offset[0]
+                offset[1] = d1 * env_offset[1]
+                offset[2] = d2 * env_offset[2]
+                self.env_offsets.append(offset)
+        self.env_offsets = np.array(self.env_offsets)
+        min_offsets = np.min(self.env_offsets, axis=0)
+        correction = min_offsets + (np.max(self.env_offsets, axis=0) - min_offsets) / 2.0
+        correction[self.cam_axis] = 0.0  # ensure the envs are not shifted below the ground plane
+        self.env_offsets -= correction
+        self.env_offsets = wp.array(self.env_offsets, dtype=wp.vec3, device="cuda")
+        self.instance_shape = wp.array(self.instance_shape, dtype=wp.int32, device="cuda")
+        # make sure the static arrays are on the GPU
+        if self.model.shape_transform.device.is_cuda:
+            self.shape_transform = self.model.shape_transform
+            self.shape_body = self.model.shape_body
+        else:
+            self.shape_transform = self.model.shape_transform.to("cuda")
+            self.shape_body = self.model.shape_body.to("cuda")
+
+        # load VBO for direct access to shape instance transforms on GPU
+        self.vbo = self.app.cuda_map_vbo()
+        self.vbo_positions = wp.array(
+            ptr=self.vbo.positions, dtype=wp.vec4, shape=(self.num_instances,),
+            length=self.num_instances, capacity=self.num_instances,
+            device="cuda", owner=False, ndim=1)
+        self.vbo_orientations = wp.array(
+            ptr=self.vbo.orientations, dtype=wp.quat, shape=(self.num_instances,),
+            length=self.num_instances, capacity=self.num_instances,
+            device="cuda", owner=False, ndim=1)
+        self._graph = None  # for CUDA graph recording
+
+    def __del__(self):
+        self.app.cuda_unmap_vbo()
 
     def render(self, state: warp.sim.State):
-        self.app.renderer.update_camera(self.cam_axis)
-
 
         if (self.model.particle_count):
             pass
@@ -220,23 +344,38 @@ class TinyRenderer:
         
         
 
-        # update  bodies
+        # update bodies
         if (self.model.body_count):
-            body_q = state.body_q.numpy()
+            
+            wp.synchronize()
+            if state.body_q.device.is_cuda:
+                self.body_q = state.body_q
+            else:
+                self.body_q = state.body_q.to("cuda")
 
-            for instance, shape in self.instance_ids.items():
-                body = self.shape_body[shape]
-                X_bs = self.shape_transform[shape]
-                if body > -1:
-                    X_wb = body_q[body]
-                    X_ws = wp.mul(X_wb, X_bs)
-                else:
-                    X_ws = wp.transform_expand(X_bs)
-                self.update_pose(instance, X_ws)
-
-        self.app.renderer.write_transforms()  
-        self.app.renderer.render_scene()
-        self.app.swap_buffer()
+            if self._graph is None:
+                wp.capture_begin()
+                wp.launch(
+                    update_vbo,
+                    dim=len(self.instance_shape),
+                    inputs=[
+                        self.instance_shape,
+                        self.shape_body,
+                        self.shape_transform,
+                        self.body_q,
+                        self.instance_envs,
+                        self.env_offsets,
+                        self.scaling,
+                        self.bodies_per_env,
+                    ],
+                    outputs=[
+                        self.vbo_positions,
+                        self.vbo_orientations,
+                    ],
+                    device="cuda")
+                self._graph = wp.capture_end()
+            else:
+                wp.capture_launch(self._graph)
 
     def update_pose(self, instance_id, pose: wp.transform):
         self.app.renderer.write_single_instance_transform_to_cpu(
@@ -251,8 +390,7 @@ class TinyRenderer:
             self.update()
 
     def end_frame(self):
-        self.app.renderer.render_scene()
-        self.app.swap_buffer()
+        self.update()
 
     def update(self):
         self.app.renderer.update_camera(self.cam_axis)
