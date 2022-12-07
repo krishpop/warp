@@ -434,7 +434,10 @@ def apply_body_deltas(
 
     # update linear and angular velocity
     v1 = v0 + dp * dt
-    w1 = w0 + dq * dt
+    # angular part (compute in body frame)
+    wb = wp.quat_rotate_inv(q0, w0 + dq * dt)
+    tb = -wp.cross(wb, body_I[tid]*wb)   # coriolis forces
+    w1 = wp.quat_rotate(q0, wb + inv_I * tb * dt)
 
     qd_out[tid] = wp.spatial_vector(w1, v1)
 
