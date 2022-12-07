@@ -286,27 +286,12 @@ class TinyRenderer:
             self.shape_transform = self.model.shape_transform.to("cuda")
             self.shape_body = self.model.shape_body.to("cuda")
 
-        # load VBO for direct access to shape instance transforms on GPU
-        self.vbo = self.app.cuda_map_vbo()
-        self.vbo_positions = wp.array(
-            ptr=self.vbo.positions, dtype=wp.vec4, shape=(self.num_instances,),
-            length=self.num_instances, capacity=self.num_instances,
-            device="cuda", owner=False, ndim=1)
-        self.vbo_orientations = wp.array(
-            ptr=self.vbo.orientations, dtype=wp.quat, shape=(self.num_instances,),
-            length=self.num_instances, capacity=self.num_instances,
-            device="cuda", owner=False, ndim=1)
-        self._graph = None  # for CUDA graph recording
-
         if not suppress_keyboard_help:
             print("Control commands for the TinyRenderer window:")
             print("  [Space]                                   pause simulation")
             print("  [S]                                       skip rendering")
             print("  [Alt] + mouse drag (left/middle button)   rotate/pan camera")
             print("  [ESC]                                     exit")
-
-    def __del__(self):
-        self.app.cuda_unmap_vbo()
 
     def render(self, state: warp.sim.State):
         if self.skip_rendering:
@@ -368,29 +353,34 @@ class TinyRenderer:
             else:
                 self.body_q = state.body_q.to("cuda")
 
-            if self._graph is None:
-                wp.capture_begin()
-                wp.launch(
-                    update_vbo,
-                    dim=len(self.instance_shape),
-                    inputs=[
-                        self.instance_shape,
-                        self.shape_body,
-                        self.shape_transform,
-                        self.body_q,
-                        self.instance_envs,
-                        self.env_offsets,
-                        self.scaling,
-                        self.bodies_per_env,
-                    ],
-                    outputs=[
-                        self.vbo_positions,
-                        self.vbo_orientations,
-                    ],
-                    device="cuda")
-                self._graph = wp.capture_end()
-            else:
-                wp.capture_launch(self._graph)
+            vbo = self.app.cuda_map_vbo()
+            vbo_positions = wp.array(
+                ptr=vbo.positions, dtype=wp.vec4, shape=(self.num_instances,),
+                length=self.num_instances, capacity=self.num_instances,
+                device="cuda", owner=False, ndim=1)
+            vbo_orientations = wp.array(
+                ptr=vbo.orientations, dtype=wp.quat, shape=(self.num_instances,),
+                length=self.num_instances, capacity=self.num_instances,
+                device="cuda", owner=False, ndim=1)
+            wp.launch(
+                update_vbo,
+                dim=len(self.instance_shape),
+                inputs=[
+                    self.instance_shape,
+                    self.shape_body,
+                    self.shape_transform,
+                    self.body_q,
+                    self.instance_envs,
+                    self.env_offsets,
+                    self.scaling,
+                    self.bodies_per_env,
+                ],
+                outputs=[
+                    vbo_positions,
+                    vbo_orientations,
+                ],
+                device="cuda")
+            self.app.cuda_unmap_vbo()
 
     def begin_frame(self, time: float):
         self.time = time
