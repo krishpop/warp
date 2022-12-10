@@ -20,6 +20,7 @@ from typing import Any
 from typing import Callable
 from typing import Union
 from typing import Mapping
+from typing import Optional
 
 import warp
 import warp.utils
@@ -2159,7 +2160,7 @@ def force_load(device:Union[Device, str]=None):
         runtime.core.cuda_context_set_current(saved_context)
 
 
-def set_module_options(options: Dict[str, Any]):
+def set_module_options(options: Dict[str, Any], module: Optional[Any] = None):
     """Set options for the current module.
 
     Options can be used to control runtime compilation and code-generation
@@ -2173,18 +2174,24 @@ def set_module_options(options: Dict[str, Any]):
         options: Set of key-value option pairs
     """
    
-    import inspect
-    m = inspect.getmodule(inspect.stack()[1][0])
+    if module is None:
+        import inspect
+        m = inspect.getmodule(inspect.stack()[1][0])
+    else:
+        m = module
 
     get_module(m.__name__).options.update(options)
     get_module(m.__name__).unload()
 
 
-def get_module_options() -> Dict[str, Any]:
+def get_module_options(module: Optional[Any] = None) -> Dict[str, Any]:
     """Returns a list of options for the current module.
     """
-    import inspect
-    m = inspect.getmodule(inspect.stack()[1][0])
+    if module is None:
+        import inspect
+        m = inspect.getmodule(inspect.stack()[1][0])
+    else:
+        m = module
 
     return get_module(m.__name__).options
 
