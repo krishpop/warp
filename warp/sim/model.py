@@ -45,7 +45,8 @@ JOINT_FIXED = wp.constant(3)
 JOINT_FREE = wp.constant(4)
 JOINT_COMPOUND = wp.constant(5)
 JOINT_UNIVERSAL = wp.constant(6)
-
+JOINT_DISTANCE = wp.constant(7)
+JOINT_D6 = wp.constant(8)
 
 # Material properties pertaining to rigid shape contact dynamics
 @wp.struct
@@ -1067,6 +1068,12 @@ class ModelBuilder:
         elif (joint_type == JOINT_UNIVERSAL):
             dof_count = 2
             coord_count = 2
+        elif (joint_type == JOINT_DISTANCE):
+            dof_count = 1
+            coord_count = 1
+        elif (joint_type == JOINT_D6):
+            dof_count = 6
+            coord_count = 6
 
         # convert coefficients to np.arrays() so we can index into them for 
         # compound joints, this just allows user to pass scalars or arrays
@@ -1164,7 +1171,8 @@ class ModelBuilder:
                         kd: float=default_shape_kd,
                         kf: float=default_shape_kf,
                         mu: float=default_shape_mu,
-                        restitution: float=default_shape_restitution):
+                        restitution: float=default_shape_restitution,
+                        contact_thickness: float=0.0):
         """
         Adds a plane collision shape.
         If pos and rot are defined, the plane is assumed to have its normal as (0, 1, 0).
@@ -1198,7 +1206,7 @@ class ModelBuilder:
                 axis = c / np.linalg.norm(c)
                 rot = wp.quat_from_axis_angle(axis, angle)
         scale = (width, length, 0.0)
-        return self._add_shape(body, pos, rot, GEO_PLANE, scale, None, 0.0, ke, kd, kf, mu, restitution)
+        return self._add_shape(body, pos, rot, GEO_PLANE, scale, None, 0.0, ke, kd, kf, mu, restitution, contact_thickness)
 
     def add_shape_sphere(self,
                          body,

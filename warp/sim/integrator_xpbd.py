@@ -472,6 +472,8 @@ def apply_joint_torques(
         return
     if (type == wp.sim.JOINT_FREE):
         return
+    if (type == wp.sim.JOINT_DISTANCE):
+        return
     
     # rigid body indices of the child and parent
     id_c = joint_child[tid]
@@ -659,7 +661,10 @@ def solve_body_joints(body_q: wp.array(dtype=wp.transform),
 
     rel_pose = wp.transform_inverse(X_wp) * X_wc
     rel_p = wp.transform_get_translation(rel_pose)
-    frame_p = wp.quat_to_matrix(wp.transform_get_rotation(X_wp))
+    
+    # joint connection points
+    x_p = wp.transform_get_translation(X_wp)
+    x_c = wp.transform_get_translation(X_wc)
     
     axis = joint_axis[tid]
     linear_compliance = joint_linear_compliance[tid]
@@ -685,40 +690,28 @@ def solve_body_joints(body_q: wp.array(dtype=wp.transform),
         target_pos_kd = axis * joint_target_kd[qd_start]
         target_pos = axis * joint_target[qd_start]
 
-    # joint connection points
-    x_p = wp.transform_get_translation(X_wp)
-    x_c = wp.transform_get_translation(X_wc)
-
     # handle positional constraints
-    for dim in range(3):
-        err = rel_p[dim]
-
-        lower = lower_pos_limits[dim]
-        upper = upper_pos_limits[dim]
-
-        compliance = linear_compliance
-        damping = 0.0
-        if wp.abs(target_pos_ke[dim]) > 0.0:
-            err -= target_pos[dim]
-            compliance = 1.0 / wp.abs(target_pos_ke[dim])
-            damping = wp.abs(target_pos_kd[dim])
-        if err < lower:
-            err = rel_p[dim] - lower
+    if (type == wp.sim.JOINT_DISTANCE):
+        lower = joint_limit_lower[qd_start]
+        upper = joint_limit_upper[qd_start]
+        if lower < 0.0 and upper < 0.0:
+            # no limits
+            return
+        d = wp.length(rel_p)
+        err = 0.0
+        if lower >= 0.0 and d < lower:
+            err = d - lower
             compliance = linear_compliance
             damping = 0.0
-        elif err > upper:
-            err = rel_p[dim] - upper
+        elif upper >= 0.0 and d > upper:
+            err = d - upper
             compliance = linear_compliance
             damping = 0.0
-        else:
-            err = 0.0
 
         if wp.abs(err) > 1e-9:
             # compute gradients
-            linear_c = wp.vec3(frame_p[0, dim], frame_p[1, dim], frame_p[2, dim])
+            linear_c = rel_p
             linear_p = -linear_c
-            # note that x_c appearing in both is correct
-            r_p = x_c - wp.transform_point(pose_p, com_p)
             r_c = x_c - wp.transform_point(pose_c, com_c)
             angular_p = -wp.cross(r_p, linear_c)
             angular_c = wp.cross(r_c, linear_c)
@@ -732,11 +725,64 @@ def solve_body_joints(body_q: wp.array(dtype=wp.transform),
             # d_lambda = compute_positional_correction(
             #     err, derr, X_wp, X_wc, m_inv_p, m_inv_c, I_inv_p, I_inv_c,
             #     linear_p, linear_c, angular_p, angular_c, lambda_in, compliance, damping, dt)
+            # d_lambda *= 0.1
 
             lin_delta_p += linear_p * (d_lambda * positional_relaxation)
             ang_delta_p += angular_p * (d_lambda * positional_relaxation)
             lin_delta_c += linear_c * (d_lambda * angular_relaxation)
             ang_delta_c += angular_c * (d_lambda * angular_relaxation)
+
+    else:
+
+        frame_p = wp.quat_to_matrix(wp.transform_get_rotation(X_wp))
+
+        for dim in range(3):
+            err = rel_p[dim]
+
+            lower = lower_pos_limits[dim]
+            upper = upper_pos_limits[dim]
+
+            compliance = linear_compliance
+            damping = 0.0
+            if wp.abs(target_pos_ke[dim]) > 0.0:
+                err -= target_pos[dim]
+                compliance = 1.0 / wp.abs(target_pos_ke[dim])
+                damping = wp.abs(target_pos_kd[dim])
+            if err < lower:
+                err = rel_p[dim] - lower
+                compliance = linear_compliance
+                damping = 0.0
+            elif err > upper:
+                err = rel_p[dim] - upper
+                compliance = linear_compliance
+                damping = 0.0
+            else:
+                err = 0.0
+
+            if wp.abs(err) > 1e-9:
+                # compute gradients
+                linear_c = wp.vec3(frame_p[0, dim], frame_p[1, dim], frame_p[2, dim])
+                linear_p = -linear_c
+                # note that x_c appearing in both is correct
+                r_p = x_c - wp.transform_point(pose_p, com_p)
+                r_c = x_c - wp.transform_point(pose_c, com_c)
+                angular_p = -wp.cross(r_p, linear_c)
+                angular_c = wp.cross(r_c, linear_c)
+                # constraint time derivative
+                derr = wp.dot(linear_p, vel_p) + wp.dot(linear_c, vel_c) + wp.dot(angular_p, omega_p) + wp.dot(angular_c, omega_c)
+                
+                lambda_in = 0.0
+                d_lambda = compute_positional_correction(
+                    err, derr, pose_p, pose_c, m_inv_p, m_inv_c, I_inv_p, I_inv_c,
+                    linear_p, linear_c, angular_p, angular_c, lambda_in, compliance, damping, dt)
+                # d_lambda = compute_positional_correction(
+                #     err, derr, X_wp, X_wc, m_inv_p, m_inv_c, I_inv_p, I_inv_c,
+                #     linear_p, linear_c, angular_p, angular_c, lambda_in, compliance, damping, dt)
+
+                lin_delta_p += linear_p * (d_lambda * positional_relaxation)
+                ang_delta_p += angular_p * (d_lambda * positional_relaxation)
+                lin_delta_c += linear_c * (d_lambda * angular_relaxation)
+                ang_delta_c += angular_c * (d_lambda * angular_relaxation)
 
 
     # local joint rotations
@@ -871,7 +917,7 @@ def solve_body_joints(body_q: wp.array(dtype=wp.transform),
     if (type == wp.sim.JOINT_BALL):
         if (joint_limit_lower[qd_start] != 0.0 or joint_limit_upper[qd_start] != 0.0 or joint_target_ke[qd_start] != 0.0):
             print("Warning: ball joints with position limits or target stiffness are not yet supported!")
-    else:
+    elif (type != wp.sim.JOINT_DISTANCE):
         for dim in range(3):
             err = 0.0
          
