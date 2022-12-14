@@ -6,11 +6,8 @@
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
 
-from warp.sim.model import JOINT_COMPOUND, JOINT_REVOLUTE, JOINT_UNIVERSAL
-
-import math
 import numpy as np
-import os
+import re
 
 import warp as wp
 from . import ModelBuilder
@@ -34,19 +31,30 @@ def parse_usd(
     except ImportError:
         raise ImportError("Failed to import pxr. Please install USD.")
     
+    def get_attribute(prim, name):
+        if "*" in name:
+            regex = name.replace('*', '.*')
+            for attr in prim.GetAttributes():
+                if re.match(regex, attr.GetName()):
+                    return attr
+        else:
+            return prim.GetAttribute(name)
+            
 
     def parse_float(prim, name, default=None):
-        if not prim.HasAttribute(name):
+        attr = get_attribute(prim, name)
+        if not attr:
             return default
-        val = prim.GetAttribute(name).Get()
+        val = attr.Get()
         if np.isfinite(val):
             return val
         return default
 
     def parse_quat(prim, name, default=None):
-        if not prim.HasAttribute(name):
+        attr = get_attribute(prim, name)
+        if not attr:
             return default
-        val = prim.GetAttribute(name).Get()
+        val = attr.Get()
         quat = wp.quat(*val.imaginary, val.real)
         l = wp.length(quat)
         if np.isfinite(l) and l > 0.0:
@@ -54,17 +62,19 @@ def parse_usd(
         return default
 
     def parse_vec(prim, name, default=None):
-        if not prim.HasAttribute(name):
+        attr = get_attribute(prim, name)
+        if not attr:
             return default
-        val = prim.GetAttribute(name).Get()
+        val = attr.Get()
         if np.isfinite(val).all():
             return np.array(val)
         return default
 
     def parse_generic(prim, name, default=None):
-        if not prim.HasAttribute(name):
+        attr = get_attribute(prim, name)
+        if not attr:
             return default
-        return prim.GetAttribute(name).Get()
+        return attr.Get()
 
     def str2axis(s: str) -> np.ndarray:
         axis = np.zeros(3)
@@ -92,6 +102,37 @@ def parse_usd(
             if op.GetOpType() == UsdGeom.XformOp.TypeScale:
                 scale = np.array(op.Get())
         return wp.transform(pos, rot), scale
+
+    def parse_drive(prim, type, joint_data, is_angular):
+        schemas = prim.GetAppliedSchemas()  # TODO consider inherited schemas
+        if f"DriveAPI:{type}" not in "".join(schemas):
+            return
+        drive_type = parse_generic(prim, f"drive:{type}:physics:type", "force")
+        if drive_type != "force":
+            print(f"Warning: only force drive type is supported, ignoring drive:{type} for joint {path}")
+            return
+        drive_data = {}
+        stiffness = parse_float(prim, f"drive:{type}:physics:stiffness", 0.0)
+        damping = parse_float(prim, f"drive:{type}:physics:damping", 0.0)
+        target_pos = parse_float(prim, f"drive:{type}:physics:targetPosition", 0.0)
+        target_vel = parse_float(prim, f"drive:{type}:physics:targetVelocity", 0.0)
+        if is_angular:
+            stiffness *= mass_unit * linear_unit**2
+            stiffness = np.deg2rad(stiffness)
+            damping *= mass_unit * linear_unit**2
+            damping = np.deg2rad(damping)
+            target_pos = np.deg2rad(target_pos)
+            target_vel = np.deg2rad(target_vel)
+        else:
+            stiffness *= mass_unit
+            damping *= mass_unit
+            target_pos *= linear_unit
+            target_vel *= linear_unit
+        drive_data["stiffness"] = stiffness
+        drive_data["damping"] = damping
+        drive_data["target_pos"] = target_pos
+        drive_data["target_vel"] = target_vel
+        joint_data[f"drive:{type}"] = drive_data
 
 
     upaxis = str2axis(UsdGeom.GetStageUpAxis(stage))
@@ -141,6 +182,7 @@ def parse_usd(
             }
             if only_load_enabled_joints and not joint_data[child]["enabled"]:
                 continue
+            # parse joint limits
             if type_name == "Distance":
                 # if distance is negative the joint is not limited
                 joint_data[child]["lowerLimit"] = parse_float(prim, "physics:minDistance", -1.0) * linear_unit
@@ -156,7 +198,17 @@ def parse_usd(
                 joint_data[child]["parent"] = str(parents[0])
             else:
                 joint_data[child]["parent"] = None
-            # TODO parse UsdPhysicsDriveAPI
+            
+            # parse joint drive
+            parse_drive(prim, "angular", joint_data[child], is_angular=True)
+            parse_drive(prim, "rotX", joint_data[child], is_angular=True)
+            parse_drive(prim, "rotY", joint_data[child], is_angular=True)
+            parse_drive(prim, "rotZ", joint_data[child], is_angular=True)
+            parse_drive(prim, "linear", joint_data[child], is_angular=False)
+            parse_drive(prim, "transX", joint_data[child], is_angular=False)
+            parse_drive(prim, "transY", joint_data[child], is_angular=False)
+            parse_drive(prim, "transZ", joint_data[child], is_angular=False)
+            
         elif type_name == "PhysicsScene":
             scene = UsdPhysics.Scene(prim)
             g_vec = scene.GetGravityDirectionAttr()
@@ -225,10 +277,6 @@ def parse_usd(
             com = parse_vec(prim, "physics:centerOfMass", np.zeros(3))
             i_diag = parse_vec(prim, "physics:diagonalInertia", np.zeros(3))
             i_rot = parse_quat(prim, "physics:principalAxes", wp.quat_identity())
-            
-
-            # geo_pos = np.zeros(3)
-            # geo_rot = wp.quat_identity()
 
             xform, scale = parse_xform(prim)
             scale = incoming_scale*scale
@@ -240,8 +288,16 @@ def parse_usd(
             if joint is not None:
                 if joint["type"] == "Revolute":
                     joint_params["joint_type"] = wp.sim.JOINT_REVOLUTE
+                    if "drive:angular" in joint:
+                        joint_params["joint_target_ke"] = joint["drive:angular"]["stiffness"]
+                        joint_params["joint_target_kd"] = joint["drive:angular"]["damping"]
+                        joint_params["joint_target"] = joint["drive:angular"]["target_pos"]
                 elif joint["type"] == "Prismatic":
                     joint_params["joint_type"] = wp.sim.JOINT_PRISMATIC
+                    if "drive:linear" in joint:
+                        joint_params["joint_target_ke"] = joint["drive:linear"]["stiffness"]
+                        joint_params["joint_target_kd"] = joint["drive:linear"]["damping"]
+                        joint_params["joint_target"] = joint["drive:linear"]["target_pos"]
                 elif joint["type"] == "Spherical":
                     joint_params["joint_type"] = wp.sim.JOINT_BALL
                 elif joint["type"] == "Fixed":
@@ -272,6 +328,7 @@ def parse_usd(
                 # XXX apply child transform to shape since joint_xform_child is reserved for multi-dof joints
                 # geo_tf = joint["child_tf"]
                 geo_tf = rel_pose * joint["child_tf"]
+                # update relative transform for child prims
                 prim_joint_xforms[path] = geo_tf
                 # geo_tf = wp.transform(-np.array(joint["child_tf"].p), joint["child_tf"].q)
             if "PhysicsRigidBodyAPI" not in schemas:
@@ -424,16 +481,10 @@ def parse_usd(
         else:
             print(f"Warning: encountered unsupported prim type {type_name}")
 
-    # refs = Usd.PrimCompositionQuery.GetDirectReferences(prim).GetCompositionArcs()
-    # with open('usd_stage_debug.txt', 'w') as f:
-    #     f.write(stage.GetRootLayer().ExportToString())
-
     parse_prim(
         stage.GetDefaultPrim(),
         incoming_xform=wp.transform_identity(),
         incoming_scale=np.ones(3) * linear_unit)
-    # for prim in stage.Traverse():
-        
 
     shape_count = len(builder.shape_geo_type)
 
