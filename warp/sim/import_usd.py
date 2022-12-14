@@ -102,6 +102,9 @@ def parse_usd(
     path_shape_map = {}
     # maps prim path name to its world transform
     prim_poses = {}
+    # transform from body frame to where the actual joint child frame is
+    # so that the link's children will use the right parent tf for the joint
+    prim_joint_xforms = {}
     path_collision_filters = set()
     no_collision_shapes = set()
 
@@ -171,6 +174,7 @@ def parse_usd(
         nonlocal path_body_map
         nonlocal path_shape_map
         nonlocal prim_poses
+        nonlocal prim_joint_xforms
         nonlocal path_collision_filters
         nonlocal no_collision_shapes
 
@@ -179,6 +183,8 @@ def parse_usd(
         schemas = set(prim.GetAppliedSchemas() + list(incoming_schemas))
         print(path, type_name)
         children_refs = prim.GetChildren()
+
+        prim_joint_xforms[path] = wp.transform_identity()
         
         if type_name == "Xform":
             xform, scale = parse_xform(prim)
@@ -248,15 +254,16 @@ def parse_usd(
                 joint_params["joint_limit_lower"] = joint["lowerLimit"]
                 joint_params["joint_limit_upper"] = joint["upperLimit"]
 
+                joint_params["joint_xform"] = joint["parent_tf"]
                 if joint["parent"] is None:
                     joint_params["parent"] = -1
-                    X_wp = wp.transform_identity()
+                    rel_pose = wp.transform_identity()
                 else:
                     joint_params["parent"] = path_body_map[joint["parent"]]
                     X_wp = prim_poses[joint["parent"]]
-                X_wc = xform
-                rel_pose = wp.transform_inverse(X_wp) * X_wc
-                joint_params["joint_xform"] = joint["parent_tf"]
+                    X_wc = xform
+                    rel_pose = wp.transform_inverse(X_wp) * X_wc
+                    joint_params["joint_xform"] *= prim_joint_xforms[joint["parent"]]
                 # joint_params["joint_xform"] = rel_pose
                 # joint_params["joint_xform"] = wp.mul(joint["parent_tf"], joint["child_tf"])
                 # joint_params["joint_xform_child"] = wp.transform_inverse(joint["child_tf"])
@@ -265,6 +272,7 @@ def parse_usd(
                 # XXX apply child transform to shape since joint_xform_child is reserved for multi-dof joints
                 # geo_tf = joint["child_tf"]
                 geo_tf = rel_pose * joint["child_tf"]
+                prim_joint_xforms[path] = geo_tf
                 # geo_tf = wp.transform(-np.array(joint["child_tf"].p), joint["child_tf"].q)
             if "PhysicsRigidBodyAPI" not in schemas:
                 joint_params["joint_type"] = wp.sim.JOINT_FIXED
