@@ -756,8 +756,6 @@ def solve_body_joints(body_q: wp.array(dtype=wp.transform),
                 err = rel_p[dim] - upper
                 compliance = linear_compliance
                 damping = 0.0
-            else:
-                err = 0.0
 
             if wp.abs(err) > 1e-9:
                 # compute gradients
