@@ -23,7 +23,7 @@ def parse_usd(
     default_kf=500.0,
     default_mu=0.0,
     default_restitution=0.0,
-    default_contact_thickness=2e-2,
+    default_contact_thickness=0.0,
     verbose=True):
 
     try:
@@ -39,7 +39,6 @@ def parse_usd(
                     return attr
         else:
             return prim.GetAttribute(name)
-            
 
     def parse_float(prim, name, default=None):
         attr = get_attribute(prim, name)
@@ -104,6 +103,7 @@ def parse_usd(
         return wp.transform(pos, rot), scale
 
     def parse_drive(prim, type, joint_data, is_angular):
+        # parse joint drive data
         schemas = prim.GetAppliedSchemas()  # TODO consider inherited schemas
         if f"DriveAPI:{type}" not in "".join(schemas):
             return
@@ -134,7 +134,6 @@ def parse_usd(
         drive_data["target_vel"] = target_vel
         joint_data[f"drive:{type}"] = drive_data
 
-
     upaxis = str2axis(UsdGeom.GetStageUpAxis(stage))
 
     shape_types = {"Cube", "Sphere", "Mesh", "Capsule", "Plane"}
@@ -149,12 +148,9 @@ def parse_usd(
     path_collision_filters = set()
     no_collision_shapes = set()
 
-    default_shape_params = dict(
-        ke=default_ke, kd=default_kd, kf=default_kf, mu=default_mu,
-        restitution=default_restitution)
-
-    # first find all the joints
+    # first find all the joints and materials
     joint_data = {}  # mapping from path of child link to joint USD settings
+    materials = {}  # mapping from material path to material USD settings
     for prim in stage.Traverse():
         type_name = str(prim.GetTypeName())
         path = str(prim.GetPath())
@@ -181,6 +177,7 @@ def parse_usd(
                 "breakTorque": parse_float(prim, "physics:breakTorque", np.inf),
             }
             if only_load_enabled_joints and not joint_data[child]["enabled"]:
+                print("Skipping disabled joint", path)
                 continue
             # parse joint limits
             if type_name == "Distance":
@@ -208,6 +205,18 @@ def parse_usd(
             parse_drive(prim, "transX", joint_data[child], is_angular=False)
             parse_drive(prim, "transY", joint_data[child], is_angular=False)
             parse_drive(prim, "transZ", joint_data[child], is_angular=False)
+
+        elif type_name == "Material":
+            material = {}
+            if prim.HasAttribute("physics:density"):
+                material["density"] = parse_float(prim, "physics:density", 0.0) * mass_unit / (linear_unit**3)
+            if prim.HasAttribute("physics:restitution"):
+                material["restitution"] = parse_float(prim, "physics:restitution", default_restitution)
+            if prim.HasAttribute("physics:staticFriction"):
+                material["staticFriction"] = parse_float(prim, "physics:staticFriction", default_mu)
+            if prim.HasAttribute("physics:dynamicFriction"):
+                material["dynamicFriction"] = parse_float(prim, "physics:dynamicFriction", default_mu)
+            materials[path] = material
             
         elif type_name == "PhysicsScene":
             scene = UsdPhysics.Scene(prim)
@@ -233,7 +242,8 @@ def parse_usd(
         path = str(prim.GetPath())
         type_name = str(prim.GetTypeName())
         schemas = set(prim.GetAppliedSchemas() + list(incoming_schemas))
-        print(path, type_name)
+        if verbose:
+            print(path, type_name)
         children_refs = prim.GetChildren()
 
         prim_joint_xforms[path] = wp.transform_identity()
@@ -259,6 +269,25 @@ def parse_usd(
             else:
                 joint = None
 
+            shape_params = dict(
+                ke=default_ke, kd=default_kd, kf=default_kf, mu=default_mu,
+                restitution=default_restitution)
+
+            density = None
+
+            material = None
+            if prim.HasRelationship("material:binding:physics"):
+                other_paths = prim.GetRelationship("material:binding:physics").GetTargets()
+                if len(other_paths) > 0:
+                    material = materials[str(other_paths[0])]
+            if material is not None:
+                if "restitution" in material:
+                    shape_params["restitution"] = material["restitution"]
+                if "dynamicFriction" in material:
+                    shape_params["mu"] = material["dynamicFriction"]
+                if "density" in material:
+                    density = material["density"]
+
             # assert prim.GetAttribute('orientation').Get() == "rightHanded", "Only right-handed orientations are supported."
             enabled = parse_generic(prim, "physics:rigidBodyEnabled", True)
             if only_load_enabled_rigid_bodies and not enabled:
@@ -267,13 +296,14 @@ def parse_usd(
                 return
             mass = parse_float(prim, "physics:mass")
             if "PhysicsRigidBodyAPI" in schemas:
-                density = parse_float(prim, "physics:density", default_density)
-                if density == 0.0:
-                    density = default_density
-                elif prim.HasAttribute("physics:density"):
-                    density *= mass_unit / (linear_unit**3)
+                if prim.HasAttribute("physics:density"):
+                    d = parse_float(prim, "physics:density")
+                    if d > 0.0:
+                        density = d * mass_unit / (linear_unit**3)
             else:
                 density = 0.0  # static object
+            if density is None:
+                density = default_density
             com = parse_vec(prim, "physics:centerOfMass", np.zeros(3))
             i_diag = parse_vec(prim, "physics:diagonalInertia", np.zeros(3))
             i_rot = parse_quat(prim, "physics:principalAxes", wp.quat_identity())
@@ -366,22 +396,24 @@ def parse_usd(
                     body_id, geo_tf.p, geo_tf.q,
                     hx=extents[0]/2, hy=extents[1]/2, hz=extents[2]/2,
                     density=density, contact_thickness=default_contact_thickness,
-                    **default_shape_params)
+                    **shape_params)
             elif type_name == "Sphere":
-                assert scale[0] == scale[1] == scale[2], "Non-uniform scaling of spheres is not supported."
+                if not (scale[0] == scale[1] == scale[2]):
+                    print("Warning: Non-uniform scaling of spheres is not supported.")
                 if prim.HasAttribute("extents"):
                     extents = parse_vec(prim, "extents") * scale
-                    # position geom at extents center
+                    # TODO position geom at extents center?
                     geo_pos = 0.5 * (extents[0] + extents[1])
                     extents = extents[1] - extents[0]
-                    assert extents[0] == extents[1] == extents[2], "Non-uniform extents of spheres are not supported."
+                    if not (extents[0] == extents[1] == extents[2]):
+                        print("Warning: Non-uniform extents of spheres are not supported.")
                     radius = extents[0]
                 else:
                     radius = parse_float(prim, "radius", 1.0) * scale[0]
                 shape_id = builder.add_shape_sphere(
                     body_id, geo_tf.p, geo_tf.q,
                     radius, density=density,
-                    **default_shape_params)
+                    **shape_params)
             elif type_name == "Plane":
                 normal_str = parse_generic(prim, "axis", "Z").upper()
                 geo_rot = geo_tf.q
@@ -397,7 +429,7 @@ def parse_usd(
                     body=body_id, pos=geo_tf.p, rot=geo_rot,
                     width=width, length=length,
                     contact_thickness=default_contact_thickness,
-                    **default_shape_params)
+                    **shape_params)
             elif type_name == "Capsule":
                 normal_str = parse_generic(prim, "axis", "Z").upper()
                 geo_rot = geo_tf.q
@@ -413,7 +445,7 @@ def parse_usd(
                 shape_id = builder.add_shape_capsule(
                     body_id, geo_tf.p, geo_rot,
                     radius, length, density=density,
-                    **default_shape_params)
+                    **shape_params)
             elif type_name == "Mesh":
                 mesh = UsdGeom.Mesh(prim)
                 points = np.array(mesh.GetPointsAttr().Get())
@@ -435,7 +467,7 @@ def parse_usd(
                 shape_id = builder.add_shape_mesh(
                     body_id, geo_tf.p, geo_tf.q,
                     scale=scale, mesh=m, density=density, contact_thickness=default_contact_thickness,
-                    **default_shape_params)
+                    **shape_params)
 
             path_body_map[path] = body_id
             path_shape_map[path] = shape_id
@@ -476,7 +508,7 @@ def parse_usd(
                 else:
                     builder.body_inv_inertia[body_id] = np.zeros((3, 3))
 
-        elif type_name.endswith("Joint") or type_name.endswith("Light") or type_name.endswith("Scene"):
+        elif type_name.endswith("Joint") or type_name.endswith("Light") or type_name.endswith("Scene") or type_name.endswith("Material"):
             return
         else:
             print(f"Warning: encountered unsupported prim type {type_name}")
