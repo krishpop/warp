@@ -23,6 +23,8 @@ from . model import JOINT_FIXED
 from . model import JOINT_FREE
 from . model import JOINT_COMPOUND
 from . model import JOINT_UNIVERSAL
+from . model import JOINT_DISTANCE
+from . model import JOINT_D6
 
 from . integrator_euler import SemiImplicitIntegrator
 from . integrator_euler import VariationalImplicitIntegrator
@@ -35,3 +37,4 @@ from . articulation import eval_fk, eval_ik
 from . import_mjcf import parse_mjcf
 from . import_urdf import parse_urdf
 from . import_snu import parse_snu
+from . import_usd import parse_usd
