@@ -55,10 +55,10 @@ class TinyRenderer:
         start_paused=False):
 
         import pytinyopengl3 as p
-        self.p = p
 
         self.paused = start_paused
         self.skip_rendering = False
+        self._skip_frame_counter = 0
 
         self.app = p.TinyOpenGL3App(title)
         self.app.renderer.init()
@@ -393,9 +393,13 @@ class TinyRenderer:
         self.update()
 
     def update(self):
+        self._skip_frame_counter += 1
+        if self._skip_frame_counter > 100:
+            self._skip_frame_counter = 0
         if self.skip_rendering:
-            # ensure we receive key events
-            self.app.swap_buffer()
+            if self._skip_frame_counter == 0:
+                # ensure we receive key events
+                self.app.swap_buffer()
             return
         self.app.renderer.update_camera(self.cam_axis)
         self.app.renderer.render_scene()
