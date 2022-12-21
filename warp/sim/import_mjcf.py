@@ -109,7 +109,7 @@ def parse_mjcf(
         start_coord = builder.joint_coord_count
 
         if len(joints) == 1:
-            print("joint:", joints[0].attrib["name"], "parent:", body_name)
+            # print("joint:", joints[0].attrib["name"], "parent:", body_name)
 
             joint = joints[0]
 
