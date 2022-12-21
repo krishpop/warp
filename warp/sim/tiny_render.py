@@ -11,6 +11,8 @@ import sys
 import warp as wp
 import warp.sim
 
+from collections import defaultdict
+
 import numpy as np
 
 @wp.kernel
@@ -54,9 +56,13 @@ class TinyRenderer:
         suppress_keyboard_help=False,
         start_paused=False):
 
-        import pytinyopengl3 as p
+        try:
+            import pytinyopengl3 as p
+        except ImportError:
+            print("pytinyopengl3 not found, it can be installed via `pip install pytinydiffsim`")
+            raise
 
-        self.paused = start_paused
+        self.paused = False
         self.skip_rendering = False
         self._skip_frame_counter = 0
 
@@ -90,10 +96,18 @@ class TinyRenderer:
 
         self.scaling = scaling
 
-        # mapping from visual index to simulation shape
-        self.shape_ids = {}
         # mapping from instance to shape ID
         self.instance_shape = []
+        # mapping from hash of geometry to shape ID
+        self.geo_shape = {}
+
+        # first assemble all instances by shape, so we can send instancing commands in bulk for each shape
+        # tinyrenderer doesn't correctly display instances if the coresponding shapes are out of order
+        instance_shape = defaultdict(list)
+        instance_pos = defaultdict(list)
+        instance_orn = defaultdict(list)
+        instance_scale = defaultdict(list)
+        instance_color = defaultdict(list)
 
         # render meshes double sided
         double_sided_meshes = False
@@ -106,12 +120,21 @@ class TinyRenderer:
             shape_geo_type = model.shape_geo_type.numpy()
             shape_geo_scale = model.shape_geo_scale.numpy()
             shape_transform = model.shape_transform.numpy()
-            
-            import matplotlib.cm as cm
-            cmap = cm.get_cmap('tab20')
-            colors20 = [(np.array(cmap(i)[:3])*255).astype(int) for i in np.linspace(0, 1, 20)]
-
-            for s in range((model.shape_count-1) // self.num_envs):
+            # matplotlib "tab10" colors
+            colors10 = [
+                [ 31, 119, 180],
+                [255, 127,  14],
+                [ 44, 160,  44],
+                [214,  39,  40],
+                [148, 103, 189],
+                [140,  86,  75],
+                [227, 119, 194],
+                [127, 127, 127],
+                [188, 189,  34],
+                [ 23, 190, 207]]
+            # loop over shapes excluding the ground plane
+            num_shapes = (model.shape_count-1) // self.num_envs
+            for s in range(num_shapes):
                 geo_type = shape_geo_type[s]
                 geo_scale = shape_geo_scale[s] * self.scaling
                 geo_src = shape_geo_src[s]
@@ -123,51 +146,64 @@ class TinyRenderer:
                 else:
                     X_ws = wp.transform_expand(shape_transform[s])
                 scale = np.ones(3)
-
+                # check whether we can instance an already created shape with the same geometry
+                geo_hash = hash((int(geo_type), geo_src, geo_scale[0], geo_scale[1], geo_scale[2]))
+                
                 if (geo_type == warp.sim.GEO_PLANE):
-                    color1 = (np.array(colors20[s%20]) + 50.0).clip(0, 255).astype(int)
-                    color2 = (np.array(colors20[s%20]) + 90.0).clip(0, 255).astype(int)
-                    texture = self.create_check_texture(256, 256, color1=color1, color2=color2)
-                    faces = [0, 1, 2, 2, 3, 0]
-                    normal = (0.0, 1.0, 0.0)
-                    width = (geo_scale[0] if geo_scale[0] > 0.0 else 100.0)
-                    length = (geo_scale[1] if geo_scale[1] > 0.0 else 100.0)
-                    aspect = width / length
-                    u = width / scaling * aspect
-                    v = length / scaling
-                    gfx_vertices = [
-                        -width, 0.0, -length, 0.0, *normal, 0.0, 0.0,
-                        -width, 0.0,  length, 0.0, *normal, 0.0, v,
-                         width, 0.0,  length, 0.0, *normal, u, v,
-                         width, 0.0, -length, 0.0, *normal, u, 0.0,
-                    ]
-                    shape = self.app.renderer.register_shape(gfx_vertices, faces, texture, double_sided_meshes)
+                    if geo_hash in self.geo_shape:
+                        shape = self.geo_shape[geo_hash]
+                    else:
+                        color1 = (np.array(colors10[s%10]) + 50.0).clip(0, 255).astype(int)
+                        color2 = (np.array(colors10[s%10]) + 90.0).clip(0, 255).astype(int)
+                        texture = self.create_check_texture(256, 256, color1=color1, color2=color2)
+                        faces = [0, 1, 2, 2, 3, 0]
+                        normal = (0.0, 1.0, 0.0)
+                        width = (geo_scale[0] if geo_scale[0] > 0.0 else 100.0)
+                        length = (geo_scale[1] if geo_scale[1] > 0.0 else 100.0)
+                        aspect = width / length
+                        u = width / scaling * aspect
+                        v = length / scaling
+                        gfx_vertices = [
+                            -width, 0.0, -length, 0.0, *normal, 0.0, 0.0,
+                            -width, 0.0,  length, 0.0, *normal, 0.0, v,
+                            width, 0.0,  length, 0.0, *normal, u, v,
+                            width, 0.0, -length, 0.0, *normal, u, 0.0,
+                        ]
+                        shape = self.app.renderer.register_shape(gfx_vertices, faces, texture, double_sided_meshes)
 
                 elif (geo_type == warp.sim.GEO_SPHERE):
-                    texture = self.create_check_texture(color1=colors20[s%20])
-                    shape = self.app.register_graphics_unit_sphere_shape(p.EnumSphereLevelOfDetail.SPHERE_LOD_HIGH, texture)
+                    if geo_hash in self.geo_shape:
+                        shape = self.geo_shape[geo_hash]
+                    else:
+                        texture = self.create_check_texture(color1=colors10[s%10])
+                        shape = self.app.register_graphics_unit_sphere_shape(p.EnumSphereLevelOfDetail.SPHERE_LOD_HIGH, texture)
                     scale *= float(geo_scale[0]) * 2.0  # diameter
 
                 elif (geo_type == warp.sim.GEO_CAPSULE):
-                    radius = float(geo_scale[0])
-                    half_width = float(geo_scale[1])
-                    up_axis = 0
-                    texture = self.create_check_texture(color1=colors20[s%20])
-                    shape = self.app.register_graphics_capsule_shape(radius, half_width, up_axis, texture)
+                    if geo_hash in self.geo_shape:
+                        shape = self.geo_shape[geo_hash]
+                    else:
+                        radius = float(geo_scale[0])
+                        half_width = float(geo_scale[1])
+                        up_axis = 0
+                        texture = self.create_check_texture(color1=colors10[s%10])
+                        shape = self.app.register_graphics_capsule_shape(radius, half_width, up_axis, texture)
 
                 elif (geo_type == warp.sim.GEO_BOX):
-                    texture = self.create_check_texture(color1=colors20[s%20])
-                    shape = self.app.register_cube_shape(geo_scale[0], geo_scale[1], geo_scale[2], texture, 4)
+                    if geo_hash in self.geo_shape:
+                        shape = self.geo_shape[geo_hash]
+                    else:
+                        texture = self.create_check_texture(color1=colors10[s%10])
+                        shape = self.app.register_cube_shape(geo_scale[0], geo_scale[1], geo_scale[2], texture, 4)
 
                 elif (geo_type == warp.sim.GEO_MESH):
-                    texture = self.create_check_texture(1, 1, color1=colors20[s%20], color2=colors20[s%20])
-                    faces = geo_src.indices.reshape((-1, 3))
-                    vertices = np.array(geo_src.vertices)
-                    # convert vertices to (x,y,z,w, nx,ny,nz, u,v) format
-                    if False:
-                        gfx_vertices = np.hstack((vertices * geo_scale, np.zeros((len(geo_src.vertices), 6))))
-                        gfx_indices = faces[:, ::-1]
+                    if geo_hash in self.geo_shape:
+                        shape = self.geo_shape[geo_hash]
                     else:
+                        texture = self.create_check_texture(1, 1, color1=colors10[s%10], color2=colors10[s%10])
+                        faces = geo_src.indices.reshape((-1, 3))
+                        vertices = np.array(geo_src.vertices)
+                        # convert vertices to (x,y,z,w, nx,ny,nz, u,v) format
                         gfx_vertices = np.zeros((len(faces)*3, 9))
                         gfx_indices = np.arange(len(faces)*3).reshape((-1, 3))
                         # compute vertex normals
@@ -180,30 +216,41 @@ class TinyRenderer:
                             gfx_vertices[i*3+2, :3] = v2
                             n = np.cross(v1-v0, v2-v0)
                             gfx_vertices[i*3:i*3+3, 4:7] = n / np.linalg.norm(n)
-                        
-                    shape = self.app.renderer.register_shape(
-                        gfx_vertices.flatten(),
-                        gfx_indices.flatten(),
-                        texture,
-                        double_sided_meshes)
+                            
+                        shape = self.app.renderer.register_shape(
+                            gfx_vertices.flatten(),
+                            gfx_indices.flatten(),
+                            texture,
+                            double_sided_meshes)
 
                 elif (geo_type == warp.sim.GEO_SDF):
                     continue
                 else:
                     print("Unknown geometry type: ", geo_type)
                     continue
-                instance_pos = [p.TinyVector3f(*X_ws.p)] * self.num_envs
-                instance_orn = [p.TinyQuaternionf(*X_ws.q)] * self.num_envs
-                instance_color = [p.TinyVector3f(1.,1.,1.)] * self.num_envs
-                instance_scale = [p.TinyVector3f(*scale)] * self.num_envs
-                opacity = 1
-                rebuild = True
-                self.shape_ids[shape] = s
-                self.instance_shape.extend([s] * self.num_envs)
-                self.app.renderer.register_graphics_instances(
-                    shape, instance_pos, instance_orn,
-                    instance_color, instance_scale, opacity, rebuild
-                )
+
+                if geo_hash not in self.geo_shape:
+                    self.geo_shape[geo_hash] = shape
+
+                instance_shape[shape].append(s)
+                instance_pos[shape].append(p.TinyVector3f(*X_ws.p))
+                instance_orn[shape].append(p.TinyQuaternionf(*X_ws.q))
+                instance_scale[shape].append(p.TinyVector3f(*scale))
+                instance_color[shape].append(p.TinyVector3f(1.,1.,1.))
+
+        # create instances for each shape
+        for i, shape in enumerate(instance_shape.keys()):
+            opacity = 1
+            rebuild = (i == len(instance_shape)-1)
+            self.instance_shape.extend(np.repeat(instance_shape[shape], self.num_envs))
+            self.app.renderer.register_graphics_instances(
+                shape,
+                instance_pos[shape] * self.num_envs,
+                instance_orn[shape] * self.num_envs,
+                instance_color[shape] * self.num_envs,
+                instance_scale[shape] * self.num_envs,
+                opacity, rebuild
+            )
 
         if model.ground:
             color1 = (200, 200, 200)
@@ -234,13 +281,13 @@ class TinyRenderer:
 
         self.app.renderer.write_transforms()
         
-        self.num_shapes = len(self.shape_ids)
-        self.num_instances = self.num_shapes * self.num_envs
+        self.num_instances = len(self.instance_shape)
         self.bodies_per_env = len(self.model.body_q) // self.num_envs
+        self.instances_per_env = self.num_instances // self.num_envs
         
         # mapping from shape instance to environment ID
         self.instance_envs = wp.array(
-            np.tile(np.arange(self.num_envs, dtype=np.int32), self.num_instances), dtype=wp.int32,
+            np.tile(np.arange(self.num_envs, dtype=np.int32), self.instances_per_env), dtype=wp.int32,
             device="cuda", owner=False, ndim=1)
         # compute offsets per environment
         nonzeros = np.nonzero(env_offset)[0]
@@ -292,6 +339,12 @@ class TinyRenderer:
             print("  [S]                                       skip rendering")
             print("  [Alt] + mouse drag (left/middle button)   rotate/pan camera")
             print("  [ESC]                                     exit")
+
+        if start_paused:
+            self.begin_frame(0.0)
+            self.render(model.state())
+            self.end_frame()
+            self.paused = True
 
     def render(self, state: warp.sim.State):
         if self.skip_rendering:
@@ -364,7 +417,7 @@ class TinyRenderer:
                 device="cuda", owner=False, ndim=1)
             wp.launch(
                 update_vbo,
-                dim=len(self.instance_shape),
+                dim=self.num_instances,
                 inputs=[
                     self.instance_shape,
                     self.shape_body,
@@ -411,12 +464,14 @@ class TinyRenderer:
         if self.app.window.requested_exit():
             sys.exit(0)
 
-    def create_check_texture(self, width=256, height=256, color1=(0, 128, 256), color2=(255, 255, 255)):
+    def create_check_texture(self, width=256, height=256, color1=(0, 128, 256), color2=None):
         pixels = np.zeros((width, height, 3), dtype=np.uint8)
         half_w = width // 2
         half_h = height // 2
         pixels[0:half_w, 0:half_h] = color1
         pixels[half_w:width, half_h:height] = color1
+        if color2 is None:
+            color2 = np.clip(np.array(color1) + 50, 0, 255)
         pixels[half_w:width, 0:half_h] = color2
         pixels[0:half_w, half_h:height] = color2
         return self.app.renderer.register_texture(pixels.flatten().tolist(), width, height, False)

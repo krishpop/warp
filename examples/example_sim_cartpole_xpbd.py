@@ -33,12 +33,14 @@ class Robot:
     episode_duration = 60.0      # seconds
     episode_frames = int(episode_duration/frame_dt)
 
-    sim_substeps = 10
+    sim_substeps = 5
     sim_dt = frame_dt / sim_substeps
     sim_steps = int(episode_duration / sim_dt)
    
     sim_time = 0.0
     render_time = 0.0
+
+    use_graph_grapture = True
 
     def __init__(self, render=True, num_envs=1, device='cpu'):
 
@@ -116,21 +118,19 @@ class Robot:
             None,
             self.state)
 
-        if (self.model.ground):
-            self.model.collide(self.state)
-
         profiler = {}
 
-        # create update graph
-        wp.capture_begin()
+        if self.use_graph_grapture:
+            # create update graph
+            wp.capture_begin()
 
-        # simulate
-        for i in range(0, self.sim_substeps):
-            self.state.clear_forces()
-            self.state = self.integrator.simulate(self.model, self.state, self.state, self.sim_dt)
-            self.sim_time += self.sim_dt
-                
-        graph = wp.capture_end()
+            # simulate
+            for i in range(0, self.sim_substeps):
+                self.state.clear_forces()
+                self.state = self.integrator.simulate(self.model, self.state, self.state, self.sim_dt)
+                self.sim_time += self.sim_dt
+                    
+            graph = wp.capture_end()
 
         q_history = []
         q_history.append(self.state.body_q.numpy().copy())
@@ -144,13 +144,15 @@ class Robot:
 
             from tqdm import trange
             for f in trange(self.episode_frames):
-                
-                wp.capture_launch(graph)
-                # for i in range(0, self.sim_substeps):
-                #     self.state.clear_forces()
-                #     self.state = self.integrator.simulate(self.model, self.state, self.state, self.sim_dt)
-                #     self.sim_time += self.sim_dt
-                self.sim_time += self.frame_dt
+
+                if self.use_graph_grapture:
+                    wp.capture_launch(graph)
+                    self.sim_time += self.frame_dt
+                else:
+                    for i in range(0, self.sim_substeps):
+                        self.state.clear_forces()
+                        self.state = self.integrator.simulate(self.model, self.state, self.state, self.sim_dt)
+                        self.sim_time += self.sim_dt
 
                 if (self.render):
 
@@ -290,5 +292,6 @@ if profile:
 
 else:
 
-    robot = Robot(render=True, device=wp.get_preferred_device(), num_envs=16000)
+    # robot = Robot(render=True, device="cpu", num_envs=1)
+    robot = Robot(render=True, device=wp.get_preferred_device(), num_envs=1024)
     robot.run()
