@@ -121,6 +121,8 @@ class TinyRenderer:
             shape_geo_scale = model.shape_geo_scale.numpy()
             shape_transform = model.shape_transform.numpy()
             # matplotlib "tab10" colors
+            
+
             colors10 = [
                 [ 31, 119, 180],
                 [255, 127,  14],
@@ -132,12 +134,14 @@ class TinyRenderer:
                 [127, 127, 127],
                 [188, 189,  34],
                 [ 23, 190, 207]]
+
             # loop over shapes excluding the ground plane
             num_shapes = (model.shape_count-1) // self.num_envs
             for s in range(num_shapes):
                 geo_type = shape_geo_type[s]
                 geo_scale = shape_geo_scale[s] * self.scaling
                 geo_src = shape_geo_src[s]
+                color = colors10[len(self.geo_shape)%10]
 
                 # shape transform in body frame
                 body = shape_body[s]
@@ -153,9 +157,7 @@ class TinyRenderer:
                     if geo_hash in self.geo_shape:
                         shape = self.geo_shape[geo_hash]
                     else:
-                        color1 = (np.array(colors10[s%10]) + 50.0).clip(0, 255).astype(int)
-                        color2 = (np.array(colors10[s%10]) + 90.0).clip(0, 255).astype(int)
-                        texture = self.create_check_texture(256, 256, color1=color1, color2=color2)
+                        texture = self.create_check_texture(256, 256, color1=color)
                         faces = [0, 1, 2, 2, 3, 0]
                         normal = (0.0, 1.0, 0.0)
                         width = (geo_scale[0] if geo_scale[0] > 0.0 else 100.0)
@@ -175,7 +177,7 @@ class TinyRenderer:
                     if geo_hash in self.geo_shape:
                         shape = self.geo_shape[geo_hash]
                     else:
-                        texture = self.create_check_texture(color1=colors10[s%10])
+                        texture = self.create_check_texture(color1=color)
                         shape = self.app.register_graphics_unit_sphere_shape(p.EnumSphereLevelOfDetail.SPHERE_LOD_HIGH, texture)
                     scale *= float(geo_scale[0]) * 2.0  # diameter
 
@@ -186,21 +188,21 @@ class TinyRenderer:
                         radius = float(geo_scale[0])
                         half_width = float(geo_scale[1])
                         up_axis = 0
-                        texture = self.create_check_texture(color1=colors10[s%10])
+                        texture = self.create_check_texture(color1=color)
                         shape = self.app.register_graphics_capsule_shape(radius, half_width, up_axis, texture)
 
                 elif (geo_type == warp.sim.GEO_BOX):
                     if geo_hash in self.geo_shape:
                         shape = self.geo_shape[geo_hash]
                     else:
-                        texture = self.create_check_texture(color1=colors10[s%10])
+                        texture = self.create_check_texture(color1=color)
                         shape = self.app.register_cube_shape(geo_scale[0], geo_scale[1], geo_scale[2], texture, 4)
 
                 elif (geo_type == warp.sim.GEO_MESH):
                     if geo_hash in self.geo_shape:
                         shape = self.geo_shape[geo_hash]
                     else:
-                        texture = self.create_check_texture(1, 1, color1=colors10[s%10], color2=colors10[s%10])
+                        texture = self.create_check_texture(1, 1, color1=color, color2=color)
                         faces = geo_src.indices.reshape((-1, 3))
                         vertices = np.array(geo_src.vertices)
                         # convert vertices to (x,y,z,w, nx,ny,nz, u,v) format
