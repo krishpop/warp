@@ -15,6 +15,46 @@ from collections import defaultdict
 
 import numpy as np
 
+
+def compute_env_offsets(num_envs, env_offset=(5.0, 0.0, 5.0), upaxis="y"):
+    # compute positional offsets per environment
+    nonzeros = np.nonzero(env_offset)[0]
+    num_dim = nonzeros.shape[0]
+    if num_dim > 0:
+        side_length = int(np.ceil(num_envs**(1.0/num_dim)))
+        env_offsets = []
+    else:
+        env_offsets = np.zeros((num_envs, 3))
+    if num_dim == 1:
+        for i in range(num_envs):
+            env_offsets.append(i*env_offset)
+    elif num_dim == 2:
+        for i in range(num_envs):
+            d0 = i // side_length
+            d1 = i % side_length
+            offset = np.zeros(3)
+            offset[nonzeros[0]] = d0 * env_offset[nonzeros[0]]
+            offset[nonzeros[1]] = d1 * env_offset[nonzeros[1]]
+            env_offsets.append(offset)
+    elif num_dim == 3:
+        for i in range(num_envs):
+            d0 = i // (side_length*side_length)
+            d1 = (i // side_length) % side_length
+            d2 = i % side_length
+            offset = np.zeros(3)
+            offset[0] = d0 * env_offset[0]
+            offset[1] = d1 * env_offset[1]
+            offset[2] = d2 * env_offset[2]
+            env_offsets.append(offset)
+    env_offsets = np.array(env_offsets)
+    min_offsets = np.min(env_offsets, axis=0)
+    correction = min_offsets + (np.max(env_offsets, axis=0) - min_offsets) / 2.0
+    if isinstance(upaxis, str):
+        upaxis = "xyz".index(upaxis.lower())
+    correction[upaxis] = 0.0  # ensure the envs are not shifted below the ground plane
+    env_offsets -= correction
+    return env_offsets
+
 @wp.kernel
 def update_vbo(
     shape_ids: wp.array(dtype=int),
@@ -116,13 +156,12 @@ class TinyRenderer:
         if (self.model.shape_count):
             shape_body = model.shape_body.numpy()
             body_q = model.body_q.numpy()
-            shape_geo_src = model.shape_geo_src#.numpy()
+            shape_geo_src = model.shape_geo_src
             shape_geo_type = model.shape_geo_type.numpy()
             shape_geo_scale = model.shape_geo_scale.numpy()
             shape_transform = model.shape_transform.numpy()
-            # matplotlib "tab10" colors
-            
 
+            # matplotlib "tab10" colors
             colors10 = [
                 [ 31, 119, 180],
                 [255, 127,  14],
@@ -203,7 +242,7 @@ class TinyRenderer:
                         shape = self.geo_shape[geo_hash]
                     else:
                         texture = self.create_check_texture(1, 1, color1=color, color2=color)
-                        faces = geo_src.indices.reshape((-1, 3))
+                        faces = np.array(geo_src.indices).reshape((-1, 3))
                         vertices = np.array(geo_src.vertices)
                         # convert vertices to (x,y,z,w, nx,ny,nz, u,v) format
                         gfx_vertices = np.zeros((len(faces)*3, 9))
@@ -291,41 +330,9 @@ class TinyRenderer:
         self.instance_envs = wp.array(
             np.tile(np.arange(self.num_envs, dtype=np.int32), self.instances_per_env), dtype=wp.int32,
             device="cuda", owner=False, ndim=1)
-        # compute offsets per environment
-        nonzeros = np.nonzero(env_offset)[0]
-        num_dim = nonzeros.shape[0]
-        if num_dim > 0:
-            side_length = int(np.ceil(self.num_envs**(1.0/num_dim)))
-            self.env_offsets = []
-        else:
-            self.env_offsets = np.zeros((self.num_envs, 3))
-        if num_dim == 1:
-            for i in range(self.num_envs):
-                self.env_offsets.append(i*env_offset)
-        elif num_dim == 2:
-            for i in range(self.num_envs):
-                d0 = i // side_length
-                d1 = i % side_length
-                offset = np.zeros(3)
-                offset[nonzeros[0]] = d0 * env_offset[nonzeros[0]]
-                offset[nonzeros[1]] = d1 * env_offset[nonzeros[1]]
-                self.env_offsets.append(offset)
-        elif num_dim == 3:
-            for i in range(self.num_envs):
-                d0 = i // (side_length*side_length)
-                d1 = (i // side_length) % side_length
-                d2 = i % side_length
-                offset = np.zeros(3)
-                offset[0] = d0 * env_offset[0]
-                offset[1] = d1 * env_offset[1]
-                offset[2] = d2 * env_offset[2]
-                self.env_offsets.append(offset)
-        self.env_offsets = np.array(self.env_offsets)
-        min_offsets = np.min(self.env_offsets, axis=0)
-        correction = min_offsets + (np.max(self.env_offsets, axis=0) - min_offsets) / 2.0
-        correction[self.cam_axis] = 0.0  # ensure the envs are not shifted below the ground plane
-        self.env_offsets -= correction
-        self.env_offsets = wp.array(self.env_offsets, dtype=wp.vec3, device="cuda")
+        
+        env_offsets = compute_env_offsets(self.num_envs, env_offset, self.cam_axis)
+        self.env_offsets = wp.array(env_offsets, dtype=wp.vec3, device="cuda")
         self.instance_shape = wp.array(self.instance_shape, dtype=wp.int32, device="cuda")
         # make sure the static arrays are on the GPU
         if self.model.shape_transform.device.is_cuda:
