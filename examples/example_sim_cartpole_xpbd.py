@@ -47,21 +47,28 @@ class Robot:
         self.render = render
 
         self.num_envs = num_envs
+        articulation_builder = wp.sim.ModelBuilder()
+        wp.sim.parse_urdf(
+            os.path.join(os.path.dirname(__file__), "assets/cartpole.urdf"),
+            articulation_builder,
+            xform=wp.transform(np.array((0.0, 4.0, 0.0)), wp.quat_from_axis_angle((1.0, 0.0, 0.0), -math.pi*0.5)),
+            floating=False, 
+            density=0,
+            armature=0.1,
+            stiffness=0.0,
+            damping=0.0,
+            shape_ke=1.e+4,
+            shape_kd=1.e+2,
+            shape_kf=1.e+2,
+            shape_mu=1.0,
+            limit_ke=1.e+4,
+            limit_kd=1.e+1,
+            enable_self_collisions=False)
 
         for i in range(num_envs):
-            wp.sim.parse_urdf(os.path.join(os.path.dirname(__file__), "assets/cartpole.urdf"), builder,
-                xform=wp.transform(np.array((i*2.0, 4.0, 0.0)), wp.quat_from_axis_angle((1.0, 0.0, 0.0), -math.pi*0.5)),
-                floating=False, 
-                density=0,
-                armature=0.1,
-                stiffness=0.0,
-                damping=0.0,
-                shape_ke=1.e+4,
-                shape_kd=1.e+2,
-                shape_kf=1.e+2,
-                shape_mu=1.0,
-                limit_ke=1.e+4,
-                limit_kd=1.e+1)
+            # articulation_builder.joint_X_p[0] = wp.transform(np.array((i*2.0, 4.0, 0.0)), wp.quat_from_axis_angle((1.0, 0.0, 0.0), -math.pi*0.5))
+
+            builder.add_rigid_articulation(articulation_builder, xform=wp.transform(np.array((i*2.0, 4.0, 0.0)), wp.quat_identity()))
 
             # joint initial positions
             builder.joint_q[-3:] = [0.0, 0.3, 0.0]
@@ -126,7 +133,7 @@ class Robot:
         with wp.ScopedTimer("simulate", detailed=False, print=False, active=True, dict=profiler):
 
             from tqdm import trange
-            for f in range(0, self.episode_frames):
+            for f in trange(self.episode_frames):
                 
                 wp.capture_launch(graph)
                 # for i in range(0, self.sim_substeps):
@@ -273,5 +280,5 @@ if profile:
 
 else:
 
-    robot = Robot(render=True, device=wp.get_preferred_device(), num_envs=10)
+    robot = Robot(render=True, device=wp.get_preferred_device(), num_envs=2)
     robot.run()

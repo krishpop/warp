@@ -119,7 +119,8 @@ class Struct:
                 fields.append((label, var.type._type_))
 
         class StructType(ctypes.Structure):
-            _fields_ = fields
+            # if struct is empty, add a dummy field to avoid launch errors on CPU device ("ffi_prep_cif failed")
+            _fields_ = fields or [("_dummy_", ctypes.c_int)]
 
         self.ctype = StructType
 
@@ -954,7 +955,10 @@ class Adjoint:
                 if var1 != var2:
 
                     if (warp.config.verbose):
-                        print("Warning: detected mutated variable {} during a dynamic for-loop, this is a non-differentiable operation".format(sym))
+                        lineno = adj.lineno+adj.fun_lineno
+                        line = adj.source.splitlines()[adj.lineno]
+                        msg = f"Warning: detected mutated variable {sym} during a dynamic for-loop in function \"{adj.fun_name}\" at {adj.filename}:{lineno}: this is a non-differentiable operation.\n{line}\n"
+                        print(msg)
 
                     if (var1.constant is not None):
                         raise Exception("Error mutating a constant {} inside a dynamic loop, use the following syntax: pi = float(3.141) to declare a dynamic variable".format(sym))
@@ -1087,7 +1091,10 @@ class Adjoint:
                     if var1 != var2:
 
                         if (warp.config.verbose):
-                            print("Warning: detected mutated variable {} during a dynamic for-loop, this is a non-differentiable operation".format(sym))
+                            lineno = adj.lineno+adj.fun_lineno
+                            line = adj.source.splitlines()[adj.lineno]
+                            msg = f"Warning: detected mutated variable {sym} during a dynamic for-loop in function \"{adj.fun_name}\" at {adj.filename}:{lineno}: this is a non-differentiable operation.\n{line}\n"
+                            print(msg)
 
                         if (var1.constant is not None):
                             raise Exception("Error mutating a constant {} inside a dynamic loop, use the following syntax: pi = float(3.141) to declare a dynamic variable".format(sym))

@@ -144,14 +144,13 @@ def parse_urdf(
     # add base
     if floating:
         root = builder.add_body(origin=wp.transform_identity(),
-                                parent=-1,
-                                joint_type=wp.sim.JOINT_FREE,
-                                joint_armature=armature,
+                                armature=armature,
                                 com=com,
                                 I_m=I_m,
                                 m=m,
-                                body_name=robot.base_link.name,
-                                joint_name="floating_base")
+                                body_name=robot.base_link.name)
+
+        builder.add_joint_free(root, name="floating_base")
 
         # set dofs to transform
         start = builder.joint_q_start[root]
@@ -171,11 +170,8 @@ def parse_urdf(
         
     else:
         root = builder.add_body(origin=wp.transform_identity(),
-                                parent=-1,
-                                joint_xform=xform,
-                                joint_type=wp.sim.JOINT_FIXED,
-                                body_name=robot.base_link.name,
-                                joint_name="fixed_base")
+                                body_name=robot.base_link.name)
+        builder.add_joint_fixed(-1, root, parent_xform=xform, name="fixed_base")
         urdf_add_collision(
             builder, root, colliders, 0.0, shape_ke, shape_kd, shape_kf, shape_mu, shape_restitution)
 
@@ -183,20 +179,6 @@ def parse_urdf(
 
     # add children
     for joint in robot.joints:
-
-        type = None
-        axis = (0.0, 0.0, 0.0)
-
-        if joint.joint_type == "revolute" or joint.joint_type == "continuous":
-            type = wp.sim.JOINT_REVOLUTE
-            axis = joint.axis
-        if joint.joint_type == "prismatic":
-            type = wp.sim.JOINT_PRISMATIC
-            axis = joint.axis
-        if joint.joint_type == "fixed":
-            type = wp.sim.JOINT_FIXED
-        if joint.joint_type == "floating":
-            type = wp.sim.JOINT_FREE
 
         parent = root
         if joint.parent in link_index:
@@ -234,22 +216,51 @@ def parse_urdf(
         # add link
         link = builder.add_body(
             origin=wp.transform_identity(),
-            parent=parent,
-            joint_xform=wp.transform(pos, rot),
-            joint_axis=axis,
-            joint_type=type,
-            joint_limit_lower=lower,
-            joint_limit_upper=upper,
-            joint_limit_ke=limit_ke,
-            joint_limit_kd=limit_kd,
-            joint_target_ke=stiffness,
-            joint_target_kd=joint_damping,
-            joint_armature=armature,
+            # parent=parent,
+            # joint_xform=wp.transform(pos, rot),
+            # joint_axis=axis,
+            # joint_type=type,
+            # joint_limit_lower=lower,
+            # joint_limit_upper=upper,
+            # joint_limit_ke=limit_ke,
+            # joint_limit_kd=limit_kd,
+            # joint_target_ke=stiffness,
+            # joint_target_kd=joint_damping,
+            armature=armature,
             com=com,
             I_m=I_m,
             m=m,
-            joint_name=joint.name,
             body_name=joint.parent)
+
+        parent_xform = wp.transform(pos, rot)
+        child_xform = wp.transform_identity()
+
+        joint_mode = wp.sim.JOINT_MODE_LIMIT
+        if stiffness > 0.0:
+            joint_mode = wp.sim.JOINT_MODE_TARGET_POSITION
+
+        if joint.joint_type == "revolute" or joint.joint_type == "continuous":
+            builder.add_joint_revolute(
+                parent, link, parent_xform, child_xform, joint.axis,
+                target_ke=stiffness, target_kd=joint_damping,
+                limit_lower=lower, limit_upper=upper,
+                limit_ke=limit_ke, limit_kd=limit_kd,
+                name=joint.name, mode=joint_mode)
+        elif joint.joint_type == "prismatic":
+            builder.add_joint_prismatic(
+                parent, link, parent_xform, child_xform, joint.axis,
+                target_ke=stiffness, target_kd=joint_damping,
+                limit_lower=lower, limit_upper=upper,
+                limit_ke=limit_ke, limit_kd=limit_kd,
+                name=joint.name, mode=joint_mode)
+        elif joint.joint_type == "fixed":
+            builder.add_joint_fixed(
+                parent, link, parent_xform, child_xform,
+                name=joint.name)
+        elif joint.joint_type == "floating":
+            builder.add_joint_free(
+                parent, link, parent_xform, child_xform,
+                name=joint.name)
 
         if parse_visuals_as_colliders:
             child_colliders = robot.link_map[joint.child].visuals

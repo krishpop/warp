@@ -1167,7 +1167,7 @@ def handle_contact_pairs(
         face_u = float(0.0)
         face_v = float(0.0)
         sign = float(0.0)
-        res = wp.mesh_query_point(mesh_b, query_b_local/geo_scale_b[0], max_dist, sign, face_index, face_u, face_v)
+        # res = wp.mesh_query_point(mesh_b, query_b_local/geo_scale_b[0], max_dist, sign, face_index, face_u, face_v)
 
         if res:
             shape_p = wp.mesh_eval_position(mesh_b, face_index, face_u, face_v)
@@ -1176,6 +1176,12 @@ def handle_contact_pairs(
             # contact direction vector in world frame
             diff_b = p_a_world - p_b_world
             normal = wp.normalize(diff_b) * sign
+            # mesh = wp.mesh_get(mesh_b)
+            # pi = mesh.points[mesh.indices[face_index, 0]]
+            # pj = mesh.points[mesh.indices[face_index, 1]]
+            # pk = mesh.points[mesh.indices[face_index, 2]]
+            # normal = wp.normalize(wp.cross(pj - pi, pk - pi))
+            # normal = wp.transform_vector(X_ws_b, -normal)
             distance = wp.dot(diff_b, normal)
         else:
             contact_shape0[tid] = -1
@@ -1275,11 +1281,11 @@ def collide(model, state, edge_sdf_iter: int = 5):
         edge_sdf_iter: number of search iterations for finding closest contact points between edges and SDF
     """
 
-    # clear old count
-    model.soft_contact_count.zero_()
     
     # generate soft contacts for particles and shapes exept ground plane (last shape)
     if (model.particle_count and model.shape_count > 1):
+        # clear old count
+        model.soft_contact_count.zero_()
         wp.launch(
             kernel=create_soft_contacts,
             dim=(model.particle_count, model.shape_count-1),
