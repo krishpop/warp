@@ -169,7 +169,7 @@ def parse_mjcf(
             angular_axes,
             name="_".join(joint_name),
             parent_xform=wp.transform(body_pos, body_ori),
-            child_xform=wp.transform(joint_pos[0], wp.quat_identity()),
+            # child_xform=wp.transform(joint_pos[0], wp.quat_identity()),
         )
 
         # -----------------
