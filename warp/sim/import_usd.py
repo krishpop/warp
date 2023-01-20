@@ -24,6 +24,8 @@ def parse_usd(
     default_mu=0.0,
     default_restitution=0.0,
     default_contact_thickness=0.0,
+    joint_limit_ke=100.0,
+    joint_limit_kd=10.0,
     verbose=True):
 
     try:
@@ -102,41 +104,82 @@ def parse_usd(
                 scale = np.array(op.Get())
         return wp.transform(pos, rot), scale
 
-    def parse_drive(prim, type, joint_data, is_angular):
-        # parse joint drive data
+    def parse_axis(prim, type, joint_data, is_angular, axis=None):
+        # parse joint axis data
         schemas = prim.GetAppliedSchemas()  # TODO consider inherited schemas
-        if f"DriveAPI:{type}" not in "".join(schemas):
+        schemas_str = "".join(schemas)
+        if f"DriveAPI:{type}" not in schemas_str and f"PhysicsLimitAPI:{type}" not in schemas_str:
             return
         drive_type = parse_generic(prim, f"drive:{type}:physics:type", "force")
         if drive_type != "force":
             print(f"Warning: only force drive type is supported, ignoring drive:{type} for joint {path}")
             return
-        drive_data = {}
         stiffness = parse_float(prim, f"drive:{type}:physics:stiffness", 0.0)
         damping = parse_float(prim, f"drive:{type}:physics:damping", 0.0)
-        target_pos = parse_float(prim, f"drive:{type}:physics:targetPosition", 0.0)
-        target_vel = parse_float(prim, f"drive:{type}:physics:targetVelocity", 0.0)
+        low = parse_float(prim, f"limit:{type}:physics:low")
+        high = parse_float(prim, f"limit:{type}:physics:high")
+        target_pos = parse_float(prim, f"drive:{type}:physics:targetPosition")
+        target_vel = parse_float(prim, f"drive:{type}:physics:targetVelocity")
         if is_angular:
             stiffness *= mass_unit * linear_unit**2
             stiffness = np.deg2rad(stiffness)
             damping *= mass_unit * linear_unit**2
             damping = np.deg2rad(damping)
-            target_pos = np.deg2rad(target_pos)
-            target_vel = np.deg2rad(target_vel)
+            if target_pos is not None:
+                target_pos = np.deg2rad(target_pos)
+            if target_vel is not None:
+                target_vel = np.deg2rad(target_vel)
+            if low is None:
+                low = joint_data["lowerLimit"]
+            else:
+                low = np.deg2rad(low)
+            if high is None:
+                high = joint_data["upperLimit"]
+            else:
+                high = np.deg2rad(high)
         else:
             stiffness *= mass_unit
             damping *= mass_unit
-            target_pos *= linear_unit
-            target_vel *= linear_unit
-        drive_data["stiffness"] = stiffness
-        drive_data["damping"] = damping
-        drive_data["target_pos"] = target_pos
-        drive_data["target_vel"] = target_vel
-        joint_data[f"drive:{type}"] = drive_data
+            if target_pos is not None:
+                target_pos *= linear_unit
+            if target_vel is not None:
+                target_vel *= linear_unit
+            if low is None:
+                low = joint_data["lowerLimit"]
+            else:
+                low *= linear_unit
+            if high is None:
+                high = joint_data["upperLimit"]
+            else:
+                high *= linear_unit
+        mode = wp.sim.JOINT_MODE_LIMIT
+        if f"DriveAPI:{type}" in schemas_str:
+            if target_vel is not None:
+                mode = wp.sim.JOINT_MODE_TARGET_VELOCITY
+            else:
+                mode = wp.sim.JOINT_MODE_TARGET_POSITION
+        if low > high:
+            low = (low + high) / 2
+            high = low
+        axis = wp.sim.JointAxis(
+            axis=(axis or joint_data["axis"]),
+            limit_lower=low,
+            limit_upper=high,
+            target=(target_pos or target_vel or (low + high) / 2),
+            target_ke=stiffness,
+            target_kd=damping,
+            mode=mode,
+            limit_ke=joint_limit_ke,
+            limit_kd=joint_limit_kd,
+        )
+        if is_angular:
+            joint_data["angular_axes"].append(axis)
+        else:
+            joint_data["linear_axes"].append(axis)
 
     upaxis = str2axis(UsdGeom.GetStageUpAxis(stage))
 
-    shape_types = {"Cube", "Sphere", "Mesh", "Capsule", "Plane"}
+    shape_types = {"Cube", "Sphere", "Mesh", "Capsule", "Plane", "Cylinder", "Cone"}
 
     path_body_map = {}
     path_shape_map = {}
@@ -148,13 +191,14 @@ def parse_usd(
     path_collision_filters = set()
     no_collision_shapes = set()
 
-    # first find all the joints and materials
+    # first find all joints and materials
     joint_data = {}  # mapping from path of child link to joint USD settings
     materials = {}  # mapping from material path to material USD settings
     for prim in stage.Traverse():
         type_name = str(prim.GetTypeName())
         path = str(prim.GetPath())
-        print(path, type_name)
+        if verbose:
+            print(path, type_name)
         if type_name.endswith("Joint"):
             # the type name can sometimes be "DistancePhysicsJoint" or "PhysicsDistanceJoint" ...
             type_name = type_name.replace("Physics", "").replace("Joint", "")
@@ -163,10 +207,9 @@ def parse_usd(
             pos1 = parse_vec(prim, "physics:localPos1", np.zeros(3)) * linear_unit
             rot0 = parse_quat(prim, "physics:localRot0", wp.quat_identity())
             rot1 = parse_quat(prim, "physics:localRot1", wp.quat_identity())
-            lower = parse_float(prim, "physics:lowerLimit", -np.inf)
-            upper = parse_float(prim, "physics:upperLimit", np.inf)
             joint_data[child] = {
                 "type": type_name,
+                "name": str(prim.GetName()),
                 "parent_tf": wp.transform(pos0, rot0),
                 "child_tf": wp.transform(pos1, rot1),
                 "enabled": parse_generic(prim, "physics:jointEnabled", True),
@@ -175,11 +218,15 @@ def parse_usd(
                 "axis": str2axis(parse_generic(prim, "physics:axis", "X")),
                 "breakForce": parse_float(prim, "physics:breakForce", np.inf),
                 "breakTorque": parse_float(prim, "physics:breakTorque", np.inf),
+                "linear_axes": [],
+                "angular_axes": [],
             }
             if only_load_enabled_joints and not joint_data[child]["enabled"]:
                 print("Skipping disabled joint", path)
                 continue
             # parse joint limits
+            lower = parse_float(prim, "physics:lowerLimit", -np.inf)
+            upper = parse_float(prim, "physics:upperLimit", np.inf)
             if type_name == "Distance":
                 # if distance is negative the joint is not limited
                 joint_data[child]["lowerLimit"] = parse_float(prim, "physics:minDistance", -1.0) * linear_unit
@@ -190,6 +237,10 @@ def parse_usd(
             else:
                 joint_data[child]["lowerLimit"] = np.deg2rad(lower) if np.isfinite(lower) else lower
                 joint_data[child]["upperLimit"] = np.deg2rad(upper) if np.isfinite(upper) else upper
+                
+            if joint_data[child]["lowerLimit"] > joint_data[child]["upperLimit"]:
+                joint_data[child]["lowerLimit"] = (joint_data[child]["lowerLimit"] + joint_data[child]["upperLimit"]) / 2
+                joint_data[child]["upperLimit"] = joint_data[child]["lowerLimit"]
             parents = prim.GetRelationship("physics:body0").GetTargets()
             if len(parents) > 0:
                 joint_data[child]["parent"] = str(parents[0])
@@ -197,14 +248,14 @@ def parse_usd(
                 joint_data[child]["parent"] = None
             
             # parse joint drive
-            parse_drive(prim, "angular", joint_data[child], is_angular=True)
-            parse_drive(prim, "rotX", joint_data[child], is_angular=True)
-            parse_drive(prim, "rotY", joint_data[child], is_angular=True)
-            parse_drive(prim, "rotZ", joint_data[child], is_angular=True)
-            parse_drive(prim, "linear", joint_data[child], is_angular=False)
-            parse_drive(prim, "transX", joint_data[child], is_angular=False)
-            parse_drive(prim, "transY", joint_data[child], is_angular=False)
-            parse_drive(prim, "transZ", joint_data[child], is_angular=False)
+            parse_axis(prim, "angular", joint_data[child], is_angular=True)
+            parse_axis(prim, "rotX", joint_data[child], is_angular=True, axis=(1.0, 0.0, 0.0))
+            parse_axis(prim, "rotY", joint_data[child], is_angular=True, axis=(0.0, 1.0, 0.0))
+            parse_axis(prim, "rotZ", joint_data[child], is_angular=True, axis=(0.0, 0.0, 1.0))
+            parse_axis(prim, "linear", joint_data[child], is_angular=False)
+            parse_axis(prim, "transX", joint_data[child], is_angular=False, axis=(1.0, 0.0, 0.0))
+            parse_axis(prim, "transY", joint_data[child], is_angular=False, axis=(0.0, 1.0, 0.0))
+            parse_axis(prim, "transZ", joint_data[child], is_angular=False, axis=(0.0, 0.0, 1.0))
 
         elif type_name == "Material":
             material = {}
@@ -312,35 +363,71 @@ def parse_usd(
             scale = incoming_scale*scale
             xform = wp.mul(incoming_xform, xform)
             prim_poses[path] = xform
+            
+            geo_tf = wp.transform_identity()
 
-            joint_params = dict(joint_type=wp.sim.JOINT_FREE, origin=wp.transform_identity())
-            geo_tf = wp.transform()
+            body_id = builder.add_body(
+                com=com,
+                origin=xform,
+                name=prim.GetName(),
+            )
+            print("added body", body_id, "at", xform)
+
             if joint is not None:
+                joint_params = dict(
+                    child=body_id,
+                    linear_axes=joint["linear_axes"],
+                    angular_axes=joint["angular_axes"],
+                    name=joint["name"],
+                    enabled=joint["enabled"],
+                    parent_xform=joint["parent_tf"],
+                    child_xform=joint["child_tf"]
+                )
+                print("parent_xform", joint["parent_tf"])
+                print("child_xform ", joint["child_tf"])
                 if joint["type"] == "Revolute":
                     joint_params["joint_type"] = wp.sim.JOINT_REVOLUTE
-                    if "drive:angular" in joint:
-                        joint_params["joint_target_ke"] = joint["drive:angular"]["stiffness"]
-                        joint_params["joint_target_kd"] = joint["drive:angular"]["damping"]
-                        joint_params["joint_target"] = joint["drive:angular"]["target_pos"]
+                    if len(joint_params["angular_axes"]) == 0:
+                        joint_params["angular_axes"].append(
+                            wp.sim.JointAxis(
+                                joint["axis"],
+                                limit_lower=joint["lowerLimit"],
+                                limit_upper=joint["upperLimit"],
+                                limit_ke=joint_limit_ke,
+                                limit_kd=joint_limit_kd))
                 elif joint["type"] == "Prismatic":
                     joint_params["joint_type"] = wp.sim.JOINT_PRISMATIC
-                    if "drive:linear" in joint:
-                        joint_params["joint_target_ke"] = joint["drive:linear"]["stiffness"]
-                        joint_params["joint_target_kd"] = joint["drive:linear"]["damping"]
-                        joint_params["joint_target"] = joint["drive:linear"]["target_pos"]
+                    if len(joint_params["linear_axes"]) == 0:
+                        joint_params["linear_axes"].append(
+                            wp.sim.JointAxis(
+                                joint["axis"],
+                                limit_lower=joint["lowerLimit"],
+                                limit_upper=joint["upperLimit"],
+                                limit_ke=joint_limit_ke,
+                                limit_kd=joint_limit_kd))
                 elif joint["type"] == "Spherical":
                     joint_params["joint_type"] = wp.sim.JOINT_BALL
                 elif joint["type"] == "Fixed":
                     joint_params["joint_type"] = wp.sim.JOINT_FIXED
                 elif joint["type"] == "Distance":
                     joint_params["joint_type"] = wp.sim.JOINT_DISTANCE
+                    # we have to add a dummy linear X axis to define the joint limits
+                    joint_params["linear_axes"].append(
+                        wp.sim.JointAxis(
+                            (1.0, 0.0, 0.0),
+                            limit_lower=joint["lowerLimit"],
+                            limit_upper=joint["upperLimit"],
+                            limit_ke=joint_limit_ke,
+                            limit_kd=joint_limit_kd))
+                elif joint["type"] == "":
+                    joint_params["joint_type"] = wp.sim.JOINT_D6
                 else:
                     print(f"Warning: unsupported joint type {joint['type']} for {path}")
-                joint_params["joint_axis"] = joint["axis"]
-                joint_params["joint_limit_lower"] = joint["lowerLimit"]
-                joint_params["joint_limit_upper"] = joint["upperLimit"]
+                # joint_params["joint_axis"] = joint["axis"]
+                # joint_params["joint_limit_lower"] = joint["lowerLimit"]
+                # joint_params["joint_limit_upper"] = joint["upperLimit"]
 
-                joint_params["joint_xform"] = joint["parent_tf"]
+                # joint_params["joint_xform"] = joint["parent_tf"]
                 if joint["parent"] is None:
                     joint_params["parent"] = -1
                     rel_pose = wp.transform_identity()
@@ -348,8 +435,9 @@ def parse_usd(
                     joint_params["parent"] = path_body_map[joint["parent"]]
                     X_wp = prim_poses[joint["parent"]]
                     X_wc = xform
+                    # TODO compute rel_pose from body_q of parent and child while incorporating child_xform
                     rel_pose = wp.transform_inverse(X_wp) * X_wc
-                    joint_params["joint_xform"] *= prim_joint_xforms[joint["parent"]]
+                    joint_params["parent_xform"] *= prim_joint_xforms[joint["parent"]]
                 # joint_params["joint_xform"] = rel_pose
                 # joint_params["joint_xform"] = wp.mul(joint["parent_tf"], joint["child_tf"])
                 # joint_params["joint_xform_child"] = wp.transform_inverse(joint["child_tf"])
@@ -357,20 +445,18 @@ def parse_usd(
                 # joint_params["joint_xform_child"] = joint["child_tf"]
                 # XXX apply child transform to shape since joint_xform_child is reserved for multi-dof joints
                 # geo_tf = joint["child_tf"]
-                geo_tf = rel_pose * joint["child_tf"]
+                # geo_tf = rel_pose * joint["child_tf"]
                 # update relative transform for child prims
                 prim_joint_xforms[path] = geo_tf
                 # geo_tf = wp.transform(-np.array(joint["child_tf"].p), joint["child_tf"].q)
+                builder.add_joint(**joint_params)
+            is_static = False
             if "PhysicsRigidBodyAPI" not in schemas:
-                joint_params["joint_type"] = wp.sim.JOINT_FIXED
-                joint_params["joint_xform"] = xform
-
-            body_id = builder.add_body(
-                com=com,
-                body_name=prim.GetName(),
-                **joint_params,
-            )
+                is_static = True
+                density = 0.0
+                builder.body_q[-1] = xform
             if joint is None and "PhysicsRigidBodyAPI" in schemas:
+                builder.add_joint_free(child=body_id)
                 # free joint; we set joint_q/qd, not body_q/qd since eval_fk is used after model creation
                 builder.joint_q[-4:] = xform.q
                 builder.joint_q[-7:-4] = xform.p
@@ -468,6 +554,9 @@ def parse_usd(
                     body_id, geo_tf.p, geo_tf.q,
                     scale=scale, mesh=m, density=density, contact_thickness=default_contact_thickness,
                     **shape_params)
+            else:
+                print(f"Warning: Unsupported geometry type {type_name} at {path}.")
+                return
 
             path_body_map[path] = body_id
             path_shape_map[path] = shape_id
