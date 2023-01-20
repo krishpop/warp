@@ -969,8 +969,6 @@ class ModelBuilder:
         self.joint_qd_start.extend([c + self.joint_dof_count for c in articulation.joint_qd_start])
 
         self.shape_body.extend([b + start_body_idx for b in articulation.shape_body])
-        for b in articulation.lbs_body_ids:
-            self.lbs_body_ids.add(b + start_body_idx)
         for b, shapes in articulation.body_shapes.items():
             self.body_shapes[b + start_body_idx] = [s + start_shape_idx for s in shapes]
 
@@ -1036,7 +1034,6 @@ class ModelBuilder:
             "shape_geo_type",
             "shape_geo_scale",
             "shape_geo_src",
-            "shape_is_lbs",
             "shape_material_ke",
             "shape_material_kd",
             "shape_material_kf",
