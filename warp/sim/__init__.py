@@ -16,6 +16,12 @@ from . model import GEO_SDF
 from . model import GEO_PLANE
 from . model import GEO_NONE
 
+from . model import JOINT_MODE_LIMIT
+from . model import JOINT_MODE_TARGET_POSITION
+from . model import JOINT_MODE_TARGET_VELOCITY
+
+from . model import JointAxis
+
 from . model import JOINT_PRISMATIC
 from . model import JOINT_REVOLUTE
 from . model import JOINT_BALL
