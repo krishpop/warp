@@ -834,12 +834,14 @@ def solve_body_joints(body_q: wp.array(dtype=wp.transform),
             if mode == 1.0:
                 # position target
                 err = e - axis_target[dim]
-                compliance = 1.0 / wp.abs(axis_stiffness[dim])
+                if wp.abs(axis_stiffness[dim]) > 0.0:
+                    compliance = 1.0 / wp.abs(axis_stiffness[dim])
                 damping = wp.abs(axis_damping[dim])
             elif mode == 2.0:
                 # velocity target
                 err = (derr - axis_target[dim])*dt
-                compliance = 1.0 / wp.abs(axis_stiffness[dim])
+                if wp.abs(axis_stiffness[dim]) > 0.0:
+                    compliance = 1.0 / wp.abs(axis_stiffness[dim])
                 damping = wp.abs(axis_damping[dim])
             
             # consider joint limits irrespective of mode
@@ -900,10 +902,11 @@ def solve_body_joints(body_q: wp.array(dtype=wp.transform),
         # grad_0 *= 2.0 / wp.sqrt(1.0-qtwist[0]*qtwist[0])	# derivative of asin(x) = 1/sqrt(1-x^2)
 
         # rescale swing
-        d = wp.sqrt(1.0 - qswing[3]*qswing[3])
+        swing_sq = qswing[3]*qswing[3]
         # if swing axis magnitude close to zero vector, just treat in quaternion space
         angularEps = 1.e-4
-        if (d > angularEps):
+        if (swing_sq + angularEps < 1.0):
+            d = wp.sqrt(1.0 - qswing[3]*qswing[3])
             theta = 2.0*wp.acos(wp.clamp(qswing[3], -1.0, 1.0))
             scale = theta/d
 
@@ -972,12 +975,14 @@ def solve_body_joints(body_q: wp.array(dtype=wp.transform),
             if mode == 1.0:
                 # position target
                 err = e - axis_target[dim]
-                compliance = 1.0 / wp.abs(axis_stiffness[dim])
+                if wp.abs(axis_stiffness[dim]) > 0.0:
+                    compliance = 1.0 / wp.abs(axis_stiffness[dim])
                 damping = wp.abs(axis_damping[dim])
             elif mode == 2.0:
                 # velocity target
                 err = (derr - axis_target[dim])*dt
-                compliance = 1.0 / wp.abs(axis_stiffness[dim])
+                if wp.abs(axis_stiffness[dim]) > 0.0:
+                    compliance = 1.0 / wp.abs(axis_stiffness[dim])
                 damping = wp.abs(axis_damping[dim])
             
             # consider joint limits irrespective of mode
