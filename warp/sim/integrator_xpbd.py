@@ -476,6 +476,8 @@ def apply_joint_torques(
         return
     if (type == wp.sim.JOINT_DISTANCE):
         return
+    if (type == wp.sim.JOINT_BALL):
+        return
     
     # rigid body indices of the child and parent
     id_c = joint_child[tid]
