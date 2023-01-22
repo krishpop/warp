@@ -1517,6 +1517,85 @@ class ModelBuilder:
             collision_filter_parent=collision_filter_parent,
             enabled=enabled)
 
+    def add_joint_universal(
+        self,
+        parent: int,
+        child: int,
+        axis_0: JointAxis,
+        axis_1: JointAxis,
+        parent_xform: wp.transform = wp.transform(),
+        child_xform: wp.transform = wp.transform(),
+        linear_compliance: float = 0.0,
+        angular_compliance: float = 0.0,
+        name: str = None,
+        collision_filter_parent: bool = True,
+        enabled: bool = True) -> int:
+        """Adds a universal joint to the model
+
+        Args:
+            parent: The index of the parent body
+            child: The index of the child body
+            axis_0: The first axis of the joint
+            axis_1: The second axis of the joint
+            parent_xform: The transform of the joint in the parent body's local frame
+            xform: The transform of the joint in the child body's local frame
+            linear_compliance: The linear compliance of the joint
+            angular_compliance: The angular compliance of the joint
+            name: The name of the joint
+            collision_filter_parent: Whether to filter collisions between shapes of the parent and child bodies
+            enabled: Whether the joint is enabled
+
+        Returns:
+            The index of the child body
+
+        """
+        return self.add_joint(
+            JOINT_UNIVERSAL, parent, child,
+            angular_axes=[axis_0, axis_1],
+            parent_xform=parent_xform, child_xform=child_xform,
+            linear_compliance=linear_compliance, angular_compliance=angular_compliance,
+            name=name,
+            collision_filter_parent=collision_filter_parent,
+            enabled=enabled)
+
+    def add_joint_compound(
+        self,
+        parent: int,
+        child: int,
+        axis_0: JointAxis,
+        axis_1: JointAxis,
+        axis_2: JointAxis,
+        parent_xform: wp.transform = wp.transform(),
+        child_xform: wp.transform = wp.transform(),
+        name: str = None,
+        collision_filter_parent: bool = True,
+        enabled: bool = True) -> int:
+        """Adds a compound joint to the model
+
+        Args:
+            parent: The index of the parent body
+            child: The index of the child body
+            axis_0: The first axis of the joint
+            axis_1: The second axis of the joint
+            axis_2: The third axis of the joint
+            parent_xform: The transform of the joint in the parent body's local frame
+            xform: The transform of the joint in the child body's local frame
+            name: The name of the joint
+            collision_filter_parent: Whether to filter collisions between shapes of the parent and child bodies
+            enabled: Whether the joint is enabled
+
+        Returns:
+            The index of the child body
+
+        """
+        return self.add_joint(
+            JOINT_COMPOUND, parent, child,
+            angular_axes=[axis_0, axis_1, axis_2],
+            parent_xform=parent_xform, child_xform=child_xform,
+            name=name,
+            collision_filter_parent=collision_filter_parent,
+            enabled=enabled)
+
     def add_joint_d6(
         self,
         parent: int,
