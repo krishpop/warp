@@ -23,9 +23,20 @@ def quat_twist(axis: wp.vec3, q: wp.quat):
 
     # project imaginary part onto axis
     a = wp.vec3(q[0], q[1], q[2])
-    a = wp.dot(a, axis)*axis
-
+    proj = wp.dot(a, axis)
+    a = proj*axis
+    # if proj < 0.0:
+    #     # ensure twist points in same direction as axis
+    #     a = -a
     return wp.normalize(wp.quat(a[0], a[1], a[2], q[3]))
+
+
+@wp.func
+def quat_twist_angle(axis: wp.vec3, q: wp.quat):
+    """
+    Returns the angle of the twist around an axis.
+    """
+    return 2.0 * wp.acos(quat_twist(axis, q)[3])
 
 
 @wp.func
@@ -77,6 +88,7 @@ def quat_to_rpy(q: wp.quat):
 
     return wp.vec3(roll_x, pitch_y, yaw_z)
 
+
 @wp.func
 def quat_to_euler(q: wp.quat, i: int, j: int, k: int) -> wp.vec3:
     """
@@ -115,6 +127,7 @@ def quat_to_euler(q: wp.quat, i: int, j: int, k: int) -> wp.vec3:
         t2 -= PI_2
         t3 *= e
     return wp.vec3(t1, t2, t3)
+
 
 @wp.func
 def transform_twist(t: wp.transform, x: wp.spatial_vector):

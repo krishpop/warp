@@ -72,6 +72,10 @@ def parse_lbs(
     # lbs_mesh = wp.sim.Mesh(lbs_verts * lbs_scale, lbs_faces.flatten())
     lbs_mesh = wp.sim.Mesh(lbs_verts, lbs_faces.flatten())
 
+    # lbs_rest = np.hstack((lbs_verts, np.ones((len(lbs_verts), 1))))
+
+    shape_start = builder.shape_count
+
     parse_mjcf(
         filename,
         builder,
@@ -89,10 +93,14 @@ def parse_lbs(
         armature_scale,
         parse_meshes,
         enable_self_collisions)
+
+    # builder.joint_X_p[0] = wp.transform(joint_0_offset, wp.quat_identity())
+    builder.joint_X_p[0] = lbs_base_transform
         
-    builder.add_shape_lbs(
+    shape_id = builder.add_shape_lbs(
         lbs_link_id,
         lbs_weights, lbs_G, lbs_rest,
+        lbs_faces, lbs_verts,
         mesh=lbs_mesh,
         pos=lbs_base_transform.p,
         rot=lbs_base_transform.q,
@@ -104,6 +112,12 @@ def parse_lbs(
         density=0,
         restitution=contact_restitution,
     )
+
+    # make sure the surrounding LBS mesh doesn't collide with the geoms
+    # added previously (regardless of self-collision setting)
+    for i in range(shape_start, builder.shape_count):
+        if i != shape_id:
+            builder.shape_collision_filter_pairs.add((i, shape_id))
 
     m, I = lbs_compute_mass(lbs_link_id, lbs_weights)
     builder._update_body_mass(
@@ -134,7 +148,7 @@ def update_state_from_transform(model, joint_transform, obj_transform, is_update
         scale = 1.0
         if i in model.lbs_body_ids:
             # retrieve LBS scaling
-            scale = shape_geo_scale[model.body_shapes[i][0]]
+            scale = shape_geo_scale[model.body_shapes[i][-1]]
         body_q[i] = transform_from_matrix(np_joint_transform[i], scale) 
     if is_update_object and len(body_q) > len(np_joint_transform):
         body_q[len(np_joint_transform)] = transform_from_matrix(obj_transform) 
@@ -150,42 +164,59 @@ def update_state_from_transform(model, joint_transform, obj_transform, is_update
 
 
 def update_lbs(model, body_q):
+    # Equation 7 from Loper et al., "SMPL: A Skinned Multi-Person Linear Model", 2015
+
     # TODO implement this in Warp
     import torch
-    G = model.lbs_G.numpy()
-    rest_shape = model.lbs_rest_shape.numpy()
-    lbs_weights = model.lbs_weights.numpy()
-    trans = np.zeros(7)
-    trans[:3] = model.lbs_base_transform.p
 
-    joint_transform = np.array([transform_to_matrix(q - trans, model.lbs_scale) for q in body_q.numpy()[:model.lbs_link_count]])
+    shape_geo_scale = model.shape_geo_scale.numpy()
+    shape_transform = model.shape_transform.numpy()
+    # TODO support multiple LBS bodies
+    lbs_body_id = next(iter(model.lbs_body_ids))
+    lbs_shape_id = model.body_shapes[lbs_body_id][-1]
+    lbs_scale = shape_geo_scale[lbs_shape_id][0]
+    lbs_base_transform = wp.transform(shape_transform[lbs_shape_id][:3], shape_transform[lbs_shape_id][3:])
+
+    trans = np.zeros(7)
+    # trans[:3] = lbs_base_transform.p
+    joint_transform = np.array([transform_to_matrix(q - trans, lbs_scale) for q in body_q.numpy()[:model.lbs_link_count]])
     joint_transform = torch.tensor(joint_transform).float()
 
+    
+    # reorder_idxs = [0, 1, 6, 11, 2, 7, 12, 3, 8, 13, 4, 9, 14, 5, 10, 15]
+    # joint_transform = joint_transform[reorder_idxs]
 
-    G = torch.tensor(G)
-    rest_shape = torch.tensor(rest_shape)
-    lbs_weights = torch.tensor(lbs_weights)
-    th_results2 = torch.matmul(joint_transform, G).permute(1, 2, 0)
-    th_T = torch.matmul(th_results2, lbs_weights.transpose(1, 0)).permute(2, 0, 1)
+    # print("joint_transform from body_q:")
+    # print(joint_transform)
+
+    G = torch.tensor(model.lbs_G.numpy())
+    rest_shape = torch.tensor(model.lbs_rest_shape.numpy())
+    lbs_weights = torch.tensor(model.lbs_weights.numpy())
+
+    J = torch.matmul(joint_transform, G).permute(1, 2, 0)
+    th_T = torch.matmul(J, lbs_weights.transpose(1, 0)).permute(2, 0, 1)
     th_verts = (th_T * rest_shape.unsqueeze(1)).sum(2)
     th_verts = th_verts[:, :3]
 
-    th_jtr = joint_transform[:, :3, 3]
-    center_joint = th_jtr[0].unsqueeze(0)
-    th_verts = th_verts - center_joint
+    # th_jtr = joint_transform[:, :3, 3]
+    # center_joint = th_jtr[0].unsqueeze(0)
+    # th_verts = th_verts - center_joint
 
-    th_verts = th_verts.cpu().detach().numpy() * model.lbs_scale + np.expand_dims(model.lbs_base_transform.p, 0)
-    th_verts[:,1:] = -th_verts[:,1:]
+    th_verts = th_verts.cpu().detach().numpy() * lbs_scale #+ np.expand_dims(lbs_base_transform.p, 0)
+    # th_verts[:,1:] = -th_verts[:,1:]
 
     # model.lbs_verts = wp.array(th_verts, dtype=wp.vec3)
     
-    mesh = model.shape_geo_src[0].mesh
+    mesh = model.shape_geo_src[lbs_shape_id].mesh
 
-    new_verts = th_verts
-    model.shape_geo_src[0].vertices = new_verts
+    # update vertices used in the renderer
+    model.shape_geo_src[lbs_shape_id].vertices = th_verts
+    # model.shape_geo_src[lbs_shape_id].vertices = rest_shape[:,:3].cpu().detach().numpy()
+    # model.shape_geo_src[lbs_shape_id].vertices = model.lbs_verts.numpy()
+    # model.shape_geo_src[lbs_shape_id].indices = model.lbs_faces.numpy().flatten()
 
-    wp.launch(
-        kernel=wpk_update_vertices,
-        dim=len(mesh.points),
-        inputs=[wp.array(new_verts, dtype=wp.vec3), mesh.points])
+    # wp.launch(
+    #     kernel=wpk_update_vertices,
+    #     dim=len(mesh.points),
+    #     inputs=[wp.array(th_verts, dtype=wp.vec3), mesh.points])
 

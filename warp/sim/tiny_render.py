@@ -156,13 +156,12 @@ class TinyRenderer:
         if (self.model.shape_count):
             shape_body = model.shape_body.numpy()
             body_q = model.body_q.numpy()
-            shape_geo_src = model.shape_geo_src#.numpy()
+            shape_geo_src = model.shape_geo_src
             shape_geo_type = model.shape_geo_type.numpy()
             shape_geo_scale = model.shape_geo_scale.numpy()
             shape_transform = model.shape_transform.numpy()
-            # matplotlib "tab10" colors
-            
 
+            # matplotlib "tab10" colors
             colors10 = [
                 [ 31, 119, 180],
                 [255, 127,  14],

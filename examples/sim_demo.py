@@ -157,7 +157,7 @@ class WarpSimDemonstration:
             import warp.sim.render
             import os
             filename = os.path.join(os.path.dirname(__file__), "outputs", self.sim_name + ".usd")
-            self.renderer = wp.sim.render.USDRender(
+            self.renderer = wp.sim.render.SimRenderer(
                 self.model,
                 filename,
                 **self.usd_render_settings)

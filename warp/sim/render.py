@@ -34,7 +34,7 @@ class SimRenderer(warp.render.UsdRenderer):
         # create rigid shape children
         if (self.model.shape_count):
             shape_body = model.shape_body.numpy()
-            shape_geo_src = model.shape_geo_src#.numpy()
+            shape_geo_src = model.shape_geo_src
             shape_geo_type = model.shape_geo_type.numpy()
             shape_geo_scale = model.shape_geo_scale.numpy()
             shape_transform = model.shape_transform.numpy()
@@ -42,8 +42,14 @@ class SimRenderer(warp.render.UsdRenderer):
             for s in range(model.shape_count):
             
                 parent_path = self.root.GetPath()
-                if shape_body[s] >= 0:
-                    parent_path = parent_path.AppendChild(self.body_names[shape_body[s].item()])
+                body = shape_body[s]
+                if body >= 0:
+                    parent_path = parent_path.AppendChild(self.body_names[body.item()])
+
+                    # shapes = self.model.body_shapes[body]
+                    # si = shapes.index(s)
+                    # if body in self.model.lbs_body_ids and si == len(shapes)-1:
+                    #     continue  # skip LBS shapes
 
                 geo_type = shape_geo_type[s]
                 geo_scale = shape_geo_scale[s]
@@ -175,6 +181,15 @@ class SimRenderer(warp.render.UsdRenderer):
                 
                 self.render_line_strip(name=f"muscle_{m}", vertices=points, radius=0.0075, color=(muscle_activation[m], 0.2, 0.5))
         
+        # render lbs
+        # if (self.model.lbs_count):
+        #     for b in self.model.lbs_body_ids:
+        #         shape = self.model.body_shapes[b][-1]
+        #         mesh = self.model.shape_geo_src[shape]
+        #         vert = mesh.vertices
+        #         face = mesh.indices.flatten()[::-1]
+        #         self.render_mesh("lbs_" + str(b), vert, face)
+        #         # self.render_points("lbs_points_" + str(b), vert, radius=0.005)
         
         with Sdf.ChangeBlock():
 

@@ -24,6 +24,8 @@ def parse_usd(
     default_mu=0.0,
     default_restitution=0.0,
     default_contact_thickness=0.0,
+    joint_limit_ke=100.0,
+    joint_limit_kd=10.0,
     verbose=True):
 
     try:
@@ -156,14 +158,19 @@ def parse_usd(
                 mode = wp.sim.JOINT_MODE_TARGET_VELOCITY
             else:
                 mode = wp.sim.JOINT_MODE_TARGET_POSITION
+        if low > high:
+            low = (low + high) / 2
+            high = low
         axis = wp.sim.JointAxis(
             axis=(axis or joint_data["axis"]),
-            lower_limit=low,
-            upper_limit=high,
+            limit_lower=low,
+            limit_upper=high,
             target=(target_pos or target_vel or (low + high) / 2),
             target_ke=stiffness,
             target_kd=damping,
             mode=mode,
+            limit_ke=joint_limit_ke,
+            limit_kd=joint_limit_kd,
         )
         if is_angular:
             joint_data["angular_axes"].append(axis)
@@ -180,7 +187,7 @@ def parse_usd(
     prim_poses = {}
     # transform from body frame to where the actual joint child frame is
     # so that the link's children will use the right parent tf for the joint
-    # prim_joint_xforms = {}
+    prim_joint_xforms = {}
     path_collision_filters = set()
     no_collision_shapes = set()
 
@@ -200,8 +207,6 @@ def parse_usd(
             pos1 = parse_vec(prim, "physics:localPos1", np.zeros(3)) * linear_unit
             rot0 = parse_quat(prim, "physics:localRot0", wp.quat_identity())
             rot1 = parse_quat(prim, "physics:localRot1", wp.quat_identity())
-            lower = parse_float(prim, "physics:lowerLimit", -np.inf)
-            upper = parse_float(prim, "physics:upperLimit", np.inf)
             joint_data[child] = {
                 "type": type_name,
                 "name": str(prim.GetName()),
@@ -220,8 +225,8 @@ def parse_usd(
                 print("Skipping disabled joint", path)
                 continue
             # parse joint limits
-            joint_data[child]["lowerLimit"] = -np.inf
-            joint_data[child]["upperLimit"] = np.inf
+            lower = parse_float(prim, "physics:lowerLimit", -np.inf)
+            upper = parse_float(prim, "physics:upperLimit", np.inf)
             if type_name == "Distance":
                 # if distance is negative the joint is not limited
                 joint_data[child]["lowerLimit"] = parse_float(prim, "physics:minDistance", -1.0) * linear_unit
@@ -232,6 +237,10 @@ def parse_usd(
             else:
                 joint_data[child]["lowerLimit"] = np.deg2rad(lower) if np.isfinite(lower) else lower
                 joint_data[child]["upperLimit"] = np.deg2rad(upper) if np.isfinite(upper) else upper
+                
+            if joint_data[child]["lowerLimit"] > joint_data[child]["upperLimit"]:
+                joint_data[child]["lowerLimit"] = (joint_data[child]["lowerLimit"] + joint_data[child]["upperLimit"]) / 2
+                joint_data[child]["upperLimit"] = joint_data[child]["lowerLimit"]
             parents = prim.GetRelationship("physics:body0").GetTargets()
             if len(parents) > 0:
                 joint_data[child]["parent"] = str(parents[0])
@@ -277,7 +286,7 @@ def parse_usd(
         nonlocal path_body_map
         nonlocal path_shape_map
         nonlocal prim_poses
-        # nonlocal prim_joint_xforms
+        nonlocal prim_joint_xforms
         nonlocal path_collision_filters
         nonlocal no_collision_shapes
 
@@ -288,7 +297,7 @@ def parse_usd(
             print(path, type_name)
         children_refs = prim.GetChildren()
 
-        # prim_joint_xforms[path] = wp.transform_identity()
+        prim_joint_xforms[path] = wp.transform_identity()
         
         if type_name == "Xform":
             xform, scale = parse_xform(prim)
@@ -356,13 +365,13 @@ def parse_usd(
             prim_poses[path] = xform
             
             geo_tf = wp.transform_identity()
-            
 
             body_id = builder.add_body(
                 com=com,
-                body_name=prim.GetName(),
-                origin=wp.transform_identity(),
+                origin=xform,
+                name=prim.GetName(),
             )
+            print("added body", body_id, "at", xform)
 
             if joint is not None:
                 joint_params = dict(
@@ -372,25 +381,44 @@ def parse_usd(
                     name=joint["name"],
                     enabled=joint["enabled"],
                     parent_xform=joint["parent_tf"],
-                    child_xform=joint["child_tf"])
+                    child_xform=joint["child_tf"]
+                )
+                print("parent_xform", joint["parent_tf"])
+                print("child_xform ", joint["child_tf"])
                 if joint["type"] == "Revolute":
                     joint_params["joint_type"] = wp.sim.JOINT_REVOLUTE
-                    # if "drive:angular" in joint:
-                    #     joint_params["joint_target_ke"] = joint["drive:angular"]["stiffness"]
-                    #     joint_params["joint_target_kd"] = joint["drive:angular"]["damping"]
-                    #     joint_params["joint_target"] = joint["drive:angular"]["target_pos"]
+                    if len(joint_params["angular_axes"]) == 0:
+                        joint_params["angular_axes"].append(
+                            wp.sim.JointAxis(
+                                joint["axis"],
+                                limit_lower=joint["lowerLimit"],
+                                limit_upper=joint["upperLimit"],
+                                limit_ke=joint_limit_ke,
+                                limit_kd=joint_limit_kd))
                 elif joint["type"] == "Prismatic":
                     joint_params["joint_type"] = wp.sim.JOINT_PRISMATIC
-                    # if "drive:linear" in joint:
-                    #     joint_params["joint_target_ke"] = joint["drive:linear"]["stiffness"]
-                    #     joint_params["joint_target_kd"] = joint["drive:linear"]["damping"]
-                    #     joint_params["joint_target"] = joint["drive:linear"]["target_pos"]
+                    if len(joint_params["linear_axes"]) == 0:
+                        joint_params["linear_axes"].append(
+                            wp.sim.JointAxis(
+                                joint["axis"],
+                                limit_lower=joint["lowerLimit"],
+                                limit_upper=joint["upperLimit"],
+                                limit_ke=joint_limit_ke,
+                                limit_kd=joint_limit_kd))
                 elif joint["type"] == "Spherical":
                     joint_params["joint_type"] = wp.sim.JOINT_BALL
                 elif joint["type"] == "Fixed":
                     joint_params["joint_type"] = wp.sim.JOINT_FIXED
                 elif joint["type"] == "Distance":
                     joint_params["joint_type"] = wp.sim.JOINT_DISTANCE
+                    # we have to add a dummy linear X axis to define the joint limits
+                    joint_params["linear_axes"].append(
+                        wp.sim.JointAxis(
+                            (1.0, 0.0, 0.0),
+                            limit_lower=joint["lowerLimit"],
+                            limit_upper=joint["upperLimit"],
+                            limit_ke=joint_limit_ke,
+                            limit_kd=joint_limit_kd))
                 elif joint["type"] == "":
                     joint_params["joint_type"] = wp.sim.JOINT_D6
                 else:
@@ -402,13 +430,14 @@ def parse_usd(
                 # joint_params["joint_xform"] = joint["parent_tf"]
                 if joint["parent"] is None:
                     joint_params["parent"] = -1
-                    # rel_pose = wp.transform_identity()
+                    rel_pose = wp.transform_identity()
                 else:
                     joint_params["parent"] = path_body_map[joint["parent"]]
-                    # X_wp = prim_poses[joint["parent"]]
-                    # X_wc = xform
-                    # rel_pose = wp.transform_inverse(X_wp) * X_wc
-                    # joint_params["joint_xform"] *= prim_joint_xforms[joint["parent"]]
+                    X_wp = prim_poses[joint["parent"]]
+                    X_wc = xform
+                    # TODO compute rel_pose from body_q of parent and child while incorporating child_xform
+                    rel_pose = wp.transform_inverse(X_wp) * X_wc
+                    joint_params["parent_xform"] *= prim_joint_xforms[joint["parent"]]
                 # joint_params["joint_xform"] = rel_pose
                 # joint_params["joint_xform"] = wp.mul(joint["parent_tf"], joint["child_tf"])
                 # joint_params["joint_xform_child"] = wp.transform_inverse(joint["child_tf"])
@@ -418,7 +447,7 @@ def parse_usd(
                 # geo_tf = joint["child_tf"]
                 # geo_tf = rel_pose * joint["child_tf"]
                 # update relative transform for child prims
-                # prim_joint_xforms[path] = geo_tf
+                prim_joint_xforms[path] = geo_tf
                 # geo_tf = wp.transform(-np.array(joint["child_tf"].p), joint["child_tf"].q)
                 builder.add_joint(**joint_params)
             is_static = False

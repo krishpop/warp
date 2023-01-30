@@ -148,7 +148,7 @@ def parse_urdf(
                                 com=com,
                                 I_m=I_m,
                                 m=m,
-                                body_name=robot.base_link.name)
+                                name=robot.base_link.name)
 
         builder.add_joint_free(root, name="floating_base")
 
@@ -170,7 +170,7 @@ def parse_urdf(
         
     else:
         root = builder.add_body(origin=wp.transform_identity(),
-                                body_name=robot.base_link.name)
+                                name=robot.base_link.name)
         builder.add_joint_fixed(-1, root, parent_xform=xform, name="fixed_base")
         urdf_add_collision(
             builder, root, colliders, 0.0, shape_ke, shape_kd, shape_kf, shape_mu, shape_restitution)
@@ -216,21 +216,11 @@ def parse_urdf(
         # add link
         link = builder.add_body(
             origin=wp.transform_identity(),
-            # parent=parent,
-            # joint_xform=wp.transform(pos, rot),
-            # joint_axis=axis,
-            # joint_type=type,
-            # joint_limit_lower=lower,
-            # joint_limit_upper=upper,
-            # joint_limit_ke=limit_ke,
-            # joint_limit_kd=limit_kd,
-            # joint_target_ke=stiffness,
-            # joint_target_kd=joint_damping,
             armature=armature,
             com=com,
             I_m=I_m,
             m=m,
-            body_name=joint.parent)
+            name=joint.parent)
 
         parent_xform = wp.transform(pos, rot)
         child_xform = wp.transform_identity()
@@ -261,6 +251,35 @@ def parse_urdf(
             builder.add_joint_free(
                 parent, link, parent_xform, child_xform,
                 name=joint.name)
+        elif joint.joint_type == "planar":
+            # find plane vectors perpendicular to axis
+            axis = np.array(joint.axis)
+            axis /= np.linalg.norm(axis)
+            if abs(axis[0]) > 0.1:
+                orthogonal_vector = np.array([1, 0, 0])
+            elif abs(axis[1]) > 0.1:
+                orthogonal_vector = np.array([0, 1, 0])
+            else:
+                orthogonal_vector = np.array([0, 0, 1])
+            plane_vector1 = np.cross(axis, orthogonal_vector)
+            plane_vector2 = np.cross(axis, plane_vector1)
+            builder.add_joint_d6(
+                parent, link,
+                linear_axes=[
+                    wp.sim.JointAxis(
+                        plane_vector1,
+                        limit_lower=lower, limit_upper=upper,
+                        limit_ke=limit_ke, limit_kd=limit_kd),
+                    wp.sim.JointAxis(
+                        plane_vector2, 
+                        limit_lower=lower, limit_upper=upper,
+                        limit_ke=limit_ke, limit_kd=limit_kd),
+                ],
+                parent_xform=parent_xform,
+                child_xform=child_xform,
+                name=joint.name)
+        else:
+            raise Exception("Unsupported joint type: " + joint.joint_type)
 
         if parse_visuals_as_colliders:
             child_colliders = robot.link_map[joint.child].visuals

@@ -462,6 +462,8 @@ def apply_joint_torques(
     joint_child: wp.array(dtype=int),
     joint_X_p: wp.array(dtype=wp.transform),
     joint_X_c: wp.array(dtype=wp.transform),
+    joint_axis_start: wp.array(dtype=int),
+    joint_axis_dim: wp.array(dtype=int, ndim=2),
     joint_axis: wp.array(dtype=wp.vec3),
     joint_act: wp.array(dtype=float),
     body_f: wp.array(dtype=wp.spatial_vector)
@@ -473,6 +475,8 @@ def apply_joint_torques(
     if (type == wp.sim.JOINT_FREE):
         return
     if (type == wp.sim.JOINT_DISTANCE):
+        return
+    if (type == wp.sim.JOINT_BALL):
         return
     
     # rigid body indices of the child and parent
@@ -505,8 +509,9 @@ def apply_joint_torques(
     # joint properties (for 1D joints)
     q_start = joint_q_start[tid]
     qd_start = joint_qd_start[tid]
-    axis = joint_axis[tid]
-    act = joint_act[qd_start]
+    axis_start = joint_axis_start[tid]
+    lin_axis_count = joint_axis_dim[tid,0]
+    ang_axis_count = joint_axis_dim[tid,1]
 
     # total force/torque on the parent
     t_total = wp.vec3()
@@ -514,54 +519,106 @@ def apply_joint_torques(
 
     # handle angular constraints
     if (type == wp.sim.JOINT_REVOLUTE):
+        axis = joint_axis[axis_start]
+        act = joint_act[qd_start]
         a_p = wp.transform_vector(X_wp, axis)
         t_total += act * a_p
     elif (type == wp.sim.JOINT_PRISMATIC):
+        axis = joint_axis[axis_start]
+        act = joint_act[qd_start]
         a_p = wp.transform_vector(X_wp, axis)
         f_total += act * a_p
     elif (type == wp.sim.JOINT_COMPOUND):
-        q_off = wp.transform_get_rotation(X_cj)
-        q_pc = wp.quat_inverse(q_off)*wp.quat_inverse(q_p)*q_c*q_off
-        # decompose to a compound rotation each axis 
-        angles = quat_decompose(q_pc)
+        # q_off = wp.transform_get_rotation(X_cj)
+        # q_pc = wp.quat_inverse(q_off)*wp.quat_inverse(q_p)*q_c*q_off
+        # # decompose to a compound rotation each axis 
+        # angles = quat_decompose(q_pc)
 
-        # reconstruct rotation axes
-        axis_0 = wp.vec3(1.0, 0.0, 0.0)
-        q_0 = wp.quat_from_axis_angle(axis_0, angles[0])
+        # # reconstruct rotation axes
+        # axis_0 = wp.vec3(1.0, 0.0, 0.0)
+        # q_0 = wp.quat_from_axis_angle(axis_0, angles[0])
 
-        axis_1 = wp.quat_rotate(q_0, wp.vec3(0.0, 1.0, 0.0))
-        q_1 = wp.quat_from_axis_angle(axis_1, angles[1])
+        # axis_1 = wp.quat_rotate(q_0, wp.vec3(0.0, 1.0, 0.0))
+        # q_1 = wp.quat_from_axis_angle(axis_1, angles[1])
 
-        axis_2 = wp.quat_rotate(q_1*q_0, wp.vec3(0.0, 0.0, 1.0))
+        # axis_2 = wp.quat_rotate(q_1*q_0, wp.vec3(0.0, 0.0, 1.0))
 
-        q_w = q_p*q_off
+        # q_w = q_p*q_off
+        # t_total += joint_act[qd_start+0] * wp.quat_rotate(q_w, axis_0)
+        # t_total += joint_act[qd_start+1] * wp.quat_rotate(q_w, axis_1)
+        # t_total += joint_act[qd_start+2] * wp.quat_rotate(q_w, axis_2)
 
-        # joint dynamics
-        t_total += joint_act[qd_start+0] * wp.quat_rotate(q_w, axis_0)
-        t_total += joint_act[qd_start+1] * wp.quat_rotate(q_w, axis_1)
-        t_total += joint_act[qd_start+2] * wp.quat_rotate(q_w, axis_2)
+        axis_0 = joint_axis[axis_start+0]
+        axis_1 = joint_axis[axis_start+1]
+        axis_2 = joint_axis[axis_start+2]
+        t_total += joint_act[qd_start+0] * wp.transform_vector(X_wp, axis_0)
+        t_total += joint_act[qd_start+1] * wp.transform_vector(X_wp, axis_1)
+        t_total += joint_act[qd_start+2] * wp.transform_vector(X_wp, axis_2)
+
     elif (type == wp.sim.JOINT_UNIVERSAL):
-        q_off = wp.transform_get_rotation(X_cj)
-        q_pc = wp.quat_inverse(q_off)*wp.quat_inverse(q_p)*q_c*q_off
+        # q_off = wp.transform_get_rotation(X_cj)
+        # q_pc = wp.quat_inverse(q_off)*wp.quat_inverse(q_p)*q_c*q_off
        
-        # decompose to a compound rotation each axis 
-        angles = quat_decompose(q_pc)
+        # # decompose to a compound rotation each axis 
+        # angles = quat_decompose(q_pc)
 
-        # reconstruct rotation axes
-        axis_0 = wp.vec3(1.0, 0.0, 0.0)
-        q_0 = wp.quat_from_axis_angle(axis_0, angles[0])
+        # # reconstruct rotation axes
+        # axis_0 = wp.vec3(1.0, 0.0, 0.0)
+        # q_0 = wp.quat_from_axis_angle(axis_0, angles[0])
 
-        axis_1 = wp.quat_rotate(q_0, wp.vec3(0.0, 1.0, 0.0))
-        q_1 = wp.quat_from_axis_angle(axis_1, angles[1])
+        # axis_1 = wp.quat_rotate(q_0, wp.vec3(0.0, 1.0, 0.0))
+        # q_1 = wp.quat_from_axis_angle(axis_1, angles[1])
 
-        axis_2 = wp.quat_rotate(q_1*q_0, wp.vec3(0.0, 0.0, 1.0))
+        # axis_2 = wp.quat_rotate(q_1*q_0, wp.vec3(0.0, 0.0, 1.0))
 
-        q_w = q_p*q_off
+        # q_w = q_p*q_off
 
         # free axes
-        t_total += joint_act[qd_start+0] * wp.quat_rotate(q_w, axis_0)
-        t_total += joint_act[qd_start+1] * wp.quat_rotate(q_w, axis_1)
+        # t_total += joint_act[qd_start+0] * wp.quat_rotate(q_w, axis_0)
+        # t_total += joint_act[qd_start+1] * wp.quat_rotate(q_w, axis_1)
+        
+        axis_0 = joint_axis[axis_start+0]
+        axis_1 = joint_axis[axis_start+1]
+        t_total += joint_act[qd_start+0] * wp.transform_vector(X_wp, axis_0)
+        t_total += joint_act[qd_start+1] * wp.transform_vector(X_wp, axis_1)
 
+    elif (type == wp.sim.JOINT_D6):
+
+        # unroll for loop to ensure joint actions remain differentiable
+        # (since differentiating through a for loop that updates a local variable is not supported)
+
+        if lin_axis_count > 0:
+            axis = joint_axis[axis_start+0]
+            act = joint_act[qd_start+0]
+            a_p = wp.transform_vector(X_wp, axis)
+            f_total += act * a_p
+        if lin_axis_count > 1:
+            axis = joint_axis[axis_start+1]
+            act = joint_act[qd_start+1]
+            a_p = wp.transform_vector(X_wp, axis)
+            f_total += act * a_p
+        if lin_axis_count > 2:
+            axis = joint_axis[axis_start+2]
+            act = joint_act[qd_start+2]
+            a_p = wp.transform_vector(X_wp, axis)
+            f_total += act * a_p
+            
+        if ang_axis_count > 0:
+            axis = joint_axis[axis_start+lin_axis_count+0]
+            act = joint_act[qd_start+lin_axis_count+0]
+            a_p = wp.transform_vector(X_wp, axis)
+            t_total += act * a_p
+        if ang_axis_count > 1:
+            axis = joint_axis[axis_start+lin_axis_count+1]
+            act = joint_act[qd_start+lin_axis_count+1]
+            a_p = wp.transform_vector(X_wp, axis)
+            t_total += act * a_p
+        if ang_axis_count > 2:
+            axis = joint_axis[axis_start+lin_axis_count+2]
+            act = joint_act[qd_start+lin_axis_count+2]
+            a_p = wp.transform_vector(X_wp, axis)
+            t_total += act * a_p
+        
     else:
         print("joint type not handled in apply_joint_torques")        
         
@@ -595,7 +652,7 @@ def solve_body_joints(body_q: wp.array(dtype=wp.transform),
                       joint_pos_limits: wp.array(dtype=wp.spatial_vector),
                       joint_ang_limits: wp.array(dtype=wp.spatial_vector),
                       joint_axis_start: wp.array(dtype=int),
-                      joint_axis_count: wp.array(dtype=int, ndim=2),
+                      joint_axis_dim: wp.array(dtype=int, ndim=2),
                       joint_axis_mode: wp.array(dtype=int),
                       joint_axis: wp.array(dtype=wp.vec3),
                       joint_target: wp.array(dtype=float),
@@ -604,7 +661,7 @@ def solve_body_joints(body_q: wp.array(dtype=wp.transform),
                       joint_linear_compliance: wp.array(dtype=float),
                       joint_angular_compliance: wp.array(dtype=float),
                       angular_relaxation: float,
-                      positional_relaxation: float,
+                      linear_relaxation: float,
                       dt: float,
                       deltas: wp.array(dtype=wp.spatial_vector)):
     tid = wp.tid()
@@ -667,8 +724,8 @@ def solve_body_joints(body_q: wp.array(dtype=wp.transform),
     angular_compliance = joint_angular_compliance[tid]
 
     axis_start = joint_axis_start[tid]
-    lin_axis_count = joint_axis_count[tid,0]
-    ang_axis_count = joint_axis_count[tid,1]
+    lin_axis_count = joint_axis_dim[tid,0]
+    ang_axis_count = joint_axis_dim[tid,1]
 
     pos_limits = joint_pos_limits[tid]
     lower_pos_limits = wp.spatial_bottom(pos_limits)
@@ -677,10 +734,13 @@ def solve_body_joints(body_q: wp.array(dtype=wp.transform),
     lower_pos_limits = wp.transform_vector(X_pj, lower_pos_limits)
     upper_pos_limits = wp.transform_vector(X_pj, upper_pos_limits)
 
+    world_com_p = wp.transform_point(pose_p, com_p)
+    world_com_c = wp.transform_point(pose_c, com_c)
+
     # handle positional constraints
     if (type == wp.sim.JOINT_DISTANCE):
-        r_p = wp.transform_get_translation(X_wp) - wp.transform_point(pose_p, com_p)
-        r_c = wp.transform_get_translation(X_wc) - wp.transform_point(pose_c, com_c)
+        r_p = wp.transform_get_translation(X_wp) - world_com_p
+        r_c = wp.transform_get_translation(X_wc) - world_com_c
         lower = lower_pos_limits[0]
         upper = upper_pos_limits[0]
         if lower < 0.0 and upper < 0.0:
@@ -690,6 +750,9 @@ def solve_body_joints(body_q: wp.array(dtype=wp.transform),
         err = 0.0
         if lower >= 0.0 and d < lower:
             err = d - lower
+            # use a more descriptive direction vector for the constraint
+            # in case the joint parent and child anchors are very close
+            rel_p = err * wp.normalize(world_com_c - world_com_p)
         elif upper >= 0.0 and d > upper:
             err = d - upper
 
@@ -697,7 +760,7 @@ def solve_body_joints(body_q: wp.array(dtype=wp.transform),
             # compute gradients
             linear_c = rel_p
             linear_p = -linear_c
-            r_c = x_c - wp.transform_point(pose_c, com_c)
+            r_c = x_c - world_com_c
             angular_p = -wp.cross(r_p, linear_c)
             angular_c = wp.cross(r_c, linear_c)
             # constraint time derivative
@@ -712,16 +775,16 @@ def solve_body_joints(body_q: wp.array(dtype=wp.transform),
                 err, derr, pose_p, pose_c, m_inv_p, m_inv_c, I_inv_p, I_inv_c,
                 linear_p, linear_c, angular_p, angular_c, lambda_in, compliance, damping, dt)
 
-            lin_delta_p += linear_p * (d_lambda * positional_relaxation)
-            ang_delta_p += angular_p * (d_lambda * positional_relaxation)
-            lin_delta_c += linear_c * (d_lambda * angular_relaxation)
+            lin_delta_p += linear_p * (d_lambda * linear_relaxation)
+            ang_delta_p += angular_p * (d_lambda * angular_relaxation)
+            lin_delta_c += linear_c * (d_lambda * linear_relaxation)
             ang_delta_c += angular_c * (d_lambda * angular_relaxation)
 
     else:
 
         frame_p = wp.quat_to_matrix(wp.transform_get_rotation(X_wp))
         # note that x_c appearing in both is correct
-        r_p = x_c - wp.transform_point(pose_p, com_p)
+        r_p = x_c - world_com_p
         r_c = x_c - wp.transform_point(pose_c, com_c)
 
         # compute joint target, stiffness, damping
@@ -734,9 +797,9 @@ def solve_body_joints(body_q: wp.array(dtype=wp.transform),
         ke_sum = float(0.0)
         for i in range(lin_axis_count):
             mode = float(joint_axis_mode[axis_start + i])
+            axis = joint_axis[axis_start + i]
             if mode != 0.0:  # position or velocity target
                 # compute average target, stiffness, damping
-                axis = joint_axis[axis_start + i] / float(lin_axis_count)
                 ke = joint_target_ke[axis_start + i]
                 axis_target += axis * joint_target[axis_start + i] * ke
                 axis_stiffness += axis * ke
@@ -745,9 +808,15 @@ def solve_body_joints(body_q: wp.array(dtype=wp.transform),
                 mode_y = wp.max(wp.nonzero(axis[1]) * mode, mode_y)
                 mode_z = wp.max(wp.nonzero(axis[2]) * mode, mode_z)
                 ke_sum += ke
+            # else: # joint limit mode
+            #     # consider joint limit damping
+            #     axis_damping += axis * joint_limit_kd[axis_start + i]
+
         axis_mode = wp.vec3(mode_x, mode_y, mode_z)
         if ke_sum > 0.0:
             axis_target /= ke_sum
+
+        # wp.printf("axis_target: %f %f %f\n", axis_target[0], axis_target[1], axis_target[2])
 
         for dim in range(3):
             e = rel_p[dim]
@@ -764,24 +833,30 @@ def solve_body_joints(body_q: wp.array(dtype=wp.transform),
             err = 0.0
             compliance = linear_compliance
             damping = 0.0
-            if mode == 0.0:
-                # joint limits
-                lower = lower_pos_limits[dim]
-                upper = upper_pos_limits[dim]
-                if e < lower:
-                    err = e - lower
-                elif e > upper:
-                    err = e - upper
-            elif mode == 1.0:
+            if mode == 1.0:
                 # position target
                 err = e - axis_target[dim]
-                compliance = 1.0 / wp.abs(axis_stiffness[dim])
+                if wp.abs(axis_stiffness[dim]) > 0.0:
+                    compliance = 1.0 / wp.abs(axis_stiffness[dim])
                 damping = wp.abs(axis_damping[dim])
             elif mode == 2.0:
                 # velocity target
                 err = (derr - axis_target[dim])*dt
-                compliance = 1.0 / wp.abs(axis_stiffness[dim])
+                if wp.abs(axis_stiffness[dim]) > 0.0:
+                    compliance = 1.0 / wp.abs(axis_stiffness[dim])
                 damping = wp.abs(axis_damping[dim])
+            
+            # consider joint limits irrespective of mode
+            lower = lower_pos_limits[dim]
+            upper = upper_pos_limits[dim]
+            if e < lower:
+                err = e - lower
+                compliance = linear_compliance
+                damping = 0.0
+            elif e > upper:
+                err = e - upper
+                compliance = linear_compliance
+                damping = 0.0
 
             if wp.abs(err) > 1e-9:
                 lambda_in = 0.0
@@ -789,12 +864,14 @@ def solve_body_joints(body_q: wp.array(dtype=wp.transform),
                     err, derr, pose_p, pose_c, m_inv_p, m_inv_c, I_inv_p, I_inv_c,
                     linear_p, linear_c, angular_p, angular_c, lambda_in, compliance, damping, dt)
 
-                lin_delta_p += linear_p * (d_lambda * positional_relaxation)
-                ang_delta_p += angular_p * (d_lambda * positional_relaxation)
-                lin_delta_c += linear_c * (d_lambda * angular_relaxation)
+                lin_delta_p += linear_p * (d_lambda * linear_relaxation)
+                ang_delta_p += angular_p * (d_lambda * angular_relaxation)
+                lin_delta_c += linear_c * (d_lambda * linear_relaxation)
                 ang_delta_c += angular_c * (d_lambda * angular_relaxation)
     
-    if (type == wp.sim.JOINT_FIXED or type == wp.sim.JOINT_PRISMATIC or type == wp.sim.JOINT_REVOLUTE or type == wp.sim.JOINT_UNIVERSAL or type == wp.sim.JOINT_COMPOUND):
+    if (type == wp.sim.JOINT_FIXED or type == wp.sim.JOINT_PRISMATIC or type == wp.sim.JOINT_REVOLUTE or type == wp.sim.JOINT_UNIVERSAL or type == wp.sim.JOINT_COMPOUND or type == wp.sim.JOINT_D6):
+        # handle angular constraints
+
         # local joint rotations
         q_p = wp.transform_get_rotation(X_wp)
         q_c = wp.transform_get_rotation(X_wc)
@@ -803,7 +880,6 @@ def solve_body_joints(body_q: wp.array(dtype=wp.transform),
         if (wp.dot(q_p, q_c) < 0.0):
             q_c *= -1.0
 
-        # handle angular constraints
         rel_q = wp.quat_inverse(q_p) * q_c
         
         qtwist = wp.normalize(wp.quat(rel_q[0], 0.0, 0.0, rel_q[3]))
@@ -828,10 +904,11 @@ def solve_body_joints(body_q: wp.array(dtype=wp.transform),
         # grad_0 *= 2.0 / wp.sqrt(1.0-qtwist[0]*qtwist[0])	# derivative of asin(x) = 1/sqrt(1-x^2)
 
         # rescale swing
-        d = wp.sqrt(1.0 - qswing[3]*qswing[3])
+        swing_sq = qswing[3]*qswing[3]
         # if swing axis magnitude close to zero vector, just treat in quaternion space
         angularEps = 1.e-4
-        if (d > angularEps):
+        if (swing_sq + angularEps < 1.0):
+            d = wp.sqrt(1.0 - qswing[3]*qswing[3])
             theta = 2.0*wp.acos(wp.clamp(qswing[3], -1.0, 1.0))
             scale = theta/d
 
@@ -862,9 +939,9 @@ def solve_body_joints(body_q: wp.array(dtype=wp.transform),
         ke_sum = float(0.0)
         for i in range(ang_axis_count):
             mode = float(joint_axis_mode[axis_start + i])
+            axis = joint_axis[axis_start + i]
             if mode != 0.0:  # position or velocity target
                 # compute average target, stiffness, damping
-                axis = joint_axis[axis_start + i]
                 ke = joint_target_ke[axis_start + i]
                 target = joint_target[axis_start + i]
                 axis_target += axis * target * ke
@@ -874,6 +951,9 @@ def solve_body_joints(body_q: wp.array(dtype=wp.transform),
                 mode_y = wp.max(wp.nonzero(axis[1]) * mode, mode_y)
                 mode_z = wp.max(wp.nonzero(axis[2]) * mode, mode_z)
                 ke_sum += ke
+            # else: # joint limit mode
+            #     # consider joint limit damping
+            #     axis_damping += axis * joint_limit_kd[axis_start + i]
         axis_mode = wp.vec3(mode_x, mode_y, mode_z)
         if ke_sum > 0.0:
             axis_target /= ke_sum
@@ -894,24 +974,30 @@ def solve_body_joints(body_q: wp.array(dtype=wp.transform),
             err = 0.0
             compliance = angular_compliance
             damping = 0.0
-            if mode == 0.0:
-                # joint limits
-                lower = lower_ang_limits[dim]
-                upper = upper_ang_limits[dim]
-                if e < lower:
-                    err = e - lower
-                elif e > upper:
-                    err = e - upper
-            elif mode == 1.0:
+            if mode == 1.0:
                 # position target
                 err = e - axis_target[dim]
-                compliance = 1.0 / wp.abs(axis_stiffness[dim])
+                if wp.abs(axis_stiffness[dim]) > 0.0:
+                    compliance = 1.0 / wp.abs(axis_stiffness[dim])
                 damping = wp.abs(axis_damping[dim])
             elif mode == 2.0:
                 # velocity target
                 err = (derr - axis_target[dim])*dt
-                compliance = 1.0 / wp.abs(axis_stiffness[dim])
+                if wp.abs(axis_stiffness[dim]) > 0.0:
+                    compliance = 1.0 / wp.abs(axis_stiffness[dim])
                 damping = wp.abs(axis_damping[dim])
+            
+            # consider joint limits irrespective of mode
+            lower = lower_ang_limits[dim]
+            upper = upper_ang_limits[dim]
+            if e < lower:
+                err = e - lower
+                compliance = angular_compliance
+                damping = 0.0
+            elif e > upper:
+                err = e - upper
+                compliance = angular_compliance
+                damping = 0.0
 
             if wp.abs(err) > 1e-9:
                 d_lambda = compute_angular_correction(
@@ -941,7 +1027,7 @@ def solve_body_joints2(body_q: wp.array(dtype=wp.transform),
                       joint_X_p: wp.array(dtype=wp.transform),
                       joint_X_c: wp.array(dtype=wp.transform),
                       joint_axis_start: wp.array(dtype=int),
-                      joint_axis_count: wp.array(dtype=int, ndim=2),
+                      joint_axis_dim: wp.array(dtype=int, ndim=2),
                       joint_axis: wp.array(dtype=wp.vec3),
                       joint_target: wp.array(dtype=float),
                       joint_target_ke: wp.array(dtype=float),
@@ -953,7 +1039,7 @@ def solve_body_joints2(body_q: wp.array(dtype=wp.transform),
                       joint_linear_compliance: wp.array(dtype=float),
                       joint_angular_compliance: wp.array(dtype=float),
                       angular_relaxation: float,
-                      positional_relaxation: float,
+                      linear_relaxation: float,
                       dt: float,
                       deltas: wp.array(dtype=wp.spatial_vector)):
     tid = wp.tid()
@@ -1072,9 +1158,9 @@ def solve_body_joints2(body_q: wp.array(dtype=wp.transform),
                 err, derr, pose_p, pose_c, m_inv_p, m_inv_c, I_inv_p, I_inv_c,
                 linear_p, linear_c, angular_p, angular_c, lambda_in, linear_compliance, 0.0, dt)
 
-            lin_delta_p += linear_p * (d_lambda * positional_relaxation)
-            ang_delta_p += angular_p * (d_lambda * positional_relaxation)
-            lin_delta_c += linear_c * (d_lambda * angular_relaxation)
+            lin_delta_p += linear_p * (d_lambda * linear_relaxation)
+            ang_delta_p += angular_p * (d_lambda * angular_relaxation)
+            lin_delta_c += linear_c * (d_lambda * linear_relaxation)
             ang_delta_c += angular_c * (d_lambda * angular_relaxation)
 
     else:
@@ -1122,9 +1208,9 @@ def solve_body_joints2(body_q: wp.array(dtype=wp.transform),
                 #     err, derr, X_wp, X_wc, m_inv_p, m_inv_c, I_inv_p, I_inv_c,
                 #     linear_p, linear_c, angular_p, angular_c, lambda_in, compliance, damping, dt)
 
-                lin_delta_p += linear_p * (d_lambda * positional_relaxation)
-                ang_delta_p += angular_p * (d_lambda * positional_relaxation)
-                lin_delta_c += linear_c * (d_lambda * angular_relaxation)
+                lin_delta_p += linear_p * (d_lambda * linear_relaxation)
+                ang_delta_p += angular_p * (d_lambda * angular_relaxation)
+                lin_delta_c += linear_c * (d_lambda * linear_relaxation)
                 ang_delta_c += angular_c * (d_lambda * angular_relaxation)
 
 
@@ -1602,8 +1688,9 @@ def solve_body_contact_positions(
 
         if (wp.abs(err) > 0.0):
             lin = wp.vec3(0.0)
-            lambda_torsion = compute_contact_constraint_delta(err, X_wb_a, X_wb_b, m_inv_a, m_inv_b, I_inv_a, I_inv_b,
-            lin, lin, -n, n, 1.0, dt)
+            lambda_torsion = compute_contact_constraint_delta(
+                err, X_wb_a, X_wb_b, m_inv_a, m_inv_b, I_inv_a, I_inv_b,
+                lin, lin, -n, n, 1.0, dt)
 
             lambda_torsion = wp.clamp(lambda_torsion, -lambda_n*torsional_friction, lambda_n*torsional_friction)
             
@@ -1617,8 +1704,9 @@ def solve_body_contact_positions(
         if (err > 0.0):
             lin = wp.vec3(0.0)
             roll_n = wp.normalize(delta_omega)
-            lambda_roll = compute_contact_constraint_delta(err, X_wb_a, X_wb_b, m_inv_a, m_inv_b, I_inv_a, I_inv_b,
-            lin, lin, -roll_n, roll_n, 1.0, dt)
+            lambda_roll = compute_contact_constraint_delta(
+                err, X_wb_a, X_wb_b, m_inv_a, m_inv_b, I_inv_a, I_inv_b,
+                lin, lin, -roll_n, roll_n, 1.0, dt)
 
             lambda_roll = wp.max(lambda_roll, -lambda_n*rolling_friction)
             
@@ -1835,9 +1923,9 @@ class XPBDIntegrator:
                  iterations=2,
                  soft_body_relaxation=0.9,
                  soft_contact_relaxation=0.9,
-                 joint_positional_relaxation=1.0,
+                 joint_linear_relaxation=0.7,
                  joint_angular_relaxation=0.4,
-                 rigid_contact_relaxation=1.0,
+                 rigid_contact_relaxation=0.8,
                  rigid_contact_con_weighting=True,
                  angular_damping=0.0,
                  enable_restitution=False):
@@ -1847,7 +1935,7 @@ class XPBDIntegrator:
         self.soft_body_relaxation = soft_body_relaxation
         self.soft_contact_relaxation = soft_contact_relaxation
 
-        self.joint_positional_relaxation = joint_positional_relaxation
+        self.joint_linear_relaxation = joint_linear_relaxation
         self.joint_angular_relaxation = joint_angular_relaxation
 
         self.rigid_contact_relaxation = rigid_contact_relaxation
@@ -1911,6 +1999,8 @@ class XPBDIntegrator:
                             model.joint_child,
                             model.joint_X_p,
                             model.joint_X_c,
+                            model.joint_axis_start,
+                            model.joint_axis_dim,
                             model.joint_axis,
                             model.joint_act,
                         ],
@@ -2102,7 +2192,7 @@ class XPBDIntegrator:
                     #             model.joint_X_p,
                     #             model.joint_X_c,
                     #             model.joint_axis_start,
-                    #             model.joint_axis_count,
+                    #             model.joint_axis_dim,
                     #             model.joint_axis,
                     #             model.joint_target,
                     #             model.joint_target_ke,
@@ -2114,7 +2204,7 @@ class XPBDIntegrator:
                     #             model.joint_linear_compliance,
                     #             model.joint_angular_compliance,
                     #             self.joint_angular_relaxation,
-                    #             self.joint_positional_relaxation,
+                    #             self.joint_linear_relaxation,
                     #             dt
                     #         ],
                     #         outputs=[
@@ -2140,7 +2230,7 @@ class XPBDIntegrator:
                                 model.joint_pos_limit,
                                 model.joint_ang_limit,
                                 model.joint_axis_start,
-                                model.joint_axis_count,
+                                model.joint_axis_dim,
                                 model.joint_axis_mode,
                                 model.joint_axis,
                                 model.joint_target,
@@ -2149,7 +2239,7 @@ class XPBDIntegrator:
                                 model.joint_linear_compliance,
                                 model.joint_angular_compliance,
                                 self.joint_angular_relaxation,
-                                self.joint_positional_relaxation,
+                                self.joint_linear_relaxation,
                                 dt
                             ],
                             outputs=[

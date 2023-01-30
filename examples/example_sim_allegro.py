@@ -23,6 +23,7 @@ import warp as wp
 import warp.sim
 
 from sim_demo import WarpSimDemonstration, run_demo
+from sim_demo import WarpSimDemonstration, run_demo, IntegratorType
 
 class Demo(WarpSimDemonstration):
     sim_name = "example_sim_allegro"
@@ -30,16 +31,20 @@ class Demo(WarpSimDemonstration):
     tiny_render_settings = dict(scaling=15.0)
     usd_render_settings = dict(scaling=200.0)
 
-    sim_substeps_euler = 128
+    sim_substeps_euler = 64
     sim_substeps_xpbd = 8
 
+    num_envs = 1
+
     xpbd_settings = dict(
-        iterations=20,
-        joint_positional_relaxation=1.0,
+        iterations=10,
+        joint_linear_relaxation=1.0,
         joint_angular_relaxation=0.45,
         rigid_contact_relaxation=1.0,
         rigid_contact_con_weighting=True,
     )
+    
+    # integrator_type = IntegratorType.EULER
     
     def create_articulation(self, builder):
         floating_base = False
@@ -51,7 +56,7 @@ class Demo(WarpSimDemonstration):
             xform=wp.transform(np.array((0.0, 0.3, 0.0)), wp.quat_rpy(-np.pi/2, np.pi*0.75, np.pi/2)),
             floating=floating_base,
             density=1e3,
-            armature=0.0,
+            armature=0.01,
             stiffness=1000.0,
             damping=0.0,
             shape_ke=1.e+3,
@@ -68,7 +73,7 @@ class Demo(WarpSimDemonstration):
         for i in range(16):
             builder.joint_q[i+q_offset] = 0.5 * (builder.joint_limit_lower[i+qd_offset] + builder.joint_limit_upper[i+qd_offset])
             builder.joint_target[i] = builder.joint_q[i+q_offset]
-            builder.joint_target_ke[i] = 50000000.0
+            builder.joint_target_ke[i] = 50000.0
             builder.joint_target_kd[i] = 10.0
         
         wp.sim.parse_urdf(
