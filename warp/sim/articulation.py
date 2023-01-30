@@ -24,7 +24,7 @@ def eval_articulation_fk(
     joint_X_c: wp.array(dtype=wp.transform),
     joint_axis: wp.array(dtype=wp.vec3),
     joint_axis_start: wp.array(dtype=int),
-    joint_axis_count: wp.array(dtype=int, ndim=2),
+    joint_axis_dim: wp.array(dtype=int, ndim=2),
     body_com: wp.array(dtype=wp.vec3),
     # outputs
     body_q: wp.array(dtype=wp.transform),
@@ -60,8 +60,8 @@ def eval_articulation_fk(
         q_start = joint_q_start[i]
         qd_start = joint_qd_start[i]
         axis_start = joint_axis_start[i]
-        lin_axis_count = joint_axis_count[i,0]
-        ang_axis_count = joint_axis_count[i,1]
+        lin_axis_count = joint_axis_dim[i,0]
+        ang_axis_count = joint_axis_dim[i,1]
 
         X_jc = wp.transform_identity()
 
@@ -231,7 +231,7 @@ def eval_fk(model, joint_q, joint_qd, mask, state):
                     model.joint_X_c,
                     model.joint_axis,
                     model.joint_axis_start,
-                    model.joint_axis_count,
+                    model.joint_axis_dim,
                     model.body_com
                 ],
                 outputs=[
@@ -252,7 +252,7 @@ def eval_articulation_ik(body_q: wp.array(dtype=wp.transform),
                          joint_X_c: wp.array(dtype=wp.transform),
                          joint_axis: wp.array(dtype=wp.vec3),
                          joint_axis_start: wp.array(dtype=int),
-                         joint_axis_count: wp.array(dtype=int, ndim=2),
+                         joint_axis_dim: wp.array(dtype=int, ndim=2),
                          joint_q_start: wp.array(dtype=int),
                          joint_qd_start: wp.array(dtype=int),
                          joint_q: wp.array(dtype=float),
@@ -307,8 +307,8 @@ def eval_articulation_ik(body_q: wp.array(dtype=wp.transform),
     q_start = joint_q_start[tid]
     qd_start = joint_qd_start[tid]
     axis_start = joint_axis_start[tid]
-    lin_axis_count = joint_axis_count[tid,0]
-    ang_axis_count = joint_axis_count[tid,1]
+    lin_axis_count = joint_axis_dim[tid,0]
+    ang_axis_count = joint_axis_dim[tid,1]
 
     if type == wp.sim.JOINT_PRISMATIC:
         axis = joint_axis[axis_start]
@@ -489,7 +489,7 @@ def eval_ik(model, state, joint_q, joint_qd):
             model.joint_X_c,
             model.joint_axis,
             model.joint_axis_start,
-            model.joint_axis_count,
+            model.joint_axis_dim,
             model.joint_q_start,
             model.joint_qd_start
         ],

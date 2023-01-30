@@ -25,9 +25,9 @@ def quat_twist(axis: wp.vec3, q: wp.quat):
     a = wp.vec3(q[0], q[1], q[2])
     proj = wp.dot(a, axis)
     a = proj*axis
-    if proj < 0.0:
-        # ensure twist points in same direction as axis
-        a = -a
+    # if proj < 0.0:
+    #     # ensure twist points in same direction as axis
+    #     a = -a
     return wp.normalize(wp.quat(a[0], a[1], a[2], q[3]))
 
 

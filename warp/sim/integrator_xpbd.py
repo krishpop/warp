@@ -463,7 +463,7 @@ def apply_joint_torques(
     joint_X_p: wp.array(dtype=wp.transform),
     joint_X_c: wp.array(dtype=wp.transform),
     joint_axis_start: wp.array(dtype=int),
-    joint_axis_count: wp.array(dtype=int, ndim=2),
+    joint_axis_dim: wp.array(dtype=int, ndim=2),
     joint_axis: wp.array(dtype=wp.vec3),
     joint_act: wp.array(dtype=float),
     body_f: wp.array(dtype=wp.spatial_vector)
@@ -510,8 +510,8 @@ def apply_joint_torques(
     q_start = joint_q_start[tid]
     qd_start = joint_qd_start[tid]
     axis_start = joint_axis_start[tid]
-    lin_axis_count = joint_axis_count[tid,0]
-    ang_axis_count = joint_axis_count[tid,1]
+    lin_axis_count = joint_axis_dim[tid,0]
+    ang_axis_count = joint_axis_dim[tid,1]
 
     # total force/torque on the parent
     t_total = wp.vec3()
@@ -652,7 +652,7 @@ def solve_body_joints(body_q: wp.array(dtype=wp.transform),
                       joint_pos_limits: wp.array(dtype=wp.spatial_vector),
                       joint_ang_limits: wp.array(dtype=wp.spatial_vector),
                       joint_axis_start: wp.array(dtype=int),
-                      joint_axis_count: wp.array(dtype=int, ndim=2),
+                      joint_axis_dim: wp.array(dtype=int, ndim=2),
                       joint_axis_mode: wp.array(dtype=int),
                       joint_axis: wp.array(dtype=wp.vec3),
                       joint_target: wp.array(dtype=float),
@@ -724,8 +724,8 @@ def solve_body_joints(body_q: wp.array(dtype=wp.transform),
     angular_compliance = joint_angular_compliance[tid]
 
     axis_start = joint_axis_start[tid]
-    lin_axis_count = joint_axis_count[tid,0]
-    ang_axis_count = joint_axis_count[tid,1]
+    lin_axis_count = joint_axis_dim[tid,0]
+    ang_axis_count = joint_axis_dim[tid,1]
 
     pos_limits = joint_pos_limits[tid]
     lower_pos_limits = wp.spatial_bottom(pos_limits)
@@ -1027,7 +1027,7 @@ def solve_body_joints2(body_q: wp.array(dtype=wp.transform),
                       joint_X_p: wp.array(dtype=wp.transform),
                       joint_X_c: wp.array(dtype=wp.transform),
                       joint_axis_start: wp.array(dtype=int),
-                      joint_axis_count: wp.array(dtype=int, ndim=2),
+                      joint_axis_dim: wp.array(dtype=int, ndim=2),
                       joint_axis: wp.array(dtype=wp.vec3),
                       joint_target: wp.array(dtype=float),
                       joint_target_ke: wp.array(dtype=float),
@@ -2000,7 +2000,7 @@ class XPBDIntegrator:
                             model.joint_X_p,
                             model.joint_X_c,
                             model.joint_axis_start,
-                            model.joint_axis_count,
+                            model.joint_axis_dim,
                             model.joint_axis,
                             model.joint_act,
                         ],
@@ -2192,7 +2192,7 @@ class XPBDIntegrator:
                     #             model.joint_X_p,
                     #             model.joint_X_c,
                     #             model.joint_axis_start,
-                    #             model.joint_axis_count,
+                    #             model.joint_axis_dim,
                     #             model.joint_axis,
                     #             model.joint_target,
                     #             model.joint_target_ke,
@@ -2230,7 +2230,7 @@ class XPBDIntegrator:
                                 model.joint_pos_limit,
                                 model.joint_ang_limit,
                                 model.joint_axis_start,
-                                model.joint_axis_count,
+                                model.joint_axis_dim,
                                 model.joint_axis_mode,
                                 model.joint_axis,
                                 model.joint_target,

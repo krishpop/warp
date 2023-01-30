@@ -848,10 +848,9 @@ class ModelBuilder:
         self.joint_q_start = []
         self.joint_qd_start = []
         self.joint_axis_start = []
-        self.joint_axis_count = []
+        self.joint_axis_dim = []
         self.articulation_start = []
 
-        self.joint_count = 0
         self.joint_dof_count = 0
         self.joint_coord_count = 0
         self.joint_axis_total_count = 0
@@ -890,6 +889,14 @@ class ModelBuilder:
     @property
     def body_count(self):
         return len(self.body_q)
+
+    @property
+    def joint_count(self):
+        return len(self.joint_type)
+
+    @property
+    def joint_axis_count(self):
+        return len(self.joint_axis)
 
     @property
     def particle_count(self):
@@ -1011,7 +1018,7 @@ class ModelBuilder:
             "joint_X_c",
             "joint_armature",
             "joint_axis",
-            "joint_axis_count",
+            "joint_axis_dim",
             "joint_axis_mode",
             "joint_name",
             "joint_qd",
@@ -1047,7 +1054,7 @@ class ModelBuilder:
         for attr in rigid_articulation_attrs:
             getattr(self, attr).extend(getattr(articulation, attr))
         
-        self.joint_count += articulation.joint_count
+        # self.joint_count += articulation.joint_count
         self.joint_dof_count += articulation.joint_dof_count
         self.joint_coord_count += articulation.joint_coord_count
         self.joint_axis_total_count += articulation.joint_axis_total_count
@@ -1147,7 +1154,7 @@ class ModelBuilder:
         self.joint_X_c.append([*child_xform])
         self.joint_name.append(name or f"joint {self.joint_count}")
         self.joint_axis_start.append(len(self.joint_axis))
-        self.joint_axis_count.append((len(linear_axes), len(angular_axes)))
+        self.joint_axis_dim.append((len(linear_axes), len(angular_axes)))
         self.joint_axis_total_count += len(linear_axes) + len(angular_axes)
             
         self.joint_linear_compliance.append(linear_compliance)
@@ -1243,7 +1250,6 @@ class ModelBuilder:
         self.joint_q_start.append(self.joint_coord_count)
         self.joint_qd_start.append(self.joint_dof_count)
 
-        self.joint_count += 1
         self.joint_dof_count += dof_count
         self.joint_coord_count += coord_count
 
@@ -3023,7 +3029,7 @@ class ModelBuilder:
             m.joint_X_p = wp.array(self.joint_X_p, dtype=wp.transform, requires_grad=requires_grad)
             m.joint_X_c = wp.array(self.joint_X_c, dtype=wp.transform, requires_grad=requires_grad)
             m.joint_axis_start = wp.array(self.joint_axis_start, dtype=wp.int32)
-            m.joint_axis_count = wp.array(np.array(self.joint_axis_count), dtype=wp.int32, ndim=2)
+            m.joint_axis_dim = wp.array(np.array(self.joint_axis_dim), dtype=wp.int32, ndim=2)
             m.joint_axis = wp.array(self.joint_axis, dtype=wp.vec3, requires_grad=requires_grad)
             m.joint_q = wp.array(self.joint_q, dtype=wp.float32, requires_grad=requires_grad)
             m.joint_qd = wp.array(self.joint_qd, dtype=wp.float32, requires_grad=requires_grad)

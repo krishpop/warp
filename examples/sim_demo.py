@@ -112,9 +112,6 @@ class WarpSimDemonstration:
 
         self.sim_dt = self.frame_dt / self.sim_substeps
         self.sim_steps = int(self.episode_duration / self.sim_dt)
-    
-        sim_time = 0.0
-        render_time = 0.0
 
         builder = wp.sim.ModelBuilder()
         try:
@@ -176,6 +173,9 @@ class WarpSimDemonstration:
         pass
 
     def before_simulate(self):
+        pass
+
+    def after_simulate(self):
         pass
 
     def run(self):
@@ -287,7 +287,8 @@ class WarpSimDemonstration:
 
             wp.synchronize()
 
- 
+        self.after_simulate()
+
         avg_time = np.array(profiler["simulate"]).mean()/self.episode_frames
         avg_steps_second = 1000.0*float(self.num_envs)/avg_time
 
