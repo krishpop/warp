@@ -816,9 +816,6 @@ def eval_contacts(particle_x: wp.array(dtype=wp.vec3), particle_v: wp.array(dtyp
     f[tid] = f[tid] -n*fn - vt*ft
 
 
-
-
-
 @wp.kernel
 def eval_soft_contacts(
     particle_x: wp.array(dtype=wp.vec3), 
@@ -826,14 +823,16 @@ def eval_soft_contacts(
     body_q: wp.array(dtype=wp.transform),
     body_qd: wp.array(dtype=wp.spatial_vector),
     body_com: wp.array(dtype=wp.vec3),
-    ke: float,
-    kd: float, 
-    kf: float,
-    ka: float,
-    mu: float,
+    shape_body: wp.array(dtype=int),
+    shape_materials: ShapeContactMaterial,
+    particle_ke: float,
+    particle_kd: float,
+    particle_kf: float,
+    particle_mu: float,
+    particle_ka: float,
     contact_count: wp.array(dtype=int),
     contact_particle: wp.array(dtype=int),
-    contact_body: wp.array(dtype=int),
+    contact_shape: wp.array(dtype=int),
     contact_body_pos: wp.array(dtype=wp.vec3),
     contact_body_vel: wp.array(dtype=wp.vec3),
     contact_normal: wp.array(dtype=wp.vec3),
@@ -849,7 +848,8 @@ def eval_soft_contacts(
     if (tid >= count):
         return
         
-    body_index = contact_body[tid]
+    shape_index = contact_shape[tid]
+    body_index = shape_body[shape_index]
     particle_index = contact_particle[tid]
 
     px = particle_x[particle_index]
@@ -857,10 +857,12 @@ def eval_soft_contacts(
 
     X_wb = wp.transform_identity()
     X_com = wp.vec3()
+    body_v_s = wp.spatial_vector()
     
     if (body_index >= 0):
         X_wb = body_q[body_index]
         X_com = body_com[body_index]
+        body_v_s = body_qd[body_index]
 
     # body position in world space
     bx = wp.transform_point(X_wb, contact_body_pos[tid])
@@ -869,13 +871,14 @@ def eval_soft_contacts(
     n = contact_normal[tid]
     c = wp.dot(n, px-bx) - contact_distance
     
-    if (c > ka):
+    if (c > particle_ka):
         return
 
-    # body velocity
-    body_v_s = wp.spatial_vector()
-    if (body_index >= 0):
-        body_v_s = body_qd[body_index]
+    # take average material properties of shape and particle parameters
+    ke = 0.5 * (particle_ke + shape_materials.ke[shape_index])
+    kd = 0.5 * (particle_kd + shape_materials.kd[shape_index])
+    kf = 0.5 * (particle_kf + shape_materials.kf[shape_index])
+    mu = 0.5 * (particle_mu + shape_materials.mu[shape_index])
     
     body_w = wp.spatial_top(body_v_s)
     body_v = wp.spatial_bottom(body_v_s)
@@ -1544,14 +1547,16 @@ def compute_forces(model, state, particle_f, body_f, requires_grad):
                         state.body_q,
                         state.body_qd,
                         model.body_com,
+                        model.shape_body,
+                        model.shape_materials,
                         model.soft_contact_ke,
-                        model.soft_contact_kd, 
-                        model.soft_contact_kf, 
-                        model.particle_adhesion,
+                        model.soft_contact_kd,
+                        model.soft_contact_kf,
                         model.soft_contact_mu,
+                        model.particle_adhesion,
                         model.soft_contact_count,
                         model.soft_contact_particle,
-                        model.soft_contact_body,
+                        model.soft_contact_shape,
                         model.soft_contact_body_pos,
                         model.soft_contact_body_vel,
                         model.soft_contact_normal,

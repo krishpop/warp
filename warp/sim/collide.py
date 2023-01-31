@@ -413,7 +413,7 @@ def create_soft_contacts(
     # outputs
     soft_contact_count: wp.array(dtype=int),
     soft_contact_particle: wp.array(dtype=int),
-    soft_contact_body: wp.array(dtype=int),
+    soft_contact_shape: wp.array(dtype=int),
     soft_contact_body_pos: wp.array(dtype=wp.vec3),
     soft_contact_body_vel: wp.array(dtype=wp.vec3),
     soft_contact_normal: wp.array(dtype=wp.vec3),
@@ -494,7 +494,7 @@ def create_soft_contacts(
 
             world_normal = wp.transform_vector(X_ws, n)
 
-            soft_contact_body[index] = rigid_index
+            soft_contact_shape[index] = shape_index
             soft_contact_body_pos[index] = body_pos
             soft_contact_body_vel[index] = body_vel
             soft_contact_particle[index] = particle_index
@@ -1263,7 +1263,7 @@ def collide(model, state, edge_sdf_iter: int = 5):
             outputs = [
                 model.soft_contact_count,
                 model.soft_contact_particle,
-                model.soft_contact_body,
+                model.soft_contact_shape,
                 model.soft_contact_body_pos,
                 model.soft_contact_body_vel,
                 model.soft_contact_normal,

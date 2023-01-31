@@ -529,7 +529,7 @@ class Model:
             self.soft_contact_max = count
         self.soft_contact_count = wp.zeros(1, dtype=wp.int32, device=self.device)
         self.soft_contact_particle = wp.zeros(self.soft_contact_max, dtype=int, device=self.device)
-        self.soft_contact_body = wp.zeros(self.soft_contact_max, dtype=int, device=self.device)
+        self.soft_contact_shape = wp.zeros(self.soft_contact_max, dtype=int, device=self.device)
         self.soft_contact_body_pos = wp.zeros(self.soft_contact_max, dtype=wp.vec3, device=self.device, requires_grad=requires_grad)
         self.soft_contact_body_vel = wp.zeros(self.soft_contact_max, dtype=wp.vec3, device=self.device, requires_grad=requires_grad)
         self.soft_contact_normal = wp.zeros(self.soft_contact_max, dtype=wp.vec3, device=self.device, requires_grad=requires_grad)
