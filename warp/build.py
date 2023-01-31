@@ -385,7 +385,7 @@ def build_dll(cpp_path, cu_path, dll_path, config="release", verify_fp=False, fa
                 run_cmd(cuda_cmd)
 
                 ld_inputs.append(quote(cu_out))
-                ld_inputs.append('-L"{cuda_home}/lib64" -lcudart_static -lnvrtc_static -lnvrtc-builtins_static -lnvptxcompiler_static -lpthread -ldl -lrt'.format(cuda_home=cuda_home))
+                ld_inputs.append('-L"{cuda_home}/lib64" -L"{cuda_home}/lib" -lcudart_static -lnvrtc_static -lnvrtc-builtins_static -lnvptxcompiler_static -lpthread -ldl -lrt'.format(cuda_home=cuda_home))
 
         if sys.platform == 'darwin':
             opt_no_undefined = "-Wl,-undefined,error"
