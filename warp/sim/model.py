@@ -2946,7 +2946,8 @@ class ModelBuilder:
                         finalized_meshes[geo_hash] = geo.finalize(device=device)
                     shape_geo_id.append(finalized_meshes[geo_hash])
                 else:
-                    shape_geo_id.append(-1)
+                    # add null pointer
+                    shape_geo_id.append(0)
 
             m.shape_geo_id = wp.array(shape_geo_id, dtype=wp.uint64)
             m.shape_geo_scale = wp.array(self.shape_geo_scale, dtype=wp.vec3, requires_grad=requires_grad)
