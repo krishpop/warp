@@ -802,8 +802,8 @@ add_builtin("tid", input_types={}, value_type=[int, int, int, int], group="Utili
 
 
 add_builtin("copy", variadic=True, hidden=True, export=False, group="Utility")
-add_builtin("select", input_types={"cond": bool, "arg1": Any, "arg2": Any}, value_func=lambda args: args[1].type, doc="Select between two arguments, if cond is false then return ``arg1``, otherwise return ``arg2``", group="Utility")
-add_builtin("select", input_types={"arr": array(dtype=Any), "arg1": Any, "arg2": Any}, value_func=lambda args: args[1].type, doc="Select between two arguments, if array is null then return ``arg1``, otherwise return ``arg2``", group="Utility")
+add_builtin("select", input_types={"cond": bool, "arg1": Any, "arg2": Any}, value_func=lambda args,_: args[1].type, doc="Select between two arguments, if cond is false then return ``arg1``, otherwise return ``arg2``", group="Utility")
+add_builtin("select", input_types={"arr": array(dtype=Any), "arg1": Any, "arg2": Any}, value_func=lambda args,_: args[1].type, doc="Select between two arguments, if array is null then return ``arg1``, otherwise return ``arg2``", group="Utility")
 
 # does argument checking and type progagation for load()
 def load_value_func(args,_):
