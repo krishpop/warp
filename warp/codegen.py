@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 import re
 import sys
-import imp
+import importlib
 import ast
 import math
 import inspect
@@ -148,6 +148,14 @@ class Struct:
                 StructInstance.__init__(inst, self)
         return NewStructInstance()
 
+def compute_type_str(generictype,typeparams):
+    def param2str(p):
+        if isinstance(p,int):
+            return str(p)
+        return p.__name__
+
+    return f"{generictype}<{','.join(map(param2str,typeparams))}>"
+            
 class Var:
     def __init__(self, label, type, requires_grad=False, constant=None):
 
@@ -167,9 +175,15 @@ class Var:
 
     def ctype(self):
         if (isinstance(self.type, array)):
-            return f"array_t<{str(self.type.dtype.__name__)}>"
-        if (isinstance(self.type, Struct)):
+            if hasattr(self.type.dtype,"_wp_generic_type_str_"):
+                typestr = compute_type_str( self.type.dtype._wp_generic_type_str_, self.type.dtype._wp_type_params_ )
+            else:
+                typestr = str(self.type.dtype.__name__)
+            return f"array_t<{typestr}>"
+        elif (isinstance(self.type, Struct)):
             return make_full_qualified_name(self.type.cls)
+        elif hasattr(self.type,"_wp_generic_type_str_"):
+            return compute_type_str( self.type._wp_generic_type_str_, self.type._wp_type_params_ )
         else:
             return str(self.type.__name__)
 
@@ -246,6 +260,7 @@ class Adjoint:
 
         # blocks
         adj.blocks = [Block()]
+        adj.loop_blocks = []
 
         # holds current indent level
         adj.prefix = ""
@@ -390,7 +405,7 @@ class Adjoint:
 
         return output
 
-    def add_call(adj, func, inputs, min_outputs=None):
+    def add_call(adj, func, inputs, min_outputs=None, templates=[]):
 
         # if func is overloaded then perform overload resolution here
         # we validate argument types before they go to generated native code
@@ -420,7 +435,7 @@ class Adjoint:
                         continue
 
                     # otherwise check arg type matches input variable type
-                    if not types_equal(a, inputs[i].type):
+                    if not types_equal(a, inputs[i].type, match_generic=True):
                         match = False
                         break
 
@@ -428,7 +443,7 @@ class Adjoint:
             if min_outputs:
 
                 try:
-                    value_type = f.value_func(inputs)
+                    value_type = f.value_func(inputs,templates)
                     if len(value_type) != min_outputs:
                         match = False
                         continue
@@ -464,18 +479,25 @@ class Adjoint:
         else:
             func = resolved_func
 
-
         # if it is a user-function then build it recursively
         if not func.is_builtin():
             adj.builder.build_function(func)
 
         # evaluate the function type based on inputs
-        value_type = func.value_func(inputs)
+        value_type = func.value_func(inputs,templates)
+
+        funcname = func.key
+        if templates:
+            funcname = compute_type_str( func.key, templates )
 
         # handle expression (zero output), e.g.: void do_something();
+        initializer_list = func.initializer_list_func(inputs, templates)
         if (value_type == None):
 
-            forward_call = func.namespace + "{}({});".format(func.key, adj.format_args("var_", inputs))
+            if initializer_list:
+                forward_call = func.namespace + "{}({{{}}});".format(funcname, adj.format_args("var_", inputs))
+            else:
+                forward_call = func.namespace + "{}({});".format(funcname, adj.format_args("var_", inputs))
             
             if func.skip_replay:
                 adj.add_forward(forward_call, replay="//" + forward_call)
@@ -483,7 +505,10 @@ class Adjoint:
                 adj.add_forward(forward_call)
 
             if (len(inputs)):
-                reverse_call = func.namespace + "{}({}, {});".format("adj_" + func.key, adj.format_args("var_", inputs), adj.format_args("adj_", inputs))
+                if initializer_list:
+                    reverse_call = func.namespace + "{}({}, {{{}}});".format("adj_" + func.key, adj.format_args("var_", inputs), adj.format_args("&adj_", inputs))
+                else:
+                    reverse_call = func.namespace + "{}({}, {});".format("adj_" + func.key, adj.format_args("var_", inputs), adj.format_args("adj_", inputs))
                 adj.add_reverse(reverse_call)
 
             return None
@@ -492,12 +517,19 @@ class Adjoint:
         elif (isinstance(value_type, list)):
 
             output = [adj.add_var(v) for v in value_type]
-            forward_call = func.namespace + "{}({});".format(func.key, adj.format_args("var_", inputs+output))
+            if initializer_list:
+                forward_call = func.namespace + "{}({{{}}});".format(funcname, adj.format_args("var_", inputs+output))
+            else:
+                forward_call = func.namespace + "{}({});".format(funcname, adj.format_args("var_", inputs+output))
             adj.add_forward(forward_call)
 
             if (len(inputs)):
-                reverse_call = func.namespace + "{}({}, {}, {});".format(
-                    "adj_" + func.key, adj.format_args("var_", inputs+output), adj.format_args("adj_", inputs), adj.format_args("adj_", output))
+                if initializer_list:
+                    reverse_call = func.namespace + "{}({{{}}}, {{{}}}, {});".format(
+                        "adj_" + func.key, adj.format_args("var_", inputs+output), adj.format_args("&adj_", inputs), adj.format_args("adj_", output))
+                else:
+                    reverse_call = func.namespace + "{}({}, {}, {});".format(
+                        "adj_" + func.key, adj.format_args("var_", inputs+output), adj.format_args("adj_", inputs), adj.format_args("adj_", output))
                 adj.add_reverse(reverse_call)
 
             if len(output) == 1:
@@ -508,9 +540,12 @@ class Adjoint:
         # handle simple function (one output)
         else:
 
-            output = adj.add_var(func.value_func(inputs))
+            output = adj.add_var(func.value_func(inputs,templates))
 
-            forward_call = "var_{} = ".format(output) + func.namespace + "{}({});".format(func.key, adj.format_args("var_", inputs))
+            if initializer_list:
+                forward_call = "var_{} = ".format(output) + func.namespace + "{}({{{}}});".format(funcname, adj.format_args("var_", inputs))
+            else:
+                forward_call = "var_{} = ".format(output) + func.namespace + "{}({});".format(funcname, adj.format_args("var_", inputs))
 
             if func.skip_replay:
                 adj.add_forward(forward_call, replay="//" + forward_call)
@@ -518,8 +553,13 @@ class Adjoint:
                 adj.add_forward(forward_call)
             
             if (len(inputs)):
-                reverse_call = func.namespace + "{}({}, {}, {});".format(
-                    "adj_" + func.key, adj.format_args("var_", inputs), adj.format_args("adj_", inputs), adj.format_args("adj_", [output]))
+
+                if initializer_list:
+                    reverse_call = func.namespace + "{}({{{}}}, {{{}}}, {});".format(
+                        "adj_" + func.key, adj.format_args("var_", inputs), adj.format_args("&adj_", inputs), adj.format_args("adj_", [output]))
+                else:
+                    reverse_call = func.namespace + "{}({}, {}, {});".format(
+                        "adj_" + func.key, adj.format_args("var_", inputs), adj.format_args("adj_", inputs), adj.format_args("adj_", [output]))
                 adj.add_reverse(reverse_call)
 
             return output
@@ -571,6 +611,7 @@ class Adjoint:
     def begin_for(adj, iter):
 
         cond_block = adj.begin_block()
+        adj.loop_blocks.append(cond_block)
         adj.add_forward(f"for_start_{cond_block.label}:;")
         adj.indent()
 
@@ -589,6 +630,7 @@ class Adjoint:
        
         body_block = adj.end_block()
         cond_block = adj.end_block()
+        adj.loop_blocks.pop()
                 
         ####################
         # forward pass
@@ -617,7 +659,7 @@ class Adjoint:
 
         # zero adjoints
         for i in body_block.vars:
-             reverse.append(adj.prefix + f"\tadj_{i} = 0;")
+             reverse.append(adj.prefix + f"\tadj_{i} = {i.ctype()}(0);")
 
         # replay
         for i in body_block.body_replay:
@@ -635,9 +677,10 @@ class Adjoint:
     # define a while loop
     def begin_while(adj, cond):
 
-        # evaulate condition in it's own block
+        # evaulate condition in its own block
         # so we can control replay
         cond_block = adj.begin_block()
+        adj.loop_blocks.append(cond_block)
         cond_block.body_forward.append(f"while_start_{cond_block.label}:;")
 
         c = adj.eval(cond)
@@ -654,6 +697,7 @@ class Adjoint:
         adj.dedent()     
         body_block = adj.end_block()
         cond_block = adj.end_block()
+        adj.loop_blocks.pop()
 
         ####################
         # forward pass
@@ -678,7 +722,7 @@ class Adjoint:
 
         # zero adjoints of local vars
         for i in body_block.vars:
-             reverse.append(f"adj_{i} = 0;")
+             reverse.append(f"adj_{i} = {i.ctype()}(0);")
 
         # replay
         for i in body_block.body_replay:
@@ -1107,6 +1151,9 @@ class Adjoint:
 
                 adj.end_for(iter)
 
+        elif (isinstance(node, ast.Break)):
+            adj.add_forward(f"goto for_end_{adj.loop_blocks[-1].label};")
+
         elif (isinstance(node, ast.Expr)):
             return adj.eval(node.value)
 
@@ -1117,6 +1164,7 @@ class Adjoint:
             # try and lookup function in globals by
             # resolving path (e.g.: module.submodule.attr) 
             func, path = adj.resolve_path(node.func)
+            templates = []
 
             if isinstance(func, warp.context.Function) == False:
 
@@ -1127,9 +1175,38 @@ class Adjoint:
                 # using "wp." prefix, and also handles type constructors
                 # e.g.: wp.vec3 which aren't explicitly function objects
                 attr = path[-1]
+                caller = func
+                func = None
                 if attr in warp.context.builtin_functions:
                     func = warp.context.builtin_functions[attr]
-                else:
+                elif hasattr(caller,"_wp_generic_type_str_"):
+
+                    # This is a constructor for an object with a generic type,
+                    # so we're going to need the template information stored in
+                    # the class to actually figure out what the c++ template arguments
+                    # are:
+                    
+                    templates = caller._wp_type_params_
+                    func = warp.context.builtin_functions.get(caller._wp_generic_type_str_)
+
+                if func is None and caller.__class__.__name__ in warp.context.builtin_functions:
+
+                    # This can be necessary if you've aliased a type before defining the
+                    # kernel then used it inside the kernel, eg
+                     
+                    # wptype = wp.float64
+                    # @wp.kernel
+                    # def mykernel( ... )
+                    #   ...
+                    #   a = wptype(2)
+                    
+                    # The attr variable we used to try and look up the builtin for wptype
+                    # is just "wptype", which isn't in the builtins, so we try and look
+                    # it up based on wptype's class name instead:
+                    
+                    func = warp.context.builtin_functions.get(caller.__class__.__name__)
+
+                if func is None:
                     raise RuntimeError(f"Could not find function {'.'.join(path)} as a built-in or user-defined function. Note that user functions must be annotated with a @wp.func decorator to be called from a kernel.")
 
             args = []
@@ -1145,7 +1222,7 @@ class Adjoint:
                 min_outputs = node.expects
 
             # add var with value type from the function
-            out = adj.add_call(func, args, min_outputs)
+            out = adj.add_call(func, args, min_outputs, templates=templates)
             return out
 
         elif (isinstance(node, ast.Index)):
@@ -1267,7 +1344,7 @@ class Adjoint:
                 # check type matches if symbol already defined
                 if (name in adj.symbols):
                 
-                    if (rhs.type != adj.symbols[name].type):
+                    if not types_equal(rhs.type, adj.symbols[name].type):
                         raise TypeError("Error, assigning to existing symbol {} ({}) with different type ({})".format(name, adj.symbols[name].type, rhs.type))
 
                 # handle simple assignment case (a = b), where we generate a value copy rather than reference
@@ -1356,9 +1433,36 @@ class Adjoint:
 
         # try and evaluate object path
         try:
-            func = eval(".".join(path), adj.func.__globals__)
+
+            # Look up the closure info and append it to adj.func.__globals__
+            # in case you want to define a kernel inside a function and refer
+            # to varibles you've declared inside that function:
+            
+            capturedvars = dict(zip(adj.func.__code__.co_freevars,[ c.cell_contents() for c in (adj.func.__closure__ or []) ]))
+            vars_dict = {**adj.func.__globals__, **capturedvars}
+            func = eval(".".join(path), vars_dict)
             return func, path
-        except Exception as e:
+        except:
+            pass
+        
+        # I added this so people can eg do this kind of thing
+        # in a kernel:
+
+        # v = vec3(0.0,0.2,0.4)
+
+        # vec3 is now an alias and is not in warp.context.builtin_functions.
+        # This means it can't be directly looked up in Adjoint.add_call, and
+        # needs to be looked up by digging some information out of the
+        # python object it actually came from.
+
+        # Before this fix, resolve_path was returning None, as the
+        # "vec3" symbol is not available. In this situation I'm assuming
+        # it's a member of the warp module and trying to look it up:
+        try:
+            evalstr = ".".join(["warp"] + path)
+            func = eval(evalstr, {"warp":warp})
+            return func, path
+        except:
             return None, path
         
 
@@ -1685,7 +1789,7 @@ def codegen_func_reverse(adj, func_type='kernel', device='cpu'):
     s += "    // dual vars\n"
 
     for var in adj.variables:
-        s += "    " + var.ctype() + " adj_" + str(var.label) + " = 0;\n"
+        s += "    " + var.ctype() + " adj_" + str(var.label) + "(0);\n"
 
     if device == 'cpu':
         s += codegen_func_reverse_body(adj, device=device, indent=4)
@@ -1746,6 +1850,10 @@ def codegen_func(adj, device='cpu'):
 
 
 def codegen_kernel(kernel, device, options):
+
+    # Update the module's options with the ones defined on the kernel, if any.
+    options = dict(options)
+    options.update(kernel.options)
 
     adj = kernel.adj
 

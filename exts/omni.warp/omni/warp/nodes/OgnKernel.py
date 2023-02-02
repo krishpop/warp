@@ -4,6 +4,7 @@ import hashlib
 import importlib.util
 import os
 import tempfile
+import traceback
 from typing import (
     Any,
     Mapping,
@@ -384,10 +385,6 @@ def compute(db: OgnKernelDatabase) -> None:
         db.internal_state.initialize(db)
         db.internal_state.is_valid = True
 
-    # Exit early if something's wrong with the previous compute.
-    if not db.internal_state.is_valid:
-        return
-
     # Exit early if there are no outputs.
     if not db.internal_state.kernel_annotations[ATTR_PORT_TYPE_OUTPUT]:
         return
@@ -400,14 +397,23 @@ def compute(db: OgnKernelDatabase) -> None:
         device,
     )
 
-    # Ensure that all array input attributes are not NULL.
+    # Ensure that all array input attributes are not NULL, unless they are set
+    # as being optional.
+    # Note that adding a new non-optional array attribute might still cause
+    # the compute to succeed since the kernel recompilation is delayed until
+    # `InternalState.is_outdated()` requests it, meaning that the new attribute
+    # won't show up as a kernel annotation just yet.
     for attr_name in db.internal_state.kernel_annotations[ATTR_PORT_TYPE_INPUT]:
         value = getattr(inputs, attr_name)
         if not isinstance(value, wp.array):
             continue
 
-        if not value.ptr:
-            return
+        attr = og.Controller.attribute("inputs:{}".format(attr_name), db.node)
+        if not attr.is_optional_for_compute and not value.ptr:
+            raise RuntimeError(
+                "Empty value for non-optional attribute 'inputs:{}'."
+                .format(attr_name)
+            )
 
     # Launch the kernel.
     with wp.ScopedDevice(device):
@@ -441,7 +447,6 @@ class OgnKernel:
 
     @staticmethod
     def initialize(graph_context, node):
-        
         # Populate the devices tokens.
         attr = og.Controller.attribute("inputs:device", node)
         if attr.get_metadata(og.MetadataKeys.ALLOWED_TOKENS) is None:
@@ -457,4 +462,5 @@ class OgnKernel:
             compute(db)
         except Exception:
             db.internal_state.is_valid = False
-            raise
+            db.log_error(traceback.format_exc())
+            return
