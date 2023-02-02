@@ -18,12 +18,9 @@ import os
 
 import numpy as np
 import warp as wp
-
-import warp as wp
 import warp.sim
 
 from sim_demo import WarpSimDemonstration, run_demo
-from sim_demo import WarpSimDemonstration, run_demo, IntegratorType
 
 class Demo(WarpSimDemonstration):
     sim_name = "example_sim_allegro"
@@ -41,8 +38,6 @@ class Demo(WarpSimDemonstration):
         rigid_contact_relaxation=1.0,
         rigid_contact_con_weighting=True,
     )
-    
-    # integrator_type = IntegratorType.EULER
     
     def create_articulation(self, builder):
         floating_base = False
@@ -71,8 +66,8 @@ class Demo(WarpSimDemonstration):
         for i in range(16):
             builder.joint_q[i+q_offset] = 0.5 * (builder.joint_limit_lower[i+qd_offset] + builder.joint_limit_upper[i+qd_offset])
             builder.joint_target[i] = builder.joint_q[i+q_offset]
-            builder.joint_target_ke[i] = 50000000.0
-            builder.joint_target_kd[i] = 10.0
+            builder.joint_target_ke[i] = 5000.0
+            builder.joint_target_kd[i] = 1.0
         
         wp.sim.parse_urdf(
             os.path.join(
