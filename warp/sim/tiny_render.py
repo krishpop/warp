@@ -121,9 +121,9 @@ class TinyRenderer:
 
         self.app.window.set_keyboard_callback(keypress)
         self.cam = p.TinyCamera()
-        self.cam.set_camera_distance(15.)
+        self.cam.set_camera_distance(25.)
         self.cam.set_camera_pitch(-30)
-        self.cam.set_camera_yaw(45)
+        self.cam.set_camera_yaw(225)
         self.cam.set_camera_target_position(0.0, 0.0, 0.0)
         self.cam_axis = "xyz".index(upaxis.lower())
         self.cam.set_camera_up_axis(self.cam_axis)
@@ -157,12 +157,12 @@ class TinyRenderer:
             shape_body = model.shape_body.numpy()
             body_q = model.body_q.numpy()
             shape_geo_src = model.shape_geo_src
-            shape_geo_type = model.shape_geo_type.numpy()
-            shape_geo_scale = model.shape_geo_scale.numpy()
+            shape_geo_type = model.geo_params.geo_type.numpy()
+            shape_geo_scale = model.geo_params.scale.numpy()
             shape_transform = model.shape_transform.numpy()
 
             # matplotlib "tab10" colors
-            colors10 = [
+            colors = [
                 [ 31, 119, 180],
                 [255, 127,  14],
                 [ 44, 160,  44],
@@ -173,6 +173,7 @@ class TinyRenderer:
                 [127, 127, 127],
                 [188, 189,  34],
                 [ 23, 190, 207]]
+            num_colors = len(colors)
 
             # loop over shapes excluding the ground plane
             num_shapes = (model.shape_count-1) // self.num_envs
@@ -180,7 +181,7 @@ class TinyRenderer:
                 geo_type = shape_geo_type[s]
                 geo_scale = shape_geo_scale[s] * self.scaling
                 geo_src = shape_geo_src[s]
-                color = colors10[len(self.geo_shape)%10]
+                color = colors[len(self.geo_shape)%num_colors]
 
                 # shape transform in body frame
                 body = shape_body[s]
@@ -220,15 +221,15 @@ class TinyRenderer:
                         shape = self.app.register_graphics_unit_sphere_shape(p.EnumSphereLevelOfDetail.SPHERE_LOD_HIGH, texture)
                     scale *= float(geo_scale[0]) * 2.0  # diameter
 
-                elif (geo_type == warp.sim.GEO_CAPSULE):
+                elif (geo_type == warp.sim.GEO_CAPSULE or geo_type == warp.sim.GEO_CYLINDER):
                     if geo_hash in self.geo_shape:
                         shape = self.geo_shape[geo_hash]
                     else:
                         radius = float(geo_scale[0])
-                        half_width = float(geo_scale[1])
-                        up_axis = 0
+                        half_height = float(geo_scale[1])
+                        up_axis = 1
                         texture = self.create_check_texture(color1=color)
-                        shape = self.app.register_graphics_capsule_shape(radius, half_width, up_axis, texture)
+                        shape = self.app.register_graphics_capsule_shape(radius, half_height, up_axis, texture)
 
                 elif (geo_type == warp.sim.GEO_BOX):
                     if geo_hash in self.geo_shape:
@@ -332,7 +333,7 @@ class TinyRenderer:
             device="cuda", owner=False, ndim=1)
         
         env_offsets = compute_env_offsets(self.num_envs, env_offset, self.cam_axis)
-        self.env_offsets = wp.array(env_offsets, dtype=wp.vec3, device="cuda")
+        self.env_offsets = wp.array(env_offsets * scaling, dtype=wp.vec3, device="cuda")
         self.instance_shape = wp.array(self.instance_shape, dtype=wp.int32, device="cuda")
         # make sure the static arrays are on the GPU
         if self.model.shape_transform.device.is_cuda:

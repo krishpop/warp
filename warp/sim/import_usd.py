@@ -621,7 +621,7 @@ def parse_usd(
             if other_shape_id != shape_id:
                 builder.shape_collision_filter_pairs.add((shape_id, other_shape_id))
 
-    # return timing parameters
+    # return stage parameters
     return {
         "fps": stage.GetFramesPerSecond(),
         "duration": stage.GetEndTimeCode() - stage.GetStartTimeCode(),

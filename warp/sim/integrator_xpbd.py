@@ -7,7 +7,7 @@
 
 import warp as wp
 from .model import ShapeContactMaterial
-from .utils import velocity_at_point, quat_decompose
+from .utils import velocity_at_point
 from .integrator_euler import integrate_bodies, integrate_particles
 
 

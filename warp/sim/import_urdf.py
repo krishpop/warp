@@ -62,15 +62,15 @@ def urdf_add_collision(builder, link, collisions, density, shape_ke, shape_kd, s
 
         if geo.cylinder:
 
-            # cylinders in URDF are aligned with z-axis, while Warp uses x-axis
-            r = wp.quat_from_axis_angle((0.0, 1.0, 0.0), math.pi*0.5)
+            # cylinders in URDF are aligned with z-axis, while Warp uses y-axis
+            r = wp.quat_from_axis_angle((1.0, 0.0, 0.0), math.pi*0.5)
 
             builder.add_shape_capsule(
                 body=link,
                 pos=pos,
                 rot=wp.mul(rot, r),
                 radius=geo.cylinder.radius,
-                half_width=geo.cylinder.length*0.5,
+                half_height=geo.cylinder.length*0.5,
                 density=density,
                 ke=shape_ke,
                 kd=shape_kd,

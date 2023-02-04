@@ -10,12 +10,9 @@ models + state forward in time.
 
 """
 
-import math
-import time
-
-import numpy as np
 import warp as wp
-from warp.sim.model import ShapeContactMaterial
+
+from .model import ShapeContactMaterial, GeoProperties
 
 from .optimizer import Optimizer
 from .particles import eval_particle_forces
@@ -929,7 +926,7 @@ def eval_rigid_contacts(
     body_qd: wp.array(dtype=wp.spatial_vector),
     body_com: wp.array(dtype=wp.vec3),
     shape_materials: ShapeContactMaterial,
-    shape_thickness: wp.array(dtype=float),
+    geo: GeoProperties,
     contact_count: wp.array(dtype=int),
     contact_body0: wp.array(dtype=int),
     contact_body1: wp.array(dtype=int),
@@ -965,14 +962,14 @@ def eval_rigid_contacts(
         kd += shape_materials.kd[shape_a]
         kf += shape_materials.kf[shape_a]
         mu += shape_materials.mu[shape_a]
-        thickness_a = shape_thickness[shape_a]
+        thickness_a = geo.thickness[shape_a]
     if (shape_b >= 0):
         mat_nonzero += 1
         ke += shape_materials.ke[shape_b]
         kd += shape_materials.kd[shape_b]
         kf += shape_materials.kf[shape_b]
         mu += shape_materials.mu[shape_b]
-        thickness_b = shape_thickness[shape_b]
+        thickness_b = geo.thickness[shape_b]
     if (mat_nonzero > 0):
         ke = ke / float(mat_nonzero)
         kd = kd / float(mat_nonzero)
@@ -1487,7 +1484,7 @@ def compute_forces(model, state, particle_f, body_f, requires_grad):
                       state.body_qd,
                       model.body_com,
                       model.shape_materials,
-                      model.shape_contact_thickness,                      
+                      model.geo_params,                      
                       model.rigid_contact_count,
                       model.rigid_contact_body0,
                       model.rigid_contact_body1,
