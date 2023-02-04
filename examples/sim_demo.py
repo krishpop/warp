@@ -251,7 +251,11 @@ class WarpSimDemonstration:
                         self.renderer.end_frame()
 
             while True:
-                for f in trange(self.episode_frames):
+                if not self.continuous_tiny_render or self.render_mode != RenderMode.TINY:
+                    progress = trange(self.episode_frames)
+                else:
+                    progress = trange(self.episode_frames, leave=False)
+                for f in progress:
                     if self.use_graph_capture:
                         wp.capture_launch(graph)
                     else:
