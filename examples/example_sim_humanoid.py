@@ -19,11 +19,11 @@ import math
 import warp as wp
 import warp.sim
 
-from sim_demo import WarpSimDemonstration, run_demo, IntegratorType
+from sim_demo import WarpSimDemonstration, run_demo
 
 class Demo(WarpSimDemonstration):
     sim_name = "example_sim_humanoid"
-    env_offset=(6.0, 0.0, 6.0)
+    env_offset=(2.0, 0.0, 2.0)
     tiny_render_settings = dict(scaling=3.0)
     usd_render_settings = dict(scaling=100.0)
 
@@ -37,8 +37,6 @@ class Demo(WarpSimDemonstration):
         rigid_contact_relaxation=1.0,
         rigid_contact_con_weighting=True,
     )
-
-    # integrator_type = IntegratorType.EULER
 
     def create_articulation(self, builder):
         wp.sim.parse_mjcf(

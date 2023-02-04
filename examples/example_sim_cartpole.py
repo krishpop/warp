@@ -20,12 +20,12 @@ import warp as wp
 import warp.sim
 import numpy as np
 
-from sim_demo import WarpSimDemonstration, run_demo
+from sim_demo import WarpSimDemonstration, run_demo, IntegratorType
 
 class Demo(WarpSimDemonstration):
 
     sim_name = "example_sim_cartpole"
-    env_offset=(2.0, 0.0, 6.0)
+    env_offset=(1.0, 0.0, 4.0)
     tiny_render_settings = dict(scaling=3.0)
     usd_render_settings = dict(scaling=100.0)
     
@@ -33,6 +33,7 @@ class Demo(WarpSimDemonstration):
     sim_substeps_xpbd = 3
 
     activate_ground_plane = False
+    integrator_type = IntegratorType.EULER
 
     def create_articulation(self, builder):
         wp.sim.parse_urdf(

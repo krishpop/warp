@@ -20,16 +20,19 @@ import numpy as np
 import warp as wp
 import warp.sim
 
-from sim_demo import WarpSimDemonstration, run_demo
+from sim_demo import WarpSimDemonstration, run_demo, RenderMode
 
 class Demo(WarpSimDemonstration):
     sim_name = "example_sim_allegro"
-    env_offset=(6.0, 0.0, 6.0)
-    tiny_render_settings = dict(scaling=15.0)
+    env_offset=(0.5, 0.0, 0.5)
+    tiny_render_settings = dict(scaling=40.0)
     usd_render_settings = dict(scaling=200.0)
+    episode_duration = 8.0
 
     sim_substeps_euler = 64
     sim_substeps_xpbd = 8
+
+    num_envs = 25
 
     xpbd_settings = dict(
         iterations=10,
@@ -38,6 +41,8 @@ class Demo(WarpSimDemonstration):
         rigid_contact_relaxation=1.0,
         rigid_contact_con_weighting=True,
     )
+
+    # render_mode = RenderMode.USD
     
     def create_articulation(self, builder):
         floating_base = False

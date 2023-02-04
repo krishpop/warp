@@ -17,22 +17,26 @@
 import os
 import math
 
-import numpy as np
-
 import warp as wp
 import warp.sim
-import warp.sim.render
-import warp.sim.tiny_render
 
-from sim_demo import WarpSimDemonstration, run_demo
-
-wp.init()
+from sim_demo import WarpSimDemonstration, run_demo, IntegratorType
 
 class Demo(WarpSimDemonstration):
     sim_name = "example_sim_ant"
-    env_offset=(6.0, 0.0, 6.0)
+    env_offset=(2.5, 0.0, 2.5)
     tiny_render_settings = dict(scaling=3.0)
     usd_render_settings = dict(scaling=100.0)
+
+    sim_substeps_euler = 32
+    sim_substeps_xpbd = 3
+
+    # integrator_type = IntegratorType.EULER
+
+    joint_attach_ke: float = 100000.0
+    joint_attach_kd: float = 10.0
+
+    use_graph_capture = False
 
     def create_articulation(self, builder):
         wp.sim.parse_mjcf(

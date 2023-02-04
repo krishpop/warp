@@ -122,7 +122,7 @@ class TinyRenderer:
         self.app.window.set_keyboard_callback(keypress)
         self.cam = p.TinyCamera()
         self.cam.set_camera_distance(25.)
-        self.cam.set_camera_pitch(-30)
+        self.cam.set_camera_pitch(-20)
         self.cam.set_camera_yaw(225)
         self.cam.set_camera_target_position(0.0, 0.0, 0.0)
         self.cam_axis = "xyz".index(upaxis.lower())
