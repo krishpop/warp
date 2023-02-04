@@ -32,7 +32,7 @@ class WarpSimDemonstration:
 
     frame_dt = 1.0 / (60.0)
 
-    episode_duration = 15.0      # seconds
+    episode_duration = 5.0      # seconds
     episode_frames = int(episode_duration/frame_dt)
 
     # whether to play the simulation indefinitely when using the Tiny renderer
@@ -63,7 +63,7 @@ class WarpSimDemonstration:
 
     upaxis: str = "y"
     gravity: float = -9.81
-    env_offset: Tuple[float, float, float] = (5.0, 0.0, 5.0)
+    env_offset: Tuple[float, float, float] = (1.0, 0.0, 1.0)
 
     # stiffness and damping for joint attachment dynamics used by Euler
     joint_attach_ke: float = 32000.0
@@ -103,6 +103,7 @@ class WarpSimDemonstration:
         self.integrator_type = args.integrator
         self.render_mode = args.visualizer
         self.num_envs = args.num_envs
+        self.profile = args.profile
 
     def init(self):
         if self.integrator_type == IntegratorType.EULER:
@@ -147,6 +148,8 @@ class WarpSimDemonstration:
             self.integrator = wp.sim.XPBDIntegrator(**self.xpbd_settings)
 
         self.renderer = None
+        if self.profile:
+            self.render_mode = RenderMode.NONE
         if self.render_mode == RenderMode.TINY:
             self.renderer = wp.sim.tiny_render.TinyRenderer(
                 self.model,
@@ -161,7 +164,6 @@ class WarpSimDemonstration:
                 filename,
                 upaxis=self.upaxis,
                 **self.usd_render_settings)
-            
 
     def create_articulation(self, builder):
         raise NotImplementedError
@@ -416,9 +418,7 @@ def run_demo(Demo):
         env_size = []
 
         for i in range(15):
-
-            demo = Demo()
-            demo.parse_args()
+            demo.num_envs = env_count
             demo.init()
             steps_per_second = demo.run()
 
