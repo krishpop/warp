@@ -1084,39 +1084,47 @@ class ModelBuilder:
             update_num_env_count: if True, the number of environments is incremented by 1.
             separate_collision_group: if True, the shapes from the articulation will all be put into a single new collision group, otherwise, only the shapes in collision group > -1 will be moved to a new group.
         """
-
-        joint_X_p = copy.deepcopy(articulation.joint_X_p)
-        joint_q = copy.deepcopy(articulation.joint_q)
-        if xform is not None:
-            for i in range(len(joint_X_p)):
-                if articulation.joint_type[i] == wp.sim.JOINT_FREE:
-                    qi = articulation.joint_q_start[i]
-                    xform_prev = wp.transform(joint_q[qi:qi+3], joint_q[qi+3:qi+7])
-                    tf = xform * xform_prev
-                    joint_q[qi:qi+3] = tf.p
-                    joint_q[qi+3:qi+7] = tf.q
-                elif articulation.joint_parent[i] == -1:
-                    joint_X_p[i] = xform * joint_X_p[i]
-        self.joint_X_p.extend(joint_X_p)
-        self.joint_q.extend(joint_q)
-
-        self.add_articulation() 
-
+        
         start_body_idx = self.body_count
         start_shape_idx = self.shape_count
-
-        # offset the indices
-        self.joint_parent.extend([p + self.joint_count if p != -1 else -1 for p in articulation.joint_parent])
-        self.joint_child.extend([c + self.joint_count for c in articulation.joint_child])
-
-        self.joint_q_start.extend([c + self.joint_coord_count for c in articulation.joint_q_start])
-        self.joint_qd_start.extend([c + self.joint_dof_count for c in articulation.joint_qd_start])
-
         self.shape_body.extend([b + start_body_idx for b in articulation.shape_body])
         for b, shapes in articulation.body_shapes.items():
             self.body_shapes[b + start_body_idx] = [s + start_shape_idx for s in shapes]
 
-        self.joint_axis_start.extend([a + self.joint_axis_total_count for a in articulation.joint_axis_start])
+        if articulation.joint_count:
+            joint_X_p = copy.deepcopy(articulation.joint_X_p)
+            joint_q = copy.deepcopy(articulation.joint_q)
+            if xform is not None:
+                for i in range(len(joint_X_p)):
+                    if articulation.joint_type[i] == wp.sim.JOINT_FREE:
+                        qi = articulation.joint_q_start[i]
+                        xform_prev = wp.transform(joint_q[qi:qi+3], joint_q[qi+3:qi+7])
+                        tf = xform * xform_prev
+                        joint_q[qi:qi+3] = tf.p
+                        joint_q[qi+3:qi+7] = tf.q
+                    elif articulation.joint_parent[i] == -1:
+                        joint_X_p[i] = xform * joint_X_p[i]
+            self.joint_X_p.extend(joint_X_p)
+            self.joint_q.extend(joint_q)
+
+            self.add_articulation()
+
+            # offset the indices
+            self.joint_parent.extend([p + self.joint_count if p != -1 else -1 for p in articulation.joint_parent])
+            self.joint_child.extend([c + self.joint_count for c in articulation.joint_child])
+
+            self.joint_q_start.extend([c + self.joint_coord_count for c in articulation.joint_q_start])
+            self.joint_qd_start.extend([c + self.joint_dof_count for c in articulation.joint_qd_start])
+
+            self.joint_axis_start.extend([a + self.joint_axis_total_count for a in articulation.joint_axis_start])
+
+        joint_children = set(articulation.joint_child)
+        for i in range(articulation.body_count):
+            if xform is not None and i not in joint_children:
+                # rigid body is not attached to a joint, so apply input transform directly
+                self.body_q.append(xform * articulation.body_q[i])
+            else:
+                self.body_q.append(articulation.body_q[i])
 
         # apply collision group
         if separate_collision_group:
@@ -1147,7 +1155,6 @@ class ModelBuilder:
             "body_inv_inertia",
             "body_inv_mass",
             "body_com",
-            "body_q",
             "body_qd",
             "body_name",
             "joint_type",
