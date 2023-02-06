@@ -175,6 +175,7 @@ def plane_sdf(width: float, length: float, p: wp.vec3):
 
 @wp.func
 def closest_point_plane(width: float, length: float, point: wp.vec3) -> wp.vec3:
+    # projects the point onto the quad in the xz plane (if width and length > 0.0, otherwise the plane is infinite)
     if width > 0.0:
         x = wp.clamp(point[0], -width, width)
     else:
@@ -781,7 +782,6 @@ def handle_contact_pairs(
     X_ws_a = wp.transform_multiply(X_wb_a, X_bs_a)
     X_sw_a = wp.transform_inverse(X_ws_a)
     X_bw_a = wp.transform_inverse(X_wb_a)
-    
     geo_type_a = geo.geo_type[shape_a]
     geo_scale_a = geo.scale[shape_a]
     thickness_a = geo.thickness[shape_a]
@@ -954,6 +954,7 @@ def handle_contact_pairs(
         thickness_b += geo_scale_b[0]
         # find closest edge coordinate to capsule SDF B
         half_height_a = geo_scale_a[1]
+        half_height_b = geo_scale_b[1]
         # edge from capsule A
         # depending on point id, we query an edge from 0 to 0.5 or 0.5 to 1
         e0 = wp.vec3(0.0, half_height_a * float(point_id % 2), 0.0)
@@ -965,7 +966,6 @@ def handle_contact_pairs(
         max_iter = edge_sdf_iter
         u = closest_edge_coordinate_capsule(geo_scale_b[0], geo_scale_b[1], edge0_b, edge1_b, max_iter)
         p_a_world = (1.0 - u) * edge0_world + u * edge1_world
-        half_height_b = geo_scale_b[1]
         p0_b_world = wp.transform_point(X_ws_b, wp.vec3(0.0, half_height_b, 0.0))
         p1_b_world = wp.transform_point(X_ws_b, wp.vec3(0.0, -half_height_b, 0.0))
         p_b_world = closest_point_line_segment(p0_b_world, p1_b_world, p_a_world)
