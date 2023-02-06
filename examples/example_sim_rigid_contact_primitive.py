@@ -62,7 +62,7 @@ class Demo(WarpSimDemonstration):
 
     def create_articulation(self, builder):
 
-        self.num_bodies = 5 # 20
+        self.num_bodies = 20
         self.scale = 0.5
         self.ke = 1.e+5 
         self.kd = 250.0

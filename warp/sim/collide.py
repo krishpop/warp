@@ -809,10 +809,8 @@ def handle_contact_pairs(
 
     if geo_type_a == wp.sim.GEO_SPHERE:
         p_a_world = wp.transform_get_translation(X_ws_a)
-        thickness_a += geo_scale_a[0]
         if geo_type_b == wp.sim.GEO_SPHERE:
             p_b_world = wp.transform_get_translation(X_ws_b)
-            thickness_b += geo_scale_b[0]
         elif geo_type_b == wp.sim.GEO_BOX:
             # contact point in frame of body B
             p_a_body = wp.transform_point(X_sw_b, p_a_world)
@@ -824,7 +822,6 @@ def handle_contact_pairs(
             A_b = wp.transform_point(X_ws_b, wp.vec3(0.0, half_height_b, 0.0))
             B_b = wp.transform_point(X_ws_b, wp.vec3(0.0, -half_height_b, 0.0))
             p_b_world = closest_point_line_segment(A_b, B_b, p_a_world)
-            thickness_b += geo_scale_b[0]
         elif geo_type_b == wp.sim.GEO_MESH:
             mesh_b = geo.source[shape_b]
             query_b_local = wp.transform_point(X_sw_b, p_a_world)
@@ -875,7 +872,6 @@ def handle_contact_pairs(
         distance = wp.dot(diff, normal)
 
     elif (geo_type_a == wp.sim.GEO_BOX and geo_type_b == wp.sim.GEO_CAPSULE):
-        thickness_b += geo_scale_b[0]
         half_height_b = geo_scale_b[1]
         # capsule B
         # depending on point id, we query an edge from 0 to 0.5 or 0.5 to 1
@@ -950,8 +946,6 @@ def handle_contact_pairs(
             distance = wp.dot(diff, normal)
 
     elif (geo_type_a == wp.sim.GEO_CAPSULE and geo_type_b == wp.sim.GEO_CAPSULE):
-        thickness_a += geo_scale_a[0]
-        thickness_b += geo_scale_b[0]
         # find closest edge coordinate to capsule SDF B
         half_height_a = geo_scale_a[1]
         half_height_b = geo_scale_b[1]
@@ -1012,7 +1006,6 @@ def handle_contact_pairs(
             return
 
     elif (geo_type_a == wp.sim.GEO_MESH and geo_type_b == wp.sim.GEO_CAPSULE):
-        thickness_b += geo_scale_b[0]
         # vertex-based contact
         mesh = wp.mesh_get(geo.source[shape_a])
         body_a_pos = mesh.points[point_id] * geo_scale_a[0]
@@ -1028,7 +1021,6 @@ def handle_contact_pairs(
         distance = wp.dot(diff, normal)
 
     elif (geo_type_a == wp.sim.GEO_CAPSULE and geo_type_b == wp.sim.GEO_PLANE):
-        thickness_a += geo_scale_a[0]
         plane_width = geo_scale_b[0]
         plane_length = geo_scale_b[1]
         if point_id < 2:

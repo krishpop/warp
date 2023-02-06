@@ -1213,7 +1213,7 @@ class ModelBuilder:
     # register a rigid body and return its index.
     def add_body(
         self, 
-        origin: Transform,
+        origin: Transform = wp.transform(),
         armature: float=0.0,
         com: Vec3=np.zeros(3),
         I_m: Mat33=np.zeros((3, 3)), 
@@ -1901,7 +1901,7 @@ class ModelBuilder:
 
         """
 
-        return self._add_shape(body, pos, rot, GEO_SPHERE, (radius, 0.0, 0.0, 0.0), None, density, ke, kd, kf, mu, restitution, thickness, is_solid)
+        return self._add_shape(body, pos, rot, GEO_SPHERE, (radius, 0.0, 0.0, 0.0), None, density, ke, kd, kf, mu, restitution, thickness + radius, is_solid)
 
     def add_shape_box(self,
                       body: int,
@@ -1981,7 +1981,7 @@ class ModelBuilder:
             q = wp.mul(rot, wp.quat(sqh, 0.0, 0.0, sqh))
         elif upaxis == 2:
             q = wp.mul(rot, wp.quat(sqh, sqh, 0.0, 0.0))
-        return self._add_shape(body, pos, q, GEO_CAPSULE, (radius, half_height, 0.0, 0.0), None, density, ke, kd, kf, mu, restitution, thickness, is_solid)
+        return self._add_shape(body, pos, q, GEO_CAPSULE, (radius, half_height, 0.0, 0.0), None, density, ke, kd, kf, mu, restitution, thickness + radius, is_solid)
     
     def add_shape_cylinder(self,
                            body: int,
