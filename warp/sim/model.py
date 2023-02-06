@@ -434,17 +434,36 @@ class Model:
     all geometry, constraints, and parameters used to describe the simulation.
 
     Attributes:
+        requires_grad (float): Indicates whether the model was finalized with gradient computation enabled
+        num_envs (int): Number of articulation environments that were added to the ModelBuilder via `add_rigid_articulation`
+
         particle_q (wp.array): Particle positions, shape [particle_count, 3], float
         particle_qd (wp.array): Particle velocities, shape [particle_count, 3], float
         particle_mass (wp.array): Particle mass, shape [particle_count], float
         particle_inv_mass (wp.array): Particle inverse mass, shape [particle_count], float
+        particle_radius (wp.array): Particle radius, shape [particle_count], float
+        particle_ke (wp.array): Particle normal contact stiffness (used by SemiImplicitIntegrator), shape [particle_count], float
+        particle_kd (wp.array): Particle normal contact damping (used by SemiImplicitIntegrator), shape [particle_count], float
+        particle_kf (wp.array): Particle friction force stiffness (used by SemiImplicitIntegrator), shape [particle_count], float
+        particle_mu (wp.array): Particle friction coefficient, shape [particle_count], float
+        particle_cohesion (wp.array): Particle cohesion strength, shape [particle_count], float
+        particle_adhesion (wp.array): Particle adhesion strength, shape [particle_count], float
+        particle_grid (HashGrid): HashGrid instance used for accelerated simulation of particle interactions
 
         shape_transform (wp.array): Rigid shape transforms, shape [shape_count, 7], float
         shape_body (wp.array): Rigid shape body index, shape [shape_count], int
-        shape_geo_type (wp.array): Rigid shape geometry type, [shape_count], int
-        shape_geo_src (wp.array): Rigid shape geometry source, shape [shape_count], int
-        shape_geo_scale (wp.array): Rigid shape geometry scale, shape [shape_count, 3], float
-        shape_materials (wp.array): Rigid shape contact materials, shape [shape_count, 4], float
+        body_shapes (dict): Mapping from body index to list of attached shape indices
+        shape_materials (ShapeContactMaterial): Rigid shape contact materials, shape [shape_count], float
+        shape_geo_params (GeoProperties): Shape geometry properties (geo type, scale, thickness, etc.), shape [shape_count, 3], float
+        shape_geo_src (list): List of `wp.Mesh` instances used for rendering of mesh geometry
+
+        shape_collision_group (list): Collision group of each shape, shape [shape_count], int
+        shape_collision_group_map (dict): Mapping from collision group to list of shape indices
+        shape_collision_filter_pairs (set): Pairs of shape indices that should not collide
+        shape_collision_radius (wp.array): Collision radius of each shape used for bounding sphere broadphase collision checking, shape [shape_count], float
+        shape_ground_collision (list): Indicates whether each shape should collide with the ground, shape [shape_count], bool
+        shape_contact_pairs (wp.array): Pairs of shape indices that may collide, shape [contact_pair_count, 2], int
+        shape_ground_contact_pairs (wp.array): Pairs of shape, ground indices that may collide, shape [ground_contact_pair_count, 2], int
 
         spring_indices (wp.array): Particle spring indices, shape [spring_count*2], int
         spring_rest_length (wp.array): Particle spring rest length, shape [spring_count], float
@@ -455,28 +474,43 @@ class Model:
         tri_indices (wp.array): Triangle element indices, shape [tri_count*3], int
         tri_poses (wp.array): Triangle element rest pose, shape [tri_count, 2, 2], float
         tri_activations (wp.array): Triangle element activations, shape [tri_count], float
+        tri_materials (wp.array): Triangle element materials, shape [tri_count, 5], float
 
         edge_indices (wp.array): Bending edge indices, shape [edge_count*2], int
         edge_rest_angle (wp.array): Bending edge rest angle, shape [edge_count], float
+        edge_bending_properties (wp.array): Bending edge stiffness and damping parameters, shape [edge_count, 2], float
 
         tet_indices (wp.array): Tetrahedral element indices, shape [tet_count*4], int
         tet_poses (wp.array): Tetrahedral rest poses, shape [tet_count, 3, 3], float
         tet_activations (wp.array): Tetrahedral volumetric activations, shape [tet_count], float
         tet_materials (wp.array): Tetrahedral elastic parameters in form :math:`k_{mu}, k_{lambda}, k_{damp}`, shape [tet_count, 3]
         
+        body_q (wp.array): Poses of rigid bodies used for state initialization, shape [body_count, 7], float
+        body_qd (wp.array): Velocities of rigid bodies used for state initialization, shape [body_count, 6], float
         body_com (wp.array): Rigid body center of mass (in local frame), shape [body_count, 7], float
         body_inertia (wp.array): Rigid body inertia tensor (relative to COM), shape [body_count, 3, 3], float
+        body_inv_inertia (wp.array): Rigid body inverse inertia tensor (relative to COM), shape [body_count, 3, 3], float
+        body_mass (wp.array): Rigid body mass, shape [body_count], float
+        body_inv_mass (wp.array): Rigid body inverse mass, shape [body_count], float
+        body_name (list): Rigid body names, shape [body_count], str
 
-        TODO: update this
+        joint_q (wp.array): Generalized joint positions used for state initialization, shape [joint_coord_count], float
+        joint_qd (wp.array): Generalized joint velocities used for state initialization, shape [joint_dof_count], float
+        joint_act (wp.array): Generalized joint actuation force, shape [joint_dof_count], float
         joint_type (wp.array): Joint type, shape [joint_count], int
-        joint_parent (wp.array): Joint parent, shape [joint_count], int
-        joint_X_pj (wp.array): Joint transform in parent frame, shape [joint_count, 7], float
-        joint_X_cm (wp.array): Joint mass frame in child frame, shape [joint_count, 7], float
-        joint_axis (wp.array): Joint axis in child frame, shape [joint_count, 3], float
+        joint_parent (wp.array): Joint parent body indices, shape [joint_count], int
+        joint_child (wp.array): Joint child body indices, shape [joint_count], int
+        joint_X_p (wp.array): Joint transform in parent frame, shape [joint_count, 7], float
+        joint_X_c (wp.array): Joint mass frame in child frame, shape [joint_count, 7], float
+        joint_axis (wp.array): Joint axis in child frame, shape [joint_axis_count, 3], float
         joint_armature (wp.array): Armature for each joint, shape [joint_count], float
-        joint_target_ke (wp.array): Joint stiffness, shape [joint_count], float
-        joint_target_kd (wp.array): Joint damping, shape [joint_count], float
-        joint_target (wp.array): Joint target, shape [joint_count], float
+        joint_target (wp.array): Joint target position/velocity (depending on joint axis mode), shape [joint_axis_count], float
+        joint_target_ke (wp.array): Joint stiffness, shape [joint_axis_count], float
+        joint_target_kd (wp.array): Joint damping, shape [joint_axis_count], float
+        joint_target (wp.array): Joint target, shape [joint_axis_count], float
+        joint_axis_start (wp.array): Start index of the first axis per joint, shape [joint_count], int
+        joint_axis_dim (wp.array): Number of linear and angular axes per joint, shape [joint_count, 2], int
+        joint_axis_mode (wp.array): Joint axis mode, shape [joint_axis_count], int
         joint_linear_compliance (wp.array): Joint linear compliance, shape [joint_count], float
         joint_angular_compliance (wp.array): Joint linear compliance, shape [joint_count], float
         joint_enabled (wp.array): Joint enabled, shape [joint_count], int
@@ -484,15 +518,48 @@ class Model:
         joint_limit_upper (wp.array): Joint upper position limits, shape [joint_count], float
         joint_twist_lower (wp.array): Joint lower twist limit, shape [joint_count], float
         joint_twist_upper (wp.array): Joint upper twist limit, shape [joint_count], float
+        joint_pos_limit (wp.array): Maximal linear joint limits (used by XPBDIntegrator), shape [joint_count, 3], float
+        joint_ang_limit (wp.array): Maximal angular joint limits (used by XPBDIntegrator), shape [joint_count, 3], float
+        joint_q_start (wp.array): Start index of the first position coordinate per joint, shape [joint_count], int
+        joint_qd_start (wp.array): Start index of the first velocity coordinate per joint, shape [joint_count], int
+        joint_name (list): Joint names, shape [joint_count], str
+        joint_attach_ke (float): Joint attachment force stiffness (used by SemiImplicitIntegrator)
+        joint_attach_kd (float): Joint attachment force damping (used by SemiImplicitIntegrator)
+
+        articulation_start (wp.array): Articulation start index, shape [articulation_count], int
+
+        soft_contact_distance (float): Radius around particles for soft contact generation
+        soft_contact_margin (float): Contact margin for generation of soft contacts
+        soft_contact_ke (float): Stiffness of soft contacts (used by SemiImplicitIntegrator)
+        soft_contact_kd (float): Damping of soft contacts (used by SemiImplicitIntegrator)
+        soft_contact_kf (float): Stiffness of friction force in soft contacts (used by SemiImplicitIntegrator)
+        soft_contact_mu (float): Friction coefficient of soft contacts
+
+        rigid_contact_margin (float): Contact margin for generation of rigid body contacts
+        rigid_contact_torsional_friction (float): Torsional friction coefficient for rigid body contacts
+        rigid_contact_rolling_friction (float): Rolling friction coefficient for rigid body contacts
+
+        ground (bool): Whether the ground plane and ground contacts are enabled
+        ground_plane (wp.array): Ground plane 3D normal and offset, shape [4], float
+        upvector (np.ndarray): Up vector, shape [3], float
+        upaxis (int): Up axis, 0 for x, 1 for y, 2 for z
+        gravity (np.ndarray): Gravity vector, shape [3], float
 
         particle_count (int): Total number of particles in the system
         body_count (int): Total number of bodies in the system
         shape_count (int): Total number of shapes in the system
+        joint_count (int): Total number of joints in the system
         tri_count (int): Total number of triangles in the system
         tet_count (int): Total number of tetrahedra in the system
         edge_count (int): Total number of edges in the system
         spring_count (int): Total number of springs in the system
         contact_count (int): Total number of contacts in the system
+        muscle_count (int): Total number of muscles in the system
+        articulation_count (int): Total number of articulations in the system
+        joint_dof_count (int): Total number of velocity degrees of freedom of all joints in the system
+        joint_coord_count (int): Total number of position degrees of freedom of all joints in the system
+
+        device (wp.Device): Device on which the Model was allocated
         
     Note:
         It is strongly recommended to use the ModelBuilder to construct a simulation rather
@@ -503,17 +570,35 @@ class Model:
     def __init__(self, device=None):
 
         self.requires_grad = False
+        self.num_envs = 0
 
         self.particle_q = None
         self.particle_qd = None
         self.particle_mass = None
         self.particle_inv_mass = None
+        self.particle_radius = 0.0
+        self.particle_ke = 1.e+3
+        self.particle_kd = 1.e+2
+        self.particle_kf = 1.e+2
+        self.particle_mu = 0.5
+        self.particle_cohesion = 0.0
+        self.particle_adhesion = 0.0
+        self.particle_grid = None
 
         self.shape_transform = None
         self.shape_body = None
-        self.shape_materials = ShapeContactMaterial()
         self.body_shapes = {}
+        self.shape_materials = ShapeContactMaterial()
         self.geo_params = GeoProperties()
+        self.shape_geo_src = None
+
+        self.shape_collision_group = None
+        self.shape_collision_group_map = None
+        self.shape_collision_filter_pairs = None
+        self.shape_collision_radius = None
+        self.shape_ground_collision = None
+        self.shape_contact_pairs = None
+        self.shape_ground_contact_pairs = None
 
         self.spring_indices = None
         self.spring_rest_length = None
@@ -535,17 +620,18 @@ class Model:
         self.tet_activations = None
         self.tet_materials = None
         
+        self.body_q = None
+        self.body_qd = None
         self.body_com = None
         self.body_inertia = None
+        self.body_inv_inertia = None
+        self.body_mass = None
+        self.body_inv_mass = None
+        self.body_name = None
 
-        self.shape_collision_group = None
-        self.shape_collision_group_map = None
-        self.shape_collision_filter_pairs = None
-        self.shape_collision_radius = None
-        self.shape_ground_collision = None
-        self.shape_contact_pairs = None
-        self.shape_ground_contact_pairs = None
-
+        self.joint_q = None
+        self.joint_qd = None
+        self.joint_act = None
         self.joint_type = None
         self.joint_parent = None
         self.joint_child = None
@@ -556,6 +642,8 @@ class Model:
         self.joint_target = None
         self.joint_target_ke = None
         self.joint_target_kd = None
+        self.joint_axis_start = None
+        self.joint_axis_dim = None
         self.joint_axis_mode = None
         self.joint_linear_compliance = None
         self.joint_angular_compliance = None
@@ -564,18 +652,14 @@ class Model:
         self.joint_limit_upper = None
         self.joint_twist_lower = None
         self.joint_twist_upper = None
+        self.joint_pos_limit = None
+        self.joint_ang_limit = None
+        self.joint_q_start = None
+        self.joint_name = None
 
         # todo: per-joint values?
         self.joint_attach_ke = 1.e+3
         self.joint_attach_kd = 1.e+2
-
-        self.particle_count = 0
-        self.body_count = 0
-        self.shape_count = 0
-        self.tri_count = 0
-        self.tet_count = 0
-        self.edge_count = 0
-        self.spring_count = 0
 
         self.soft_contact_distance = 0.1
         self.soft_contact_margin = 0.2
@@ -584,23 +668,31 @@ class Model:
         self.soft_contact_kf = 1.e+3
         self.soft_contact_mu = 0.5
 
-        self.edge_bending_properties = None
-
-        self.particle_radius = 0.0
-        self.particle_ke = 1.e+3
-        self.particle_kd = 1.e+2
-        self.particle_kf = 1.e+2
-        self.particle_mu = 0.5
-        self.particle_cohesion = 0.0
-        self.particle_adhesion = 0.0
-        self.particle_grid = None
-
-        self.device = wp.get_device(device)
+        self.rigid_contact_margin = None
+        self.rigid_contact_torsional_friction = None
+        self.rigid_contact_rolling_friction = None
 
         # toggles ground contact for all shapes
         self.ground = True
+        self.ground_plane = None
         self.upvector = np.array((0.0, 1.0, 0.0))
         self.upaxis = 1
+        self.gravity = np.array((0.0, -9.81, 0.0))
+
+        self.particle_count = 0
+        self.body_count = 0
+        self.shape_count = 0
+        self.joint_count = 0
+        self.tri_count = 0
+        self.tet_count = 0
+        self.edge_count = 0
+        self.spring_count = 0
+        self.muscle_count = 0
+        self.articulation_count = 0
+        self.joint_dof_count = 0
+        self.joint_coord_count = 0
+
+        self.device = wp.get_device(device)
 
     def state(self, requires_grad=False) -> State:
         """Returns a state object for the model
