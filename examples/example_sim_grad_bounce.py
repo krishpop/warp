@@ -20,8 +20,8 @@
 import os
 
 import numpy as np
-
 import warp as wp
+
 import warp.sim
 import warp.sim.render
 
@@ -85,7 +85,8 @@ class Bounce:
         # one-shot contact creation (valid if we're doing simple collision against a constant normal plane)
         wp.sim.collide(self.model, self.states[0])
 
-        if (self.render):
+        self.stage = None
+        if (render):
             self.stage = wp.sim.render.SimRenderer(
                 self.model,
                 os.path.join(os.path.dirname(__file__), "outputs/example_sim_grad_bounce.usd"),
@@ -119,6 +120,8 @@ class Bounce:
         for i in range(self.sim_steps):
 
             self.states[i].clear_forces()
+            # self.model.allocate_soft_contacts()
+            # wp.sim.collide(self.model, self.states[i])
 
             self.integrator.simulate(self.model, 
                                      self.states[i], 
@@ -131,6 +134,9 @@ class Bounce:
         return self.loss
 
     def render(self, iter):
+
+        if self.stage is None:
+            return
 
         # render every 16 iters
         if iter % 16 > 0:
