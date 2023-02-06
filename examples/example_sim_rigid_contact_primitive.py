@@ -17,22 +17,35 @@ import os
 import math
 
 import numpy as np
-
 import warp as wp
-# wp.config.mode == "release"
-# wp.config.verify_fp = False
-# wp.config.mode == "debug"
-# wp.config.cache_kernels = True
-# wp.config.print_launches = False
+
 import warp.sim
-import warp.sim.render
-import warp.sim.tiny_render
 
-# wp.config.verify_fp = True
-wp.init()
+from sim_demo import WarpSimDemonstration, run_demo, IntegratorType, RenderMode
 
+class Demo(WarpSimDemonstration):
 
-class Example:
+    sim_name = "example_sim_contact_primitive"
+    env_offset=(10.0, 0.0, 20.0)
+    tiny_render_settings = dict(scaling=3.0)
+    usd_render_settings = dict(scaling=100.0)
+
+    sim_substeps_euler = 32
+    sim_substeps_xpbd = 8
+
+    xpbd_settings = dict(
+        iterations=2,
+        rigid_contact_relaxation=0.8,
+        enable_restitution=True,
+    )
+
+    num_envs = 1
+
+    separate_collision_group_per_env = True
+    integrator_type = IntegratorType.XPBD
+    render_mode = RenderMode.TINY
+
+    use_graph_capture = True
 
     def load_mesh(self, filename, use_meshio=True):
         if use_meshio:
@@ -47,28 +60,14 @@ class Example:
             mesh_indices = np.array(m.face_vertex_indices(), dtype=np.int32).flatten()
         return wp.sim.Mesh(mesh_points, mesh_indices)
 
-    def __init__(self, stage):
+    def create_articulation(self, builder):
 
-        self.sim_steps = 1000
-        self.sim_dt = 1.0/60.0
-        self.sim_time = 0.0
-        self.sim_substeps = 8
-
-        self.solve_iterations = 2
-
-        self.num_bodies = 20
+        self.num_bodies = 5 # 20
         self.scale = 0.5
         self.ke = 1.e+5 
         self.kd = 250.0
         self.kf = 500.0
-        self.restitution = 0.5
-
-        self.device = wp.get_preferred_device()
-        # self.device = "cpu"
-
-        self.plot = False
-
-        builder = wp.sim.ModelBuilder()
+        self.restitution = 1.0
 
         scaling = np.linspace(1., 1.0, self.num_bodies)
         rot90s = [
@@ -132,7 +131,8 @@ class Example:
             s = builder.add_shape_capsule( 
                 pos=(0.0, 0.0, 0.0),
                 radius=0.25*self.scale,
-                half_width=self.scale*0.5,
+                half_height=self.scale*0.5,
+                upaxis=0,
                 body=b,
                 ke=self.ke,
                 kd=self.kd,
@@ -213,7 +213,8 @@ class Example:
             s = builder.add_shape_capsule( 
                 pos=(0.3, 0.0, 0.0),
                 radius=0.25*self.scale,
-                half_width=self.scale*0.5,
+                half_height=self.scale*0.5,
+                upaxis=0,
                 body=b,
                 ke=self.ke,
                 kd=self.kd,
@@ -221,28 +222,6 @@ class Example:
                 mu=1.0,
                 density=1e3,
                 restitution=self.restitution)
-
-        builder.ground = True
-        
-        self.model = builder.finalize(self.device)
-
-        self.integrator = wp.sim.XPBDIntegrator(
-            self.solve_iterations,
-            rigid_contact_relaxation=1.0)
-        self.integrator.rigid_contact_con_weighting = True
-        # self.integrator = wp.sim.SemiImplicitIntegrator()
-        self.state = self.model.state()
-
-        self.integrator.enable_restitution = True
-        # distance threshold at which contacts are generated
-        self.model.rigid_contact_margin = 0.05
-
-        self.viz_contact_count = 0
-        self.points_a = np.zeros((self.viz_contact_count, 3))
-        self.points_b = np.zeros((self.viz_contact_count, 3))
-
-        # self.renderer = wp.sim.render.SimRenderer(self.model, stage, scaling=100.0)
-        self.renderer = wp.sim.tiny_render.TinyRenderer(self.model, stage, scaling=1.0)
 
     def update(self):
 
@@ -297,72 +276,5 @@ class Example:
         self.sim_time += self.sim_dt
 
 
-if __name__ == '__main__':
-    stage_path = os.path.join(os.path.dirname(__file__), "outputs/example_sim_rigid_contact_primitive_xpbd.usd")
-
-    example = Example(stage_path)
-    
-    q_history = []
-    q_history.append(example.state.body_q.numpy().copy())
-    qd_history = []
-    qd_history.append(example.state.body_qd.numpy().copy())
-    delta_history = []
-    delta_history.append(example.state.body_deltas.numpy().copy())
-    num_con_history = []
-    num_con_history.append(example.model.rigid_contact_inv_weight.numpy().copy())
-
-    from tqdm import trange
-    for i in trange(example.sim_steps):
-        example.update()
-
-        q_history.append(example.state.body_q.numpy().copy())
-        qd_history.append(example.state.body_qd.numpy().copy())
-        delta_history.append(example.state.body_deltas.numpy().copy())
-        num_con_history.append(example.model.rigid_contact_inv_weight.numpy().copy())
-
-    example.renderer.save()
-
-    if example.plot:
-        import matplotlib.pyplot as plt
-        q_history = np.array(q_history)
-        qd_history = np.array(qd_history)
-        delta_history = np.array(delta_history)
-        num_con_history = np.array(num_con_history)
-        # print("max num_con_history:", np.max(num_con_history))
-
-        fig, ax = plt.subplots(example.model.body_count, 7, figsize=(10, 10), squeeze=False)
-        fig.subplots_adjust(hspace=0.2, wspace=0.2)
-        for i in range(example.model.body_count):
-            ax[i,0].set_title(f"Body {i} Position")
-            ax[i,0].grid()
-            ax[i,1].set_title(f"Body {i} Orientation")
-            ax[i,1].grid()
-            ax[i,2].set_title(f"Body {i} Linear Velocity")
-            ax[i,2].grid()
-            ax[i,3].set_title(f"Body {i} Angular Velocity")
-            ax[i,3].grid()
-            ax[i,4].set_title(f"Body {i} Linear Delta")
-            ax[i,4].grid()
-            ax[i,5].set_title(f"Body {i} Angular Delta")
-            ax[i,5].grid()
-            ax[i,6].set_title(f"Body {i} Num Contacts")
-            ax[i,6].grid()
-            ax[i,0].plot(q_history[:,i,:3])        
-            ax[i,1].plot(q_history[:,i,3:])
-            ax[i,2].plot(qd_history[:,i,3:])
-            ax[i,3].plot(qd_history[:,i,:3])
-            ax[i,4].plot(delta_history[:,i,3:])
-            ax[i,5].plot(delta_history[:,i,:3])
-            ax[i,6].plot(num_con_history[:,i])
-            ax[i,0].set_xlim(0, example.sim_steps)
-            ax[i,1].set_xlim(0, example.sim_steps)
-            ax[i,2].set_xlim(0, example.sim_steps)
-            ax[i,3].set_xlim(0, example.sim_steps)
-            ax[i,4].set_xlim(0, example.sim_steps)
-            ax[i,5].set_xlim(0, example.sim_steps)
-            ax[i,6].set_xlim(0, example.sim_steps)
-            ax[i,6].yaxis.get_major_locator().set_params(integer=True)
-        plt.show()
-
-
-
+if __name__ == "__main__":
+    run_demo(Demo)
