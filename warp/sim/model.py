@@ -1940,6 +1940,7 @@ class ModelBuilder:
                           rot: Quat=(0.0, 0.0, 0.0, 1.0),
                           radius: float=1.0,
                           half_height: float=0.5,
+                          upaxis: int=1,
                           density: float=default_shape_density,
                           ke: float=default_shape_ke,
                           kd: float=default_shape_kd,
@@ -1956,6 +1957,7 @@ class ModelBuilder:
             rot: The rotation of the shape with respect to the parent frame
             radius: The radius of the capsule
             half_height: The half length of the center cylinder along the y-axis
+            upaxis: The axis along which the capsule is aligned (0=x, 1=y, 2=z)
             density: The density of the shape
             ke: The contact elastic stiffness
             kd: The contact damping stiffness
@@ -1967,7 +1969,13 @@ class ModelBuilder:
 
         """
 
-        return self._add_shape(body, pos, rot, GEO_CAPSULE, (radius, half_height, 0.0, 0.0), None, density, ke, kd, kf, mu, restitution, thickness, is_solid)
+        q = rot
+        sqh = math.sqrt(0.5)
+        if upaxis == 0:
+            q = wp.mul(rot, wp.quat(sqh, 0.0, 0.0, sqh))
+        elif upaxis == 2:
+            q = wp.mul(rot, wp.quat(sqh, sqh, 0.0, 0.0))
+        return self._add_shape(body, pos, q, GEO_CAPSULE, (radius, half_height, 0.0, 0.0), None, density, ke, kd, kf, mu, restitution, thickness, is_solid)
     
     def add_shape_cylinder(self,
                            body: int,
@@ -1975,6 +1983,7 @@ class ModelBuilder:
                            rot: Quat=(0.0, 0.0, 0.0, 1.0),
                            radius: float=1.0,
                            half_height: float=0.5,
+                           upaxis: int=1,
                            density: float=default_shape_density,
                            ke: float=default_shape_ke,
                            kd: float=default_shape_kd,
@@ -1991,6 +2000,7 @@ class ModelBuilder:
             rot: The rotation of the shape with respect to the parent frame
             radius: The radius of the cylinder
             half_height: The half length of the center cylinder along the y-axis
+            upaxis: The axis along which the cylinder is aligned (0=x, 1=y, 2=z)
             density: The density of the shape
             ke: The contact elastic stiffness
             kd: The contact damping stiffness
@@ -2002,7 +2012,13 @@ class ModelBuilder:
 
         """
 
-        return self._add_shape(body, pos, rot, GEO_CYLINDER, (radius, half_height, 0.0, 0.0), None, density, ke, kd, kf, mu, restitution, thickness, is_solid)
+        q = rot
+        sqh = math.sqrt(0.5)
+        if upaxis == 0:
+            q = wp.mul(rot, wp.quat(sqh, 0.0, 0.0, sqh))
+        elif upaxis == 2:
+            q = wp.mul(rot, wp.quat(sqh, sqh, 0.0, 0.0))
+        return self._add_shape(body, pos, q, GEO_CYLINDER, (radius, half_height, 0.0, 0.0), None, density, ke, kd, kf, mu, restitution, thickness, is_solid)
     
     def add_shape_cone(self,
                            body: int,
@@ -2010,6 +2026,7 @@ class ModelBuilder:
                            rot: Quat=(0.0, 0.0, 0.0, 1.0),
                            radius: float=1.0,
                            half_height: float=0.5,
+                           upaxis: int=1,
                            density: float=default_shape_density,
                            ke: float=default_shape_ke,
                            kd: float=default_shape_kd,
@@ -2026,6 +2043,7 @@ class ModelBuilder:
             rot: The rotation of the shape with respect to the parent frame
             radius: The radius of the cone
             half_height: The half length of the center cone along the y-axis
+            upaxis: The axis along which the cone is aligned (0=x, 1=y, 2=z)
             density: The density of the shape
             ke: The contact elastic stiffness
             kd: The contact damping stiffness
@@ -2037,7 +2055,13 @@ class ModelBuilder:
 
         """
 
-        return self._add_shape(body, pos, rot, GEO_CONE, (radius, half_height, 0.0, 0.0), None, density, ke, kd, kf, mu, restitution, thickness, is_solid)
+        q = rot
+        sqh = math.sqrt(0.5)
+        if upaxis == 0:
+            q = wp.mul(rot, wp.quat(sqh, 0.0, 0.0, sqh))
+        elif upaxis == 2:
+            q = wp.mul(rot, wp.quat(sqh, sqh, 0.0, 0.0))
+        return self._add_shape(body, pos, q, GEO_CONE, (radius, half_height, 0.0, 0.0), None, density, ke, kd, kf, mu, restitution, thickness, is_solid)
 
     def add_shape_mesh(self,
                        body: int,
