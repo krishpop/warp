@@ -31,8 +31,6 @@ class Demo(WarpSimDemonstration):
     sim_substeps_euler = 32
     sim_substeps_xpbd = 3
 
-    # integrator_type = IntegratorType.EULER
-
     joint_attach_ke: float = 100000.0
     joint_attach_kd: float = 10.0
 

@@ -24,7 +24,7 @@ from sim_demo import WarpSimDemonstration, run_demo, IntegratorType
 
 class Demo(WarpSimDemonstration):
     sim_name = "example_sim_funnel_granular"
-    env_offset=(8.0, 0.0, 8.0)
+    env_offset=(20, 0.0, 20)
     tiny_render_settings = dict(scaling=0.25)
     usd_render_settings = dict(scaling=5.0)
 
