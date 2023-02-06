@@ -23,7 +23,7 @@ def parse_usd(
     default_kf=500.0,
     default_mu=0.0,
     default_restitution=0.0,
-    default_contact_thickness=0.0,
+    default_thickness=0.0,
     joint_limit_ke=100.0,
     joint_limit_kd=10.0,
     verbose=True):
@@ -481,7 +481,7 @@ def parse_usd(
                 shape_id = builder.add_shape_box(
                     body_id, geo_tf.p, geo_tf.q,
                     hx=extents[0]/2, hy=extents[1]/2, hz=extents[2]/2,
-                    density=density, contact_thickness=default_contact_thickness,
+                    density=density, thickness=default_thickness,
                     **shape_params)
             elif type_name == "Sphere":
                 if not (scale[0] == scale[1] == scale[2]):
@@ -514,7 +514,7 @@ def parse_usd(
                 shape_id = builder.add_shape_plane(
                     body=body_id, pos=geo_tf.p, rot=geo_rot,
                     width=width, length=length,
-                    contact_thickness=default_contact_thickness,
+                    thickness=default_thickness,
                     **shape_params)
             elif type_name == "Capsule":
                 normal_str = parse_generic(prim, "axis", "Z").upper()
@@ -552,7 +552,7 @@ def parse_usd(
                 m = wp.sim.Mesh(points, np.array(faces).flatten())
                 shape_id = builder.add_shape_mesh(
                     body_id, geo_tf.p, geo_tf.q,
-                    scale=scale, mesh=m, density=density, contact_thickness=default_contact_thickness,
+                    scale=scale, mesh=m, density=density, thickness=default_thickness,
                     **shape_params)
             else:
                 print(f"Warning: Unsupported geometry type {type_name} at {path}.")

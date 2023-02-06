@@ -28,14 +28,13 @@ import warp as wp
 import warp as wp
 import warp.sim
 
-from sim_demo import WarpSimDemonstration, run_demo
 from sim_demo import WarpSimDemonstration, run_demo, IntegratorType, RenderMode
 
 
 from tqdm import trange
 
 # wp.init()
-wp.set_device("cpu")
+# wp.set_device("cpu")
 
 class Demo(WarpSimDemonstration):
     sim_name = "example_sim_usd"
@@ -81,7 +80,7 @@ class Demo(WarpSimDemonstration):
             # os.path.join(os.path.dirname(__file__), "assets/articulation.usda"),
             # os.path.join(os.path.dirname(__file__), "assets/ropes.usda"),
             builder,
-            default_contact_thickness=0.01
+            default_thickness=0.01
         )
     
         self.frame_dt = 1.0 / settings["fps"]
@@ -101,7 +100,7 @@ class Demo(WarpSimDemonstration):
         print("joint_X_p", self.model.joint_X_p.numpy())
         print("joint_X_c", self.model.joint_X_c.numpy())
         print("shape_transform", self.model.shape_transform.numpy())
-        print("geo_scale", self.model.shape_geo_scale.numpy())
+        print("geo_scale", self.model.geo_params.scale.numpy())
         # print("collision filters", sorted(list(self.builder.shape_collision_filter_pairs)))
         if len(self.model.joint_type) > 0:
             print("joint parent", self.model.joint_parent.numpy())
