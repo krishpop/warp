@@ -72,6 +72,10 @@ class WarpSimDemonstration:
     # distance threshold at which contacts are generated
     rigid_contact_margin: float = 0.05
 
+    # whether each environment should have its own collision group
+    # to avoid collisions between environments
+    separate_collision_group_per_env: bool = True
+
     plot_body_coords: bool = False
     plot_joint_coords: bool = False
 
@@ -126,7 +130,7 @@ class WarpSimDemonstration:
                     xform = wp.transform_identity()
                 else:
                     xform = wp.transform(env_offsets[i], wp.quat_identity())
-                builder.add_rigid_articulation(articulation_builder, xform)
+                builder.add_rigid_articulation(articulation_builder, xform, separate_collision_group=self.separate_collision_group_per_env)
             self.bodies_per_env = len(articulation_builder.body_q)
         except NotImplementedError:
             # custom simulation setup where something other than an articulation is used
