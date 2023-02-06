@@ -216,5 +216,3 @@ class SimRenderer(warp.render.UsdRenderer):
                     X_sb = warp.transform_expand(body_q[b])
 
                     wp.render._usd_set_xform(node, X_sb.p, X_sb.q, (1.0, 1.0, 1.0), self.time)
-
-

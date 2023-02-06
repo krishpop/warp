@@ -184,6 +184,9 @@ class WarpSimDemonstration:
     def after_simulate(self):
         pass
 
+    def custom_update(self):
+        pass
+
     def run(self):
 
         #---------------
@@ -220,6 +223,7 @@ class WarpSimDemonstration:
             # simulate
             for i in range(self.sim_substeps):
                 self.state.clear_forces()
+                self.custom_update()
                 wp.sim.collide(self.model, self.state)
                 self.state = self.integrator.simulate(self.model, self.state, self.state, self.sim_dt)
                     
@@ -265,6 +269,7 @@ class WarpSimDemonstration:
                     else:
                         for i in range(0, self.sim_substeps):
                             self.state.clear_forces()
+                            self.custom_update()
 
                             wp.sim.collide(self.model, self.state)
 
