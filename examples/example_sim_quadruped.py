@@ -24,7 +24,7 @@ from sim_demo import WarpSimDemonstration, run_demo
 
 class Demo(WarpSimDemonstration):
     sim_name = "example_sim_quadruped"
-    env_offset=(6.0, 0.0, 6.0)
+    env_offset=(1.5, 0.0, 1.5)
     tiny_render_settings = dict(scaling=3.0)
     usd_render_settings = dict(scaling=100.0)
 

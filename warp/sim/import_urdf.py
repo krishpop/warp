@@ -28,7 +28,7 @@ def urdf_add_collision(builder, link, collisions, density, shape_ke, shape_kd, s
         origin = urdfpy.matrix_to_xyz_rpy(collision.origin)
 
         pos = origin[0:3]
-        rot = wp.quat_rpy(*origin[3:6])
+        rot = wp.quatf(*wp.quat_rpy(*origin[3:6]))
 
         geo = collision.geometry
 
