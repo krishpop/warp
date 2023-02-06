@@ -863,7 +863,7 @@ class ModelBuilder:
     default_joint_limit_kd = 1.0
 
     # Default geo settings
-    default_geo_thickness = 0.0  #1e-5
+    default_geo_thickness = 1e-5
     
     def __init__(self, upvector=(0.0, 1.0, 0.0), gravity=-9.80665):
         self.num_envs = 0
@@ -1102,8 +1102,8 @@ class ModelBuilder:
 
         self.add_articulation() 
 
-        start_body_idx = len(self.body_mass)
-        start_shape_idx = len(self.shape_geo_type)
+        start_body_idx = self.body_count
+        start_shape_idx = self.shape_count
 
         # offset the indices
         self.joint_parent.extend([p + self.joint_count if p != -1 else -1 for p in articulation.joint_parent])
@@ -1123,7 +1123,7 @@ class ModelBuilder:
             self.shape_collision_group.extend([self.last_collision_group + 1 for _ in articulation.shape_collision_group])
         else:
             self.shape_collision_group.extend([(g + self.last_collision_group if g > -1 else -1) for g in articulation.shape_collision_group])
-        shape_count = len(self.shape_geo_type)
+        shape_count = self.shape_count
         for i, j in articulation.shape_collision_filter_pairs:
             self.shape_collision_filter_pairs.add((i + shape_count, j + shape_count))
         for group, shapes in articulation.shape_collision_group_map.items():
@@ -1131,7 +1131,7 @@ class ModelBuilder:
                 group = self.last_collision_group + 1
             else:
                 group = (group + self.last_collision_group if group > -1 else -1)
-            if group not in articulation.shape_collision_group_map:
+            if group not in self.shape_collision_group_map:
                 self.shape_collision_group_map[group] = []
             self.shape_collision_group_map[group].extend([s + shape_count for s in shapes])
 
@@ -1192,16 +1192,15 @@ class ModelBuilder:
         for attr in rigid_articulation_attrs:
             getattr(self, attr).extend(getattr(articulation, attr))
         
-        # self.joint_count += articulation.joint_count
         self.joint_dof_count += articulation.joint_dof_count
         self.joint_coord_count += articulation.joint_coord_count
         self.joint_axis_total_count += articulation.joint_axis_total_count
 
-        if update_num_env_count:
-            self.num_envs += 1
-
         self.upvector = articulation.upvector
         self.gravity = articulation.gravity
+
+        if update_num_env_count:
+            self.num_envs += 1
 
 
     # register a rigid body and return its index.
@@ -1918,9 +1917,9 @@ class ModelBuilder:
             body: The index of the parent body this shape belongs to
             pos: The location of the shape with respect to the parent frame
             rot: The rotation of the shape with respect to the parent frame
-            hx: The half-extents along the x-axis
-            hy: The half-extents along the y-axis
-            hz: The half-extents along the z-axis
+            hx: The half-extent along the x-axis
+            hy: The half-extent along the y-axis
+            hz: The half-extent along the z-axis
             density: The density of the shape
             ke: The contact elastic stiffness
             kd: The contact damping stiffness
@@ -1956,7 +1955,7 @@ class ModelBuilder:
             pos: The location of the shape with respect to the parent frame
             rot: The rotation of the shape with respect to the parent frame
             radius: The radius of the capsule
-            half_height: The half length of the center cylinder along the y-axis
+            half_height: The half length of the center cylinder along the up axis
             upaxis: The axis along which the capsule is aligned (0=x, 1=y, 2=z)
             density: The density of the shape
             ke: The contact elastic stiffness
@@ -1999,7 +1998,7 @@ class ModelBuilder:
             pos: The location of the shape with respect to the parent frame
             rot: The rotation of the shape with respect to the parent frame
             radius: The radius of the cylinder
-            half_height: The half length of the center cylinder along the y-axis
+            half_height: The half length of the cylinder along the up axis
             upaxis: The axis along which the cylinder is aligned (0=x, 1=y, 2=z)
             density: The density of the shape
             ke: The contact elastic stiffness
@@ -2042,7 +2041,7 @@ class ModelBuilder:
             pos: The location of the shape with respect to the parent frame
             rot: The rotation of the shape with respect to the parent frame
             radius: The radius of the cone
-            half_height: The half length of the center cone along the y-axis
+            half_height: The half length of the cone along the up axis
             upaxis: The axis along which the cone is aligned (0=x, 1=y, 2=z)
             density: The density of the shape
             ke: The contact elastic stiffness
@@ -2122,7 +2121,7 @@ class ModelBuilder:
     
     def _add_shape(self, body, pos, rot, type, scale, src, density, ke, kd, kf, mu, restitution, thickness=default_geo_thickness, is_solid=True, collision_group=-1, collision_filter_parent=True, has_ground_collision=True):
         self.shape_body.append(body)
-        shape = len(self.shape_geo_type)
+        shape = self.shape_count
         if body in self.body_shapes:
             # no contacts between shapes of the same body
             for same_body_shape in self.body_shapes[body]:
@@ -3263,7 +3262,7 @@ class ModelBuilder:
         ground_id = self.add_shape_plane(**self._ground_params)
         self._ground_created = True
         # disable ground collisions as they will be treated separately
-        for i in range(len(self.shape_geo_type)-1):
+        for i in range(self.shape_count-1):
             self.shape_collision_filter_pairs.add((i, ground_id))
 
     def finalize(self, device=None, requires_grad=False) -> Model:
