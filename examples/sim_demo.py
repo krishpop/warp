@@ -146,6 +146,10 @@ class WarpSimDemonstration:
         self.model.joint_attach_ke = self.joint_attach_ke
         self.model.joint_attach_kd = self.joint_attach_kd
 
+        # set up current and next state to be used by the integrator
+        self.state_0 = None
+        self.state_1 = None
+
         if self.integrator_type == IntegratorType.EULER:
             self.integrator = wp.sim.SemiImplicitIntegrator(**self.euler_settings)
         elif self.integrator_type == IntegratorType.XPBD:
@@ -187,6 +191,11 @@ class WarpSimDemonstration:
     def custom_update(self):
         pass
 
+    @property
+    def state(self):
+        # shortcut to current state
+        return self.state_0
+
     def run(self):
 
         #---------------
@@ -194,7 +203,8 @@ class WarpSimDemonstration:
 
         self.sim_time = 0.0
         self.render_time = 0.0
-        self.state = self.model.state()
+        self.state_0 = self.model.state()
+        self.state_1 = self.model.state()
 
         if self.eval_fk:
             wp.sim.eval_fk(
@@ -202,13 +212,13 @@ class WarpSimDemonstration:
                 self.model.joint_q,
                 self.model.joint_qd,
                 None,
-                self.state)
+                self.state_0)
 
         self.before_simulate()
 
         if (self.renderer is not None):
             self.renderer.begin_frame(self.render_time)
-            self.renderer.render(self.state)
+            self.renderer.render(self.state_0)
             self.renderer.end_frame()
 
             if self.render_mode == RenderMode.TINY:
@@ -222,20 +232,21 @@ class WarpSimDemonstration:
 
             # simulate
             for i in range(self.sim_substeps):
-                self.state.clear_forces()
+                self.state_0.clear_forces()
                 self.custom_update()
-                wp.sim.collide(self.model, self.state)
-                self.state = self.integrator.simulate(self.model, self.state, self.state, self.sim_dt)
+                wp.sim.collide(self.model, self.state_0)
+                self.integrator.simulate(self.model, self.state_0, self.state_1, self.sim_dt)
+                self.state_0, self.state_1 = self.state_1, self.state_0
                     
             graph = wp.capture_end()
         else:
             if self.plot_body_coords:
                 q_history = []
-                q_history.append(self.state.body_q.numpy().copy())
+                q_history.append(self.state_0.body_q.numpy().copy())
                 qd_history = []
-                qd_history.append(self.state.body_qd.numpy().copy())
+                qd_history.append(self.state_0.body_qd.numpy().copy())
                 delta_history = []
-                delta_history.append(self.state.body_deltas.numpy().copy())
+                delta_history.append(self.state_0.body_deltas.numpy().copy())
                 num_con_history = []
                 num_con_history.append(self.model.rigid_contact_inv_weight.numpy().copy())
             if self.plot_joint_coords:
@@ -255,7 +266,7 @@ class WarpSimDemonstration:
                         self.render_time += self.frame_dt
                         
                         self.renderer.begin_frame(self.render_time)
-                        self.renderer.render(self.state)
+                        self.renderer.render(self.state_0)
                         self.renderer.end_frame()
 
             while True:
@@ -266,25 +277,26 @@ class WarpSimDemonstration:
                 for f in progress:
                     if self.use_graph_capture:
                         wp.capture_launch(graph)
+                        self.sim_time += self.frame_dt
                     else:
                         for i in range(0, self.sim_substeps):
-                            self.state.clear_forces()
+                            self.state_0.clear_forces()
                             self.custom_update()
+                            wp.sim.collide(self.model, self.state_0)
+                            self.integrator.simulate(self.model, self.state_0, self.state_1, self.sim_dt, requires_grad=self.requires_grad)
+                            self.state_0, self.state_1 = self.state_1, self.state_0
 
-                            wp.sim.collide(self.model, self.state)
-
-                            self.state = self.integrator.simulate(self.model, self.state, self.state, self.sim_dt, requires_grad=self.requires_grad)
                             self.sim_time += self.sim_dt
 
                             if not self.profile:
                                 if self.plot_body_coords:
-                                    q_history.append(self.state.body_q.numpy().copy())
-                                    qd_history.append(self.state.body_qd.numpy().copy())
-                                    delta_history.append(self.state.body_deltas.numpy().copy())
+                                    q_history.append(self.state_0.body_q.numpy().copy())
+                                    qd_history.append(self.state_0.body_qd.numpy().copy())
+                                    delta_history.append(self.state_0.body_deltas.numpy().copy())
                                     num_con_history.append(self.model.rigid_contact_inv_weight.numpy().copy())
 
                                 if self.plot_joint_coords:
-                                    wp.sim.eval_ik(self.model, self.state, joint_q, joint_qd)
+                                    wp.sim.eval_ik(self.model, self.state_0, joint_q, joint_qd)
                                     joint_q_history.append(joint_q.numpy().copy())
 
                     if (self.renderer is not None):
@@ -294,7 +306,7 @@ class WarpSimDemonstration:
                             self.render_time += self.frame_dt
                             
                             self.renderer.begin_frame(self.render_time)
-                            self.renderer.render(self.state)
+                            self.renderer.render(self.state_0)
                             self.renderer.end_frame()
 
                 if not self.continuous_tiny_render or self.render_mode != RenderMode.TINY:

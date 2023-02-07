@@ -1623,14 +1623,6 @@ class XPBDIntegrator:
                           device=model.device)
 
             if (model.body_count):
-                if requires_grad:
-                    state_out.body_q_prev = wp.clone(state_in.body_q)
-                    if (self.enable_restitution):
-                        state_out.body_qd_prev = wp.clone(state_in.body_qd)
-                else:
-                    state_out.body_q_prev.assign(state_in.body_q)
-                    if (self.enable_restitution):
-                        state_out.body_qd_prev.assign(state_in.body_qd)
 
                 if (model.joint_count):
                     wp.launch(
@@ -2005,7 +1997,7 @@ class XPBDIntegrator:
                         dim=model.body_count,
                         inputs=[
                             state_out.body_q,
-                            state_out.body_q_prev,
+                            state_in.body_q,
                             model.body_com,
                             dt
                         ],
@@ -2056,8 +2048,8 @@ class XPBDIntegrator:
                             inputs=[
                                 state_out.body_q,
                                 state_out.body_qd,
-                                state_out.body_q_prev,
-                                state_out.body_qd_prev,
+                                state_in.body_q,
+                                state_in.body_qd,
                                 model.body_com,
                                 model.body_inv_mass,
                                 model.body_inv_inertia,
