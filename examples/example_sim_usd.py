@@ -100,7 +100,7 @@ class Demo(WarpSimDemonstration):
         print("joint_X_p", self.model.joint_X_p.numpy())
         print("joint_X_c", self.model.joint_X_c.numpy())
         print("shape_transform", self.model.shape_transform.numpy())
-        print("geo_scale", self.model.geo_params.scale.numpy())
+        print("geo_scale", self.model.shape_geo.scale.numpy())
         # print("collision filters", sorted(list(self.builder.shape_collision_filter_pairs)))
         if len(self.model.joint_type) > 0:
             print("joint parent", self.model.joint_parent.numpy())

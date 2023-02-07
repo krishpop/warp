@@ -222,7 +222,7 @@ class Model:
         shape_body (wp.array): Rigid shape body index, shape [shape_count], int
         body_shapes (dict): Mapping from body index to list of attached shape indices
         shape_materials (ModelShapeMaterials): Rigid shape contact materials, shape [shape_count], float
-        shape_geo_params (ModelShapeGeometry): Shape geometry properties (geo type, scale, thickness, etc.), shape [shape_count, 3], float
+        shape_shape_geo (ModelShapeGeometry): Shape geometry properties (geo type, scale, thickness, etc.), shape [shape_count, 3], float
         shape_geo_src (list): List of `wp.Mesh` instances used for rendering of mesh geometry
 
         shape_collision_group (list): Collision group of each shape, shape [shape_count], int
@@ -357,7 +357,7 @@ class Model:
         self.shape_body = None
         self.body_shapes = {}
         self.shape_materials = ModelShapeMaterials()
-        self.geo_params = ModelShapeGeometry()
+        self.shape_geo = ModelShapeGeometry()
         self.shape_geo_src = None
 
         self.shape_collision_group = None
@@ -563,7 +563,7 @@ class Model:
             dim=self.shape_contact_pair_count,
             inputs=[
                 self.shape_contact_pairs,
-                self.geo_params,
+                self.shape_geo,
             ],
             outputs=[
                 contact_count
@@ -576,7 +576,7 @@ class Model:
             dim=self.shape_ground_contact_pair_count,
             inputs=[
                 self.shape_ground_contact_pairs,
-                self.geo_params,
+                self.shape_geo,
             ],
             outputs=[
                 contact_count
@@ -2906,11 +2906,11 @@ class ModelBuilder:
                     # add null pointer
                     geo_sources.append(0)
 
-            m.geo_params.type = wp.array(self.shape_geo_type, dtype=wp.int32)
-            m.geo_params.source = wp.array(geo_sources, dtype=wp.uint64)
-            m.geo_params.scale = wp.array(self.shape_geo_scale, dtype=wp.vec3, requires_grad=requires_grad)
-            m.geo_params.is_solid = wp.array(self.shape_geo_is_solid, dtype=wp.uint8)
-            m.geo_params.thickness = wp.array(self.shape_geo_thickness, dtype=wp.float32, requires_grad=requires_grad)
+            m.shape_geo.type = wp.array(self.shape_geo_type, dtype=wp.int32)
+            m.shape_geo.source = wp.array(geo_sources, dtype=wp.uint64)
+            m.shape_geo.scale = wp.array(self.shape_geo_scale, dtype=wp.vec3, requires_grad=requires_grad)
+            m.shape_geo.is_solid = wp.array(self.shape_geo_is_solid, dtype=wp.uint8)
+            m.shape_geo.thickness = wp.array(self.shape_geo_thickness, dtype=wp.float32, requires_grad=requires_grad)
             m.shape_geo_src = self.shape_geo_src  # used for rendering
 
             m.shape_materials.ke = wp.array(self.shape_material_ke, dtype=wp.float32, requires_grad=requires_grad)
