@@ -41,7 +41,7 @@ class Demo(WarpSimDemonstration):
 
     num_envs = 1
 
-    render_mode = RenderMode.USD
+    # render_mode = RenderMode.USD
 
     def create_articulation(self, builder):
 

@@ -6,7 +6,7 @@
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
 import warp as wp
-from .model import ShapeContactMaterial
+from .model import ModelShapeMaterials
 from .utils import velocity_at_point
 from .integrator_euler import integrate_bodies, integrate_particles
 
@@ -100,7 +100,7 @@ def solve_soft_contacts(
     body_m_inv: wp.array(dtype=float),
     body_I_inv: wp.array(dtype=wp.mat33),
     shape_body: wp.array(dtype=int),
-    shape_materials: ShapeContactMaterial,
+    shape_materials: ModelShapeMaterials,
     particle_mu: float,
     particle_ka: float,
     contact_count: wp.array(dtype=int),
@@ -1174,7 +1174,7 @@ def solve_body_contact_positions(
     contact_thickness: wp.array(dtype=float),
     contact_shape0: wp.array(dtype=int),
     contact_shape1: wp.array(dtype=int),
-    shape_materials: ShapeContactMaterial,
+    shape_materials: ModelShapeMaterials,
     relaxation: float,
     dt: float,
     contact_torsional_friction: float,
@@ -1415,7 +1415,7 @@ def apply_rigid_restitution(
     contact_normal: wp.array(dtype=wp.vec3),
     contact_shape0: wp.array(dtype=int),
     contact_shape1: wp.array(dtype=int),
-    shape_materials: ShapeContactMaterial,
+    shape_materials: ModelShapeMaterials,
     active_contact_distance: wp.array(dtype=float),
     active_contact_point0: wp.array(dtype=wp.vec3),
     active_contact_point1: wp.array(dtype=wp.vec3),
