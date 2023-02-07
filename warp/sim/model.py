@@ -203,7 +203,7 @@ class Model:
 
     Attributes:
         requires_grad (float): Indicates whether the model was finalized with gradient computation enabled
-        num_envs (int): Number of articulation environments that were added to the ModelBuilder via `add_rigid_articulation`
+        num_envs (int): Number of articulation environments that were added to the ModelBuilder via `add_builder`
 
         particle_q (wp.array): Particle positions, shape [particle_count, 3], float
         particle_qd (wp.array): Particle velocities, shape [particle_count, 3], float
@@ -935,7 +935,7 @@ class ModelBuilder:
     def add_articulation(self):
         self.articulation_start.append(self.joint_count)
     
-    def add_rigid_articulation(self, articulation, xform=None, update_num_env_count=True, separate_collision_group=True):
+    def add_builder(self, articulation, xform=None, update_num_env_count=True, separate_collision_group=True):
         """Copies a rigid articulation from `articulation`, another `ModelBuilder`.
         
         Args:

@@ -12,18 +12,19 @@ from .integrator_euler import integrate_bodies, integrate_particles
 
 
 @wp.kernel
-def solve_contacts(particle_x: wp.array(dtype=wp.vec3),
-                   particle_v: wp.array(dtype=wp.vec3),
-                   invmass: wp.array(dtype=float),
-                   ke: float,
-                   kd: float,
-                   kf: float,
-                   mu: float,
-                   offset: float,
-                   ground: wp.array(dtype=float),
-                   dt: float,
-                   relaxation: float,
-                   delta: wp.array(dtype=wp.vec3)):
+def solve_particle_ground_contacts(
+    particle_x: wp.array(dtype=wp.vec3),
+    particle_v: wp.array(dtype=wp.vec3),
+    invmass: wp.array(dtype=float),
+    ke: float,
+    kd: float,
+    kf: float,
+    mu: float,
+    offset: float,
+    ground: wp.array(dtype=float),
+    dt: float,
+    relaxation: float,
+    delta: wp.array(dtype=wp.vec3)):
 
     tid = wp.tid()
     wi = invmass[tid]
@@ -1705,7 +1706,7 @@ class XPBDIntegrator:
 
                     # particle ground contact
                     if (model.ground):
-                        wp.launch(kernel=solve_contacts,
+                        wp.launch(kernel=solve_particle_ground_contacts,
                                 dim=model.particle_count,
                                 inputs=[
                                     particle_q,

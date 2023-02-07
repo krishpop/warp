@@ -130,7 +130,7 @@ class WarpSimDemonstration:
                     xform = wp.transform_identity()
                 else:
                     xform = wp.transform(env_offsets[i], wp.quat_identity())
-                builder.add_rigid_articulation(articulation_builder, xform, separate_collision_group=self.separate_collision_group_per_env)
+                builder.add_builder(articulation_builder, xform, separate_collision_group=self.separate_collision_group_per_env)
             self.bodies_per_env = len(articulation_builder.body_q)
         except NotImplementedError:
             # custom simulation setup where something other than an articulation is used
