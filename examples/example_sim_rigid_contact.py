@@ -23,9 +23,9 @@ import warp.sim
 
 from pxr import Usd, UsdGeom
 
-from sim_demo import WarpSimDemonstration, run_demo
+from environment import Environment, run_env
 
-class Demo(WarpSimDemonstration):
+class Demo(Environment):
     sim_name = "example_sim_rigid_contact"
     env_offset=(2.0, 0.0, 2.0)
     tiny_render_settings = dict(scaling=3.0)
@@ -129,4 +129,4 @@ class Demo(WarpSimDemonstration):
 
 
 if __name__ == "__main__":
-    run_demo(Demo)
+    run_env(Demo)

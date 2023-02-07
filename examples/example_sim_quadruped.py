@@ -20,9 +20,9 @@ import os
 import warp as wp
 import warp.sim
 
-from sim_demo import WarpSimDemonstration, run_demo
+from environment import Environment, run_env
 
-class Demo(WarpSimDemonstration):
+class Demo(Environment):
     sim_name = "example_sim_quadruped"
     env_offset=(1.5, 0.0, 1.5)
     tiny_render_settings = dict(scaling=3.0)
@@ -68,4 +68,4 @@ class Demo(WarpSimDemonstration):
             0.2, -0.4, 0.6]
 
 if __name__ == "__main__":
-    run_demo(Demo)
+    run_env(Demo)

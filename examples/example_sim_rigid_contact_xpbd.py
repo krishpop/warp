@@ -22,9 +22,9 @@ import warp as wp
 import warp.sim
 import warp.sim.render
 
-from sim_demo import WarpSimDemonstration, run_demo
+from environment import Environment, run_env
 
-class Demo(WarpSimDemonstration):
+class Demo(Environment):
     sim_name = "example_sim_rigid_contact_xpbd"
     num_envs = 1
 
@@ -115,4 +115,4 @@ class Demo(WarpSimDemonstration):
 
 
 if __name__ == "__main__":
-    run_demo(Demo)
+    run_env(Demo)

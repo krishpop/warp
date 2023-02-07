@@ -22,10 +22,10 @@ import numpy as np
 import warp as wp
 import warp.sim
 
-from sim_demo import WarpSimDemonstration, run_demo
+from environment import Environment, run_env
 
 
-class Demo(WarpSimDemonstration):
+class Demo(Environment):
     sim_name = "example_sim_xarm"
     env_offset=(0.5, 0.0, 0.5)
     tiny_render_settings = dict(scaling=10.0)
@@ -64,4 +64,4 @@ class Demo(WarpSimDemonstration):
             builder.joint_target[:3] = [0.0, 0.0, 0.0]
 
 if __name__ == "__main__":
-    run_demo(Demo)
+    run_env(Demo)

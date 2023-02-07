@@ -27,8 +27,8 @@ class IntegratorType(Enum):
     def __str__(self):
         return self.value
 
-class WarpSimDemonstration:
-    sim_name: str = "WarpSimDemonstration"
+class Environment:
+    sim_name: str = "Environment"
 
     frame_dt = 1.0 / (60.0)
 
@@ -435,7 +435,7 @@ class WarpSimDemonstration:
         return 1000.0*float(self.num_envs)/avg_time
 
     
-def run_demo(Demo):
+def run_env(Demo):
     demo = Demo()
     demo.parse_args()
     if demo.profile:

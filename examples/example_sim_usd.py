@@ -28,7 +28,7 @@ import warp as wp
 import warp as wp
 import warp.sim
 
-from sim_demo import WarpSimDemonstration, run_demo, IntegratorType, RenderMode
+from environment import Environment, run_env, IntegratorType, RenderMode
 
 
 from tqdm import trange
@@ -36,7 +36,7 @@ from tqdm import trange
 # wp.init()
 # wp.set_device("cpu")
 
-class Demo(WarpSimDemonstration):
+class Demo(Environment):
     sim_name = "example_sim_usd"
     env_offset=(6.0, 0.0, 6.0)
     tiny_render_settings = dict(scaling=15.0)
@@ -113,4 +113,4 @@ class Demo(WarpSimDemonstration):
         print("body_q", self.state.body_q.numpy())
 
 if __name__ == "__main__":
-    run_demo(Demo)
+    run_env(Demo)

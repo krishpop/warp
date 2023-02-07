@@ -20,10 +20,10 @@ import warp as wp
 import warp.sim
 import numpy as np
 
-from sim_demo import WarpSimDemonstration, run_demo
+from environment import Environment, run_env
 
 
-class Demo(WarpSimDemonstration):
+class Demo(Environment):
     sim_name = "example_sim_rigid_chain"
     env_offset=(6.0, 0.0, 6.0)
     num_envs = 1
@@ -134,4 +134,4 @@ class Demo(WarpSimDemonstration):
                     )
 
 if __name__ == "__main__":
-    run_demo(Demo)
+    run_env(Demo)

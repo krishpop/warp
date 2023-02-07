@@ -20,9 +20,9 @@ import numpy as np
 import warp as wp
 import warp.sim
 
-from sim_demo import WarpSimDemonstration, run_demo, RenderMode
+from environment import Environment, run_env, RenderMode
 
-class Demo(WarpSimDemonstration):
+class Demo(Environment):
     sim_name = "example_sim_allegro"
     env_offset=(0.5, 0.0, 0.5)
     tiny_render_settings = dict(scaling=40.0)
@@ -152,4 +152,4 @@ class Demo(WarpSimDemonstration):
         self.state.body_qd = wp.array(body_qd, dtype=wp.spatial_vector, device=self.device)
 
 if __name__ == "__main__":
-    run_demo(Demo)
+    run_env(Demo)
