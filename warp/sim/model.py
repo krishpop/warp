@@ -309,8 +309,8 @@ class Model:
 
         ground (bool): Whether the ground plane and ground contacts are enabled
         ground_plane (wp.array): Ground plane 3D normal and offset, shape [4], float
-        upvector (np.ndarray): Up vector, shape [3], float
-        upaxis (int): Up axis, 0 for x, 1 for y, 2 for z
+        up_vector (np.ndarray): Up vector of the world, shape [3], float
+        up_axis (int): Up axis, 0 for x, 1 for y, 2 for z
         gravity (np.ndarray): Gravity vector, shape [3], float
 
         particle_count (int): Total number of particles in the system
@@ -443,8 +443,8 @@ class Model:
         # toggles ground contact for all shapes
         self.ground = True
         self.ground_plane = None
-        self.upvector = np.array((0.0, 1.0, 0.0))
-        self.upaxis = 1
+        self.up_vector = np.array((0.0, 1.0, 0.0))
+        self.up_axis = 1
         self.gravity = np.array((0.0, -9.81, 0.0))
 
         self.particle_count = 0
@@ -725,7 +725,7 @@ class ModelBuilder:
     # Default geo settings
     default_geo_thickness = 1e-5
     
-    def __init__(self, upvector=(0.0, 1.0, 0.0), gravity=-9.80665):
+    def __init__(self, up_vector=(0.0, 1.0, 0.0), gravity=-9.80665):
         self.num_envs = 0
 
         # particles
@@ -851,14 +851,14 @@ class ModelBuilder:
         self.joint_coord_count = 0
         self.joint_axis_total_count = 0
 
-        self.upvector = upvector
-        self.upaxis = np.argmax(np.abs(upvector))
+        self.up_vector = up_vector
+        self.up_axis = np.argmax(np.abs(up_vector))
         self.gravity = gravity
         # indicates whether a ground plane has been created
         self._ground_created = False
         # constructor parameters for ground plane shape
         self._ground_params = dict(
-            plane=(*upvector, 0.0),
+            plane=(*up_vector, 0.0),
             width=0.0,
             length=0.0,
             ke=self.default_shape_ke,
@@ -1063,7 +1063,7 @@ class ModelBuilder:
         self.joint_coord_count += articulation.joint_coord_count
         self.joint_axis_total_count += articulation.joint_axis_total_count
 
-        self.upvector = articulation.upvector
+        self.up_vector = articulation.up_vector
         self.gravity = articulation.gravity
 
         if update_num_env_count:
@@ -1806,7 +1806,7 @@ class ModelBuilder:
                           rot: Quat=(0.0, 0.0, 0.0, 1.0),
                           radius: float=1.0,
                           half_height: float=0.5,
-                          upaxis: int=1,
+                          up_axis: int=1,
                           density: float=default_shape_density,
                           ke: float=default_shape_ke,
                           kd: float=default_shape_kd,
@@ -1823,7 +1823,7 @@ class ModelBuilder:
             rot: The rotation of the shape with respect to the parent frame
             radius: The radius of the capsule
             half_height: The half length of the center cylinder along the up axis
-            upaxis: The axis along which the capsule is aligned (0=x, 1=y, 2=z)
+            up_axis: The axis along which the capsule is aligned (0=x, 1=y, 2=z)
             density: The density of the shape
             ke: The contact elastic stiffness
             kd: The contact damping stiffness
@@ -1837,9 +1837,9 @@ class ModelBuilder:
 
         q = rot
         sqh = math.sqrt(0.5)
-        if upaxis == 0:
+        if up_axis == 0:
             q = wp.mul(rot, wp.quat(sqh, 0.0, 0.0, sqh))
-        elif upaxis == 2:
+        elif up_axis == 2:
             q = wp.mul(rot, wp.quat(sqh, sqh, 0.0, 0.0))
         return self._add_shape(body, pos, q, GEO_CAPSULE, (radius, half_height, 0.0, 0.0), None, density, ke, kd, kf, mu, restitution, thickness + radius, is_solid)
     
@@ -1849,7 +1849,7 @@ class ModelBuilder:
                            rot: Quat=(0.0, 0.0, 0.0, 1.0),
                            radius: float=1.0,
                            half_height: float=0.5,
-                           upaxis: int=1,
+                           up_axis: int=1,
                            density: float=default_shape_density,
                            ke: float=default_shape_ke,
                            kd: float=default_shape_kd,
@@ -1866,7 +1866,7 @@ class ModelBuilder:
             rot: The rotation of the shape with respect to the parent frame
             radius: The radius of the cylinder
             half_height: The half length of the cylinder along the up axis
-            upaxis: The axis along which the cylinder is aligned (0=x, 1=y, 2=z)
+            up_axis: The axis along which the cylinder is aligned (0=x, 1=y, 2=z)
             density: The density of the shape
             ke: The contact elastic stiffness
             kd: The contact damping stiffness
@@ -1880,9 +1880,9 @@ class ModelBuilder:
 
         q = rot
         sqh = math.sqrt(0.5)
-        if upaxis == 0:
+        if up_axis == 0:
             q = wp.mul(rot, wp.quat(sqh, 0.0, 0.0, sqh))
-        elif upaxis == 2:
+        elif up_axis == 2:
             q = wp.mul(rot, wp.quat(sqh, sqh, 0.0, 0.0))
         return self._add_shape(body, pos, q, GEO_CYLINDER, (radius, half_height, 0.0, 0.0), None, density, ke, kd, kf, mu, restitution, thickness, is_solid)
     
@@ -1892,7 +1892,7 @@ class ModelBuilder:
                            rot: Quat=(0.0, 0.0, 0.0, 1.0),
                            radius: float=1.0,
                            half_height: float=0.5,
-                           upaxis: int=1,
+                           up_axis: int=1,
                            density: float=default_shape_density,
                            ke: float=default_shape_ke,
                            kd: float=default_shape_kd,
@@ -1909,7 +1909,7 @@ class ModelBuilder:
             rot: The rotation of the shape with respect to the parent frame
             radius: The radius of the cone
             half_height: The half length of the cone along the up axis
-            upaxis: The axis along which the cone is aligned (0=x, 1=y, 2=z)
+            up_axis: The axis along which the cone is aligned (0=x, 1=y, 2=z)
             density: The density of the shape
             ke: The contact elastic stiffness
             kd: The contact damping stiffness
@@ -1923,9 +1923,9 @@ class ModelBuilder:
 
         q = rot
         sqh = math.sqrt(0.5)
-        if upaxis == 0:
+        if up_axis == 0:
             q = wp.mul(rot, wp.quat(sqh, 0.0, 0.0, sqh))
-        elif upaxis == 2:
+        elif up_axis == 2:
             q = wp.mul(rot, wp.quat(sqh, sqh, 0.0, 0.0))
         return self._add_shape(body, pos, q, GEO_CONE, (radius, half_height, 0.0, 0.0), None, density, ke, kd, kf, mu, restitution, thickness, is_solid)
 
@@ -2820,10 +2820,10 @@ class ModelBuilder:
                          restitution: float=default_shape_restitution):
         """
         Creates a ground plane for the world. If the normal is not specified,
-        the upvector of the ModelBuilder is used.
+        the up_vector of the ModelBuilder is used.
         """
         if normal is None:
-            normal = self.upvector
+            normal = self.up_vector
         self._ground_params = dict(
             plane=(*normal, offset),
             width=0.0,
@@ -3072,7 +3072,7 @@ class ModelBuilder:
 
             # enable ground plane
             m.ground_plane = wp.array(self._ground_params["plane"], dtype=wp.float32, requires_grad=requires_grad)
-            m.gravity = np.array(self.upvector) * self.gravity
+            m.gravity = np.array(self.up_vector) * self.gravity
 
             m.enable_tri_collisions = False
 

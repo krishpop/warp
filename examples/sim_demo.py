@@ -61,7 +61,7 @@ class WarpSimDemonstration:
 
     integrator_type: IntegratorType = IntegratorType.XPBD
 
-    upaxis: str = "y"
+    up_axis: str = "y"
     gravity: float = -9.81
     env_offset: Tuple[float, float, float] = (1.0, 0.0, 1.0)
 
@@ -123,7 +123,7 @@ class WarpSimDemonstration:
             articulation_builder = wp.sim.ModelBuilder()
             self.create_articulation(articulation_builder)
             env_offsets = wp.sim.tiny_render.compute_env_offsets(
-                self.num_envs, self.env_offset, self.upaxis)
+                self.num_envs, self.env_offset, self.up_axis)
             for i in range(self.num_envs):
                 if self.render_mode == RenderMode.TINY:
                     # no need to offset, TinyRenderer will do it
@@ -158,7 +158,7 @@ class WarpSimDemonstration:
             self.renderer = wp.sim.tiny_render.TinyRenderer(
                 self.model,
                 self.sim_name,
-                upaxis=self.upaxis,
+                upaxis=self.up_axis,
                 env_offset=self.env_offset,
                 **self.tiny_render_settings)
         elif self.render_mode == RenderMode.USD:
@@ -166,7 +166,7 @@ class WarpSimDemonstration:
             self.renderer = wp.sim.render.SimRenderer(
                 self.model,
                 filename,
-                upaxis=self.upaxis,
+                upaxis=self.up_axis,
                 **self.usd_render_settings)
 
     def create_articulation(self, builder):

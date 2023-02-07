@@ -276,9 +276,9 @@ def parse_usd(
             if g_mag.HasAuthoredValue() and np.isfinite(g_mag.Get()):
                 builder.gravity = g_mag.Get() * linear_unit
             if g_vec.HasAuthoredValue() and np.linalg.norm(g_vec.Get()) > 0.0:
-                builder.upvector = np.array(g_vec.Get())  # TODO flip sign?
+                builder.up_vector = np.array(g_vec.Get())  # TODO flip sign?
             else:
-                builder.upvector = upaxis
+                builder.up_vector = upaxis
 
     def parse_prim(prim, incoming_xform, incoming_scale, incoming_schemas=[]):
         nonlocal builder
@@ -625,5 +625,5 @@ def parse_usd(
     return {
         "fps": stage.GetFramesPerSecond(),
         "duration": stage.GetEndTimeCode() - stage.GetStartTimeCode(),
-        "upaxis": UsdGeom.GetStageUpAxis(stage).lower()
+        "up_axis": UsdGeom.GetStageUpAxis(stage).lower()
     }

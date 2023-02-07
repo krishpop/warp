@@ -91,7 +91,7 @@ class Demo(WarpSimDemonstration):
         self.sim_steps = int(self.episode_duration / self.sim_dt)
         self.sim_time = 0.0
         self.render_time = 0.0
-        self.upaxis = settings["upaxis"]
+        self.up_axis = settings["up_axis"]
 
     def before_simulate(self):
         print("COM", self.model.body_com.numpy())

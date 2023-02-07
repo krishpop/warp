@@ -89,7 +89,7 @@ class Demo(WarpSimDemonstration):
                 pos=(0.0, 0.0, 0.0),
                 radius=0.25*self.scale,
                 half_height=self.scale*0.5,
-                upaxis=0,
+                up_axis=0,
                 body=b,
                 ke=self.ke,
                 kd=self.kd,
