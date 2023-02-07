@@ -195,6 +195,22 @@ class WarpSimDemonstration:
     def state(self):
         # shortcut to current state
         return self.state_0
+    
+    def update(self):
+        for i in range(self.sim_substeps):
+            self.state_0.clear_forces()
+            self.custom_update()
+            wp.sim.collide(self.model, self.state_0)
+            self.integrator.simulate(self.model, self.state_0, self.state_1, self.sim_dt)
+            self.state_0, self.state_1 = self.state_1, self.state_0
+
+    def render(self, is_live=False):
+        if (self.renderer is not None):
+            with wp.ScopedTimer("render", False):
+                self.render_time += self.frame_dt
+                self.renderer.begin_frame(self.render_time)
+                self.renderer.render(self.state_0)
+                self.renderer.end_frame()
 
     def run(self):
 
@@ -231,12 +247,7 @@ class WarpSimDemonstration:
             wp.capture_begin()
 
             # simulate
-            for i in range(self.sim_substeps):
-                self.state_0.clear_forces()
-                self.custom_update()
-                wp.sim.collide(self.model, self.state_0)
-                self.integrator.simulate(self.model, self.state_0, self.state_1, self.sim_dt)
-                self.state_0, self.state_1 = self.state_1, self.state_0
+            self.update()
                     
             graph = wp.capture_end()
         else:
@@ -299,15 +310,7 @@ class WarpSimDemonstration:
                                     wp.sim.eval_ik(self.model, self.state_0, joint_q, joint_qd)
                                     joint_q_history.append(joint_q.numpy().copy())
 
-                    if (self.renderer is not None):
-    
-                        with wp.ScopedTimer("render", False):
-
-                            self.render_time += self.frame_dt
-                            
-                            self.renderer.begin_frame(self.render_time)
-                            self.renderer.render(self.state_0)
-                            self.renderer.end_frame()
+                    self.render()
 
                 if not self.continuous_tiny_render or self.render_mode != RenderMode.TINY:
                     break
