@@ -517,20 +517,34 @@ def parse_usd(
                     thickness=default_thickness,
                     **shape_params)
             elif type_name == "Capsule":
-                normal_str = parse_generic(prim, "axis", "Z").upper()
-                geo_rot = geo_tf.q
-                if normal_str != "X":
-                    normal = str2axis(normal_str)
-                    c = np.cross(normal, (1.0, 0.0, 0.0))
-                    angle = np.arcsin(np.linalg.norm(c))
-                    axis = c / np.linalg.norm(c)
-                    geo_rot = wp.quat_from_axis_angle(axis, angle)
+                axis_str = parse_generic(prim, "axis", "Z").upper()
                 radius = parse_float(prim, "radius", 0.5) * scale[0]
-                length = parse_float(prim, "height", 2.0) / 2 * scale[1]
+                half_height = parse_float(prim, "height", 2.0) / 2 * scale[1]
                 assert not prim.HasAttribute("extents"), "Capsule extents are not supported."
                 shape_id = builder.add_shape_capsule(
-                    body_id, geo_tf.p, geo_rot,
-                    radius, length, density=density,
+                    body_id, geo_tf.p, geo_tf.q,
+                    radius, half_height, density=density,
+                    up_axis="XYZ".index(axis_str),
+                    **shape_params)
+            elif type_name == "Cylinder":
+                axis_str = parse_generic(prim, "axis", "Z").upper()
+                radius = parse_float(prim, "radius", 0.5) * scale[0]
+                half_height = parse_float(prim, "height", 2.0) / 2 * scale[1]
+                assert not prim.HasAttribute("extents"), "Cylinder extents are not supported."
+                shape_id = builder.add_shape_cylinder(
+                    body_id, geo_tf.p, geo_tf.q,
+                    radius, half_height, density=density,
+                    up_axis="XYZ".index(axis_str),
+                    **shape_params)
+            elif type_name == "Cone":
+                axis_str = parse_generic(prim, "axis", "Z").upper()
+                radius = parse_float(prim, "radius", 0.5) * scale[0]
+                half_height = parse_float(prim, "height", 2.0) / 2 * scale[1]
+                assert not prim.HasAttribute("extents"), "Cone extents are not supported."
+                shape_id = builder.add_shape_cone(
+                    body_id, geo_tf.p, geo_tf.q,
+                    radius, half_height, density=density,
+                    up_axis="XYZ".index(axis_str),
                     **shape_params)
             elif type_name == "Mesh":
                 mesh = UsdGeom.Mesh(prim)

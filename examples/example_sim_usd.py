@@ -64,21 +64,19 @@ class Demo(Environment):
 
     def create_articulation(self, builder):
 
+        folder = os.path.join(os.path.dirname(__file__), "assets", "usd_physics")
         settings = wp.sim.parse_usd(
-            # os.path.join(os.path.dirname(__file__), "assets/box_on_quad.usd"),
-            # os.path.join(os.path.dirname(__file__), "assets/contact_pair_filtering.usd"),
-            # os.path.join(os.path.dirname(__file__), "assets/rocks.usd"),
-            # os.path.join(os.path.dirname(__file__), "assets/distance_joint.usd"),
-            # os.path.join(os.path.dirname(__file__), "assets/prismatic_joint.usda"),
-            # os.path.join(os.path.dirname(__file__), "assets/revolute_joint.usd"),
-            # os.path.join(os.path.dirname(__file__), "assets/revolute_joint2.usd"),
-            os.path.join(os.path.dirname(__file__), "assets/d6_joint.usda"),
-            # os.path.join(os.path.dirname(__file__), "assets/spheres_with_materials.usd"),
-            # os.path.join(os.path.dirname(__file__), "assets/chair_stacking.usd"),
-            # os.path.join(os.path.dirname(__file__), "assets/material_density.usda"),
-            # os.path.join(os.path.dirname(__file__), "assets/shapes_on_plane.usda"),
-            # os.path.join(os.path.dirname(__file__), "assets/articulation.usda"),
-            # os.path.join(os.path.dirname(__file__), "assets/ropes.usda"),
+            # os.path.join(folder, "box_on_quad.usd"),
+            # os.path.join(folder, "contact_pair_filtering.usd"),
+            os.path.join(folder, "distance_joint.usd"),
+            # os.path.join(folder, "prismatic_joint.usda"),
+            # os.path.join(folder, "revolute_joint.usd"),
+            # os.path.join(folder, "d6_joint.usda"),
+            # os.path.join(folder, "spheres_with_materials.usd"),
+            # os.path.join(folder, "material_density.usda"),
+            # os.path.join(folder, "shapes_on_plane.usda"),
+            # os.path.join(folder, "articulation.usda"),
+            # os.path.join(folder, "ropes.usda"),
             builder,
             default_thickness=0.01
         )
@@ -97,19 +95,23 @@ class Demo(Environment):
         print("COM", self.model.body_com.numpy())
         print("Mass", self.model.body_mass.numpy())
         print("Inertia", self.model.body_inertia.numpy())
-        print("joint_X_p", self.model.joint_X_p.numpy())
-        print("joint_X_c", self.model.joint_X_c.numpy())
         print("shape_transform", self.model.shape_transform.numpy())
         print("geo_scale", self.model.shape_geo.scale.numpy())
         # print("collision filters", sorted(list(self.builder.shape_collision_filter_pairs)))
-        if len(self.model.joint_type) > 0:
+        if self.model.joint_count > 0:
             print("joint parent", self.model.joint_parent.numpy())
             print("joint child", self.model.joint_child.numpy())
-            print("joint q", self.model.joint_q.numpy())
-            print("joint axis", self.model.joint_axis.numpy())
-            print("joint target", self.model.joint_target.numpy())
-            print("joint target ke", self.model.joint_target_ke.numpy())
-            print("joint target kd", self.model.joint_target_kd.numpy())
+            if len(self.model.joint_q) > 0:
+                print("joint q", self.model.joint_q.numpy())
+            if len(self.model.joint_axis) > 0:
+                print("joint axis", self.model.joint_axis.numpy())
+                print("joint target", self.model.joint_target.numpy())
+                print("joint target ke", self.model.joint_target_ke.numpy())
+                print("joint target kd", self.model.joint_target_kd.numpy())
+                print("joint limit lower", self.model.joint_limit_lower.numpy())
+                print("joint limit upper", self.model.joint_limit_upper.numpy())
+            print("joint_X_p", self.model.joint_X_p.numpy())
+            print("joint_X_c", self.model.joint_X_c.numpy())
         print("body_q", self.state.body_q.numpy())
 
 if __name__ == "__main__":
