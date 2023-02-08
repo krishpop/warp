@@ -938,15 +938,13 @@ def solve_body_joints(body_q: wp.array(dtype=wp.transform),
             else:
                 target = wp.clamp(axis_target[dim], lower, upper)
                 if mode == JOINT_MODE_TARGET_POSITION:
-                    # position target
-                    err = e - target
                     if axis_stiffness[dim] > 0.0:
+                        err = e - target
                         compliance = 1.0 / axis_stiffness[dim]
                     damping = axis_damping[dim]
                 elif mode == JOINT_MODE_TARGET_VELOCITY:
-                    # velocity target
-                    err = (derr - target)*dt
                     if axis_stiffness[dim] > 0.0:
+                        err = (derr - target)*dt
                         compliance = 1.0 / axis_stiffness[dim]
                     damping = axis_damping[dim]
 
@@ -1104,25 +1102,22 @@ def solve_body_joints(body_q: wp.array(dtype=wp.transform),
             else:
                 target = wp.clamp(axis_target[dim], lower, upper)
                 if mode == JOINT_MODE_TARGET_POSITION:
-                    # position target
-                    err = e - target
                     if axis_stiffness[dim] > 0.0:
+                        err = e - target
                         compliance = 1.0 / axis_stiffness[dim]
                     damping = axis_damping[dim]
                 elif mode == JOINT_MODE_TARGET_VELOCITY:
-                    # velocity target
-                    err = (derr - target)*dt
                     if axis_stiffness[dim] > 0.0:
+                        err = (derr - target)*dt
                         compliance = 1.0 / axis_stiffness[dim]
                     damping = axis_damping[dim]
 
-            if wp.abs(err) > 1e-9:
-                d_lambda = compute_angular_correction(
-                    err, derr, pose_p, pose_c, I_inv_p, I_inv_c,
-                    angular_p, angular_c, 0.0, compliance, damping, dt) * angular_relaxation
-                # update deltas
-                ang_delta_p += angular_p * d_lambda
-                ang_delta_c += angular_c * d_lambda
+            d_lambda = compute_angular_correction(
+                err, derr, pose_p, pose_c, I_inv_p, I_inv_c,
+                angular_p, angular_c, 0.0, compliance, damping, dt) * angular_relaxation
+            # update deltas
+            ang_delta_p += angular_p * d_lambda
+            ang_delta_c += angular_c * d_lambda
 
     if (id_p >= 0):
         wp.atomic_add(deltas, id_p, wp.spatial_vector(ang_delta_p, lin_delta_p))

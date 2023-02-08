@@ -154,9 +154,6 @@ class Example:
         self.model = builder.finalize(self.device)
         self.model.ground = True
 
-        # make sure we allocate enough rigid contacts
-        self.model.allocate_rigid_contacts(2**14)
-
         self.integrator = wp.sim.XPBDIntegrator(
             iterations=1,
             rigid_contact_con_weighting=True,
