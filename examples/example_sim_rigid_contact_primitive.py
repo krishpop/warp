@@ -31,10 +31,10 @@ class Demo(Environment):
     usd_render_settings = dict(scaling=100.0)
 
     sim_substeps_euler = 32
-    sim_substeps_xpbd = 8
+    sim_substeps_xpbd = 10
 
     xpbd_settings = dict(
-        iterations=2,
+        iterations=3,
         rigid_contact_relaxation=0.8,
         enable_restitution=True,
     )
@@ -67,7 +67,7 @@ class Demo(Environment):
         self.ke = 1.e+5 
         self.kd = 250.0
         self.kf = 500.0
-        self.restitution = 1.0
+        self.restitution = 0.2
 
         scaling = np.linspace(1., 1.0, self.num_bodies)
         rot90s = [
@@ -222,58 +222,6 @@ class Demo(Environment):
                 mu=1.0,
                 density=1e3,
                 restitution=self.restitution)
-
-    def update(self):
-
-        with wp.ScopedTimer("simulate", active=False):
-            
-            for i in range(self.sim_substeps):
-                self.state.clear_forces()
-                wp.sim.collide(self.model, self.state)
-
-                if i == 0:
-                    if self.viz_contact_count > 0:
-                        # visualize contact points
-                        rigid_contact_count = min(self.model.rigid_contact_count.numpy()[0], self.viz_contact_count)
-                        self.points_a.fill(0.0)
-                        self.points_b.fill(0.0)
-                        if rigid_contact_count > 0:
-                            self.points_a[:rigid_contact_count] = self.model.rigid_active_contact_point0.numpy()[:rigid_contact_count]
-                            self.points_b[:rigid_contact_count] = self.model.rigid_active_contact_point1.numpy()[:rigid_contact_count]
-                            shape0 = self.model.rigid_contact_shape0.numpy()[:rigid_contact_count]
-                            shape1 = self.model.rigid_contact_shape1.numpy()[:rigid_contact_count]
-                            empty_contacts = np.where(np.all([shape0==-1, shape1==-1], axis=0))[0]
-                            self.points_a[empty_contacts].fill(0.0)
-                            self.points_b[empty_contacts].fill(0.0)
-                        
-                    self.render()
-
-                self.state = self.integrator.simulate(self.model, self.state, self.state, self.sim_dt/self.sim_substeps)   
-
-    def render(self, is_live=False):
-
-        with wp.ScopedTimer("render", active=False):
-            time = 0.0 if is_live else self.sim_time
-
-            self.renderer.begin_frame(time)
-            self.renderer.render(self.state)
-
-            if self.viz_contact_count > 0:
-                self.renderer.render_points("contact_points_a", self.points_a, radius=0.025)
-                self.renderer.render_points("contact_points_b", self.points_b, radius=0.025)
-
-                normals = self.model.rigid_contact_normal.numpy()
-                for i in range(len(self.points_a)):
-                    p = self.points_a[i]
-                    if np.any(p != 0.0):
-                        self.renderer.render_line_strip(f"normal_{i}", [p, p + 0.3 * normals[i]], color=(1.0, 0.0, 0.0), radius=0.005)
-                    else:
-                        # disable
-                        self.renderer.render_line_strip(f"normal_{i}", [p, p], color=(1.0, 0.0, 0.0), radius=0.005)
-
-            self.renderer.end_frame()
-        
-        self.sim_time += self.sim_dt
 
 
 if __name__ == "__main__":
