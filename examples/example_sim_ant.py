@@ -34,7 +34,7 @@ class Demo(Environment):
     joint_attach_ke: float = 100000.0
     joint_attach_kd: float = 10.0
 
-    use_graph_capture = False
+    use_graph_capture = True
 
     def create_articulation(self, builder):
         wp.sim.parse_mjcf(
