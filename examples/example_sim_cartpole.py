@@ -119,9 +119,6 @@ class Example:
             None,
             self.state)
 
-        if (self.model.ground):
-            self.model.collide(self.state)
-
         profiler = {}
 
         # create update graph
