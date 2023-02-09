@@ -55,6 +55,7 @@ def compute_env_offsets(num_envs, env_offset=(5.0, 0.0, 5.0), upaxis="y"):
     env_offsets -= correction
     return env_offsets
 
+
 @wp.kernel
 def update_vbo(
     shape_ids: wp.array(dtype=int),
@@ -82,6 +83,92 @@ def update_vbo(
     p += env_offsets[env]
     vbo_positions[tid] = wp.vec4(p[0], p[1], p[2], 0.0)
     vbo_orientations[tid] = q
+
+
+@wp.func
+def mul_elemwise(a: wp.vec3, b: wp.vec3):
+    return wp.vec3(a[0]*b[0], a[1]*b[1], a[2]*b[2])
+
+
+# triangulate mesh around given surface with given thickness
+@wp.kernel
+def solidify_mesh(
+    indices: wp.array(dtype=int, ndim=2),
+    vertices: wp.array(dtype=wp.vec3, ndim=1),
+    thickness: wp.array(dtype=float, ndim=1),
+    inv_scale: wp.vec3,
+    # outputs
+    out_vertices: wp.array(dtype=wp.vec3, ndim=1),
+    out_indices: wp.array(dtype=int, ndim=2)):
+    
+    tid = wp.tid()
+    i = indices[tid, 0]
+    j = indices[tid, 1]
+    k = indices[tid, 2]
+
+    vi = vertices[i]
+    vj = vertices[j]
+    vk = vertices[k]
+
+    normal = -wp.normalize(wp.cross(vj - vi, vk - vi))
+    ti = mul_elemwise(normal * thickness[i], inv_scale)
+    tj = mul_elemwise(normal * thickness[j], inv_scale)
+    tk = mul_elemwise(normal * thickness[k], inv_scale)
+
+    # wedge vertices
+    vi0 = vi - ti
+    vi1 = vi + ti
+    vj0 = vj - tj
+    vj1 = vj + tj
+    vk0 = vk - tk
+    vk1 = vk + tk
+
+    i0 = i*2
+    i1 = i*2 + 1
+    j0 = j*2
+    j1 = j*2 + 1
+    k0 = k*2
+    k1 = k*2 + 1
+
+    out_vertices[i0] = vi0
+    out_vertices[i1] = vi1
+    out_vertices[j0] = vj0
+    out_vertices[j1] = vj1
+    out_vertices[k0] = vk0
+    out_vertices[k1] = vk1
+
+    oid = tid * 8
+    out_indices[oid+0,0] = i0; out_indices[oid+0,1] = j0; out_indices[oid+0,2] = k0
+    out_indices[oid+1,0] = j0; out_indices[oid+1,1] = k1; out_indices[oid+1,2] = k0
+    out_indices[oid+2,0] = j0; out_indices[oid+2,1] = j1; out_indices[oid+2,2] = k1
+    out_indices[oid+3,0] = j0; out_indices[oid+3,1] = i1; out_indices[oid+3,2] = j1
+    out_indices[oid+4,0] = j0; out_indices[oid+4,1] = i0; out_indices[oid+4,2] = i1
+    out_indices[oid+5,0] = j1; out_indices[oid+5,1] = i1; out_indices[oid+5,2] = k1
+    out_indices[oid+6,0] = i1; out_indices[oid+6,1] = i0; out_indices[oid+6,2] = k0
+    out_indices[oid+7,0] = i1; out_indices[oid+7,1] = k0; out_indices[oid+7,2] = k1
+
+# convert mesh into TinyRenderer-compatible vertex buffer
+@wp.kernel
+def compute_gfx_vertices(
+    indices: wp.array(dtype=int, ndim=2),
+    vertices: wp.array(dtype=wp.vec3, ndim=1),
+    geo_scale: wp.vec3,
+    # outputs
+    gfx_vertices: wp.array(dtype=float, ndim=2)):
+
+    tid = wp.tid()
+    v0 = mul_elemwise(vertices[indices[tid, 0]], geo_scale)
+    v1 = mul_elemwise(vertices[indices[tid, 1]], geo_scale)
+    v2 = mul_elemwise(vertices[indices[tid, 2]], geo_scale)
+    i = tid * 3; j = i + 1; k = i + 2
+    gfx_vertices[i,0] = v0[0]; gfx_vertices[i,1] = v0[1]; gfx_vertices[i,2] = v0[2]
+    gfx_vertices[j,0] = v1[0]; gfx_vertices[j,1] = v1[1]; gfx_vertices[j,2] = v1[2]
+    gfx_vertices[k,0] = v2[0]; gfx_vertices[k,1] = v2[1]; gfx_vertices[k,2] = v2[2]
+    n = wp.normalize(wp.cross(v1-v0, v2-v0))
+    gfx_vertices[i,4] = n[0]; gfx_vertices[i,5] = n[1]; gfx_vertices[i,6] = n[2]
+    gfx_vertices[j,4] = n[0]; gfx_vertices[j,5] = n[1]; gfx_vertices[j,6] = n[2]
+    gfx_vertices[k,4] = n[0]; gfx_vertices[k,5] = n[1]; gfx_vertices[k,6] = n[2]
+
 
 class TinyRenderer:
     
@@ -162,6 +249,8 @@ class TinyRenderer:
             shape_geo_src = model.shape_geo_src
             shape_geo_type = model.shape_geo.type.numpy()
             shape_geo_scale = model.shape_geo.scale.numpy()
+            shape_geo_thickness = model.shape_geo.thickness.numpy()
+            shape_geo_is_solid = model.shape_geo.is_solid.numpy()
             shape_transform = model.shape_transform.numpy()
 
             # matplotlib "tab10" colors
@@ -183,6 +272,8 @@ class TinyRenderer:
             for s in range(num_shapes):
                 geo_type = shape_geo_type[s]
                 geo_scale = shape_geo_scale[s] * self.scaling
+                geo_thickness = shape_geo_thickness[s]
+                geo_is_solid = shape_geo_is_solid[s]
                 geo_src = shape_geo_src[s]
                 color = colors[len(self.geo_shape)%num_colors]
 
@@ -248,20 +339,38 @@ class TinyRenderer:
                         texture = self.create_check_texture(1, 1, color1=color, color2=color)
                         faces = np.array(geo_src.indices).reshape((-1, 3))
                         vertices = np.array(geo_src.vertices)
+
+                        if not geo_is_solid:
+                            # create double sided mesh around the surface with a given thickness
+                            out_faces = wp.zeros((len(faces)*8, 3), dtype=wp.int32)
+                            out_vertices = wp.zeros(len(vertices)*2, dtype=wp.vec3)
+                            thickness = [geo_thickness] * len(vertices)
+                            wp.launch(
+                                solidify_mesh,
+                                dim=len(faces),
+                                inputs=[
+                                    wp.array(faces, dtype=int),
+                                    wp.array(vertices, dtype=wp.vec3),
+                                    wp.array(thickness, dtype=float),
+                                    wp.vec3(*(1.0/shape_geo_scale[s]))],
+                                outputs=[
+                                    out_vertices,
+                                    out_faces])
+                            faces = out_faces.numpy()
+                            vertices = out_vertices.numpy()
+
                         # convert vertices to (x,y,z,w, nx,ny,nz, u,v) format
-                        gfx_vertices = np.zeros((len(faces)*3, 9))
+                        gfx_vertices = wp.zeros((len(faces)*3, 9), dtype=float)
                         gfx_indices = np.arange(len(faces)*3).reshape((-1, 3))
-                        # compute vertex normals
-                        for i, f in enumerate(faces):
-                            v0 = vertices[f[0]] * geo_scale
-                            v1 = vertices[f[1]] * geo_scale
-                            v2 = vertices[f[2]] * geo_scale
-                            gfx_vertices[i*3+0, :3] = v0
-                            gfx_vertices[i*3+1, :3] = v1
-                            gfx_vertices[i*3+2, :3] = v2
-                            n = np.cross(v1-v0, v2-v0)
-                            gfx_vertices[i*3:i*3+3, 4:7] = n / np.linalg.norm(n)
-                            
+                        wp.launch(
+                            compute_gfx_vertices,
+                            dim=len(faces),
+                            inputs=[
+                                wp.array(faces, dtype=int),
+                                wp.array(vertices, dtype=wp.vec3),
+                                wp.vec3(*geo_scale)],
+                            outputs=[gfx_vertices])
+                        gfx_vertices = gfx_vertices.numpy()
                         shape = self.app.renderer.register_shape(
                             gfx_vertices.flatten(),
                             gfx_indices.flatten(),

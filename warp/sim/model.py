@@ -143,7 +143,7 @@ class Mesh:
             return self.mesh.id
 
     def __hash__(self):
-        return hash((tuple(np.array(self.vertices).flatten()), tuple(np.array(self.indices).flatten())))
+        return hash((tuple(np.array(self.vertices).flatten()), tuple(np.array(self.indices).flatten()), self.is_solid))
 
 
 class State:

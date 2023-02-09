@@ -26,14 +26,14 @@ from environment import Environment, run_env, RenderMode
 class Demo(Environment):
     sim_name = "example_sim_hollow_mesh"
     env_offset=(2.0, 0.0, 2.0)
-    tiny_render_settings = dict(scaling=3.0)
+    tiny_render_settings = dict(scaling=10.0)
     usd_render_settings = dict(scaling=100.0)
 
-    sim_substeps_euler = 32
-    sim_substeps_xpbd = 5
+    sim_substeps_euler = 64
+    sim_substeps_xpbd = 15
 
     xpbd_settings = dict(
-        iterations=5,
+        iterations=8,
         rigid_contact_relaxation=1.0,
         rigid_contact_con_weighting=True,
         enable_restitution=True,
@@ -71,10 +71,8 @@ class Demo(Environment):
                     kf=self.kf,
                     density=1e3,
                     is_solid=False,
+                    thickness=0.1,
                 )
-        # print("Inertia:")
-        # for i in builder.body_inertia:
-        #     print(i)
 
     def load_mesh(self, filename, use_meshio=True):
         if use_meshio:
