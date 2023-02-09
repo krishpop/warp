@@ -250,20 +250,20 @@ class Environment:
             self.update()
                     
             graph = wp.capture_end()
-        else:
-            if self.plot_body_coords:
-                q_history = []
-                q_history.append(self.state_0.body_q.numpy().copy())
-                qd_history = []
-                qd_history.append(self.state_0.body_qd.numpy().copy())
-                delta_history = []
-                delta_history.append(self.state_0.body_deltas.numpy().copy())
-                num_con_history = []
-                num_con_history.append(self.model.rigid_contact_inv_weight.numpy().copy())
-            if self.plot_joint_coords:
-                joint_q_history = []
-                joint_q = wp.zeros_like(self.model.joint_q)
-                joint_qd = wp.zeros_like(self.model.joint_qd)
+            
+        if self.plot_body_coords:
+            q_history = []
+            q_history.append(self.state_0.body_q.numpy().copy())
+            qd_history = []
+            qd_history.append(self.state_0.body_qd.numpy().copy())
+            delta_history = []
+            delta_history.append(self.state_0.body_deltas.numpy().copy())
+            num_con_history = []
+            num_con_history.append(self.model.rigid_contact_inv_weight.numpy().copy())
+        if self.plot_joint_coords:
+            joint_q_history = []
+            joint_q = wp.zeros_like(self.model.joint_q)
+            joint_qd = wp.zeros_like(self.model.joint_qd)
 
 
         # simulate 
