@@ -179,7 +179,7 @@ def parse_mjcf(
         for geom in body.findall("geom"):
 
             geom_name = geom.attrib["name"]
-            geom_type = geom.attrib["type"]
+            geom_type = geom.attrib.get("type", "mesh")
 
             geom_size = parse_vec(geom, "size", [1.0])
             geom_pos = parse_vec(geom, "pos", (0.0, 0.0, 0.0))
