@@ -171,6 +171,9 @@ def compute_gfx_vertices(
 
 
 class TinyRenderer:
+
+    # number of segments to use for rendering cones and cylinders
+    default_num_segments = 64
     
     def __init__(
         self,
@@ -319,7 +322,7 @@ class TinyRenderer:
                         shape = self.app.register_graphics_unit_sphere_shape(p.EnumSphereLevelOfDetail.SPHERE_LOD_HIGH, texture)
                     scale *= float(geo_scale[0]) * 2.0  # diameter
 
-                elif (geo_type == warp.sim.GEO_CAPSULE or geo_type == warp.sim.GEO_CYLINDER):
+                elif (geo_type == warp.sim.GEO_CAPSULE):
                     if geo_hash in self.geo_shape:
                         shape = self.geo_shape[geo_hash]
                     else:
@@ -328,6 +331,51 @@ class TinyRenderer:
                         up_axis = 1
                         texture = self.create_check_texture(color1=color)
                         shape = self.app.register_graphics_capsule_shape(radius, half_height, up_axis, texture)
+
+                elif (geo_type == warp.sim.GEO_CONE):
+                    if geo_hash in self.geo_shape:
+                        shape = self.geo_shape[geo_hash]
+                    else:
+                        radius = float(geo_scale[0])
+                        half_height = float(geo_scale[1])
+                        texture = self.create_check_texture(1, 1, color1=color, color2=color)
+
+                        k = self.default_num_segments
+                        ts = np.linspace(0, 2*np.pi, k)
+                        base_x = np.sin(ts) * radius
+                        base_z = np.cos(ts) * radius
+                        base_vs = np.stack([base_x, [-half_height]*k, base_z], axis=1)
+
+                        vertices = np.vstack((base_vs, [[0.0, half_height, 0.0]], [[0.0, -half_height, 0.0]]))
+                        sides = np.array([[i, (i+1)%k, k] for i in range(k)])
+                        base = np.array([[k+1, (i+1)%k, i] for i in range(k)])
+                        faces = np.vstack((sides, base))
+
+                        shape = self._add_mesh(faces, vertices, np.ones(3), texture, double_sided_meshes)
+                
+                elif (geo_type == warp.sim.GEO_CYLINDER):
+                    if geo_hash in self.geo_shape:
+                        shape = self.geo_shape[geo_hash]
+                    else:
+                        radius = float(geo_scale[0])
+                        half_height = float(geo_scale[1])
+                        texture = self.create_check_texture(1, 1, color1=color, color2=color)
+
+                        k = self.default_num_segments
+                        ts = np.linspace(0, 2*np.pi, k)
+                        base_x = np.sin(ts) * radius
+                        base_z = np.cos(ts) * radius
+                        bot_vs = np.stack([base_x, [-half_height]*k, base_z], axis=1)
+                        top_vs = np.stack([base_x, [half_height]*k, base_z], axis=1)
+
+                        vertices = np.vstack((bot_vs, top_vs, [[0.0, -half_height, 0.0]], [[0.0, half_height, 0.0]]))
+                        sides1 = np.array([[i, (i+1)%k, k+i] for i in range(k)])
+                        sides2 = np.array([[k+i, (i+1)%k, k+(i+1)%k] for i in range(k)])
+                        bottom = np.array([[(i+1)%k, i, 2*k] for i in range(k)])
+                        top = np.array([[2*k+1, k+i, k+(i+1)%k] for i in range(k)])
+                        faces = np.vstack((sides1, sides2, bottom, top))
+
+                        shape = self._add_mesh(faces, vertices, np.ones(3), texture, double_sided_meshes)
 
                 elif (geo_type == warp.sim.GEO_BOX):
                     if geo_hash in self.geo_shape:
@@ -363,23 +411,7 @@ class TinyRenderer:
                             faces = out_faces.numpy()
                             vertices = out_vertices.numpy()
 
-                        # convert vertices to (x,y,z,w, nx,ny,nz, u,v) format
-                        gfx_vertices = wp.zeros((len(faces)*3, 9), dtype=float)
-                        gfx_indices = np.arange(len(faces)*3).reshape((-1, 3))
-                        wp.launch(
-                            compute_gfx_vertices,
-                            dim=len(faces),
-                            inputs=[
-                                wp.array(faces, dtype=int),
-                                wp.array(vertices, dtype=wp.vec3),
-                                wp.vec3(*geo_scale)],
-                            outputs=[gfx_vertices])
-                        gfx_vertices = gfx_vertices.numpy()
-                        shape = self.app.renderer.register_shape(
-                            gfx_vertices.flatten(),
-                            gfx_indices.flatten(),
-                            texture,
-                            double_sided_meshes)
+                        shape = self._add_mesh(faces, vertices, geo_scale, texture, double_sided_meshes)
 
                 elif (geo_type == warp.sim.GEO_SDF):
                     continue
@@ -471,6 +503,25 @@ class TinyRenderer:
             self.render(model.state())
             self.end_frame()
             self.paused = True
+    
+    def _add_mesh(self, faces, vertices, geo_scale, texture, double_sided_meshes):
+        # convert vertices to (x,y,z,w, nx,ny,nz, u,v) format
+        gfx_vertices = wp.zeros((len(faces)*3, 9), dtype=float)
+        gfx_indices = np.arange(len(faces)*3).reshape((-1, 3))
+        wp.launch(
+            compute_gfx_vertices,
+            dim=len(faces),
+            inputs=[
+                wp.array(faces, dtype=int),
+                wp.array(vertices, dtype=wp.vec3),
+                wp.vec3(*geo_scale)],
+            outputs=[gfx_vertices])
+        gfx_vertices = gfx_vertices.numpy()
+        return self.app.renderer.register_shape(
+            gfx_vertices.flatten(),
+            gfx_indices.flatten(),
+            texture,
+            double_sided_meshes)
 
     def render(self, state: warp.sim.State):
         if self.skip_rendering:
