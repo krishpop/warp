@@ -147,6 +147,7 @@ def solidify_mesh(
     out_indices[oid+6,0] = i1; out_indices[oid+6,1] = i0; out_indices[oid+6,2] = k0
     out_indices[oid+7,0] = i1; out_indices[oid+7,1] = k0; out_indices[oid+7,2] = k1
 
+
 # convert mesh into TinyRenderer-compatible vertex buffer
 @wp.kernel
 def compute_gfx_vertices(
@@ -575,13 +576,15 @@ class TinyRenderer:
         
 
         # update bodies
-        if (self.model.body_count):
+        if (self.num_instances):
             
             wp.synchronize()
-            if state.body_q.device.is_cuda:
-                self.body_q = state.body_q
-            else:
-                self.body_q = state.body_q.to("cuda")
+            self.body_q = None
+            if state.body_q is not None:
+                if state.body_q.device.is_cuda:
+                    self.body_q = state.body_q
+                else:
+                    self.body_q = state.body_q.to("cuda")
 
             vbo = self.app.cuda_map_vbo()
             vbo_positions = wp.array(
