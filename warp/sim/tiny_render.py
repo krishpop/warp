@@ -181,7 +181,8 @@ class TinyRenderer:
         upaxis="y",
         env_offset=(5.0, 0.0, 5.0),
         suppress_keyboard_help=False,
-        start_paused=False):
+        start_paused=False,
+        move_camera_target_to_center=True):
 
         try:
             import pytinyopengl3 as p
@@ -208,10 +209,13 @@ class TinyRenderer:
 
         self.app.window.set_keyboard_callback(keypress)
         self.cam = p.TinyCamera()
+        cam_pos = np.zeros(3)
+        if move_camera_target_to_center and len(model.body_q):
+            cam_pos = model.body_q.numpy()[:, :3].mean(axis=0) * scaling
+        self.cam.set_camera_target_position(*cam_pos)
         self.cam.set_camera_distance(25.)
         self.cam.set_camera_pitch(-20)
         self.cam.set_camera_yaw(225)
-        self.cam.set_camera_target_position(0.0, 0.0, 0.0)
         self.cam_axis = "xyz".index(upaxis.lower())
         self.cam.set_camera_up_axis(self.cam_axis)
         self.app.renderer.set_camera(self.cam)
