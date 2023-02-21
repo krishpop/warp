@@ -451,6 +451,7 @@ class Model:
         self.body_count = 0
         self.shape_count = 0
         self.joint_count = 0
+        self.joint_axis_count = 0
         self.tri_count = 0
         self.tet_count = 0
         self.edge_count = 0
@@ -2942,6 +2943,7 @@ class ModelBuilder:
 
             # joints
             m.joint_count = self.joint_count
+            m.joint_axis_count = self.joint_axis_count
             m.joint_type = wp.array(self.joint_type, dtype=wp.int32)
             m.joint_parent = wp.array(self.joint_parent, dtype=wp.int32)
             m.joint_child = wp.array(self.joint_child, dtype=wp.int32)
