@@ -29,7 +29,7 @@ def parse_usd(
     verbose=True):
 
     try:
-        from pxr import Gf, Usd, UsdGeom, UsdPhysics, Sdf, Ar
+        from pxr import Usd, UsdGeom, UsdPhysics
     except ImportError:
         raise ImportError("Failed to import pxr. Please install USD.")
     
