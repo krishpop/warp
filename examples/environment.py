@@ -9,7 +9,6 @@ from enum import Enum
 from tqdm import trange
 from typing import Tuple
 
-# wp.config.verify_cuda = True
 wp.init()
 
 class RenderMode(Enum):
@@ -166,13 +165,7 @@ class Environment:
             env_offsets = compute_env_offsets(
                 self.num_envs, self.env_offset, self.up_axis)
             for i in range(self.num_envs):
-                # xform = wp.transform_identity()
                 xform = wp.transform(env_offsets[i], wp.quat_identity())
-                # if self.render_mode == RenderMode.TINY:
-                #     # no need to offset, TinyRenderer will do it
-                #     xform = wp.transform_identity()
-                # else:
-                #     xform = wp.transform(env_offsets[i], wp.quat_identity())
                 builder.add_builder(articulation_builder, xform, separate_collision_group=self.separate_collision_group_per_env)
             self.bodies_per_env = len(articulation_builder.body_q)
         except NotImplementedError:
