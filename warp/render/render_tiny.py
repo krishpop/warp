@@ -190,7 +190,6 @@ class TinyRenderer:
         self.cam.set_camera_up_axis(self.cam_axis)
         self.app.renderer.set_camera(self.cam)
 
-
         self._instance_count = 0
         
         # first assemble all instances by shape, so we can send instancing commands in bulk for each shape
@@ -203,6 +202,11 @@ class TinyRenderer:
         self._shape_instance_created = defaultdict(list)
         self._shape_instance_name = defaultdict(list)  # mapping from instance name to shape ID and instance index within the same shape
 
+        # keep track of order of when shapes were added
+        self._shape_order = []
+        # mapping from shape ID to its instances (indices of when instances were added)
+        self._shape_instances = defaultdict(list)
+
         self._shape_count = 0
         self._shape_transform = []
         self._shape_scale = []
@@ -210,6 +214,7 @@ class TinyRenderer:
         self._shape_transform_wp = None
         self._shape_scale_wp = None
         self._shape_body_wp = None
+        self._shape_transform_index = {}  # mapping from instance name to index of transform
         self._shape_instance_name_mapping = {}  # mapping from instance name to shape ID and instance index within the same shape
         self._shape_name = {}  # mapping from shape name to shape ID
         self._shape_scale_ref = {}  # reference scale of each shape
@@ -272,12 +277,33 @@ class TinyRenderer:
         self._has_new_instances = True
     
     def _get_new_color(self):
-        return tab10_color_map(self._shape_instance_name)
+        return tab10_color_map(self._shape_geo_hash)
 
     def _add_shape(self, shape: int, name: str, scale: tuple=(1.,1.,1.)):
         # register shape name and reference scale to use by the shape instances
-        self._shape_name[name] = shape
+        if name not in self._shape_name:
+            self._shape_name[name] = shape
+            self._shape_order.append((name, shape))
         self._shape_scale_ref[shape] = scale
+
+    def _rebuild_instances(self):
+        # reorder shape instance IDs to match the VBO order
+        idx = 0
+        self._instance_count = self.app.renderer.get_total_num_instances()
+        self._shape_instance_ids = np.zeros(self._instance_count, dtype=np.int32)
+        for name, shape in self._shape_order:
+            idxs = np.arange(idx, idx+len(self._shape_instances[shape]), dtype=np.int32)
+            idx += len(self._shape_instances[shape])
+            # self._shape_instance_ids.extend(idxs)
+            self._shape_instance_ids[idxs] = idxs
+            if name in self._line_instance_ids:
+                self._line_instance_ids[name] = idxs.tolist()
+                self._line_instance_ids_wp[name] = wp.array(idxs, dtype=wp.int32, device="cuda")
+            elif name in self._point_instance_ids:
+                self._point_instance_ids[name] = idxs.tolist()
+                self._point_instance_ids_wp[name] = wp.array(idxs, dtype=wp.int32, device="cuda")
+        self._shape_instance_ids_wp = wp.array(self._shape_instance_ids, dtype=wp.int32, device="cuda")
+        self._shape_instance_ids = self._shape_instance_ids.tolist()
 
     def _add_instances(self, shape, pos, rot, color, scale, opacity=1., rebuild=True):
         # add shape instances to TinyRenderer and ensure the transforms of the previous instances are preserved
@@ -300,6 +326,7 @@ class TinyRenderer:
         self.app.cuda_unmap_vbo()
         new_ids = self.app.renderer.register_graphics_instances(
             shape, pos, rot, color, scale, opacity, rebuild)
+        self._shape_instances[shape].extend(new_ids)
         self.app.renderer.write_transforms()
         # restore the transforms of the previous instances
         vbo = self.app.cuda_map_vbo()
@@ -318,11 +345,17 @@ class TinyRenderer:
         vbo_positions.assign(orig_positions)
         vbo_orientations.assign(orig_orientations)
         vbo_scalings.assign(orig_scalings)
-        vbo_vertices.assign(orig_vertices)
+        # vbo_vertices.assign(orig_vertices)
         self.app.cuda_unmap_vbo()
+
+        if rebuild:
+            self._rebuild_instances()
 
         # self._instance_count += len(new_ids)
         self._instance_count = self.app.renderer.get_total_num_instances()
+        # print(f"shape {shape}\tnew_ids:", new_ids)
+        # if len(orig_positions) > 0:
+        #     print("pos:", orig_positions.numpy())
         return new_ids
     
     def _add_mesh(self, faces, vertices, geo_scale, texture, double_sided_meshes=double_sided_meshes):
@@ -349,9 +382,10 @@ class TinyRenderer:
         vcnt = self.app.renderer.get_shape_vertex_count()
         voffsets = self.app.renderer.get_shape_vertex_offsets()
         
-        idx = self._shape_instance_name_mapping[name]
+        idx = self._shape_transform_index[name]
+        shape = self._mesh_name[name]
         total_vertices = sum(vcnt)
-        offset = voffsets[idx]
+        offset = voffsets[shape]
         
         if isinstance(vertices, wp.array):
             vertices_dest = vertices
@@ -369,7 +403,6 @@ class TinyRenderer:
             ptr=vbo.vertices, dtype=wp.float32, shape=(total_vertices,9),
             device="cuda", owner=False, ndim=2)
         if scale is None:
-            shape = self._mesh_name[name]
             geo_scale = wp.vec3(*self._shape_scale[shape])
         else:
             geo_scale = wp.vec3(scale[0]*self.scaling, scale[1]*self.scaling, scale[2]*self.scaling)
@@ -384,17 +417,18 @@ class TinyRenderer:
         self.app.cuda_unmap_vbo()
     
     def _update_instance(self, instance_name: str, pos: tuple, rot: tuple, scale: tuple=None):
-        # update transform and scale of a shape instance
-        if instance_name not in self._shape_instance_name_mapping:
+        # update transform and scale of a shape instance with the given name
+        if instance_name not in self._shape_transform_index:
             return False
-        idx = self._shape_instance_name_mapping[instance_name]
+        idx = self._shape_transform_index[instance_name]
         self._shape_instance_updates.append((idx, (*pos, *rot), scale))
         return True
 
     def complete_setup(self):
         # create instances for each shape
         added_instances = False
-        for shape in self._shape_instance_created.keys():
+        shapes = list(self._shape_instance_created.keys())
+        for shape in shapes:
             pos = []; rot = []; color = []; scale = []
             data = zip(
                 self._shape_instance_created[shape],
@@ -407,23 +441,30 @@ class TinyRenderer:
             for i, (created, name, p, q, c, s, b) in enumerate(data):
                 if created:
                     continue
-                pos.append(self.p.TinyVector3f(*p))
+                pos.append(self.p.TinyVector3f(p[0]*self.scaling, p[1]*self.scaling, p[2]*self.scaling))
                 rot.append(self.p.TinyQuaternionf(*q))
                 color.append(self.p.TinyVector3f(*c))
                 scale.append(self.p.TinyVector3f(*s))
+                self._shape_transform_index[name] = len(self._shape_transform)
                 self._shape_transform.append((*p, *q))
                 self._shape_scale.append(s)
                 self._shape_body.append(b)
-                self._shape_instance_name_mapping[name] = i
             if len(pos) > 0:
                 new_ids = self._add_instances(shape, pos, rot, color, scale)
-                # for i, name in zip(new_ids, self._shape_instance_name[shape]):
-                #     if name is not None:
-                #         self._shape_instance_name_mapping[name] = i
+                for i, name in zip(new_ids, self._shape_instance_name[shape]):
+                    if name is not None:
+                        self._shape_instance_name_mapping[name] = i
                 self._shape_instance_ids.extend(new_ids)
                 added_instances = True
                 
-            self._shape_instance_created[shape] = [True] * len(self._shape_instance_created[shape])
+            # self._shape_instance_created[shape] = [True] * len(self._shape_instance_created[shape])
+            del self._shape_instance_created[shape]
+            del self._shape_instance_name[shape]
+            del self._shape_instance_pos[shape]
+            del self._shape_instance_rot[shape]
+            del self._shape_instance_color[shape]
+            del self._shape_instance_scale[shape]
+            del self._shape_instance_body[shape]
 
         if added_instances:
             self._shape_instance_ids_wp = wp.array(self._shape_instance_ids, dtype=int, device="cuda")
@@ -697,7 +738,7 @@ class TinyRenderer:
         """
         if name in self._mesh_name:
             self._update_mesh(name, points, indices, scale)
-            # self._update_instance(name, pos, rot)
+            self._update_instance(name, pos, rot)
             shape = self._mesh_name[name]
             return shape
         geo_hash = hash((int(warp.sim.GEO_MESH.val), tuple(np.array(points).flatten()), tuple(np.array(indices).flatten())))
@@ -731,6 +772,7 @@ class TinyRenderer:
                 up_axis = 1
                 half_height = 0.5
                 shape = self.app.register_graphics_capsule_shape(radius * self.scaling, half_height * self.scaling, up_axis, texture)
+                self._add_shape(shape, name)
                 self._line_shape[name] = shape
             else:
                 shape = self._line_shape[name]
@@ -824,7 +866,9 @@ class TinyRenderer:
         if len(points) > len(self._point_instance_ids[name]):
             if name not in self._point_shape:
                 texture = self.create_check_texture(color1=(1.,1.,1.), color2=(1.,1.,1.), width=1, height=1)
-                self._point_shape[name] = self.app.register_graphics_unit_sphere_shape(self.p.EnumSphereLevelOfDetail.SPHERE_LOD_LOW, texture)
+                shape = self.app.register_graphics_unit_sphere_shape(self.p.EnumSphereLevelOfDetail.SPHERE_LOD_LOW, texture)
+                self._add_shape(shape, name)
+                self._point_shape[name] = shape
 
             if isinstance(points, wp.array):
                 points_np = points.numpy()
@@ -914,8 +958,12 @@ class TinyRenderer:
         self.time = time
         if self.app.window.requested_exit():
             sys.exit(0)
+
+    def end_frame(self):
+        self.update()
         if self._has_new_instances:
             self.complete_setup()
+            self.update_body_transforms(None)
         if len(self._shape_instance_updates):
             shape_transform = self._shape_transform_wp.numpy()
             shape_scale = self._shape_scale_wp.numpy()
@@ -927,9 +975,6 @@ class TinyRenderer:
             self._shape_scale_wp = wp.array(shape_scale, dtype=wp.vec3, device="cuda")
             self._shape_instance_updates = []
             self.update_body_transforms(None)
-
-    def end_frame(self):
-        self.update()
         while self.paused and not self.app.window.requested_exit():
             self.update()
 
