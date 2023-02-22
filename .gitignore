@@ -21,8 +21,8 @@ examples/assets/.thumbs
 /docs/_build/html/_static/fonts
 /warp_lang.egg-info
 exts/omni.warp/omni/warp/ogn/tests/usd
-
 .vs/
 examples/assets/
 outputs/
 build/lib/
+.venv/
