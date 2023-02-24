@@ -24,9 +24,9 @@ def AbstractSimRenderer(renderer):
 
         use_unique_colors = True
         
-        def __init__(self, model: warp.sim.Model, path, scaling=1.0, fps=60, upaxis="y"):
+        def __init__(self, model: warp.sim.Model, path, scaling=1.0, fps=60, upaxis="y", **render_kwargs):
             # create USD stage
-            super().__init__(path, scaling=scaling, fps=fps, upaxis=upaxis)
+            super().__init__(path, scaling=scaling, fps=fps, upaxis=upaxis, **render_kwargs)
 
             self.skip_rendering = False
 
