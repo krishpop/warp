@@ -148,7 +148,8 @@ class TinyRenderer:
         suppress_keyboard_help=False,
         move_camera_target_to_center=True,
         screen_width=1024,
-        screen_height=768):
+        screen_height=768,
+        headless=False):
 
         try:
             import pytinyopengl3 as p
@@ -164,7 +165,11 @@ class TinyRenderer:
 
         if title.endswith(".usd"):
             title = os.path.basename(title)[:-4]
-        self.app = p.TinyOpenGL3App(title, width=screen_width, height=screen_height)
+        if headless:
+            window_type = 2  # use EGL
+        else:
+            window_type = 0
+        self.app = p.TinyOpenGL3App(title, width=screen_width, height=screen_height, windowType=window_type)
         self.app.renderer.init()
         def keypress(key, pressed):
             if not pressed:
