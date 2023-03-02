@@ -249,12 +249,48 @@ class TinyRenderer:
         self._line_instance_ids_wp = {}  # warp arrays
         self._line_shape = {}  # mapping from name to ID of capsule shape
     
-        if not suppress_keyboard_help:
+        if not headless and not suppress_keyboard_help:
             print("Control commands for the TinyRenderer window:")
             print("  [Space]                                   pause simulation")
             print("  [S]                                       skip rendering")
             print("  [Alt] + mouse drag (left/middle button)   rotate/pan camera")
             print("  [ESC]                                     exit")
+
+    def clear(self):
+        self._shape_instance_body.clear()
+        self._shape_instance_pos.clear()
+        self._shape_instance_rot.clear()
+        self._shape_instance_scale.clear()
+        self._shape_instance_color.clear()
+        self._shape_instance_created.clear()
+        self._shape_instance_name.clear()
+        self._shape_order.clear()
+        self._shape_instances.clear()
+        self._shape_count = 0
+        self._shape_transform.clear()
+        self._shape_scale.clear()
+        self._shape_body.clear()
+        self._shape_transform_wp = None
+        self._shape_scale_wp = None
+        self._shape_body_wp = None
+        self._shape_transform_index.clear()
+        self._shape_instance_name_mapping.clear()
+        self._shape_name.clear()
+        self._shape_scale_ref.clear()
+        self._shape_geo_hash.clear()
+        self._mesh_name.clear()
+        self._body_name.clear()
+        self._body_shapes.clear()
+        self._has_new_instances = False
+        self._shape_instance_updates.clear()
+        self._point_instance_ids.clear()
+        self._point_instance_ids_wp.clear()
+        self._point_shape.clear()
+        self._line_instance_ids.clear()
+        self._line_instance_ids_wp.clear()
+        self._line_shape.clear()
+        self._instance_count = 0
+        self.app.renderer.remove_all_instances()
 
     def register_body(self, name):
         # register body name and return its ID
