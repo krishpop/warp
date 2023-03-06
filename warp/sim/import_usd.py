@@ -33,6 +33,56 @@ def parse_usd(
     except ImportError:
         raise ImportError("Failed to import pxr. Please install USD.")
     
+    if filename.startswith("http://") or filename.startswith("https://"):
+        # download file
+        import requests, os, datetime, re
+        response = requests.get(filename, allow_redirects=True)
+        if response.status_code != 200:
+            raise RuntimeError(f"Failed to download USD file. Status code: {response.status_code}")
+        file = response.content
+        dot = os.path.extsep
+        base = os.path.basename(filename)
+        url_folder = os.path.dirname(filename)
+        base_name = dot.join(base.split(dot)[:-1])
+        timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+        folder_name = os.path.join("cache", f"{base_name}_{timestamp}")
+        os.makedirs(folder_name, exist_ok=True)
+        target_filename = os.path.join(folder_name, base)
+        with open(target_filename, "wb") as f:
+            f.write(file)
+        
+        stage = Usd.Stage.Open(target_filename, Usd.Stage.LoadNone)
+        stage_str = stage.GetRootLayer().ExportToString()
+        # with open(os.path.join(folder_name, base_name + ".usda"), "w") as f:
+        #     f.write(stage_str)
+        print(f"Downloaded USD file to {target_filename}.")
+
+        # parse referenced USD files like `references = @./franka_collisions.usd@`
+        downloaded = set()
+        for match in re.finditer(r"references.=.@(.*?)@", stage_str):
+            refname = match.group(1)
+            if refname.startswith("./"):
+                refname = refname[2:]
+            if refname in downloaded:
+                continue
+            try:
+                response = requests.get(f"{url_folder}/{refname}", allow_redirects=True)
+                if response.status_code != 200:
+                    print(f"Failed to download reference {refname}. Status code: {response.status_code}")
+                    continue
+                file = response.content
+                refdir = os.path.dirname(refname)
+                if refdir:
+                    os.makedirs(os.path.join(folder_name, refdir), exist_ok=True)
+                with open(os.path.join(folder_name, refname), "wb") as f:
+                    f.write(file)
+                downloaded.add(refname)
+                print(f"Downloaded USD reference {refname} to {os.path.join(folder_name, refname)}.")
+            except:
+                print(f"Failed to download {refname}.")
+
+        filename = target_filename
+    
     def get_attribute(prim, name):
         if "*" in name:
             regex = name.replace('*', '.*')

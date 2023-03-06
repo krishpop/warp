@@ -26,3 +26,4 @@ examples/assets/
 outputs/
 build/lib/
 .venv/
+.usd_cache/
