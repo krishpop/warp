@@ -268,6 +268,23 @@ CUDA_CALLABLE inline T& index(const array_t<T>& arr, int i, int j, int k, int l)
     return result;
 }
 
+template<typename T> inline CUDA_CALLABLE T inc_index(const array_t<T>& buf, T buf_index, const array_t<T>& tids, int tid, T idx_limit) {
+    if (WARP_FORWARD_MODE) {
+        T next = atomic_add(buf, buf_index, T(1));
+        if (idx_limit < 0 || next < idx_limit) {
+            store(tids, tid, next);
+            return next;
+        }
+        store(tids, tid, T(-1));
+        return T(-1);
+    }
+    return index(tids, tid);
+}
+
+template<typename T> inline CUDA_CALLABLE void adj_inc_index(const array_t<T>& buf, T buf_index, const array_t<T>& tids, int tid, T idx_limit, const array_t<T>& adj_buf, T& adj_buf_index, const array_t<T>& adj_tids, int& adj_tid, T& adj_idx_limit, const T& adj_ret) {
+    
+}
+
 template <typename T>
 CUDA_CALLABLE inline array_t<T> view(array_t<T>& src, int i)
 {

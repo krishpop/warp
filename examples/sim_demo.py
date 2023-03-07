@@ -69,6 +69,8 @@ class WarpSimDemonstration:
 
     # distance threshold at which contacts are generated
     rigid_contact_margin: float = 0.05
+    # maximal number of contacts per shape mesh
+    rigid_mesh_contact_max: int = 1000
 
     plot_body_coords: bool = False
     plot_joint_coords: bool = False
@@ -133,7 +135,7 @@ class WarpSimDemonstration:
             self.setup(builder)
             self.bodies_per_env = len(builder.body_q)
 
-        self.model = builder.finalize()
+        self.model = builder.finalize(rigid_mesh_contact_max=self.rigid_mesh_contact_max)
         self.device = self.model.device
         self.model.ground = self.activate_ground_plane
 

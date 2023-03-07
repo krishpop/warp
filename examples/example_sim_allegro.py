@@ -22,7 +22,6 @@ import warp as wp
 import warp as wp
 import warp.sim
 
-from sim_demo import WarpSimDemonstration, run_demo
 from sim_demo import WarpSimDemonstration, run_demo, IntegratorType
 
 class Demo(WarpSimDemonstration):
@@ -32,7 +31,7 @@ class Demo(WarpSimDemonstration):
     usd_render_settings = dict(scaling=200.0)
 
     sim_substeps_euler = 64
-    sim_substeps_xpbd = 8
+    sim_substeps_xpbd = 5
 
     num_envs = 1
 
@@ -42,7 +41,15 @@ class Demo(WarpSimDemonstration):
         joint_angular_relaxation=0.45,
         rigid_contact_relaxation=1.0,
         rigid_contact_con_weighting=True,
+        enable_restitution=True,
     )
+
+    # use_graph_capture = False
+
+    rigid_contact_margin = 0.005
+    rigid_mesh_contact_max = 100
+    # contact thickness to apply around mesh shapes
+    contact_thickness = 0.0
     
     # integrator_type = IntegratorType.EULER
     
@@ -63,6 +70,7 @@ class Demo(WarpSimDemonstration):
             shape_kd=1.e+2,
             shape_kf=1.e+2,
             shape_mu=0.5,
+            shape_thickness=self.contact_thickness,
             limit_ke=1.e+4,
             limit_kd=1.e+1,
             enable_self_collisions=False)
@@ -91,6 +99,7 @@ class Demo(WarpSimDemonstration):
             shape_kd=1.e+2,
             shape_kf=1.e+2,
             shape_mu=0.5,
+            shape_thickness=self.contact_thickness,
             limit_ke=1.e+4,
             limit_kd=1.e+1,
             parse_visuals_as_colliders=False)
@@ -108,6 +117,7 @@ class Demo(WarpSimDemonstration):
             shape_kd=1.e+2,
             shape_kf=1.e+2,
             shape_mu=0.5,
+            shape_thickness=self.contact_thickness,
             limit_ke=1.e+4,
             limit_kd=1.e+1,
             parse_visuals_as_colliders=False)
@@ -125,6 +135,7 @@ class Demo(WarpSimDemonstration):
             shape_kd=1.e+2,
             shape_kf=1.e+2,
             shape_mu=0.5,
+            shape_thickness=self.contact_thickness,
             limit_ke=1.e+4,
             limit_kd=1.e+1,
             parse_visuals_as_colliders=False)
@@ -141,6 +152,7 @@ class Demo(WarpSimDemonstration):
             shape_kd=1.e+2,
             shape_kf=1.e+2,
             shape_mu=0.5,
+            shape_thickness=self.contact_thickness,
             limit_ke=1.e+4,
             limit_kd=1.e+1,
             parse_visuals_as_colliders=False)

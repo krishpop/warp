@@ -465,6 +465,9 @@ class Model:
         # toggles ground contact for all shapes
         self.ground = True
 
+        # maximum number of contact points to generate per mesh shape
+        self.rigid_mesh_contact_max = 10000
+
     def state(self, requires_grad=False) -> State:
         """Returns a state object for the model
 
@@ -586,7 +589,7 @@ class Model:
         Counts the maximum number of contact points that need to be allocated.
         """
         # calculate the potential number of shape pair contact points
-        contact_count = wp.zeros(1, dtype=wp.int32, device=self.device)
+        contact_count = wp.zeros(2, dtype=wp.int32, device=self.device)
         wp.launch(
             kernel=count_contact_points,
             dim=self.shape_contact_pair_count,
@@ -595,6 +598,7 @@ class Model:
                 self.shape_geo_type,
                 self.shape_geo_scale,
                 self.shape_geo_id,
+                self.rigid_mesh_contact_max,
             ],
             outputs=[
                 contact_count
@@ -610,126 +614,76 @@ class Model:
                 self.shape_geo_type,
                 self.shape_geo_scale,
                 self.shape_geo_id,
+                self.rigid_mesh_contact_max,
             ],
             outputs=[
                 contact_count
             ],
             device=self.device,
             record_tape=False)
-        count = contact_count.numpy()[0]
-        return int(count)
+        counts = contact_count.numpy()
+        potential_count = int(counts[0])
+        actual_count = int(counts[1])
+        return potential_count, actual_count
 
-    def allocate_rigid_contacts(self, count=None, requires_grad=False):
-        if count is not None:
-            self.rigid_contact_max = count
+    def allocate_rigid_contacts(self, potential_contact_count=None, actual_contact_count=None, requires_grad=False):
+        if potential_contact_count is not None:
+            self.rigid_contact_max = potential_contact_count
+            self.rigid_contact_max_actual = actual_contact_count
+            print(f"Allocating {actual_contact_count} out of {potential_contact_count} potential rigid contacts")
         # serves as counter of the number of active contact points
+        # first entry is the number of potential contacts, the second entry is the number of actual contacts that can be allocated
         self.rigid_contact_count = wp.zeros(1, dtype=wp.int32, device=self.device)
         # contact point ID within the (shape_a, shape_b) contact pair
         self.rigid_contact_point_id = wp.zeros(
             self.rigid_contact_max, dtype=wp.int32, device=self.device
         )
         # ID of first rigid body
-        self.rigid_contact_body0 = wp.zeros(
-            self.rigid_contact_max, dtype=wp.int32, device=self.device
-        )
+        self.rigid_contact_body0 = wp.zeros(self.rigid_contact_max_actual, dtype=wp.int32, device=self.device)
         # ID of second rigid body
-        self.rigid_contact_body1 = wp.zeros(
-            self.rigid_contact_max, dtype=wp.int32, device=self.device
-        )
+        self.rigid_contact_body1 = wp.zeros(self.rigid_contact_max_actual, dtype=wp.int32, device=self.device)
         # position of contact point in body 0's frame before the integration step
-        self.rigid_contact_point0 = wp.zeros(
-            self.rigid_contact_max,
-            dtype=wp.vec3,
-            device=self.device,
-            requires_grad=requires_grad,
-        )
+        self.rigid_contact_point0 = wp.zeros(self.rigid_contact_max_actual, dtype=wp.vec3, device=self.device, requires_grad=requires_grad)
         # position of contact point in body 1's frame before the integration step
-        self.rigid_contact_point1 = wp.zeros(
-            self.rigid_contact_max,
-            dtype=wp.vec3,
-            device=self.device,
-            requires_grad=requires_grad,
-        )
+        self.rigid_contact_point1 = wp.zeros(self.rigid_contact_max_actual, dtype=wp.vec3, device=self.device, requires_grad=requires_grad)
         # moment arm before the integration step resulting from thickness displacement added to contact point 0 in body 0's frame (used in XPBD contact friction handling)
-        self.rigid_contact_offset0 = wp.zeros(
-            self.rigid_contact_max,
-            dtype=wp.vec3,
-            device=self.device,
-            requires_grad=requires_grad,
-        )
+        self.rigid_contact_offset0 = wp.zeros(self.rigid_contact_max_actual, dtype=wp.vec3, device=self.device, requires_grad=requires_grad)
         # moment arm before the integration step resulting from thickness displacement added to contact point 1 in body 1's frame (used in XPBD contact friction handling)
-        self.rigid_contact_offset1 = wp.zeros(
-            self.rigid_contact_max,
-            dtype=wp.vec3,
-            device=self.device,
-            requires_grad=requires_grad,
-        )
+        self.rigid_contact_offset1 = wp.zeros(self.rigid_contact_max_actual, dtype=wp.vec3, device=self.device, requires_grad=requires_grad)
         # contact normal in world frame
-        self.rigid_contact_normal = wp.zeros(
-            self.rigid_contact_max,
-            dtype=wp.vec3,
-            device=self.device,
-            requires_grad=requires_grad,
-        )
+        self.rigid_contact_normal = wp.zeros(self.rigid_contact_max_actual, dtype=wp.vec3, device=self.device, requires_grad=requires_grad)
         # combined thickness of both shapes
-        self.rigid_contact_thickness = wp.zeros(
-            self.rigid_contact_max,
-            dtype=wp.float32,
-            device=self.device,
-            requires_grad=requires_grad,
-        )
+        self.rigid_contact_thickness = wp.zeros(self.rigid_contact_max_actual, dtype=wp.float32, device=self.device, requires_grad=requires_grad)
         # ID of the first shape in the contact pair
-        self.rigid_contact_shape0 = wp.zeros(
-            self.rigid_contact_max, dtype=wp.int32, device=self.device
-        )
+        self.rigid_contact_shape0 = wp.zeros(self.rigid_contact_max_actual, dtype=wp.int32, device=self.device)
         # ID of the second shape in the contact pair
-        self.rigid_contact_shape1 = wp.zeros(
-            self.rigid_contact_max, dtype=wp.int32, device=self.device
-        )
+        self.rigid_contact_shape1 = wp.zeros(self.rigid_contact_max_actual, dtype=wp.int32, device=self.device)
+        
+        # shape IDs of potential contact pairs found during broadphase
+        self.rigid_contact_broad_shape0 = wp.zeros(self.rigid_contact_max, dtype=wp.int32, device=self.device)
+        self.rigid_contact_broad_shape1 = wp.zeros(self.rigid_contact_max, dtype=wp.int32, device=self.device)
+
+        max_pair_count = self.shape_count * self.shape_count
+        # maximum number of contact points per contact pair
+        self.rigid_contact_point_limit = wp.zeros(max_pair_count, dtype=wp.int32, device=self.device)
+        # currently found contacts per contact pair
+        self.rigid_contact_pairwise_counter = wp.zeros(max_pair_count, dtype=wp.int32, device=self.device)
+
+        self.rigid_contact_tids = wp.zeros(self.rigid_contact_max, dtype=wp.int32, device=self.device)
 
         # temporary variables used during the XPBD solver iterations:
         # world space position of contact point resulting from applying current body 0 transform to its point0
-        self.rigid_active_contact_point0 = wp.zeros(
-            self.rigid_contact_max,
-            dtype=wp.vec3,
-            device=self.device,
-            requires_grad=requires_grad,
-        )
+        self.rigid_active_contact_point0 = wp.zeros(self.rigid_contact_max_actual, dtype=wp.vec3, device=self.device, requires_grad=requires_grad)
         # world space position of contact point resulting from applying current body 1 transform to its point1
-        self.rigid_active_contact_point1 = wp.zeros(
-            self.rigid_contact_max,
-            dtype=wp.vec3,
-            device=self.device,
-            requires_grad=requires_grad,
-        )
+        self.rigid_active_contact_point1 = wp.zeros(self.rigid_contact_max_actual, dtype=wp.vec3, device=self.device, requires_grad=requires_grad)
         # current contact distance (negative penetration depth)
-        self.rigid_active_contact_distance = wp.zeros(
-            self.rigid_contact_max,
-            dtype=wp.float32,
-            device=self.device,
-            requires_grad=requires_grad,
-        )
+        self.rigid_active_contact_distance = wp.zeros(self.rigid_contact_max_actual, dtype=wp.float32, device=self.device, requires_grad=requires_grad)
         # contact distance before the solver iterations
-        self.rigid_active_contact_distance_prev = wp.zeros(
-            self.rigid_contact_max,
-            dtype=wp.float32,
-            device=self.device,
-            requires_grad=requires_grad,
-        )
+        self.rigid_active_contact_distance_prev = wp.zeros(self.rigid_contact_max_actual, dtype=wp.float32, device=self.device, requires_grad=requires_grad)
         # world space position of point0 before the solver iterations
-        self.rigid_active_contact_point0_prev = wp.zeros(
-            self.rigid_contact_max,
-            dtype=wp.vec3,
-            device=self.device,
-            requires_grad=requires_grad,
-        )
+        self.rigid_active_contact_point0_prev = wp.zeros(self.rigid_contact_max_actual, dtype=wp.vec3, device=self.device, requires_grad=requires_grad)
         # world space position of point1 before the solver iterations
-        self.rigid_active_contact_point1_prev = wp.zeros(
-            self.rigid_contact_max,
-            dtype=wp.vec3,
-            device=self.device,
-            requires_grad=requires_grad,
-        )
+        self.rigid_active_contact_point1_prev = wp.zeros(self.rigid_contact_max_actual, dtype=wp.vec3, device=self.device, requires_grad=requires_grad)
         # number of contact constraints per rigid body (used for scaling the constraint contributions, a basic version of mass splitting)
         self.rigid_contact_inv_weight = wp.zeros(
             len(self.body_q),
@@ -3072,7 +3026,7 @@ class ModelBuilder:
         for i in range(len(self.shape_geo_type)-1):
             self.shape_collision_filter_pairs.add((i, ground_id))
 
-    def finalize(self, device=None, requires_grad=False) -> Model:
+    def finalize(self, device=None, requires_grad=False, rigid_mesh_contact_max=None) -> Model:
         """Convert this builder object to a concrete model for simulation.
 
         After building simulation elements this method should be called to transfer
@@ -3110,6 +3064,9 @@ class ModelBuilder:
 
             m = Model(device)
             m.requires_grad = requires_grad
+
+            if rigid_mesh_contact_max is not None:
+                m.rigid_mesh_contact_max = rigid_mesh_contact_max
 
             m.num_envs = self.num_envs
 
@@ -3278,12 +3235,12 @@ class ModelBuilder:
                 m.allocate_soft_contacts(1*1024, requires_grad=requires_grad)
             m.find_shape_contact_pairs()
             if self.num_rigid_contacts_per_env is None:
-                contact_count = m.count_contact_points()
+                potential_contact_count, actual_contact_count = m.count_contact_points()
             else:
-                contact_count = self.num_rigid_contacts_per_env*self.num_envs
+                potential_contact_count, actual_contact_count = self.num_rigid_contacts_per_env*self.num_envs
             if wp.config.verbose:
-                print(f"Allocating {contact_count} rigid contacts.")
-            m.allocate_rigid_contacts(contact_count, requires_grad=requires_grad)
+                print(f"Allocating {actual_contact_count} rigid contacts ({potential_contact_count} potential contacts).")
+            m.allocate_rigid_contacts(potential_contact_count, actual_contact_count, requires_grad=requires_grad)
             m.rigid_contact_margin = self.rigid_contact_margin            
             m.rigid_contact_torsional_friction = self.rigid_contact_torsional_friction
             m.rigid_contact_rolling_friction = self.rigid_contact_rolling_friction

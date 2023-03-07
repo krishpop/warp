@@ -23,3 +23,6 @@ examples/assets/.thumbs
 exts/omni.warp/omni/warp/ogn/tests/usd
 deprecated/*
 examples/assets
+build/
+
+examples/assets

@@ -776,6 +776,7 @@ add_builtin("atomic_max", input_types={"a": array(dtype=Any), "i": int, "j": int
 add_builtin("atomic_max", input_types={"a": array(dtype=Any), "i": int, "j": int, "k":int, "value": Any}, value_func=atomic_op_value_type, doc="Compute the maximum of ``value`` and ``array[index]`` and atomically update the array. Note that for vectors and matrices the operation is only atomic on a per-component basis.", group="Utility", skip_replay=True)
 add_builtin("atomic_max", input_types={"a": array(dtype=Any), "i": int, "j": int, "k":int, "l": int, "value": Any}, value_func=atomic_op_value_type, doc="Compute the maximum of ``value`` and ``array[index]`` and atomically update the array. Note that for vectors and matrices the operation is only atomic on a per-component basis.", group="Utility", skip_replay=True)
 
+add_builtin("inc_index", input_types={"counts": array(dtype=int), "count_index": int, "tids": array(dtype=int), "tid": int, "limit": int}, value_type=int, doc="Atomically increment index array ``counts`` at the given `count_index` and keep track of the given thread ID `tid` mapping to this index in the `tids` array, so that the backward pass can reuse the same index. If the index is greater than ``idx_limit`` then the returned index will be -1.", group="Utility", skip_replay=False)
 
 # used to index into builtin types, i.e.: y = vec3[1]
 add_builtin("index", input_types={"a": vec2, "i": int}, value_type=float, hidden=True, group="Utility")
