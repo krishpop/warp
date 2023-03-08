@@ -10,7 +10,7 @@ Collision handling functions and kernels.
 """
 
 import warp as wp
-from .inertia import ModelShapeGeometry
+from .model import ModelShapeGeometry
 
 
 @wp.func
@@ -1041,13 +1041,14 @@ def handle_contact_pairs(
             p_a_body = closest_point_box(geo_scale_a, query_a)
             p_a_world = wp.transform_point(X_ws_a, p_a_body)
             query_b = wp.transform_point(X_sw_b, p_a_world)
-            if wp.abs(query_b[0]) > geo_scale_b[0] or wp.abs(query_b[2]) > geo_scale_b[1]:
+            if wp.abs(query_b[0]) > plane_width or wp.abs(query_b[2]) > plane_length:
                 # ensure that the closest point is actually above the plane
                 contact_shape0[tid] = -1
                 contact_shape1[tid] = -1
                 return
             diff = p_a_world - p_b_world
-            normal = wp.transform_vector(X_ws_b, wp.vec3(0.0, 1.0, 0.0))
+            # rough approximation
+            normal = wp.normalize(wp.transform_get_translation(X_ws_a) - p_b_world)
             distance = wp.dot(diff, normal)
 
     elif (geo_type_a == wp.sim.GEO_CAPSULE and geo_type_b == wp.sim.GEO_CAPSULE):
@@ -1283,7 +1284,7 @@ def handle_contact_pairs(
         contact_shape1[tid] = -1
 
 
-def collide(model, state, edge_sdf_iter: int = 5):
+def collide(model, state, edge_sdf_iter: int = 2):
     """
     Generates contact points for the particles and rigid bodies in the model,
     to be used in the contact dynamics kernel of the integrator.
