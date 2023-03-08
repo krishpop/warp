@@ -27,3 +27,4 @@ outputs/
 build/lib/
 .venv/
 .usd_cache/
+exts/omni.warp/config/extension.gen.toml
