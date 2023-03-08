@@ -22,7 +22,7 @@ import warp.sim
 
 from environment import Environment, run_env, RenderMode
 
-class Demo(Environment):
+class AllegroEnvironment(Environment):
     sim_name = "example_sim_allegro"
     env_offset=(0.5, 0.0, 0.5)
     tiny_render_settings = dict(scaling=40.0)
@@ -49,7 +49,7 @@ class Demo(Environment):
         wp.sim.parse_urdf(
             os.path.join(
                 os.path.dirname(__file__),
-                "assets/isaacgymenvs/kuka_allegro_description/allegro.urdf"),
+                "../assets/isaacgymenvs/kuka_allegro_description/allegro.urdf"),
             builder,
             xform=wp.transform(np.array((0.0, 0.3, 0.0)), wp.quat_rpy(-np.pi/2, np.pi*0.75, np.pi/2)),
             floating=floating_base,
@@ -73,75 +73,33 @@ class Demo(Environment):
             builder.joint_target[i] = builder.joint_q[i+q_offset]
             builder.joint_target_ke[i] = 5000.0
             builder.joint_target_kd[i] = 1.0
-        
-        wp.sim.parse_urdf(
-            os.path.join(
+
+        cube_urdf_filename = os.path.join(
                 os.path.dirname(__file__),
-                "assets/isaacgymenvs/objects/cube_multicolor_allegro.urdf"),
-            builder,
-            xform=wp.transform(np.array((-0.1, 0.5, 0.0)), wp.quat_identity()),
-            floating=True,
-            density=1e2,  # use inertia settings from URDF
-            armature=0.0,
-            stiffness=0.0,
-            damping=0.0,
-            shape_ke=1.e+3,
-            shape_kd=1.e+2,
-            shape_kf=1.e+2,
-            shape_mu=0.5,
-            limit_ke=1.e+4,
-            limit_kd=1.e+1,
-            parse_visuals_as_colliders=False)
-
-        wp.sim.parse_urdf(
-            os.path.join(os.path.dirname(__file__), "assets/isaacgymenvs/objects/cube_multicolor_allegro.urdf"),
-            builder,
-            xform=wp.transform(np.array((0.0, 0.05, 0.05)), wp.quat_identity()),
-            floating=True,
-            density=1e2,  # use inertia settings from URDF
-            armature=0.0,
-            stiffness=0.0,
-            damping=0.0,
-            shape_ke=1.e+3,
-            shape_kd=1.e+2,
-            shape_kf=1.e+2,
-            shape_mu=0.5,
-            limit_ke=1.e+4,
-            limit_kd=1.e+1,
-            parse_visuals_as_colliders=False)
-
-        wp.sim.parse_urdf(
-            os.path.join(os.path.dirname(__file__), "assets/isaacgymenvs/objects/cube_multicolor_allegro.urdf"),
-            builder,
-            xform=wp.transform(np.array((0.01, 0.15, 0.03)), wp.quat_identity()),
-            floating=True,
-            density=1e2,  # use inertia settings from URDF
-            armature=0.0,
-            stiffness=0.0,
-            damping=0.0,
-            shape_ke=1.e+3,
-            shape_kd=1.e+2,
-            shape_kf=1.e+2,
-            shape_mu=0.5,
-            limit_ke=1.e+4,
-            limit_kd=1.e+1,
-            parse_visuals_as_colliders=False)
-        wp.sim.parse_urdf(
-            os.path.join(os.path.dirname(__file__), "assets/isaacgymenvs/objects/cube_multicolor_allegro.urdf"),
-            builder,
-            xform=wp.transform(np.array((0.01, 0.05, 0.13)), wp.quat_identity()),
-            floating=True,
-            density=1e2,  # use inertia settings from URDF
-            armature=0.0,
-            stiffness=0.0,
-            damping=0.0,
-            shape_ke=1.e+3,
-            shape_kd=1.e+2,
-            shape_kf=1.e+2,
-            shape_mu=0.5,
-            limit_ke=1.e+4,
-            limit_kd=1.e+1,
-            parse_visuals_as_colliders=False)
+                "../assets/isaacgymenvs/objects/cube_multicolor_allegro.urdf")
+        cube_positions = [
+            (-0.1, 0.5, 0.0),
+            (0.0, 0.05, 0.05),
+            (0.01, 0.15, 0.03),
+            (0.01, 0.05, 0.13),
+        ]
+        for pos in cube_positions:
+            wp.sim.parse_urdf(
+                cube_urdf_filename,
+                builder,
+                xform=wp.transform(pos, wp.quat_identity()),
+                floating=True,
+                density=1e2,  # use inertia settings from URDF
+                armature=0.0,
+                stiffness=0.0,
+                damping=0.0,
+                shape_ke=1.e+3,
+                shape_kd=1.e+2,
+                shape_kf=1.e+2,
+                shape_mu=0.5,
+                limit_ke=1.e+4,
+                limit_kd=1.e+1,
+                parse_visuals_as_colliders=False)
 
     def before_simulate(self):
         # apply some motion to the hand
@@ -151,5 +109,6 @@ class Demo(Environment):
             body_qd[i*self.bodies_per_env][1] = 0.2
         self.state.body_qd = wp.array(body_qd, dtype=wp.spatial_vector, device=self.device)
 
+
 if __name__ == "__main__":
-    run_env(Demo)
+    run_env(AllegroEnvironment)

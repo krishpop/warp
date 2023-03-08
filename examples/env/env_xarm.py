@@ -25,9 +25,9 @@ import warp.sim
 from environment import Environment, run_env
 
 
-class Demo(Environment):
+class XarmEnvironment(Environment):
     sim_name = "example_sim_xarm"
-    env_offset=(0.5, 0.0, 0.5)
+    env_offset=(0.8, 0.0, 0.8)
     tiny_render_settings = dict(scaling=10.0)
     usd_render_settings = dict(scaling=100.0)
 
@@ -45,7 +45,7 @@ class Demo(Environment):
     activate_ground_plane = False
 
     def create_articulation(self, builder):
-            wp.sim.parse_urdf(os.path.join(os.path.dirname(__file__), "assets/xarm/xarm6_robot.urdf"), builder,
+            wp.sim.parse_urdf(os.path.join(os.path.dirname(__file__), "../assets/xarm/xarm6_robot.urdf"), builder,
                 xform=wp.transform((0.0, 0.0, 0.0), wp.quat_from_axis_angle((1.0, 0.0, 0.0), -math.pi*0.5)),
                 floating=False, 
                 density=0.0,
@@ -63,5 +63,6 @@ class Demo(Environment):
             builder.joint_q[-3:] = [0.0, 0.3, 0.0]
             builder.joint_target[:3] = [0.0, 0.0, 0.0]
 
+
 if __name__ == "__main__":
-    run_env(Demo)
+    run_env(XarmEnvironment)

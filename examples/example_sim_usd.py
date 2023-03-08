@@ -28,7 +28,7 @@ import warp as wp
 import warp as wp
 import warp.sim
 
-from environment import Environment, run_env, IntegratorType, RenderMode
+from env.environment import Environment, run_env, IntegratorType, RenderMode
 
 
 from tqdm import trange
@@ -57,10 +57,10 @@ class Demo(Environment):
     activate_ground_plane = False
     num_envs = 1
 
-    render_mode = RenderMode.TINY
+    render_mode = RenderMode.USD
     # integrator_type = IntegratorType.EULER
 
-    plot_body_coords = True
+    plot_body_coords = False
 
     def create_articulation(self, builder):
 
@@ -68,7 +68,9 @@ class Demo(Environment):
         settings = wp.sim.parse_usd(
             # os.path.join(folder, "box_on_quad.usd"),
             # os.path.join(folder, "contact_pair_filtering.usd"),
-            os.path.join(folder, "distance_joint.usd"),
+            # os.path.join(folder, "distance_joint.usd"),
+            # "http://omniverse-content-staging.s3-us-west-2.amazonaws.com/Assets/Isaac/2022.2.1/Isaac/Robots/Franka/franka_instanceable.usd",
+            os.path.join(".usd_cache", "franka_instanceable_20230306134106", "franka_instanceable.usd"),
             # os.path.join(folder, "prismatic_joint.usda"),
             # os.path.join(folder, "revolute_joint.usd"),
             # os.path.join(folder, "d6_joint.usda"),
@@ -78,7 +80,8 @@ class Demo(Environment):
             # os.path.join(folder, "articulation.usda"),
             # os.path.join(folder, "ropes.usda"),
             builder,
-            default_thickness=0.01
+            default_thickness=0.01,
+            ignore_paths=[".*collisions.*"]
         )
     
         self.frame_dt = 1.0 / settings["fps"]
@@ -92,11 +95,9 @@ class Demo(Environment):
         self.up_axis = settings["up_axis"]
 
     def before_simulate(self):
-        print("COM", self.model.body_com.numpy())
-        print("Mass", self.model.body_mass.numpy())
-        print("Inertia", self.model.body_inertia.numpy())
-        print("shape_transform", self.model.shape_transform.numpy())
-        print("geo_scale", self.model.shape_geo.scale.numpy())
+        if self.model.shape_count > 0:
+            print("shape_transform", self.model.shape_transform.numpy())
+            print("geo_scale", self.model.shape_geo.scale.numpy())
         # print("collision filters", sorted(list(self.builder.shape_collision_filter_pairs)))
         if self.model.joint_count > 0:
             print("joint parent", self.model.joint_parent.numpy())
@@ -112,7 +113,11 @@ class Demo(Environment):
                 print("joint limit upper", self.model.joint_limit_upper.numpy())
             print("joint_X_p", self.model.joint_X_p.numpy())
             print("joint_X_c", self.model.joint_X_c.numpy())
-        print("body_q", self.state.body_q.numpy())
+        if self.model.body_count > 0:
+            print("COM", self.model.body_com.numpy())
+            print("Mass", self.model.body_mass.numpy())
+            print("Inertia", self.model.body_inertia.numpy())
+            print("body_q", self.state.body_q.numpy())
 
 if __name__ == "__main__":
     run_env(Demo)

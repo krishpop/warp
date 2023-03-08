@@ -21,7 +21,7 @@ import numpy as np
 import warp as wp
 import warp.sim
 
-from environment import Environment, run_env, RenderMode
+from env.environment import Environment, run_env, RenderMode
 
 class Demo(Environment):
     sim_name = "example_sim_hollow_mesh"

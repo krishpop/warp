@@ -21,7 +21,7 @@ import warp as wp
 
 import warp.sim
 
-from environment import Environment, run_env, IntegratorType, RenderMode
+from env.environment import Environment, run_env, IntegratorType, RenderMode
 
 class Demo(Environment):
 

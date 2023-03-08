@@ -22,11 +22,13 @@ import warp as wp
 import warp.sim
 import warp.sim.render
 
-from environment import Environment, run_env
+from env.environment import Environment, run_env
 
 class Demo(Environment):
     sim_name = "example_sim_rigid_contact_xpbd"
     num_envs = 1
+
+    tiny_render_settings = dict(scaling=5)
 
     def create_articulation(self, builder):
 
