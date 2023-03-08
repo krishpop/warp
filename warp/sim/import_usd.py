@@ -26,7 +26,8 @@ def parse_usd(
     default_thickness=0.0,
     joint_limit_ke=100.0,
     joint_limit_kd=10.0,
-    verbose=True):
+    verbose=True,
+    ignore_paths=[]):
 
     try:
         from pxr import Usd, UsdGeom, UsdPhysics
@@ -35,7 +36,7 @@ def parse_usd(
     
     if filename.startswith("http://") or filename.startswith("https://"):
         # download file
-        import requests, os, datetime, re
+        import requests, os, datetime
         response = requests.get(filename, allow_redirects=True)
         if response.status_code != 200:
             raise RuntimeError(f"Failed to download USD file. Status code: {response.status_code}")
@@ -45,7 +46,7 @@ def parse_usd(
         url_folder = os.path.dirname(filename)
         base_name = dot.join(base.split(dot)[:-1])
         timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
-        folder_name = os.path.join("cache", f"{base_name}_{timestamp}")
+        folder_name = os.path.join(".usd_cache", f"{base_name}_{timestamp}")
         os.makedirs(folder_name, exist_ok=True)
         target_filename = os.path.join(folder_name, base)
         with open(target_filename, "wb") as f:
@@ -341,6 +342,9 @@ def parse_usd(
         nonlocal no_collision_shapes
 
         path = str(prim.GetPath())
+        for pattern in ignore_paths:
+            if re.match(pattern, path):
+                return
         type_name = str(prim.GetTypeName())
         schemas = set(prim.GetAppliedSchemas() + list(incoming_schemas))
         if verbose:
