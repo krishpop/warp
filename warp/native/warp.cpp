@@ -6,6 +6,8 @@
  * license agreement from NVIDIA CORPORATION is strictly prohibited.
  */
 
+bool WARP_FORWARD_MODE = true;
+
 #include "warp.h"
 #include "scan.h"
 
