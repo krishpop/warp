@@ -6,3 +6,4 @@ meshio==4.1.0
 openmesh==1.2.1
 tqdm==4.*
 usd-core==22.*
+requests

@@ -64,13 +64,11 @@ class Demo(Environment):
 
     def create_articulation(self, builder):
 
-        folder = os.path.join(os.path.dirname(__file__), "assets", "usd_physics")
         settings = wp.sim.parse_usd(
             # os.path.join(folder, "box_on_quad.usd"),
             # os.path.join(folder, "contact_pair_filtering.usd"),
             # os.path.join(folder, "distance_joint.usd"),
-            # "http://omniverse-content-staging.s3-us-west-2.amazonaws.com/Assets/Isaac/2022.2.1/Isaac/Robots/Franka/franka_instanceable.usd",
-            os.path.join(".usd_cache", "franka_instanceable_20230306134106", "franka_instanceable.usd"),
+            "http://omniverse-content-staging.s3-us-west-2.amazonaws.com/Assets/Isaac/2022.2.1/Isaac/Robots/Franka/franka_instanceable.usd",
             # os.path.join(folder, "prismatic_joint.usda"),
             # os.path.join(folder, "revolute_joint.usd"),
             # os.path.join(folder, "d6_joint.usda"),
