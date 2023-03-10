@@ -739,7 +739,7 @@ def check_backward_pass(
             pos = nx.spring_layout(G)
 
         fig = plt.figure()
-        fig.canvas.set_window_title("Kernel launch graph")
+        fig.canvas.manager.set_window_title("Kernel launch graph")
         array_nodes = list(array_nodes)
         kernel_nodes = list(kernel_nodes)
         node_colors = []
