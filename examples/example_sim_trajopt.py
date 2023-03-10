@@ -68,9 +68,7 @@ class Environment:
         # add planar joints
         builder = wp.sim.ModelBuilder(gravity=0.0)
         builder.add_articulation()
-        b = builder.add_body(
-                parent=-1,
-                origin=wp.transform())
+        b = builder.add_body(origin=wp.transform())
         s = builder.add_shape_box( 
                 pos=(0.0, 0.0, 0.0),
                 hx=0.5,
@@ -91,10 +89,6 @@ class Environment:
         # finalize model
         self.model = builder.finalize(device, requires_grad=True)
 
-        self.model.joint_attach_kd = 0.0
-        self.model.joint_limit_ke.zero_()
-        self.model.joint_limit_kd.zero_()
-
         self.builder = builder
         self.model.ground = False
 
@@ -108,8 +102,8 @@ class Environment:
         assert len(self.ref_traj) == self.episode_frames * self.state_dim
 
         solve_iterations = 1
-        self.integrator = wp.sim.XPBDIntegrator(solve_iterations)
-        # self.integrator = wp.sim.SemiImplicitIntegrator()
+        # self.integrator = wp.sim.XPBDIntegrator(solve_iterations)
+        self.integrator = wp.sim.SemiImplicitIntegrator()
 
     def simulate(self, state: wp.sim.State, action: wp.array, action_index: int, requires_grad=False) -> wp.sim.State:
         """
@@ -122,6 +116,8 @@ class Environment:
             else:
                 next_state = state
                 next_state.clear_forces()
+
+            wp.sim.collide(self.model, state)
             # apply generalized torques to rigid body here, instead of planar joints
             wp.launch(
                 apply_torque,
@@ -129,7 +125,9 @@ class Environment:
                 inputs=[action, action_index],
                 outputs=[state.body_f],
                 device=action.device)
-            state = self.integrator.simulate(self.model, state, next_state, self.sim_dt, requires_grad=requires_grad)
+            state = self.integrator.simulate(
+                self.model, state, next_state, self.sim_dt,
+                requires_grad=requires_grad)
         return state
 
     def _render(self, state: wp.sim.State):

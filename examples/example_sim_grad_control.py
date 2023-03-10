@@ -240,7 +240,7 @@ class RigidBodySimulator:
         self.model.body_qd.assign(state.body_qd)
 
         solve_iterations = 1
-        # self.integrator = wp.sim.XPBDIntegrator(solve_iterations, contact_con_weighting=True)
+        # self.integrator = wp.sim.XPBDIntegrator(solve_iterations, rigid_contact_con_weighting=True)
         self.integrator = wp.sim.SemiImplicitIntegrator()
 
         #-----------------------
