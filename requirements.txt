@@ -1,4 +1,5 @@
 numpy==1.*
+wheel==0.38.*
 matplotlib==3.*
 urdfpy==0.0.22
 meshio==4.1.0
