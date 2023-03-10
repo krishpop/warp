@@ -31,6 +31,24 @@ class Tape:
 
         wp.context.runtime.tape = None
 
+    def forward(self):
+    
+        # run launches forwards
+        for launch in self.launches:
+
+            kernel = launch[0]
+            dim = launch[1]
+            inputs = launch[2]
+            outputs = launch[3]
+            device = launch[4]
+
+            wp.launch(
+                kernel=kernel, 
+                dim=dim, 
+                inputs=inputs, 
+                outputs=outputs,
+                device=device)
+
     # adj_outputs is a mapping from output tensor -> adjoint of the output
     # after running backward the gradients of tensors may be retrieved by:
     #
@@ -141,10 +159,8 @@ class Tape:
             if a not in self.const_gradients:
                 if isinstance(a, wp.codegen.StructInstance):
                     for name in g._struct_.vars:
-                        if isinstance(g._struct_.vars[name].type, wp.array):
-                            arr = getattr(g, name)
-                            if arr is not None:
-                                arr.zero_()
+                        if isinstance(g._struct_.vars[name].type, wp.array) and g._struct_.vars[name].requires_grad:
+                            getattr(g, name).zero_()
                 else:
                     g.zero_()
 

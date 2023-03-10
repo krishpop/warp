@@ -6,8 +6,6 @@
  * license agreement from NVIDIA CORPORATION is strictly prohibited.
  */
 
-__device__ bool WARP_FORWARD_MODE = true;
-
 #include "warp.h"
 #include "scan.h"
 #include "cuda_util.h"
@@ -279,6 +277,34 @@ void memset_device(void* context, void* dest, int value, size_t n)
         const int num_words = n/4;
         wp_launch_device(WP_CURRENT_CONTEXT, memset_kernel, num_words, ((int*)dest, value, num_words));
     }
+}
+
+__global__ void memtile_kernel(char* dest, char* src, size_t srcsize, size_t n)
+{
+    const int tid = blockIdx.x*blockDim.x + threadIdx.x;
+    
+    if (tid < n)
+    {
+        char *d = dest + srcsize * tid;
+        char *s = src;
+        for( size_t i=0; i < srcsize; ++i,++d,++s )
+        {
+            *d = *s;
+        }
+    }
+}
+
+void memtile_device(void* context, void* dest, void *src, size_t srcsize, size_t n)
+{
+    ContextGuard guard(context);
+
+    void* src_device;
+    check_cuda(cudaMalloc(&src_device, srcsize));
+    check_cuda(cudaMemcpyAsync(src_device, src, srcsize, cudaMemcpyHostToDevice, get_current_stream()));
+
+    wp_launch_device(WP_CURRENT_CONTEXT, memtile_kernel, n, ((char *)dest,(char *)src_device,srcsize,n));
+
+    check_cuda(cudaFree(src_device));
 }
 
 
@@ -756,7 +782,6 @@ size_t cuda_compile_program(const char* cuda_src, int arch, const char* include_
     opts.push_back("--device-as-default-execution-space");
     opts.push_back("--std=c++11");
     opts.push_back("--define-macro=WP_CUDA");
-    opts.push_back("--define-macro=WP_NO_CRT");
     
     if (debug)
     {

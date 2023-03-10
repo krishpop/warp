@@ -268,23 +268,6 @@ CUDA_CALLABLE inline T& index(const array_t<T>& arr, int i, int j, int k, int l)
     return result;
 }
 
-template<typename T> inline CUDA_CALLABLE T inc_index(const array_t<T>& buf, T buf_index, const array_t<T>& tids, int tid, T idx_limit) {
-    if (WARP_FORWARD_MODE) {
-        T next = atomic_add(buf, buf_index, T(1));
-        if (idx_limit < 0 || next < idx_limit) {
-            store(tids, tid, next);
-            return next;
-        }
-        store(tids, tid, T(-1));
-        return T(-1);
-    }
-    return index(tids, tid);
-}
-
-template<typename T> inline CUDA_CALLABLE void adj_inc_index(const array_t<T>& buf, T buf_index, const array_t<T>& tids, int tid, T idx_limit, const array_t<T>& adj_buf, T& adj_buf_index, const array_t<T>& adj_tids, int& adj_tid, T& adj_idx_limit, const T& adj_ret) {
-    
-}
-
 template <typename T>
 CUDA_CALLABLE inline array_t<T> view(array_t<T>& src, int i)
 {
@@ -430,7 +413,7 @@ template <typename T>
 CUDA_CALLABLE inline void adj_atomic_add(T* buf, T value) { atomic_add(buf, value); }
 
 
-// for integral types (and doubles) we do not accumulate gradients
+// for integral types we do not accumulate gradients
 CUDA_CALLABLE inline void adj_atomic_add(int8* buf, int8 value) { }
 CUDA_CALLABLE inline void adj_atomic_add(uint8* buf, uint8 value) { }
 CUDA_CALLABLE inline void adj_atomic_add(int16* buf, int16 value) { }
@@ -439,7 +422,6 @@ CUDA_CALLABLE inline void adj_atomic_add(int32* buf, int32 value) { }
 CUDA_CALLABLE inline void adj_atomic_add(uint32* buf, uint32 value) { }
 CUDA_CALLABLE inline void adj_atomic_add(int64* buf, int64 value) { }
 CUDA_CALLABLE inline void adj_atomic_add(uint64* buf, uint64 value) { }
-CUDA_CALLABLE inline void adj_atomic_add(float64* buf, float64 value) { }
 
 // only generate gradients for T types
 template<typename T> inline CUDA_CALLABLE void adj_load(const array_t<T>& buf, int i, const array_t<T>& adj_buf, int& adj_i, const T& adj_output) { if (adj_buf.data) { adj_atomic_add(&index(adj_buf, i), adj_output); } }
