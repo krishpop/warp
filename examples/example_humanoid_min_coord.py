@@ -6,11 +6,10 @@
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
 ###########################################################################
-# Example Sim Cartpole
+# Example Humanoid Min Coord
 #
-# Shows how to set up a simulation of a rigid-body cartpole articulation 
-# from a URDF using the wp.sim.ModelBuilder().
-# Note this example does not include a trained policy.
+# Compute the minimum y coordinate for multiple articulated humanoid models
+# in parallel and visualized the results in a USD file.
 #
 ###########################################################################
 
