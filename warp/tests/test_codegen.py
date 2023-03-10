@@ -75,7 +75,7 @@ def test_dynamic_for_inplace(n: int):
     for i in range(0, n):
         a += 1.0
 
-    wp.expect_eq(n, 10)
+    wp.expect_eq(a, float(n))
 
 
 @wp.kernel
@@ -188,13 +188,87 @@ def test_while(n: int):
 
     wp.expect_eq(i, n)
 
+@wp.kernel
+def test_break(n: int):
+
+    a = int(0)
+    
+    for i in range(0, n):
+        if a == 5:
+            break
+
+        a += 1
+
+    wp.expect_eq(a, 5)
+
+lower = wp.constant(-3)
+upper = wp.constant(3)
+step = wp.constant(2)
+
+# test unrolling of loops with constant size params
+# we can't easily test if unrolling has occurred
+# so just verify correctness at this stage
+@wp.kernel
+def test_range_constant():
+
+    s = 0
+    for i in range(upper):
+        s += i
+    
+    # sum [0, 3)
+    wp.expect_eq(s, 3)
+
+    s = 0
+    for i in range(lower, upper):
+        s += i
+
+    # sum [-3, 3)
+    wp.expect_eq(s, -3)
+
+    s = 0
+    for i in range(lower, upper, step):
+        s += i
+    
+    # sum [-3, 3)
+    wp.expect_eq(s, -3)
+
+
+def test_unresolved_func(test, device):
+
+    # kernel with unresolved function must be in a separate module, otherwise the current module would fail to load
+    from warp.tests.test_unresolved_func import unresolved_func_kernel
+
+    # ensure that an appropriate exception is raised when the bad module gets loaded
+    with test.assertRaisesRegex(RuntimeError, "Could not find function wp.missing_func"):
+        wp.launch(unresolved_func_kernel, dim=1, inputs=[], device=device)
+
+    # remove all references to the bad module so that subsequent calls to wp.force_load()
+    # won't try to load it unless we explicitly re-import it again
+    del wp.context.user_modules["warp.tests.test_unresolved_func"]
+    del sys.modules["warp.tests.test_unresolved_func"]
+
+
+def test_unresolved_symbol(test, device):
+
+    # kernel with unresolved symbol must be in a separate module, otherwise the current module would fail to load
+    from warp.tests.test_unresolved_symbol import unresolved_symbol_kernel
+
+    # ensure that an appropriate exception is raised when the bad module gets loaded
+    with test.assertRaisesRegex(KeyError, "Referencing undefined symbol: missing_symbol"):
+        wp.launch(unresolved_symbol_kernel, dim=1, inputs=[], device=device)
+
+    # remove all references to the bad module so that subsequent calls to wp.force_load()
+    # won't try to load it unless we explicitly re-import it again
+    del wp.context.user_modules["warp.tests.test_unresolved_symbol"]
+    del sys.modules["warp.tests.test_unresolved_symbol"]
+
 
 def register(parent):
 
     class TestCodeGen(parent):
         pass
 
-    devices = wp.get_devices()
+    devices = get_test_devices()
 
     add_kernel_test(TestCodeGen, name="test_inplace", kernel=test_inplace, dim=1, devices=devices)
     add_kernel_test(TestCodeGen, name="test_rename", kernel=test_rename, dim=1, devices=devices)
@@ -212,17 +286,23 @@ def register(parent):
     add_kernel_test(TestCodeGen, name="test_range_static_sum", kernel=test_range_static_sum, dim=1, expect=[10, 10, 10], devices=devices)
     add_kernel_test(TestCodeGen, name="test_range_dynamic_sum", kernel=test_range_dynamic_sum, dim=1, inputs=[0, 10, 2], expect=[10, 10, 10, 10], devices=devices)
     add_kernel_test(TestCodeGen, name="test_range_dynamic_sum_zero", kernel=test_range_dynamic_sum, dim=1, inputs=[0, 0, 1], expect=[0, 0, 0, 0], devices=devices)
+    add_kernel_test(TestCodeGen, name="test_range_constant", kernel=test_range_constant, dim=1, devices=devices)
 
     add_kernel_test(TestCodeGen, name="test_range_dynamic_nested", kernel=test_range_dynamic_nested, dim=1, inputs=[4], devices=devices)
 
     add_kernel_test(TestCodeGen, name="test_while_zero", kernel=test_while, dim=1, inputs=[0], devices=devices)
     add_kernel_test(TestCodeGen, name="test_while_positive", kernel=test_while, dim=1, inputs=[16], devices=devices)
 
+    add_kernel_test(TestCodeGen, name="test_break", kernel=test_break, dim=1, inputs=[10], devices=devices)
+
+    add_function_test(TestCodeGen, func=test_unresolved_func, name="test_unresolved_func", devices=devices)
+    add_function_test(TestCodeGen, func=test_unresolved_symbol, name="test_unresolved_symbol", devices=devices)
+
     return TestCodeGen
 
 
 if __name__ == '__main__':
     c = register(unittest.TestCase)
-    unittest.main(verbosity=2)
+    unittest.main(verbosity=2, failfast=True)
 
 

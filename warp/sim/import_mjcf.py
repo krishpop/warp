@@ -217,7 +217,7 @@ def parse_mjcf(
                     mu=contact_mu,
                 )
 
-            elif geom_type == "capsule":
+            elif geom_type in {"capsule", "cylinder"}:
 
                 if "fromto" in geom.attrib:
                     geom_fromto = parse_vec(
@@ -229,34 +229,54 @@ def parse_mjcf(
 
                     # compute rotation to align the Warp capsule (along x-axis), with mjcf fromto direction
                     axis = wp.normalize(end - start)
-                    angle = math.acos(np.dot(axis, (1.0, 0.0, 0.0)))
-                    axis = wp.normalize(np.cross(axis, (1.0, 0.0, 0.0)))
+                    angle = math.acos(np.dot(axis, (0.0, 1.0, 0.0)))
+                    axis = wp.normalize(np.cross(axis, (0.0, 1.0, 0.0)))
 
                     geom_pos = (start + end) * 0.5
                     geom_rot = wp.quat_from_axis_angle(axis, -angle)
 
                     geom_radius = geom_size[0]
-                    geom_width = np.linalg.norm(end - start) * 0.5
+                    geom_height = np.linalg.norm(end - start) * 0.5
 
                 else:
 
                     geom_radius = geom_size[0]
-                    geom_width = geom_size[1]
+                    geom_height = geom_size[1]
                     geom_pos = parse_vec(geom, "pos", (0.0, 0.0, 0.0))
+                    # orientation along the z axis by default
+                    axis = np.array((0.0, 0.0, 1.0))
+                    angle = math.acos(np.dot(axis, (0.0, 1.0, 0.0)))
+                    axis = wp.normalize(np.cross(axis, (0.0, 1.0, 0.0)))
+                    geom_rot = wp.quat_from_axis_angle(axis, -angle)
 
-                builder.add_shape_capsule(
-                    link,
-                    pos=geom_pos,
-                    rot=geom_rot,
-                    radius=geom_radius,
-                    half_width=geom_width,
-                    density=density,
-                    ke=contact_ke,
-                    kd=contact_kd,
-                    kf=contact_kf,
-                    mu=contact_mu,
-                    restitution=contact_restitution,
-                )
+                if geom_type == "cylinder":
+                    builder.add_shape_cylinder(
+                        link,
+                        pos=geom_pos,
+                        rot=geom_rot,
+                        radius=geom_radius,
+                        half_height=geom_height,
+                        density=density,
+                        ke=contact_ke,
+                        kd=contact_kd,
+                        kf=contact_kf,
+                        mu=contact_mu,
+                        restitution=contact_restitution,
+                    )
+                else:
+                    builder.add_shape_capsule(
+                        link,
+                        pos=geom_pos,
+                        rot=geom_rot,
+                        radius=geom_radius,
+                        half_height=geom_height,
+                        density=density,
+                        ke=contact_ke,
+                        kd=contact_kd,
+                        kf=contact_kf,
+                        mu=contact_mu,
+                        restitution=contact_restitution,
+                    )
 
             else:
                 print("MJCF parsing issue: geom type", geom_type, "is unsupported")

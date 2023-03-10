@@ -23,15 +23,66 @@ def parse_usd(
     default_kf=500.0,
     default_mu=0.0,
     default_restitution=0.0,
-    default_contact_thickness=0.0,
+    default_thickness=0.0,
     joint_limit_ke=100.0,
     joint_limit_kd=10.0,
-    verbose=True):
+    verbose=True,
+    ignore_paths=[]):
 
     try:
-        from pxr import Gf, Usd, UsdGeom, UsdPhysics, Sdf, Ar
+        from pxr import Usd, UsdGeom, UsdPhysics
     except ImportError:
         raise ImportError("Failed to import pxr. Please install USD.")
+    
+    if filename.startswith("http://") or filename.startswith("https://"):
+        # download file
+        import requests, os, datetime
+        response = requests.get(filename, allow_redirects=True)
+        if response.status_code != 200:
+            raise RuntimeError(f"Failed to download USD file. Status code: {response.status_code}")
+        file = response.content
+        dot = os.path.extsep
+        base = os.path.basename(filename)
+        url_folder = os.path.dirname(filename)
+        base_name = dot.join(base.split(dot)[:-1])
+        timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+        folder_name = os.path.join(".usd_cache", f"{base_name}_{timestamp}")
+        os.makedirs(folder_name, exist_ok=True)
+        target_filename = os.path.join(folder_name, base)
+        with open(target_filename, "wb") as f:
+            f.write(file)
+        
+        stage = Usd.Stage.Open(target_filename, Usd.Stage.LoadNone)
+        stage_str = stage.GetRootLayer().ExportToString()
+        # with open(os.path.join(folder_name, base_name + ".usda"), "w") as f:
+        #     f.write(stage_str)
+        print(f"Downloaded USD file to {target_filename}.")
+
+        # parse referenced USD files like `references = @./franka_collisions.usd@`
+        downloaded = set()
+        for match in re.finditer(r"references.=.@(.*?)@", stage_str):
+            refname = match.group(1)
+            if refname.startswith("./"):
+                refname = refname[2:]
+            if refname in downloaded:
+                continue
+            try:
+                response = requests.get(f"{url_folder}/{refname}", allow_redirects=True)
+                if response.status_code != 200:
+                    print(f"Failed to download reference {refname}. Status code: {response.status_code}")
+                    continue
+                file = response.content
+                refdir = os.path.dirname(refname)
+                if refdir:
+                    os.makedirs(os.path.join(folder_name, refdir), exist_ok=True)
+                with open(os.path.join(folder_name, refname), "wb") as f:
+                    f.write(file)
+                downloaded.add(refname)
+                print(f"Downloaded USD reference {refname} to {os.path.join(folder_name, refname)}.")
+            except:
+                print(f"Failed to download {refname}.")
+
+        filename = target_filename
     
     def get_attribute(prim, name):
         if "*" in name:
@@ -276,9 +327,9 @@ def parse_usd(
             if g_mag.HasAuthoredValue() and np.isfinite(g_mag.Get()):
                 builder.gravity = g_mag.Get() * linear_unit
             if g_vec.HasAuthoredValue() and np.linalg.norm(g_vec.Get()) > 0.0:
-                builder.upvector = np.array(g_vec.Get())  # TODO flip sign?
+                builder.up_vector = np.array(g_vec.Get())  # TODO flip sign?
             else:
-                builder.upvector = upaxis
+                builder.up_vector = upaxis
 
     def parse_prim(prim, incoming_xform, incoming_scale, incoming_schemas=[]):
         nonlocal builder
@@ -291,6 +342,9 @@ def parse_usd(
         nonlocal no_collision_shapes
 
         path = str(prim.GetPath())
+        for pattern in ignore_paths:
+            if re.match(pattern, path):
+                return
         type_name = str(prim.GetTypeName())
         schemas = set(prim.GetAppliedSchemas() + list(incoming_schemas))
         if verbose:
@@ -481,7 +535,7 @@ def parse_usd(
                 shape_id = builder.add_shape_box(
                     body_id, geo_tf.p, geo_tf.q,
                     hx=extents[0]/2, hy=extents[1]/2, hz=extents[2]/2,
-                    density=density, contact_thickness=default_contact_thickness,
+                    density=density, thickness=default_thickness,
                     **shape_params)
             elif type_name == "Sphere":
                 if not (scale[0] == scale[1] == scale[2]):
@@ -514,23 +568,37 @@ def parse_usd(
                 shape_id = builder.add_shape_plane(
                     body=body_id, pos=geo_tf.p, rot=geo_rot,
                     width=width, length=length,
-                    contact_thickness=default_contact_thickness,
+                    thickness=default_thickness,
                     **shape_params)
             elif type_name == "Capsule":
-                normal_str = parse_generic(prim, "axis", "Z").upper()
-                geo_rot = geo_tf.q
-                if normal_str != "X":
-                    normal = str2axis(normal_str)
-                    c = np.cross(normal, (1.0, 0.0, 0.0))
-                    angle = np.arcsin(np.linalg.norm(c))
-                    axis = c / np.linalg.norm(c)
-                    geo_rot = wp.quat_from_axis_angle(axis, angle)
+                axis_str = parse_generic(prim, "axis", "Z").upper()
                 radius = parse_float(prim, "radius", 0.5) * scale[0]
-                length = parse_float(prim, "height", 2.0) / 2 * scale[1]
+                half_height = parse_float(prim, "height", 2.0) / 2 * scale[1]
                 assert not prim.HasAttribute("extents"), "Capsule extents are not supported."
                 shape_id = builder.add_shape_capsule(
-                    body_id, geo_tf.p, geo_rot,
-                    radius, length, density=density,
+                    body_id, geo_tf.p, geo_tf.q,
+                    radius, half_height, density=density,
+                    up_axis="XYZ".index(axis_str),
+                    **shape_params)
+            elif type_name == "Cylinder":
+                axis_str = parse_generic(prim, "axis", "Z").upper()
+                radius = parse_float(prim, "radius", 0.5) * scale[0]
+                half_height = parse_float(prim, "height", 2.0) / 2 * scale[1]
+                assert not prim.HasAttribute("extents"), "Cylinder extents are not supported."
+                shape_id = builder.add_shape_cylinder(
+                    body_id, geo_tf.p, geo_tf.q,
+                    radius, half_height, density=density,
+                    up_axis="XYZ".index(axis_str),
+                    **shape_params)
+            elif type_name == "Cone":
+                axis_str = parse_generic(prim, "axis", "Z").upper()
+                radius = parse_float(prim, "radius", 0.5) * scale[0]
+                half_height = parse_float(prim, "height", 2.0) / 2 * scale[1]
+                assert not prim.HasAttribute("extents"), "Cone extents are not supported."
+                shape_id = builder.add_shape_cone(
+                    body_id, geo_tf.p, geo_tf.q,
+                    radius, half_height, density=density,
+                    up_axis="XYZ".index(axis_str),
                     **shape_params)
             elif type_name == "Mesh":
                 mesh = UsdGeom.Mesh(prim)
@@ -552,7 +620,7 @@ def parse_usd(
                 m = wp.sim.Mesh(points, np.array(faces).flatten())
                 shape_id = builder.add_shape_mesh(
                     body_id, geo_tf.p, geo_tf.q,
-                    scale=scale, mesh=m, density=density, contact_thickness=default_contact_thickness,
+                    scale=scale, mesh=m, density=density, thickness=default_thickness,
                     **shape_params)
             else:
                 print(f"Warning: Unsupported geometry type {type_name} at {path}.")
@@ -621,9 +689,9 @@ def parse_usd(
             if other_shape_id != shape_id:
                 builder.shape_collision_filter_pairs.add((shape_id, other_shape_id))
 
-    # return timing parameters
+    # return stage parameters
     return {
         "fps": stage.GetFramesPerSecond(),
         "duration": stage.GetEndTimeCode() - stage.GetStartTimeCode(),
-        "upaxis": UsdGeom.GetStageUpAxis(stage).lower()
+        "up_axis": UsdGeom.GetStageUpAxis(stage).lower()
     }
