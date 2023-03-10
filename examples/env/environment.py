@@ -202,7 +202,7 @@ class Environment:
                 upaxis=self.up_axis,
                 **self.tiny_render_settings)
         elif self.render_mode == RenderMode.USD:
-            filename = os.path.join(os.path.dirname(__file__), "outputs", self.sim_name + ".usd")
+            filename = os.path.join(os.path.dirname(__file__), "..", "outputs", self.sim_name + ".usd")
             self.renderer = wp.sim.render.SimRendererUsd(
                 self.model,
                 filename,
