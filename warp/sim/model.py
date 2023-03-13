@@ -48,8 +48,6 @@ JOINT_COMPOUND = wp.constant(5)
 JOINT_UNIVERSAL = wp.constant(6)
 JOINT_DISTANCE = wp.constant(7)
 JOINT_D6 = wp.constant(8)
-JOINT_REVOLUTE_SPRING = wp.constant(9)
-JOINT_REVOLUTE_TIGHT = wp.constant(10)
 
 # joint mode types
 JOINT_MODE_LIMIT = wp.constant(0)
@@ -1272,9 +1270,7 @@ class ModelBuilder:
         if joint_type == JOINT_PRISMATIC:
             dof_count = 1
             coord_count = 1
-        elif (joint_type == JOINT_REVOLUTE
-                or joint_type == JOINT_REVOLUTE_SPRING
-                or joint_type == JOINT_REVOLUTE_TIGHT):
+        elif joint_type == JOINT_REVOLUTE:
             dof_count = 1
             coord_count = 1
         elif joint_type == JOINT_BALL:

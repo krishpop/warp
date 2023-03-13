@@ -121,8 +121,8 @@ class Environment:
         self.sim_dt = self.frame_dt / self.sim_substeps
         self.sim_steps = int(self.episode_duration / self.sim_dt)
 
-        sim_time = 0.0
-        render_time = 0.0
+        self.sim_time = 0.0
+        self.render_time = 0.0
 
         builder = wp.sim.ModelBuilder()
         try:
@@ -158,26 +158,6 @@ class Environment:
         elif self.integrator_type == IntegratorType.XPBD:
             self.integrator = wp.sim.XPBDIntegrator(**self.xpbd_settings)
 
-        self.renderer = None
-        if self.render_mode == RenderMode.TINY:
-            self.renderer = wp.sim.tiny_render.TinyRenderer(
-                self.model,
-                self.sim_name,
-                upaxis=self.upaxis,
-                env_offset=self.env_offset,
-                **self.tiny_render_settings,
-            )
-        elif self.render_mode == RenderMode.USD:
-            import warp.sim.render
-            import os
-
-            filename = os.path.join(
-                os.path.dirname(__file__), "outputs", self.sim_name + ".usd"
-            )
-            self.renderer = wp.sim.render.SimRenderer(
-                self.model, filename, **self.usd_render_settings
-            )
-
     def create_articulation(self, builder):
         raise NotImplementedError
 
@@ -211,7 +191,7 @@ class Environment:
             self.renderer.render(self.state)
             self.renderer.end_frame()
 
-            if self.render_mode == RenderMode.TINY:
+            if self.render_mode == RenderMode.TINY and self.renderer.start_paused:
                 self.renderer.paused = True
 
         profiler = {}

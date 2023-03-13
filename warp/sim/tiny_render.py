@@ -7,8 +7,10 @@
 
 import math
 import sys
+import os
 
 import warp as wp
+import pytinyopengl3 as p
 import warp.sim
 
 from collections import defaultdict
@@ -84,29 +86,35 @@ def update_vbo(
     vbo_orientations[tid] = q
 
 class TinyRenderer:
-    
     def __init__(
         self,
         model: warp.sim.Model,
         title="Warp sim",
         scaling=1.0,
-        fps=60,
+        fps=30,
         upaxis="y",
         env_offset=(5.0, 0.0, 5.0),
         suppress_keyboard_help=False,
-        start_paused=False):
-
-        try:
-            import pytinyopengl3 as p
-        except ImportError:
-            print("pytinyopengl3 not found, it can be installed via `pip install pytinydiffsim`")
-            raise
+        start_paused=False,
+        width=600,
+        height=500,
+        mode="rgb"
+        ):
 
         self.paused = False
         self.skip_rendering = False
         self._skip_frame_counter = 0
-
-        self.app = p.TinyOpenGL3App(title)
+        cudart_path = os.environ.get("LIB_CUDART_PATH")
+        cuda_path = os.environ.get("LIB_CUDA_PATH")
+        if cuda_path:
+            p.set_cuda_path(cuda_path)
+        if cudart_path:
+            p.set_cudart_path(cudart_path)
+        self.height = height
+        self.width = width
+        self.mode = mode
+        self.app = p.TinyOpenGL3App(title, width=self.width, height=self.height, windowType=2)
+        # self.app.set_mp4_fps(fps)
         self.app.renderer.init()
         def keypress(key, pressed):
             if not pressed:
@@ -452,9 +460,10 @@ class TinyRenderer:
             sys.exit(0)
 
     def end_frame(self):
-        self.update()
+        return self.update()
 
     def update(self):
+        img = None
         self._skip_frame_counter += 1
         if self._skip_frame_counter > 100:
             self._skip_frame_counter = 0
@@ -462,10 +471,14 @@ class TinyRenderer:
             if self._skip_frame_counter == 0:
                 # ensure we receive key events
                 self.app.swap_buffer()
-            return
+            return img
         self.app.renderer.update_camera(self.cam_axis)
-        self.app.renderer.render_scene()
+        if self.mode == "rgb":
+            img = self.get_pixel_buffer()
+        else:
+            self.app.renderer.render_scene()
         self.app.swap_buffer()
+        return img
 
     def save(self):
         while not self.app.window.requested_exit():
@@ -484,3 +497,16 @@ class TinyRenderer:
         pixels[half_w:width, 0:half_h] = color2
         pixels[0:half_w, half_h:height] = color2
         return self.app.renderer.register_texture(pixels.flatten().tolist(), width, height, False)
+
+    def write_to_video(self, video_path=None):
+        self.app.dump_frames_to_video(video_path)
+
+    def get_pixel_buffer(self):
+        self.app.renderer.render_scene()
+        pixels = p.ReadPixelBuffer(self.app)
+        img = np.reshape(pixels.rgba, (self.height, self.width, 4))
+        img = img / 255.
+        img = np.flipud(img)
+        return img
+
+

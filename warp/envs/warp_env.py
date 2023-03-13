@@ -8,14 +8,29 @@ from dmanip.utils import warp_utils as wpu
 import warp.torch
 import warp.sim
 import warp.sim.render
-from warp.envs import RenderMode
+from warp.envs.environment import Environment, RenderMode, IntegratorType
 
 
-class WarpEnv():
+class WarpEnv(Environment):
     dt = 1.0 / 60.0
     sim_substeps = 4
     sim_dt = dt
-    capture_graph = False
+    env_offset = (6.0, 0.0, 6.0)
+    tiny_render_settings = dict(scaling=3.0, mode='rgb')
+    usd_render_settings = dict(scaling=100.0)
+    use_graph_capture = False
+
+    sim_substeps_euler = 32
+    sim_substeps_xpbd = 5
+
+    xpbd_settings = dict(
+        iterations=2,
+        joint_linear_relaxation=0.7,
+        joint_angular_relaxation=0.5,
+        rigid_contact_relaxation=1.0,
+        rigid_contact_con_weighting=True,
+    )
+    activate_ground_plane: bool = True
 
     def __init__(
         self,
@@ -29,7 +44,8 @@ class WarpEnv():
         stochastic_init=False,
         device="cuda",
         env_name="warp_env",
-        render_mode=RenderMode.USD
+        render_mode=RenderMode.USD,
+        stage_path=None
     ):
         self.seed = seed
         self.requires_grad = not no_grad
@@ -37,12 +53,26 @@ class WarpEnv():
         self.visualize = render
         self.render_mode = render_mode
         self.stochastic_init = stochastic_init
+
         print("Running with stochastic_init: ", self.stochastic_init)
         self.sim_time = 0.0
         self.num_frames = 0
 
+
         self.num_environments = num_envs
         self.env_name = env_name
+        
+        if stage_path is None:
+            self.stage_path = f'{self.env_name}_{self.num_envs}'
+        else:
+            self.stage_path = stage_path
+
+        if self.render_mode == RenderMode.TINY and stage_path:
+            self.tiny_render_settings['mode'] = "video"
+        elif self.render_mode == RenderMode.USD:
+            self.usd_render_settings['path'] = f"outputs/{stage_path}.usd"
+
+
 
         # initialize observation and action space
         self.num_observations = num_obs
@@ -122,20 +152,28 @@ class WarpEnv():
     def num_obs(self):
         return self.num_observations
 
-    def initialize_renderer(self, stage_path):
+    def init_sim(self):
+        self.init()
+        self.initialize_renderer()
+        self.state_0 = self.model.state(requires_grad=self.requires_grad)
+        self.state_1 = self.model.state(requires_grad=self.requires_grad)
+        # self.initialize_renderer()
+
+    def initialize_renderer(self):
+        print("Initializing renderer writing to path: outputs/{}".format(self.stage_path))
         if self.render_mode == RenderMode.USD:
-            print("Initializing renderer with stage path", stage_path)
-            if stage_path is None:
-                stage_path = f"outputs/{self.env_name}_{self.num_envs}.usd"
-            self.renderer = wp.sim.render.SimRenderer(self.model, stage_path, scaling=100.0)
+            self.renderer = wp.sim.render.SimRenderer(
+                self.model, **self.usd_render_settings
+            )
             self.renderer.draw_points = True
             self.renderer.draw_springs = True
         elif self.render_mode == RenderMode.TINY:
             self.renderer = wp.sim.tiny_render.TinyRenderer(
                 self.model,
-                self.sim_name,
+                self.env_name,  # window name
                 upaxis=self.upaxis,
-                env_offset=self.env_offset)
+                env_offset=self.env_offset,
+                **self.tiny_render_settings)
 
         self.render_time = 0.0
         self.render_freq = 10
@@ -241,12 +279,25 @@ class WarpEnv():
 
     def render(self, mode="human"):
         if self.visualize:
-            self.render_time += self.dt
-            self.renderer.begin_frame(self.render_time)
-            self.renderer.render(self.state_0)
-            self.renderer.end_frame()
-            if self.num_frames % self.render_freq == 0:
-                self.renderer.save()
+            img = None
+            if self.render_mode is RenderMode.USD:
+                self.render_time += self.dt
+                self.renderer.begin_frame(self.render_time)
+                self.renderer.render(self.state_0)
+                self.renderer.end_frame()
+                if self.num_frames % self.render_freq == 0:
+                    self.renderer.save()
+            elif self.render_mode is RenderMode.TINY:
+                self.renderer.begin_frame(self.render_time)
+                self.renderer.render(self.state_0)
+                if mode == "rgb_array" or self.renderer.mode == 'rgb':
+                    img = self.renderer.end_frame()
+                else:
+                    if self.renderer.mode == 'video':
+                        video_path = f"outputs/{self.stage_path}.mp4"
+                        self.renderer.write_to_video(video_path)
+                    self.renderer.end_frame()
+                return img if img is None else np.asarray(img)
 
     def get_checkpoint(self, save_path=None):
         checkpoint = {}
@@ -282,4 +333,8 @@ class WarpEnv():
         self.progress_buf = checkpoint_data["progress_buf"].clone()[: self.num_envs]
         self.num_frames = self.progress_buf[0].item()
 
+    def initialize_trajectory(self):
+        self.clear_grad()
+        self.calculateObservations()
+        return self.obs_buf
 
