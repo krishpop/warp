@@ -341,8 +341,6 @@ def parse_usd(
         nonlocal path_collision_filters
         nonlocal no_collision_shapes
 
-        import open3d as o3d
-
         path = str(prim.GetPath())
         for pattern in ignore_paths:
             if re.match(pattern, path):
@@ -361,10 +359,9 @@ def parse_usd(
 
         xform, scale = parse_xform(prim)
         scale = incoming_scale*scale
-        # xform = wp.mul(incoming_xform, xform)
         prim_poses[path] = xform
         
-        geo_tf = wp.transform_identity()
+        geo_tf = xform
         body_id = parent_body
         if "PhysicsRigidBodyAPI" in schemas:
             body_id = builder.add_body(
@@ -617,36 +614,8 @@ def parse_usd(
                     name=joint["name"],
                     enabled=joint["enabled"],
                     parent_xform=joint["parent_tf"],
-                    # parent_xform=wp.transform_inverse(joint["parent_tf"]),
-                    # parent_xform=wp.transform(joint["parent_tf"].p, wp.quat_inverse(q_p)),
-                    # parent_xform=wp.transform(joint["parent_tf"].p, wp.quat_inverse(wp.mul((q_p), q_c))),
-                    # parent_xform=wp.transform(joint["parent_tf"].p, wp.quat_inverse(q_c)),
-                    # parent_xform=wp.transform(joint["parent_tf"].p, q_c),
-                    # parent_xform=wp.transform(joint["parent_tf"].p, wp.quat()),
-                    # parent_xform=wp.transform((0.0, 0.0, 0.0), wp.mul(q_p, wp.quat_inverse(q_c))),
                     child_xform=joint["child_tf"]
                     # child_xform=wp.transform_inverse(joint["child_tf"])
-                    # child_xform=wp.transform(joint["child_tf"].p, (wp.mul(wp.quat_inverse(q_p), wp.quat_inverse(q_c))))
-                    # child_xform=wp.transform(joint["child_tf"].p, (wp.mul(wp.quat_inverse(q_c), wp.quat_inverse(q_p))))
-                    # child_xform=wp.transform(joint["child_tf"].p, q_p)
-                    # child_xform=wp.transform(joint["child_tf"].p, wp.quat_inverse(wp.mul((q_p), (q_c))))
-                    # child_xform=wp.transform(joint["child_tf"].p, wp.quat_inverse(q_c))
-                    # child_xform=wp.transform(joint["child_tf"].p, wp.quat_inverse(wp.mul((q_p), q_c)))
-                    # child_xform=wp.transform(joint["child_tf"].p, wp.quat_inverse(wp.mul((q_c), q_p)))
-                    # child_xform=wp.transform(joint["child_tf"].p, wp.mul((q_c), q_p))
-                    # child_xform=wp.transform(joint["child_tf"].p, wp.mul((q_c), wp.quat_inverse(q_p)))
-                    # child_xform=wp.transform(joint["child_tf"].p, wp.mul(wp.quat_inverse(q_c), (q_p)))
-                    # child_xform=wp.transform(joint["child_tf"].p, wp.mul(wp.quat_inverse(q_p), (q_c)))
-                    # child_xform=wp.transform(joint["child_tf"].p, wp.mul((q_p), q_c))
-                    # child_xform=wp.transform(joint["child_tf"].p, wp.mul(wp.quat_inverse(wp.mul(wp.quat_inverse(q_p), wp.quat_inverse(q_c))), q_c))
-                    # child_xform=wp.transform((0.0, 0.0, 0.0), joint["child_tf"].q)
-                    # child_xform=wp.transform((0.0, 0.0, 0.0), wp.mul(q_p, q_c))
-                    # child_xform=wp.transform((0.0, 0.0, 0.0), wp.mul(q_c, q_p))
-                    # child_xform=wp.transform((0.0, 0.0, 0.0), wp.mul(wp.quat_inverse(q_c), q_p))
-                    # child_xform=wp.transform((0.0, 0.0, 0.0), wp.mul(wp.quat_inverse(q_p), q_c))
-                    # child_xform=wp.transform((0.0, 0.0, 0.0), wp.mul(q_p, wp.quat_inverse(q_c))),
-                    # child_xform=wp.transform((0.0, 0.0, 0.0), wp.quat_inverse(wp.mul(q_p, wp.quat_inverse(q_c)))),
-                    # child_xform=wp.transform((0.0, 0.0, 0.0), wp.quat_inverse(wp.mul(q_p, q_c))),
                 )
                 print("Adding joint", joint["name"])
                 print("  parent_xform", joint["parent_tf"])
