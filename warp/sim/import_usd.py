@@ -331,7 +331,7 @@ def parse_usd(
             else:
                 builder.up_vector = upaxis
 
-    def parse_prim(prim, incoming_xform, incoming_scale, incoming_schemas=[]):
+    def parse_prim(prim, incoming_xform, incoming_scale, parent_body: int = -1):
         nonlocal builder
         nonlocal joint_data
         nonlocal path_body_map
@@ -341,38 +341,61 @@ def parse_usd(
         nonlocal path_collision_filters
         nonlocal no_collision_shapes
 
+        import open3d as o3d
+
         path = str(prim.GetPath())
         for pattern in ignore_paths:
             if re.match(pattern, path):
                 return
+
         type_name = str(prim.GetTypeName())
-        schemas = set(prim.GetAppliedSchemas() + list(incoming_schemas))
-        if verbose:
-            print(path, type_name)
+        if type_name.endswith("Joint") or type_name.endswith("Material"):
+            return
+
+        schemas = set(prim.GetAppliedSchemas())
+        # if verbose:
+        #     print(path, type_name)
         children_refs = prim.GetChildren()
 
         prim_joint_xforms[path] = wp.transform_identity()
+
+        xform, scale = parse_xform(prim)
+        scale = incoming_scale*scale
+        # xform = wp.mul(incoming_xform, xform)
+        prim_poses[path] = xform
+        
+        geo_tf = wp.transform_identity()
+        body_id = parent_body
+        if "PhysicsRigidBodyAPI" in schemas:
+            body_id = builder.add_body(
+                origin=xform,
+                # origin=wp.transform_identity(),
+                name=prim.GetName(),
+            )
+            path_body_map[path] = body_id
+
+            parent_body = body_id
+        # else:
+        #     parent_body = -1
+        print(f"added {type_name} body {body_id} ({path}) at {xform}")
         
         if type_name == "Xform":
             xform, scale = parse_xform(prim)
-            xform = wp.mul(incoming_xform, xform)
+            # xform = wp.mul(incoming_xform, xform)
             prim_poses[path] = xform
             # TODO support instancing of shapes in Warp.sim
             if prim.IsInstance():
                 proto = prim.GetPrototype()
                 for child in proto.GetChildren():
-                    parse_prim(child, xform, incoming_scale*scale, schemas)
+                    parse_prim(child, xform, incoming_scale*scale, parent_body)
             else:
                 for child in children_refs:
-                    parse_prim(child, xform, incoming_scale*scale, schemas)
+                    parse_prim(child, xform, incoming_scale*scale, parent_body)
         elif type_name == "Scope":
             for child in children_refs:
-                parse_prim(child, incoming_xform, incoming_scale, schemas)
+                parse_prim(child, incoming_xform, incoming_scale, parent_body)
         elif type_name in shape_types:
-            if path in joint_data:
-                joint = joint_data[path]
-            else:
-                joint = None
+            
 
             shape_params = dict(
                 ke=default_ke, kd=default_kd, kf=default_kf, mu=default_mu,
@@ -409,115 +432,13 @@ def parse_usd(
                 density = 0.0  # static object
             if density is None:
                 density = default_density
+
+            # TODO fix
+            density = default_density
+
             com = parse_vec(prim, "physics:centerOfMass", np.zeros(3))
             i_diag = parse_vec(prim, "physics:diagonalInertia", np.zeros(3))
             i_rot = parse_quat(prim, "physics:principalAxes", wp.quat_identity())
-
-            xform, scale = parse_xform(prim)
-            scale = incoming_scale*scale
-            xform = wp.mul(incoming_xform, xform)
-            prim_poses[path] = xform
-            
-            geo_tf = wp.transform_identity()
-
-            body_id = builder.add_body(
-                com=com,
-                origin=xform,
-                name=prim.GetName(),
-            )
-            print("added body", body_id, "at", xform)
-
-            if joint is not None:
-                joint_params = dict(
-                    child=body_id,
-                    linear_axes=joint["linear_axes"],
-                    angular_axes=joint["angular_axes"],
-                    name=joint["name"],
-                    enabled=joint["enabled"],
-                    parent_xform=joint["parent_tf"],
-                    child_xform=joint["child_tf"]
-                )
-                print("parent_xform", joint["parent_tf"])
-                print("child_xform ", joint["child_tf"])
-                if joint["type"] == "Revolute":
-                    joint_params["joint_type"] = wp.sim.JOINT_REVOLUTE
-                    if len(joint_params["angular_axes"]) == 0:
-                        joint_params["angular_axes"].append(
-                            wp.sim.JointAxis(
-                                joint["axis"],
-                                limit_lower=joint["lowerLimit"],
-                                limit_upper=joint["upperLimit"],
-                                limit_ke=joint_limit_ke,
-                                limit_kd=joint_limit_kd))
-                elif joint["type"] == "Prismatic":
-                    joint_params["joint_type"] = wp.sim.JOINT_PRISMATIC
-                    if len(joint_params["linear_axes"]) == 0:
-                        joint_params["linear_axes"].append(
-                            wp.sim.JointAxis(
-                                joint["axis"],
-                                limit_lower=joint["lowerLimit"],
-                                limit_upper=joint["upperLimit"],
-                                limit_ke=joint_limit_ke,
-                                limit_kd=joint_limit_kd))
-                elif joint["type"] == "Spherical":
-                    joint_params["joint_type"] = wp.sim.JOINT_BALL
-                elif joint["type"] == "Fixed":
-                    joint_params["joint_type"] = wp.sim.JOINT_FIXED
-                elif joint["type"] == "Distance":
-                    joint_params["joint_type"] = wp.sim.JOINT_DISTANCE
-                    # we have to add a dummy linear X axis to define the joint limits
-                    joint_params["linear_axes"].append(
-                        wp.sim.JointAxis(
-                            (1.0, 0.0, 0.0),
-                            limit_lower=joint["lowerLimit"],
-                            limit_upper=joint["upperLimit"],
-                            limit_ke=joint_limit_ke,
-                            limit_kd=joint_limit_kd))
-                elif joint["type"] == "":
-                    joint_params["joint_type"] = wp.sim.JOINT_D6
-                else:
-                    print(f"Warning: unsupported joint type {joint['type']} for {path}")
-                # joint_params["joint_axis"] = joint["axis"]
-                # joint_params["joint_limit_lower"] = joint["lowerLimit"]
-                # joint_params["joint_limit_upper"] = joint["upperLimit"]
-
-                # joint_params["joint_xform"] = joint["parent_tf"]
-                if joint["parent"] is None:
-                    joint_params["parent"] = -1
-                    rel_pose = wp.transform_identity()
-                else:
-                    joint_params["parent"] = path_body_map[joint["parent"]]
-                    X_wp = prim_poses[joint["parent"]]
-                    X_wc = xform
-                    # TODO compute rel_pose from body_q of parent and child while incorporating child_xform
-                    rel_pose = wp.transform_inverse(X_wp) * X_wc
-                    joint_params["parent_xform"] *= prim_joint_xforms[joint["parent"]]
-                # joint_params["joint_xform"] = rel_pose
-                # joint_params["joint_xform"] = wp.mul(joint["parent_tf"], joint["child_tf"])
-                # joint_params["joint_xform_child"] = wp.transform_inverse(joint["child_tf"])
-                # joint_params["joint_xform_child"] = wp.transform(-np.array(joint["child_tf"].p), joint["child_tf"].q)
-                # joint_params["joint_xform_child"] = joint["child_tf"]
-                # XXX apply child transform to shape since joint_xform_child is reserved for multi-dof joints
-                # geo_tf = joint["child_tf"]
-                # geo_tf = rel_pose * joint["child_tf"]
-                # update relative transform for child prims
-                prim_joint_xforms[path] = geo_tf
-                # geo_tf = wp.transform(-np.array(joint["child_tf"].p), joint["child_tf"].q)
-                builder.add_joint(**joint_params)
-            is_static = False
-            if "PhysicsRigidBodyAPI" not in schemas:
-                is_static = True
-                density = 0.0
-                builder.body_q[-1] = xform
-            if joint is None and "PhysicsRigidBodyAPI" in schemas:
-                builder.add_joint_free(child=body_id)
-                # free joint; we set joint_q/qd, not body_q/qd since eval_fk is used after model creation
-                builder.joint_q[-4:] = xform.q
-                builder.joint_q[-7:-4] = xform.p
-                linear_vel = parse_vec(prim, "physics:velocity", np.zeros(3)) * linear_unit
-                angular_vel = parse_vec(prim, "physics:angularVelocity", np.zeros(3)) * linear_unit
-                builder.joint_qd[-6:-3] = angular_vel
-                builder.joint_qd[-3:] = linear_vel
 
             if prim.HasAttribute("doubleSided") and not prim.GetAttribute("doubleSided").Get():
                 print(f"Warning: treating {path} as double-sided because single-sided collisions are not supported.")
@@ -622,16 +543,22 @@ def parse_usd(
                     body_id, geo_tf.p, geo_tf.q,
                     scale=scale, mesh=m, density=density, thickness=default_thickness,
                     **shape_params)
+                
+                # # visualize mesh in o3d
+                # import open3d as o3d
+                # # create o3d mesh
+                # o3d_mesh = o3d.geometry.TriangleMesh()
+                # o3d_mesh.vertices = o3d.utility.Vector3dVector(points)
+                # o3d_mesh.triangles = o3d.utility.Vector3iVector(faces)
+                # o3d_mesh.compute_vertex_normals()
+                # o3d_mesh.compute_triangle_normals()           
+                # o3d.visualization.draw_geometries([o3d_mesh], window_name=builder.body_name[body_id])
             else:
                 print(f"Warning: Unsupported geometry type {type_name} at {path}.")
                 return
 
             path_body_map[path] = body_id
             path_shape_map[path] = shape_id
-            com = parse_vec(prim, "physics:centerOfMass")
-            if com is not None:
-                # overwrite COM
-                builder.body_com[body_id] = com * scale
 
             if prim.HasRelationship("physics:filteredPairs"):
                 other_paths = prim.GetRelationship("physics:filteredPairs").GetTargets()
@@ -641,34 +568,171 @@ def parse_usd(
             if "PhysicsCollisionAPI" not in schemas:
                 no_collision_shapes.add(shape_id)
 
-            if mass is not None and not ("PhysicsRigidBodyAPI" in schemas and mass == 0.0):
-                mass_ratio = mass / builder.body_mass[body_id]
-                # mass has precedence over density, so we overwrite the mass computed from density
-                builder.body_mass[body_id] = mass * mass_unit
-                if mass > 0.0:
-                    builder.body_inv_mass[body_id] = 1.0 / builder.body_mass[body_id]
-                else:
-                    builder.body_inv_mass[body_id] = 0.0
-                # update inertia
-                builder.body_inertia[body_id] *= mass_ratio
-                if builder.body_inertia[body_id].any():
-                    builder.body_inv_inertia[body_id] = np.linalg.inv(builder.body_inertia[body_id])
-                else:
-                    builder.body_inv_inertia[body_id] = np.zeros((3, 3))
+            if body_id >= 0:
+                com = parse_vec(prim, "physics:centerOfMass")
+                if com is not None:
+                    # overwrite COM
+                    builder.body_com[body_id] = com * scale
+                # if mass is not None and not ("PhysicsRigidBodyAPI" in schemas and mass == 0.0):
+                #     mass_ratio = mass / builder.body_mass[body_id]
+                #     # mass has precedence over density, so we overwrite the mass computed from density
+                #     builder.body_mass[body_id] = mass * mass_unit
+                #     if mass > 0.0:
+                #         builder.body_inv_mass[body_id] = 1.0 / builder.body_mass[body_id]
+                #     else:
+                #         builder.body_inv_mass[body_id] = 0.0
+                #     # update inertia
+                #     builder.body_inertia[body_id] *= mass_ratio
+                #     if builder.body_inertia[body_id].any():
+                #         builder.body_inv_inertia[body_id] = np.linalg.inv(builder.body_inertia[body_id])
+                #     else:
+                #         builder.body_inv_inertia[body_id] = np.zeros((3, 3))
 
-            if np.linalg.norm(i_diag) > 0.0:
-                rot = np.array(wp.quat_to_matrix(i_rot)).reshape(3, 3)
-                inertia = rot @ np.diag(i_diag) @ rot.T
-                builder.body_inertia[body_id] = inertia
-                if inertia.any():
-                    builder.body_inv_inertia[body_id] = np.linalg.inv(inertia)
-                else:
-                    builder.body_inv_inertia[body_id] = np.zeros((3, 3))
+                # if np.linalg.norm(i_diag) > 0.0:
+                #     rot = np.array(wp.quat_to_matrix(i_rot)).reshape(3, 3)
+                #     inertia = rot @ np.diag(i_diag) @ rot.T
+                #     builder.body_inertia[body_id] = inertia
+                #     if inertia.any():
+                #         builder.body_inv_inertia[body_id] = np.linalg.inv(inertia)
+                #     else:
+                #         builder.body_inv_inertia[body_id] = np.zeros((3, 3))
 
         elif type_name.endswith("Joint") or type_name.endswith("Light") or type_name.endswith("Scene") or type_name.endswith("Material"):
             return
         else:
             print(f"Warning: encountered unsupported prim type {type_name}")
+
+        # set up joints between rigid bodies after the children have been added
+        if "PhysicsRigidBodyAPI" in schemas:
+            if path in joint_data:
+                joint = joint_data[path]
+
+                q_p = wp.quat(*joint["parent_tf"].q)
+                q_c = wp.quat(*joint["child_tf"].q)
+                
+                joint_params = dict(
+                    child=body_id,
+                    linear_axes=joint["linear_axes"],
+                    angular_axes=joint["angular_axes"],
+                    name=joint["name"],
+                    enabled=joint["enabled"],
+                    parent_xform=joint["parent_tf"],
+                    # parent_xform=wp.transform_inverse(joint["parent_tf"]),
+                    # parent_xform=wp.transform(joint["parent_tf"].p, wp.quat_inverse(q_p)),
+                    # parent_xform=wp.transform(joint["parent_tf"].p, wp.quat_inverse(wp.mul((q_p), q_c))),
+                    # parent_xform=wp.transform(joint["parent_tf"].p, wp.quat_inverse(q_c)),
+                    # parent_xform=wp.transform(joint["parent_tf"].p, q_c),
+                    # parent_xform=wp.transform(joint["parent_tf"].p, wp.quat()),
+                    # parent_xform=wp.transform((0.0, 0.0, 0.0), wp.mul(q_p, wp.quat_inverse(q_c))),
+                    child_xform=joint["child_tf"]
+                    # child_xform=wp.transform_inverse(joint["child_tf"])
+                    # child_xform=wp.transform(joint["child_tf"].p, (wp.mul(wp.quat_inverse(q_p), wp.quat_inverse(q_c))))
+                    # child_xform=wp.transform(joint["child_tf"].p, (wp.mul(wp.quat_inverse(q_c), wp.quat_inverse(q_p))))
+                    # child_xform=wp.transform(joint["child_tf"].p, q_p)
+                    # child_xform=wp.transform(joint["child_tf"].p, wp.quat_inverse(wp.mul((q_p), (q_c))))
+                    # child_xform=wp.transform(joint["child_tf"].p, wp.quat_inverse(q_c))
+                    # child_xform=wp.transform(joint["child_tf"].p, wp.quat_inverse(wp.mul((q_p), q_c)))
+                    # child_xform=wp.transform(joint["child_tf"].p, wp.quat_inverse(wp.mul((q_c), q_p)))
+                    # child_xform=wp.transform(joint["child_tf"].p, wp.mul((q_c), q_p))
+                    # child_xform=wp.transform(joint["child_tf"].p, wp.mul((q_c), wp.quat_inverse(q_p)))
+                    # child_xform=wp.transform(joint["child_tf"].p, wp.mul(wp.quat_inverse(q_c), (q_p)))
+                    # child_xform=wp.transform(joint["child_tf"].p, wp.mul(wp.quat_inverse(q_p), (q_c)))
+                    # child_xform=wp.transform(joint["child_tf"].p, wp.mul((q_p), q_c))
+                    # child_xform=wp.transform(joint["child_tf"].p, wp.mul(wp.quat_inverse(wp.mul(wp.quat_inverse(q_p), wp.quat_inverse(q_c))), q_c))
+                    # child_xform=wp.transform((0.0, 0.0, 0.0), joint["child_tf"].q)
+                    # child_xform=wp.transform((0.0, 0.0, 0.0), wp.mul(q_p, q_c))
+                    # child_xform=wp.transform((0.0, 0.0, 0.0), wp.mul(q_c, q_p))
+                    # child_xform=wp.transform((0.0, 0.0, 0.0), wp.mul(wp.quat_inverse(q_c), q_p))
+                    # child_xform=wp.transform((0.0, 0.0, 0.0), wp.mul(wp.quat_inverse(q_p), q_c))
+                    # child_xform=wp.transform((0.0, 0.0, 0.0), wp.mul(q_p, wp.quat_inverse(q_c))),
+                    # child_xform=wp.transform((0.0, 0.0, 0.0), wp.quat_inverse(wp.mul(q_p, wp.quat_inverse(q_c)))),
+                    # child_xform=wp.transform((0.0, 0.0, 0.0), wp.quat_inverse(wp.mul(q_p, q_c))),
+                )
+                print("Adding joint", joint["name"])
+                print("  parent_xform", joint["parent_tf"])
+                print("  child_xform ", joint["child_tf"])
+                if joint["type"] == "Revolute":
+                    joint_params["joint_type"] = wp.sim.JOINT_REVOLUTE
+                    if len(joint_params["angular_axes"]) == 0:
+                        joint_params["angular_axes"].append(
+                            wp.sim.JointAxis(
+                                joint["axis"],
+                                limit_lower=joint["lowerLimit"],
+                                limit_upper=joint["upperLimit"],
+                                limit_ke=joint_limit_ke,
+                                limit_kd=joint_limit_kd))
+                elif joint["type"] == "Prismatic":
+                    joint_params["joint_type"] = wp.sim.JOINT_PRISMATIC
+                    if len(joint_params["linear_axes"]) == 0:
+                        joint_params["linear_axes"].append(
+                            wp.sim.JointAxis(
+                                joint["axis"],
+                                limit_lower=joint["lowerLimit"],
+                                limit_upper=joint["upperLimit"],
+                                limit_ke=joint_limit_ke,
+                                limit_kd=joint_limit_kd))
+                elif joint["type"] == "Spherical":
+                    joint_params["joint_type"] = wp.sim.JOINT_BALL
+                elif joint["type"] == "Fixed":
+                    joint_params["joint_type"] = wp.sim.JOINT_FIXED
+                elif joint["type"] == "Distance":
+                    joint_params["joint_type"] = wp.sim.JOINT_DISTANCE
+                    # we have to add a dummy linear X axis to define the joint limits
+                    joint_params["linear_axes"].append(
+                        wp.sim.JointAxis(
+                            (1.0, 0.0, 0.0),
+                            limit_lower=joint["lowerLimit"],
+                            limit_upper=joint["upperLimit"],
+                            limit_ke=joint_limit_ke,
+                            limit_kd=joint_limit_kd))
+                elif joint["type"] == "":
+                    joint_params["joint_type"] = wp.sim.JOINT_D6
+                else:
+                    print(f"Warning: unsupported joint type {joint['type']} for {path}")
+                # joint_params["joint_axis"] = joint["axis"]
+                # joint_params["joint_limit_lower"] = joint["lowerLimit"]
+                # joint_params["joint_limit_upper"] = joint["upperLimit"]
+
+                # joint_params["joint_xform"] = joint["parent_tf"]
+                if joint["parent"] is None:
+                    joint_params["parent"] = -1
+                    # rel_pose = wp.transform_identity()
+                else:
+                    joint_params["parent"] = path_body_map[joint["parent"]]
+                    # X_wp = prim_poses[joint["parent"]]
+                    # X_wc = xform
+                    # TODO compute rel_pose from body_q of parent and child while incorporating child_xform
+                    # rel_pose = wp.transform_inverse(X_wp) * X_wc
+                    # joint_params["parent_xform"] *= prim_joint_xforms[joint["parent"]]
+                # joint_params["joint_xform"] = rel_pose
+                # joint_params["joint_xform"] = wp.mul(joint["parent_tf"], joint["child_tf"])
+                # joint_params["joint_xform_child"] = wp.transform_inverse(joint["child_tf"])
+                # joint_params["joint_xform_child"] = wp.transform(-np.array(joint["child_tf"].p), joint["child_tf"].q)
+                # joint_params["joint_xform_child"] = joint["child_tf"]
+                # XXX apply child transform to shape since joint_xform_child is reserved for multi-dof joints
+                # geo_tf = joint["child_tf"]
+                # geo_tf = rel_pose * joint["child_tf"]
+                # update relative transform for child prims
+                # prim_joint_xforms[path] = geo_tf
+                # geo_tf = wp.transform(-np.array(joint["child_tf"].p), joint["child_tf"].q)
+                builder.add_joint(**joint_params)
+                print(f"Added joint {joint['name']} between {joint['parent']} and {path}")
+                
+            else:
+                builder.add_joint_free(child=body_id)
+                # free joint; we set joint_q/qd, not body_q/qd since eval_fk is used after model creation
+                builder.joint_q[-4:] = xform.q
+                builder.joint_q[-7:-4] = xform.p
+                linear_vel = parse_vec(prim, "physics:velocity", np.zeros(3)) * linear_unit
+                angular_vel = parse_vec(prim, "physics:angularVelocity", np.zeros(3)) * linear_unit
+                builder.joint_qd[-6:-3] = angular_vel
+                builder.joint_qd[-3:] = linear_vel
+
+            # if "PhysicsRigidBodyAPI" not in schemas:
+            #     is_static = True
+            #     density = 0.0
+            #     builder.body_q[-1] = xform
+
 
     parse_prim(
         stage.GetDefaultPrim(),
