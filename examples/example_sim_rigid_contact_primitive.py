@@ -28,7 +28,9 @@ class Demo(Environment):
     sim_name = "example_sim_contact_primitive"
     env_offset=(10.0, 0.0, 20.0)
     tiny_render_settings = dict(scaling=3.0)
-    usd_render_settings = dict(scaling=100.0)
+    usd_render_settings = dict(scaling=10.0)
+
+    episode_duration = 20.0
 
     sim_substeps_euler = 32
     sim_substeps_xpbd = 10
@@ -43,7 +45,7 @@ class Demo(Environment):
 
     separate_collision_group_per_env = True
     integrator_type = IntegratorType.XPBD
-    render_mode = RenderMode.TINY
+    render_mode = RenderMode.USD
 
     use_graph_capture = True
 
