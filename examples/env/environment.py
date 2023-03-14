@@ -74,7 +74,6 @@ class Environment:
     frame_dt = 1.0 / 60.0
 
     episode_duration = 5.0      # seconds
-    episode_frames = int(episode_duration/frame_dt)
 
     # whether to play the simulation indefinitely when using the Tiny renderer
     continuous_tiny_render: bool = True
@@ -156,6 +155,7 @@ class Environment:
         elif self.integrator_type == IntegratorType.XPBD:
             self.sim_substeps = self.sim_substeps_xpbd
 
+        self.episode_frames = int(self.episode_duration/self.frame_dt)
         self.sim_dt = self.frame_dt / self.sim_substeps
         self.sim_steps = int(self.episode_duration / self.sim_dt)
 
@@ -268,6 +268,10 @@ class Environment:
 
         self.before_simulate()
         self.update()
+
+        if self.model.body_count:
+            print(f"body count: {self.model.body_count}")
+            print(self.state.body_q.numpy())
 
         if (self.renderer is not None):
             self.render()
