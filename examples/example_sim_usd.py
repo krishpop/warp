@@ -6,24 +6,15 @@
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
 ###########################################################################
-# Example Sim Ant
+# Example Sim USD
 #
-# Shows how to set up a simulation of a rigid-body Ant articulation based on
-# the OpenAI gym environment using the wp.sim.ModelBuilder() and MCJF
-# importer. Note this example does not include a trained policy.
+# Shows how to load a USD file following the USD Physics schema.
 #
 ###########################################################################
 
 import os
-import math
-
-import numpy as np
 
 import warp as wp
-
-
-# wp.config.verify_cuda = True
-# wp.config.verify_fp = True
 
 import warp as wp
 import warp.sim
@@ -31,16 +22,13 @@ import warp.sim
 from env.environment import Environment, run_env, IntegratorType, RenderMode
 
 
-from tqdm import trange
-
-# wp.init()
-# wp.set_device("cpu")
-
 class Demo(Environment):
     sim_name = "example_sim_usd"
     env_offset=(6.0, 0.0, 6.0)
-    tiny_render_settings = dict(scaling=15.0)
-    usd_render_settings = dict(scaling=200.0)
+    tiny_render_settings = dict(scaling=10.0, draw_grid=True)
+    usd_render_settings = dict(scaling=100.0)
+
+    episode_duration = 2.0
 
     sim_substeps_euler = 64
     sim_substeps_xpbd = 8
@@ -54,10 +42,13 @@ class Demo(Environment):
         rigid_contact_con_weighting=True,
     )
 
+    # USD files define their own ground plane if necessary
     activate_ground_plane = False
     num_envs = 1
 
-    render_mode = RenderMode.USD
+    use_graph_capture = True
+
+    # render_mode = RenderMode.USD
     # integrator_type = IntegratorType.EULER
 
     plot_body_coords = False
@@ -65,14 +56,15 @@ class Demo(Environment):
     def create_articulation(self, builder):
 
         folder = os.path.join(os.path.dirname(__file__), "assets", "usd_physics")
+        
         settings = wp.sim.parse_usd(
             # os.path.join(folder, "box_on_quad.usd"),
             # os.path.join(folder, "contact_pair_filtering.usd"),
             # os.path.join(folder, "distance_joint.usd"),
+            # os.path.join(".usd_cache", "franka_instanceable_20230310135702", "franka_instanceable.usda"),
             "http://omniverse-content-staging.s3-us-west-2.amazonaws.com/Assets/Isaac/2022.2.1/Isaac/Robots/Franka/franka_instanceable.usd",
-            # os.path.join(".usd_cache", "franka_instanceable_20230306134106", "franka_instanceable.usd"),
             # os.path.join(folder, "prismatic_joint.usda"),
-            # os.path.join(folder, "revolute_joint.usd"),
+            # os.path.join(folder, "revolute_joint.usda"),
             # os.path.join(folder, "d6_joint.usda"),
             # os.path.join(folder, "spheres_with_materials.usd"),
             # os.path.join(folder, "material_density.usda"),
@@ -81,11 +73,14 @@ class Demo(Environment):
             # os.path.join(folder, "ropes.usda"),
             builder,
             default_thickness=0.01,
-            ignore_paths=[".*collisions.*"]
+            # ignore collision meshes from Franka robot
+            ignore_paths=[".*collisions.*"],
+            default_ke=1e6
         )
     
         self.frame_dt = 1.0 / settings["fps"]
-        self.episode_duration = 15.0 #settings["duration"]
+        if settings["duration"] > 0.0:
+            self.episode_duration = settings["duration"]
         self.sim_substeps = 10
         self.sim_dt = self.frame_dt / self.sim_substeps
         self.episode_frames = int(self.episode_duration/self.frame_dt)
@@ -95,10 +90,10 @@ class Demo(Environment):
         self.up_axis = settings["up_axis"]
 
     def before_simulate(self):
+        # print some information about the loaded model
         if self.model.shape_count > 0:
             print("shape_transform", self.model.shape_transform.numpy())
             print("geo_scale", self.model.shape_geo.scale.numpy())
-        # print("collision filters", sorted(list(self.builder.shape_collision_filter_pairs)))
         if self.model.joint_count > 0:
             print("joint parent", self.model.joint_parent.numpy())
             print("joint child", self.model.joint_child.numpy())

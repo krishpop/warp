@@ -26,7 +26,7 @@ def parse_usd(
     default_thickness=0.0,
     joint_limit_ke=100.0,
     joint_limit_kd=10.0,
-    verbose=True,
+    verbose=False,
     ignore_paths=[]):
 
     try:
@@ -147,15 +147,6 @@ def parse_usd(
     else:
         linear_unit = 1.0
 
-
-    # import os
-    # if not os.path.exists(filename.replace(".usd", ".usda")):
-    #     stage_str = stage.GetRootLayer().ExportToString()
-    #     with open(filename.replace(".usd", ".usda"), "w") as f:
-    #         f.write(stage_str)
-
-
-
     def parse_xform(prim):
         xform = UsdGeom.Xform(prim)
         mat = np.array(xform.GetLocalTransformation())
@@ -169,7 +160,7 @@ def parse_usd(
 
     def parse_axis(prim, type, joint_data, is_angular, axis=None):
         # parse joint axis data
-        schemas = prim.GetAppliedSchemas()  # TODO consider inherited schemas
+        schemas = prim.GetAppliedSchemas()
         schemas_str = "".join(schemas)
         if f"DriveAPI:{type}" not in schemas_str and f"PhysicsLimitAPI:{type}" not in schemas_str:
             return
@@ -369,8 +360,6 @@ def parse_usd(
             return
 
         schemas = set(prim.GetAppliedSchemas())
-        # if verbose:
-        #     print(path, type_name)
         children_refs = prim.GetChildren()
 
         prim_joint_xforms[path] = wp.transform_identity()
@@ -379,15 +368,7 @@ def parse_usd(
         scale = incoming_scale*scale
         xform = wp.mul(incoming_xform, local_xform)
         path_world_poses[path] = xform
-        # path_world_poses[path] = wp.mul(incoming_xform, xform)
         
-        # if parent_body >= 0:
-        #     # the joint to which we are connected will transform this body already
-        #     geo_tf = wp.transform_identity()
-        # else:
-        #     geo_tf = xform
-        # # geo_tf = wp.transform((0.0, 0.0, 0.0), xform.q)
-        # geo_tf = wp.transform_identity()
         geo_tf = local_xform
         body_id = parent_body
         is_rigid_body = "PhysicsRigidBodyAPI" in schemas
@@ -420,7 +401,6 @@ def parse_usd(
                     enabled=joint["enabled"],
                     parent_xform=joint["parent_tf"],
                     child_xform=joint["child_tf"]
-                    # child_xform=wp.transform_inverse(joint["child_tf"])
                 )
                 
                 parent_path = joint["parent"]
@@ -430,23 +410,16 @@ def parse_usd(
                 else:
                     joint_params["parent"] = path_body_map[parent_path]
                     parent_tf = path_world_poses[parent_path]
-                    # joint_params["parent_xform"] = wp.mul(parent_tf, joint["parent_tf"])
 
                 # the joint to which we are connected will transform this body already
                 geo_tf = wp.transform_identity()
-                # ensure that the relative body transform moves the body to the desired world coordinates
-                # while accounting for the parent and joint transforms
-                X_wc = wp.mul(parent_tf, wp.mul(joint_params["parent_xform"], joint_params["child_xform"]))
-                # geo_tf = wp.mul(wp.transform_inverse(X_wc), xform)
-                # geo_tf = wp.mul(xform, wp.transform_inverse(X_wc))
-                # geo_tf = xform
 
-                print(f"Adding joint {joint['name']} between {joint['parent']} and {path}")
-                print("  parent_xform", joint["parent_tf"])
-                print("  child_xform ", joint["child_tf"])
-                print("  parent_tf   ", parent_tf)
-
-                print(f"  geo_tf at {path} = {geo_tf}  (xform was {xform})")
+                if verbose:
+                    print(f"Adding joint {joint['name']} between {joint['parent']} and {path}")
+                    print("  parent_xform", joint["parent_tf"])
+                    print("  child_xform ", joint["child_tf"])
+                    print("  parent_tf   ", parent_tf)
+                    print(f"  geo_tf at {path} = {geo_tf}  (xform was {xform})")
 
                 if joint["type"] == "Revolute":
                     joint_params["joint_type"] = wp.sim.JOINT_REVOLUTE
@@ -486,32 +459,7 @@ def parse_usd(
                     joint_params["joint_type"] = wp.sim.JOINT_D6
                 else:
                     print(f"Warning: unsupported joint type {joint['type']} for {path}")
-                # joint_params["joint_axis"] = joint["axis"]
-                # joint_params["joint_limit_lower"] = joint["lowerLimit"]
-                # joint_params["joint_limit_upper"] = joint["upperLimit"]
 
-                # joint_params["joint_xform"] = joint["parent_tf"]
-                # if joint["parent"] is None:
-                #     joint_params["parent"] = -1
-                #     # rel_pose = wp.transform_identity()
-                # else:
-                #     joint_params["parent"] = path_body_map[joint["parent"]]
-                    # X_wp = path_world_poses[joint["parent"]]
-                    # X_wc = xform
-                    # TODO compute rel_pose from body_q of parent and child while incorporating child_xform
-                    # rel_pose = wp.transform_inverse(X_wp) * X_wc
-                    # joint_params["parent_xform"] *= prim_joint_xforms[joint["parent"]]
-                # joint_params["joint_xform"] = rel_pose
-                # joint_params["joint_xform"] = wp.mul(joint["parent_tf"], joint["child_tf"])
-                # joint_params["joint_xform_child"] = wp.transform_inverse(joint["child_tf"])
-                # joint_params["joint_xform_child"] = wp.transform(-np.array(joint["child_tf"].p), joint["child_tf"].q)
-                # joint_params["joint_xform_child"] = joint["child_tf"]
-                # XXX apply child transform to shape since joint_xform_child is reserved for multi-dof joints
-                # geo_tf = joint["child_tf"]
-                # geo_tf = rel_pose * joint["child_tf"]
-                # update relative transform for child prims
-                # prim_joint_xforms[path] = geo_tf
-                # geo_tf = wp.transform(-np.array(joint["child_tf"].p), joint["child_tf"].q)
                 builder.add_joint(**joint_params)
                 
             elif is_rigid_body:
@@ -524,9 +472,8 @@ def parse_usd(
                 builder.joint_qd[-6:-3] = angular_vel
                 builder.joint_qd[-3:] = linear_vel
 
-        # else:
-        #     parent_body = -1
-        print(f"added {type_name} body {body_id} ({path}) at {xform}")
+        if verbose:
+            print(f"added {type_name} body {body_id} ({path}) at {xform}")
 
         
         density = None
@@ -565,9 +512,6 @@ def parse_usd(
         i_rot = parse_quat(prim, "physics:principalAxes", wp.quat_identity())
         
         if type_name == "Xform":
-            # xform, scale = parse_xform(prim)
-            # xform = wp.mul(incoming_xform, xform)
-            # path_world_poses[path] = xform
             if prim.IsInstance():
                 proto = prim.GetPrototype()
                 for child in proto.GetChildren():
@@ -691,16 +635,6 @@ def parse_usd(
                     body_id, geo_tf.p, geo_tf.q,
                     scale=scale, mesh=m, density=density, thickness=default_thickness,
                     **shape_params)
-                
-                # # visualize mesh in o3d
-                # import open3d as o3d
-                # # create o3d mesh
-                # o3d_mesh = o3d.geometry.TriangleMesh()
-                # o3d_mesh.vertices = o3d.utility.Vector3dVector(points)
-                # o3d_mesh.triangles = o3d.utility.Vector3iVector(faces)
-                # o3d_mesh.compute_vertex_normals()
-                # o3d_mesh.compute_triangle_normals()           
-                # o3d.visualization.draw_geometries([o3d_mesh], window_name=builder.body_name[body_id])
             else:
                 print(f"Warning: Unsupported geometry type {type_name} at {path}.")
                 return
