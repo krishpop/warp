@@ -198,6 +198,7 @@ class TinyRenderer:
         
         self._grid_data = self.p.DrawGridData()
         self._grid_data.drawAxis = True
+        self._grid_data.upAxis = self.cam_axis
         self.draw_grid = draw_grid
 
         self._instance_count = 0
