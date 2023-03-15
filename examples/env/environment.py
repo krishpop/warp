@@ -87,6 +87,7 @@ class Environment:
     render_mode: RenderMode = RenderMode.TINY
     tiny_render_settings = dict()
     usd_render_settings = dict(scaling=10.0)
+    show_rigid_contact_points = False
 
     # whether to apply model.joint_q, joint_qd to bodies before simulating
     eval_fk: bool = True
@@ -200,6 +201,7 @@ class Environment:
                 self.model,
                 self.sim_name,
                 upaxis=self.up_axis,
+                show_rigid_contact_points=self.show_rigid_contact_points,
                 **self.tiny_render_settings)
         elif self.render_mode == RenderMode.USD:
             filename = os.path.join(os.path.dirname(__file__), "..", "outputs", self.sim_name + ".usd")
@@ -207,6 +209,7 @@ class Environment:
                 self.model,
                 filename,
                 upaxis=self.up_axis,
+                show_rigid_contact_points=self.show_rigid_contact_points,
                 **self.usd_render_settings)
 
     def create_articulation(self, builder):
@@ -267,7 +270,7 @@ class Environment:
                 self.state_0)
 
         self.before_simulate()
-        self.update()
+        # self.update()
 
         if self.model.body_count:
             print(f"body count: {self.model.body_count}")
