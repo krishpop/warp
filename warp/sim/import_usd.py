@@ -375,8 +375,9 @@ def parse_usd(
 
         prim_joint_xforms[path] = wp.transform_identity()
 
-        xform, scale = parse_xform(prim)
+        local_xform, scale = parse_xform(prim)
         scale = incoming_scale*scale
+        xform = wp.mul(incoming_xform, local_xform)
         path_world_poses[path] = xform
         # path_world_poses[path] = wp.mul(incoming_xform, xform)
         
@@ -387,7 +388,7 @@ def parse_usd(
         #     geo_tf = xform
         # # geo_tf = wp.transform((0.0, 0.0, 0.0), xform.q)
         # geo_tf = wp.transform_identity()
-        geo_tf = xform
+        geo_tf = local_xform
         body_id = parent_body
         is_rigid_body = "PhysicsRigidBodyAPI" in schemas
         create_rigid_body = (is_rigid_body or path in joint_parents)
