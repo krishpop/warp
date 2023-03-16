@@ -72,8 +72,6 @@ class WarpEnv(Environment):
         elif self.render_mode == RenderMode.USD:
             self.usd_render_settings['path'] = f"outputs/{stage_path}.usd"
 
-
-
         # initialize observation and action space
         self.num_observations = num_obs
         self.num_actions = num_act
@@ -157,7 +155,6 @@ class WarpEnv(Environment):
         self.initialize_renderer()
         self.state_0 = self.model.state(requires_grad=self.requires_grad)
         self.state_1 = self.model.state(requires_grad=self.requires_grad)
-        # self.initialize_renderer()
 
     def initialize_renderer(self):
         print("Initializing renderer writing to path: outputs/{}".format(self.stage_path))
