@@ -73,7 +73,7 @@ class Example:
         self.state_0 = self.model.state()
         self.state_1 = self.model.state()
 
-        self.renderer = wp.sim.render.SimRenderer(self.model, stage, scaling=40.0)
+        self.renderer = wp.sim.render.SimRendererTiny(self.model, stage, scaling=4.0)
 
     def update(self):
 
