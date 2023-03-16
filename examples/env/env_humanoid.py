@@ -6,7 +6,7 @@
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
 ###########################################################################
-# Example Sim Humanoid
+# Humanoid environment
 #
 # Shows how to set up a simulation of a rigid-body Humanoid articulation based
 # on the OpenAI gym environment using the wp.sim.ModelBuilder() and MCJF

@@ -6,7 +6,7 @@
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
 ###########################################################################
-# Example Sim Cartpole
+# Cartpole environment
 #
 # Shows how to set up a simulation of a rigid-body cartpole articulation 
 # from a URDF using the wp.sim.ModelBuilder().
