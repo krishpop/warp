@@ -30,7 +30,7 @@ class Example:
 
     frame_dt = 1.0/60.0
 
-    episode_duration = 20.0      # seconds
+    episode_duration = 3.0      # seconds
     episode_frames = int(episode_duration/frame_dt)
 
     sim_substeps = 10
@@ -131,6 +131,7 @@ class Example:
         # set up Usd renderer
         if (self.enable_rendering):
             self.renderer = wp.sim.render.SimRendererTiny(self.model, stage)
+            self.renderer.app.dump_frames_to_video("my_video.mp4")
 
     def load_mesh(self, filename, path):
         asset_stage = Usd.Stage.Open(filename)
@@ -183,17 +184,17 @@ class Example:
 
 
         # simulate
-        with wp.ScopedTimer("simulate", detailed=False, print=False, active=True, dict=profiler):
+        with wp.ScopedTimer("simulate", detailed=False, print=False, active=False, dict=profiler):
 
             for f in range(0, self.episode_frames):
                 
-                with wp.ScopedTimer("simulate", active=True):
+                with wp.ScopedTimer("simulate", active=False):
                     wp.capture_launch(graph)
                 self.sim_time += self.frame_dt
 
                 if (self.enable_rendering):
 
-                    with wp.ScopedTimer("render", active=True):
+                    with wp.ScopedTimer("render", active=False):
                         self.render()
 
             wp.synchronize()
