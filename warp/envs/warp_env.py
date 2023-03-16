@@ -61,7 +61,7 @@ class WarpEnv(Environment):
 
         self.num_environments = num_envs
         self.env_name = env_name
-        
+
         if stage_path is None:
             self.stage_path = f'{self.env_name}_{self.num_envs}'
         else:
@@ -156,7 +156,9 @@ class WarpEnv(Environment):
         self.state_0 = self.model.state(requires_grad=self.requires_grad)
         self.state_1 = self.model.state(requires_grad=self.requires_grad)
 
-    def initialize_renderer(self):
+    def initialize_renderer(self, stage_path):
+        if stage_path is not None:
+            self.stage_path = stage_path
         print("Initializing renderer writing to path: outputs/{}".format(self.stage_path))
         if self.render_mode == RenderMode.USD:
             self.renderer = wp.sim.render.SimRenderer(
@@ -334,4 +336,3 @@ class WarpEnv(Environment):
         self.clear_grad()
         self.calculateObservations()
         return self.obs_buf
-

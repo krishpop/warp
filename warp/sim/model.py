@@ -130,7 +130,7 @@ def compute_mass_inertia(
     quads[i, 1] = alpha * (q - mid) + mid
     quads[i, 2] = alpha * (r - mid) + mid
     quads[i, 3] = alpha * (com - mid) + mid
-    
+
     for j in range(4):
         # displacement of quadrature point from COM
         d = quads[i,j] - com
@@ -656,7 +656,7 @@ class Model:
         self.rigid_contact_shape0 = wp.zeros(self.rigid_contact_max_actual, dtype=wp.int32, device=self.device)
         # ID of the second shape in the contact pair
         self.rigid_contact_shape1 = wp.zeros(self.rigid_contact_max_actual, dtype=wp.int32, device=self.device)
-        
+
         # shape IDs of potential contact pairs found during broadphase
         self.rigid_contact_broad_shape0 = wp.zeros(self.rigid_contact_max, dtype=wp.int32, device=self.device)
         self.rigid_contact_broad_shape1 = wp.zeros(self.rigid_contact_max, dtype=wp.int32, device=self.device)
@@ -744,7 +744,7 @@ class ModelBuilder:
         >>>
         >>> # create model
         >>> model = builder.finalize("cuda")
-        >>> 
+        >>>
         >>> state = model.state()
         >>> integrator = wp.sim.SemiImplicitIntegrator()
         >>>
@@ -780,7 +780,7 @@ class ModelBuilder:
     # Default joint settings
     default_joint_limit_ke = 100.0
     default_joint_limit_kd = 1.0
-    
+
     def __init__(self, upvector=(0.0, 1.0, 0.0), gravity=-9.80665):
         self.num_envs = 0
 
@@ -968,7 +968,7 @@ class ModelBuilder:
     @property
     def spring_count(self):
         return len(self.spring_rest_length)
-    
+
     @property
     def muscle_count(self):
         return len(self.muscle_start)
@@ -988,7 +988,7 @@ class ModelBuilder:
 
     def add_articulation(self):
         self.articulation_start.append(self.joint_count)
-    
+
     def add_rigid_articulation(self, articulation, xform=None, update_num_env_count=True, separate_collision_group=True):
         """Copies a rigid articulation from `articulation`, another `ModelBuilder`.
 
@@ -1112,7 +1112,7 @@ class ModelBuilder:
 
         for attr in rigid_articulation_attrs:
             getattr(self, attr).extend(getattr(articulation, attr))
-       
+
         # self.joint_count += articulation.joint_count
         self.joint_dof_count += articulation.joint_dof_count
         self.joint_coord_count += articulation.joint_coord_count
@@ -1127,11 +1127,11 @@ class ModelBuilder:
 
     # register a rigid body and return its index.
     def add_body(
-        self, 
+        self,
         origin: Transform,
         armature: float=0.0,
         com: Vec3=np.zeros(3),
-        I_m: Mat33=np.zeros((3, 3)), 
+        I_m: Mat33=np.zeros((3, 3)),
         m: float=0.0,
         name: str=None) -> int:
 
@@ -1160,17 +1160,17 @@ class ModelBuilder:
         self.body_inertia.append(inertia)
         self.body_mass.append(m)
         self.body_com.append(com)
-        
+
         if (m > 0.0):
             self.body_inv_mass.append(1.0/m)
         else:
             self.body_inv_mass.append(0.0)
-    
+
         if inertia.any():
             self.body_inv_inertia.append(np.linalg.inv(inertia))
         else:
             self.body_inv_inertia.append(inertia)
-        
+
         self.body_q.append(origin)
         self.body_qd.append(wp.spatial_vector())
 
@@ -1215,7 +1215,7 @@ class ModelBuilder:
         self.joint_axis_start.append(len(self.joint_axis))
         self.joint_axis_dim.append((len(linear_axes), len(angular_axes)))
         self.joint_axis_total_count += len(linear_axes) + len(angular_axes)
-            
+
         self.joint_linear_compliance.append(linear_compliance)
         self.joint_angular_compliance.append(angular_compliance)
         self.joint_enabled.append(enabled)
@@ -1294,14 +1294,14 @@ class ModelBuilder:
             coord_count = 0
         elif (joint_type == JOINT_D6):
             dof_count = coord_count = len(linear_axes) + len(angular_axes)
-       
+
         for i in range(coord_count):
             self.joint_q.append(0.0)
-        
+
         for i in range(dof_count):
             self.joint_qd.append(0.0)
             self.joint_act.append(0.0)
-        
+
         if (joint_type == JOINT_FREE or joint_type == JOINT_BALL):
             # ensure that a valid quaternion is used for the angular dofs
             self.joint_q[-1] = 1.0
@@ -1378,7 +1378,7 @@ class ModelBuilder:
             name=name,
             collision_filter_parent=collision_filter_parent,
             enabled=enabled)
-    
+
     def add_joint_prismatic(
         self,
         parent: int,
@@ -1541,7 +1541,7 @@ class ModelBuilder:
             name=name,
             collision_filter_parent=collision_filter_parent,
             enabled=enabled)
-    
+
     def add_joint_distance(
         self,
         parent: int,
@@ -1942,7 +1942,7 @@ class ModelBuilder:
                 return 1.0e6
         else:
             return 10.0
-    
+
     def _add_shape(self, body, pos, rot, type, scale, src, density, ke, kd, kf, mu, restitution, thickness=0.0, collision_group=-1, collision_filter_parent=True, has_ground_collision=True):
         self.shape_body.append(body)
         shape = len(self.shape_geo_type)
@@ -2103,7 +2103,7 @@ class ModelBuilder:
 
     def add_triangles(self, i:List[int], j:List[int], k:List[int], tri_ke : Optional[List[float]] = None, tri_ka : Optional[List[float]] = None, tri_kd :Optional[List[float]] = None, tri_drag :Optional[List[float]] = None, tri_lift :Optional[List[float]] = None) -> List[float]:
 
-        """Adds trianglular FEM elements between groups of three particles in the system. 
+        """Adds trianglular FEM elements between groups of three particles in the system.
 
         Triangles are modeled as viscoelastic elements with elastic stiffness and damping
         Parameters specfied on the model. See model.tri_ke, model.tri_kd.
@@ -2120,7 +2120,7 @@ class ModelBuilder:
             A triangle is created with a rest-length based on the distance
             between the particles in their initial configuration.
 
-        """      
+        """
         # compute basis for 2D rest pose
         p = np.array(self.particle_q)[i]
         q = np.array(self.particle_q)[j]
@@ -2142,13 +2142,13 @@ class ModelBuilder:
         M = np.concatenate((qp[...,None],rp[...,None]),axis=-1)
 
         D = np.matmul(R.transpose(0,2,1),M)
-        
+
         areas = np.linalg.det(D) / 2.0
         areas[areas < 0.0] = 0.0
         valid_inds = (areas>0.0).nonzero()[0]
         if len(valid_inds) < len(areas):
             print("inverted or degenerate triangle elements")
-        
+
         D[areas == 0.0] = np.eye(2)[None,...]
         inv_D = np.linalg.inv(D)
 
@@ -2162,7 +2162,7 @@ class ModelBuilder:
             if arr is None:
                 return [defaultValue] * len(areas)
             return arr
-        
+
         tri_ke = init_if_none( tri_ke, self.default_tri_ke )
         tri_ka = init_if_none( tri_ka, self.default_tri_ka )
         tri_kd = init_if_none( tri_kd, self.default_tri_kd )
@@ -2179,7 +2179,7 @@ class ModelBuilder:
         return areas.tolist()
 
     def add_tetrahedron(self, i: int, j: int, k: int, l: int, k_mu: float=1.e+3, k_lambda: float=1.e+3, k_damp: float=0.0) -> float:
-        """Adds a tetrahedral FEM element between four particles in the system. 
+        """Adds a tetrahedral FEM element between four particles in the system.
 
         Tetrahdera are modeled as viscoelastic elements with a NeoHookean energy
         density based on [Smith et al. 2018].
@@ -2279,7 +2279,7 @@ class ModelBuilder:
         self.edge_bending_properties.append((edge_ke, edge_kd))
 
     def add_edges(self, i, j, k, l, rest: Optional[List[float]] = None, edge_ke: Optional[List[float]] = None, edge_kd: Optional[List[float]] = None):
-        """Adds bending edge elements between groups of four particles in the system. 
+        """Adds bending edge elements between groups of four particles in the system.
 
         Bending elements are designed to be between two connected triangles. Then
         bending energy is based of [Bridson et al. 2002]. Bending stiffness is controlled
@@ -2299,7 +2299,7 @@ class ModelBuilder:
 
         """
         if rest is None:
-            
+
             # compute rest angle
             x1 = np.array(self.particle_q)[i]
             x2 = np.array(self.particle_q)[j]
@@ -2329,12 +2329,12 @@ class ModelBuilder:
 
         self.edge_indices.extend(inds.tolist())
         self.edge_rest_angle.extend(rest.tolist())
-        
+
         def init_if_none( arr, defaultValue ):
             if arr is None:
                 return [defaultValue] * len(i)
             return arr
-        
+
         edge_ke = init_if_none( edge_ke, self.default_edge_ke )
         edge_kd = init_if_none( edge_kd, self.default_edge_kd )
 
@@ -2358,7 +2358,7 @@ class ModelBuilder:
                        tri_ka: float=default_tri_ka,
                        tri_kd: float=default_tri_kd,
                        tri_drag: float=default_tri_drag,
-                       tri_lift: float=default_tri_lift, 
+                       tri_lift: float=default_tri_lift,
                        edge_ke: float=default_edge_ke,
                        edge_kd: float=default_edge_kd):
 
@@ -2531,7 +2531,7 @@ class ModelBuilder:
             [tri_drag] * num_tris,
             [tri_lift] * num_tris
         )
-        
+
         for t in range(num_tris):
             area = areas[t]
 
@@ -2985,7 +2985,7 @@ class ModelBuilder:
             self.body_inv_mass[i] = 1.0/new_mass
         else:
             self.body_inv_mass[i] = 0.0
-            
+
         if new_inertia.any():
             self.body_inv_inertia[i] = np.linalg.inv(new_inertia)
         else:
@@ -3066,7 +3066,7 @@ class ModelBuilder:
 
             m.num_envs = self.num_envs
 
-            #---------------------        
+            #---------------------
             # particles
 
             # state (initial)
@@ -3157,7 +3157,7 @@ class ModelBuilder:
             m.muscle_bodies = wp.array(self.muscle_bodies, dtype=wp.int32)
             m.muscle_points = wp.array(self.muscle_points, dtype=wp.vec3, requires_grad=requires_grad)
             m.muscle_activation = wp.array(self.muscle_activation, dtype=wp.float32, requires_grad=requires_grad)
-            
+
             #--------------------------------------
             # rigid bodies
             m.body_q = wp.array(self.body_q, dtype=wp.transform, requires_grad=requires_grad)
@@ -3233,14 +3233,14 @@ class ModelBuilder:
             if self.num_rigid_contacts_per_env is None:
                 potential_contact_count, actual_contact_count = m.count_contact_points()
             else:
-                potential_contact_count, actual_contact_count = self.num_rigid_contacts_per_env*self.num_envs
+                potential_contact_count = actual_contact_count = self.num_rigid_contacts_per_env*self.num_envs
             if wp.config.verbose:
                 print(f"Allocating {actual_contact_count} rigid contacts ({potential_contact_count} potential contacts).")
             m.allocate_rigid_contacts(potential_contact_count, actual_contact_count, requires_grad=requires_grad)
-            m.rigid_contact_margin = self.rigid_contact_margin            
+            m.rigid_contact_margin = self.rigid_contact_margin
             m.rigid_contact_torsional_friction = self.rigid_contact_torsional_friction
             m.rigid_contact_rolling_friction = self.rigid_contact_rolling_friction
-            
+
             m.joint_dof_count = self.joint_dof_count
             m.joint_coord_count = self.joint_coord_count
 
