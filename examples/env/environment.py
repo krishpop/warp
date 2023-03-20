@@ -272,10 +272,6 @@ class Environment:
         self.before_simulate()
         # self.update()
 
-        if self.model.body_count:
-            print(f"body count: {self.model.body_count}")
-            print(self.state.body_q.numpy())
-
         if (self.renderer is not None):
             self.render()
 
