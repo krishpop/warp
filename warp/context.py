@@ -511,8 +511,13 @@ class Kernel:
         name = self.get_mangled_name()
         
         if device.is_cpu:
-            forward = eval("self.module.dll." + name + "_cpu_forward")
-            backward = eval("self.module.dll." + name + "_cpu_backward")
+            if self.module.cpu_module:
+                func = ctypes.CFUNCTYPE(None)
+                forward = func(runtime.llvm.lookup(self.module.cpu_module.encode('utf-8'), (name + "_cpu_forward").encode('utf-8')))
+                backward = func(runtime.llvm.lookup(self.module.cpu_module.encode('utf-8'), (name + "_cpu_backward").encode('utf-8')))
+            else:
+                forward = eval("self.module.dll." + name + "_cpu_forward")
+                backward = eval("self.module.dll." + name + "_cpu_backward")
         else:
             cu_module = self.module.cuda_modules[device.context]
             forward = runtime.core.cuda_get_kernel(device.context, cu_module, (name + "_cuda_kernel_forward").encode('utf-8'))
@@ -972,6 +977,7 @@ class Module:
         self.structs = []
 
         self.dll = None
+        self.cpu_module = None
         self.cuda_modules = {} # module lookup by CUDA context
 
         self.cpu_build_failed = False
@@ -1159,7 +1165,9 @@ class Module:
 
         if device.is_cpu:
             # check if already loaded
-            if self.dll is not None:
+            if self.dll:
+                return True
+            if self.cpu_module:
                 return True
             # avoid repeated build attempts
             if self.cpu_build_failed:
@@ -1231,14 +1239,20 @@ class Module:
                     else:
                         libs = ["-l:warp.so", f"-L{bin_path}", f"-Wl,-rpath,'{bin_path}'"]
 
-                    # build DLL
+                    # build DLL or object code
                     with warp.utils.ScopedTimer("Compile x86", active=warp.config.verbose):
                         warp.build.build_dll(dll_path, [cpp_path], None, libs, mode=self.options["mode"], fast_math=self.options["fast_math"], verify_fp=warp.config.verify_fp)
 
-                    # load the DLL
-                    self.dll = warp.build.load_dll(dll_path)
-                    if self.dll is None:
-                        raise Exception("Failed to load CPU module")
+                    if runtime.llvm:
+                        # load the object code
+                        obj_path = cpp_path + ".obj"
+                        runtime.llvm.load_obj(obj_path.encode('utf-8'), module_name.encode('utf-8'))
+                        self.cpu_module = module_name
+                    else:
+                    	# load the DLL
+                        self.dll = warp.build.load_dll(dll_path)
+                        if self.dll is None:
+                            raise Exception("Failed to load CPU module")
 
                     # update cpu hash
                     with open(cpu_hash_path, 'wb') as f:
@@ -1319,9 +1333,13 @@ class Module:
 
     def unload(self):
 
-        if self.dll is not None:
+        if self.dll:
             warp.build.unload_dll(self.dll)
             self.dll = None
+
+        if self.cpu_module:
+            runtime.llvm.unload_obj(self.cpu_module.encode('utf-8'))
+            self.cpu_module = None
 
         # need to unload the CUDA module from all CUDA contexts where it is loaded
         # note: we ensure that this doesn't change the current CUDA context
@@ -1654,18 +1672,27 @@ class Runtime:
                 os.environ["PATH"] = bin_path + os.pathsep + os.environ["PATH"]
 
 
-            warp_lib = "warp.dll"
-            self.core = warp.build.load_dll(os.path.join(bin_path, warp_lib))
+            warp_lib = os.path.join(bin_path, "warp.dll")
+            llvm_lib = os.path.join(bin_path, "clang.dll")
 
         elif sys.platform == "darwin":
 
             warp_lib = os.path.join(bin_path, "warp.dylib")
-            self.core = warp.build.load_dll(warp_lib)
+            llvm_lib = None
 
         else:
 
             warp_lib = os.path.join(bin_path, "warp.so")
-            self.core = warp.build.load_dll(warp_lib)
+            llvm_lib = None
+
+        self.core = warp.build.load_dll(warp_lib)
+
+        if llvm_lib and os.path.exists(llvm_lib):
+            self.llvm = warp.build.load_dll(llvm_lib)
+            # setup c-types for clang.dll
+            self.llvm.lookup.restype = ctypes.c_uint64
+        else:
+            self.llvm = None
 
         # setup c-types for warp.dll
         self.core.alloc_host.argtypes = [ctypes.c_size_t]
@@ -1742,8 +1769,7 @@ class Runtime:
         self.core.hash_grid_update_device.argtypes = [ctypes.c_uint64, ctypes.c_float, ctypes.c_void_p, ctypes.c_int]
         self.core.hash_grid_reserve_device.argtypes = [ctypes.c_uint64, ctypes.c_int]
 
-
-        self.core.cutlass_gemm.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_char_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_float, ctypes.c_float, ctypes.c_bool, ctypes.c_int]
+        self.core.cutlass_gemm.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_char_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_float, ctypes.c_float, ctypes.c_bool, ctypes.c_bool, ctypes.c_bool, ctypes.c_int]
         self.core.cutlass_gemm.restypes = ctypes.c_bool
 
         self.core.array_scan_int_host.argtypes = [ctypes.c_uint64, ctypes.c_uint64, ctypes.c_int, ctypes.c_bool]
@@ -1770,6 +1796,13 @@ class Runtime:
         self.core.volume_destroy_device.argtypes = [ctypes.c_uint64]
 
         self.core.volume_get_voxel_size.argtypes = [ctypes.c_uint64, ctypes.POINTER(ctypes.c_float), ctypes.POINTER(ctypes.c_float), ctypes.POINTER(ctypes.c_float)]
+
+        self.core.is_cuda_enabled.argtypes = None
+        self.core.is_cuda_enabled.restype = ctypes.c_int
+        self.core.is_cuda_compatibility_enabled.argtypes = None
+        self.core.is_cuda_compatibility_enabled.restype = ctypes.c_int
+        self.core.is_cutlass_enabled.argtypes = None
+        self.core.is_cutlass_enabled.restype = ctypes.c_int
 
         self.core.cuda_driver_version.argtypes = None
         self.core.cuda_driver_version.restype = ctypes.c_int
@@ -1932,12 +1965,29 @@ class Runtime:
                 driver_version = (self.driver_version // 1000, (self.driver_version % 1000) // 10)
                 print(f"   CUDA Toolkit: {toolkit_version[0]}.{toolkit_version[1]}, Driver: {driver_version[0]}.{driver_version[1]}")
             else:
-                print(f"   CUDA not available")
+                if self.core.is_cuda_enabled():
+                    # Warp was compiled with CUDA support, but no devices are available
+                    print("   CUDA devices not available")
+                else:
+                    # Warp was compiled without CUDA support
+                    print("   CUDA support not enabled in this build")
             print("   Devices:")
             print(f"     \"{self.cpu_device.alias}\"    | {self.cpu_device.name}")
             for cuda_device in self.cuda_devices:
                 print(f"     \"{cuda_device.alias}\" | {cuda_device.name} (sm_{cuda_device.arch})")
             print(f"   Kernel cache: {warp.config.kernel_cache_dir}")
+
+        # CUDA compatibility check
+        if cuda_device_count > 0 and not self.core.is_cuda_compatibility_enabled():
+            if self.driver_version < self.toolkit_version:
+                print("******************************************************************")
+                print("* WARNING:                                                       *")
+                print("*   Warp was compiled without CUDA compatibility support         *")
+                print("*   (quick build).  The CUDA Toolkit version used to build       *")
+                print("*   Warp is not fully supported by the current driver.           *")
+                print("*   Some CUDA functionality may not work correctly!              *")
+                print("*   Update the driver or rebuild Warp without the --quick flag.  *")
+                print("******************************************************************")
 
         # global tape
         self.tape = None
@@ -2448,7 +2498,7 @@ def launch(kernel, dim: Tuple[int], inputs:List, outputs:List=[], adj_inputs:Lis
 
                 elif (isinstance(arg_type, warp.codegen.Struct)):
                     assert a is not None
-                    params.append(a._c_struct_)
+                    params.append(a.__ctype__())
 
                 # try to convert to a value type (vec3, mat33, etc)
                 elif issubclass(arg_type, ctypes.Array):
