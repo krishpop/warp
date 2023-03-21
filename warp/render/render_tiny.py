@@ -788,7 +788,7 @@ class TinyRenderer:
             self._update_instance(name, pos, rot)
             shape = self._mesh_name[name]
             return shape
-        geo_hash = hash((int(warp.sim.GEO_MESH), tuple(np.array(points).flatten()), tuple(np.array(indices).flatten())))
+        geo_hash = hash((int(warp.sim.GEO_MESH), tuple(np.array(points).flatten()), tuple(np.array(indices).flatten()), tuple(scale)))
         if geo_hash in self._shape_geo_hash:
             shape = self._shape_geo_hash[geo_hash]
             if self._update_instance(name, pos, rot):
