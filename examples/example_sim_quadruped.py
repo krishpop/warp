@@ -93,7 +93,7 @@ class Example:
         # set up Usd renderer
         self.renderer = None
         if (render):
-            self.renderer = wp.sim.render.SimRenderer(self.model, stage)
+            self.renderer = wp.sim.render.SimRendererTiny(self.model, stage)
 
 
     def update(self):
@@ -150,7 +150,6 @@ class Example:
 
                     with wp.ScopedTimer("render", active=True):
                         self.render()
-                    self.renderer.save()
 
             wp.synchronize()
 
@@ -159,6 +158,9 @@ class Example:
         avg_steps_second = 1000.0*float(self.num_envs)/avg_time
 
         print(f"envs: {self.num_envs} steps/second {avg_steps_second} avg_time {avg_time}")
+        
+        if (self.enable_rendering):
+            self.renderer.save()
 
         return 1000.0*float(self.num_envs)/avg_time
 
