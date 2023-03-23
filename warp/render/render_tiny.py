@@ -354,46 +354,46 @@ class TinyRenderer:
 
     def _add_instances(self, shape, pos, rot, color, scale, opacity=1., rebuild=True):
         # add shape instances to TinyRenderer and ensure the transforms of the previous instances are preserved
-        vbo = self.app.cuda_map_vbo()
-        num_instances = self.app.renderer.get_total_num_instances()
-        orig_positions = wp.clone(wp.array(
-            ptr=vbo.positions, dtype=wp.vec4, shape=(num_instances,),
-            device="cuda", owner=False, ndim=1))
-        orig_orientations = wp.clone(wp.array(
-            ptr=vbo.orientations, dtype=wp.quat, shape=(num_instances,),
-            device="cuda", owner=False, ndim=1))
-        orig_scalings = wp.clone(wp.array(
-            ptr=vbo.scalings, dtype=wp.vec4, shape=(num_instances,),
-            device="cuda", owner=False, ndim=1))
-        vcnt = self.app.renderer.get_shape_vertex_count()
-        total_vertices = sum(vcnt)
-        orig_vertices = wp.clone(wp.array(
-            ptr=vbo.vertices, dtype=wp.float32, shape=(total_vertices,9),
-            device="cuda", owner=False, ndim=2))
-        self.app.cuda_unmap_vbo()
+        # vbo = self.app.cuda_map_vbo()
+        # num_instances = self.app.renderer.get_total_num_instances()
+        # orig_positions = wp.clone(wp.array(
+        #     ptr=vbo.positions, dtype=wp.vec4, shape=(num_instances,),
+        #     device="cuda", owner=False, ndim=1))
+        # orig_orientations = wp.clone(wp.array(
+        #     ptr=vbo.orientations, dtype=wp.quat, shape=(num_instances,),
+        #     device="cuda", owner=False, ndim=1))
+        # orig_scalings = wp.clone(wp.array(
+        #     ptr=vbo.scalings, dtype=wp.vec4, shape=(num_instances,),
+        #     device="cuda", owner=False, ndim=1))
+        # vcnt = self.app.renderer.get_shape_vertex_count()
+        # total_vertices = sum(vcnt)
+        # orig_vertices = wp.clone(wp.array(
+        #     ptr=vbo.vertices, dtype=wp.float32, shape=(total_vertices,9),
+        #     device="cuda", owner=False, ndim=2))
+        # self.app.cuda_unmap_vbo()
         new_ids = self.app.renderer.register_graphics_instances(
             shape, pos, rot, color, scale, opacity, rebuild)
         self._shape_instances[shape].extend(new_ids)
         self.app.renderer.write_transforms()
         # restore the transforms of the previous instances
-        vbo = self.app.cuda_map_vbo()
-        vbo_positions = wp.array(
-            ptr=vbo.positions, dtype=wp.vec4, shape=(num_instances,),
-            device="cuda", owner=False, ndim=1)
-        vbo_orientations = wp.array(
-            ptr=vbo.orientations, dtype=wp.quat, shape=(num_instances,),
-            device="cuda", owner=False, ndim=1)
-        vbo_scalings = wp.array(
-            ptr=vbo.scalings, dtype=wp.vec4, shape=(num_instances,),
-            device="cuda", owner=False, ndim=1)
-        vbo_vertices = wp.array(
-            ptr=vbo.vertices, dtype=wp.float32, shape=(total_vertices,9),
-            device="cuda", owner=False, ndim=2)
-        vbo_positions.assign(orig_positions)
-        vbo_orientations.assign(orig_orientations)
-        vbo_scalings.assign(orig_scalings)
-        # vbo_vertices.assign(orig_vertices)
-        self.app.cuda_unmap_vbo()
+        # vbo = self.app.cuda_map_vbo()
+        # vbo_positions = wp.array(
+        #     ptr=vbo.positions, dtype=wp.vec4, shape=(num_instances,),
+        #     device="cuda", owner=False, ndim=1)
+        # vbo_orientations = wp.array(
+        #     ptr=vbo.orientations, dtype=wp.quat, shape=(num_instances,),
+        #     device="cuda", owner=False, ndim=1)
+        # vbo_scalings = wp.array(
+        #     ptr=vbo.scalings, dtype=wp.vec4, shape=(num_instances,),
+        #     device="cuda", owner=False, ndim=1)
+        # vbo_vertices = wp.array(
+        #     ptr=vbo.vertices, dtype=wp.float32, shape=(total_vertices,9),
+        #     device="cuda", owner=False, ndim=2)
+        # vbo_positions.assign(orig_positions)
+        # vbo_orientations.assign(orig_orientations)
+        # vbo_scalings.assign(orig_scalings)
+        # # vbo_vertices.assign(orig_vertices)
+        # self.app.cuda_unmap_vbo()
 
         if rebuild:
             self._rebuild_instances()
