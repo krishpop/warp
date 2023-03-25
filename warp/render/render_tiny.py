@@ -108,39 +108,6 @@ void main()
 '''
 
 
-def create_sphere(num_latitudes, num_longitudes):
-    vertices = []
-    indices = []
-
-    for i in range(num_latitudes + 1):
-        theta = i * np.pi / num_latitudes
-        sin_theta = np.sin(theta)
-        cos_theta = np.cos(theta)
-
-        for j in range(num_longitudes + 1):
-            phi = j * 2 * np.pi / num_longitudes
-            sin_phi = np.sin(phi)
-            cos_phi = np.cos(phi)
-
-            x = cos_phi * sin_theta
-            y = cos_theta
-            z = sin_phi * sin_theta
-
-            u = float(j) / num_longitudes
-            v = float(i) / num_latitudes
-
-            vertices.append([x, y, z, x, y, z, u, v])
-            # vertices.append([x, y, z, x, y, z])
-
-    for i in range(num_latitudes):
-        for j in range(num_longitudes):
-            first = i * (num_longitudes + 1) + j
-            second = first + num_longitudes + 1
-
-            indices.extend([first, second, first + 1, second, second + 1, first + 1])
-
-    return np.array(vertices, dtype=np.float32), np.array(indices, dtype=np.uint32)
-
 
 camera_pos = glm.vec3(0.0, 0.0, 10.0)
 camera_front = glm.vec3(0.0, 0.0, -1.0)
@@ -231,7 +198,7 @@ class TinyRenderer:
     # number of horizontal and vertical pixels to use for checkerboard texture
     default_texture_size = 256
 
-    def __init__(self, near_plane=0.001, far_plane=1000.0, camera_fov=45.0, background_color=(0.1, 0.1, 0.1)):
+    def __init__(self, near_plane=0.001, far_plane=1000.0, camera_fov=45.0, background_color=(1., 1., 1.)):
         self.near_plane = near_plane
         self.far_plane = far_plane
         self.camera_fov = camera_fov
@@ -258,8 +225,9 @@ class TinyRenderer:
         glClearColor(*self.background_color, 1)
         glEnable(GL_DEPTH_TEST)
 
-        sphere_vertices, sphere_indices = create_sphere(self.default_num_segments, self.default_num_segments)
-        num_instances = 1000
+        # sphere_vertices, sphere_indices = self._create_sphere_mesh()
+        sphere_vertices, sphere_indices = self._create_capsule_mesh(radius=0.2, half_height=0.5)
+        num_instances = 5
         instance_positions = np.random.rand(num_instances, 3) * 10 - 5
         instance_colors1 = np.random.rand(num_instances, 3)
         instance_colors2 = np.clip(instance_colors1 + 0.25, 0.0, 1.0)
@@ -383,19 +351,20 @@ class TinyRenderer:
 
             
 
-            sphere_transforms = []
-            # Create transform matrices for all spheres
-            for i in range(num_instances):
-                angle = np.deg2rad(36 * i) + glfw.get_time()
-                axis = glm.vec3(0, 1, 0)
-                offset = glm.vec3(0.0, 0.0, 5.0 * np.sin(i*np.pi/4 + glfw.get_time()))
-                # transform = glm.translate(glm.rotate(glm.mat4(1.0), angle, axis), glm.vec3(*instance_positions[i])+offset)
-                transform = glm.rotate(glm.translate(glm.mat4(1.0), glm.vec3(*instance_positions[i])+offset), angle, axis)
-                # transform = glm.mat4(1.0)
-                sphere_transforms.append(np.array(transform).T)
-            sphere_transforms = np.array(sphere_transforms, dtype=np.float32)
-            glBindBuffer(GL_ARRAY_BUFFER, instance_buffer)
-            glBufferData(GL_ARRAY_BUFFER, sphere_transforms.nbytes, sphere_transforms, GL_DYNAMIC_DRAW)
+            # sphere_transforms = []
+            # # Create transform matrices for all spheres
+            # for i in range(num_instances):
+            #     angle = np.deg2rad(36 * i) + glfw.get_time()
+            #     axis = glm.vec3(0, 1, 0)
+            #     offset = glm.vec3(0.0, 0.0, 5.0 * np.sin(i*np.pi/4 + glfw.get_time()))
+            #     # transform = glm.translate(glm.rotate(glm.mat4(1.0), angle, axis), glm.vec3(*instance_positions[i])+offset)
+            #     transform = glm.rotate(glm.translate(glm.mat4(1.0), glm.vec3(*instance_positions[i])+offset), angle, axis)
+            #     transform = glm.scale(transform, glm.vec3(0.25, 0.25, 0.25))
+            #     # transform = glm.mat4(1.0)
+            #     sphere_transforms.append(np.array(transform).T)
+            # sphere_transforms = np.array(sphere_transforms, dtype=np.float32)
+            # glBindBuffer(GL_ARRAY_BUFFER, instance_buffer)
+            # glBufferData(GL_ARRAY_BUFFER, sphere_transforms.nbytes, sphere_transforms, GL_DYNAMIC_DRAW)
 
 
             glDrawElementsInstanced(GL_TRIANGLES, len(sphere_indices), GL_UNSIGNED_INT, None, num_instances)
@@ -415,6 +384,8 @@ class TinyRenderer:
 
     def update_projection_matrix(self):
         resolution = glfw.get_framebuffer_size(self.window)
+        if resolution[1] == 0:
+            return
         aspect_ratio = resolution[0] / resolution[1]
         projection = glm.perspective(glm.radians(self.camera_fov), aspect_ratio, self.near_plane, self.far_plane)
         glUniformMatrix4fv(self._loc_projection, 1, GL_FALSE, glm.value_ptr(projection))
@@ -467,6 +438,93 @@ class TinyRenderer:
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
         return texture
+    
+
+    @staticmethod
+    def _create_sphere_mesh(radius=1.0, num_latitudes=default_num_segments, num_longitudes=default_num_segments):
+        vertices = []
+        indices = []
+
+        for i in range(num_latitudes + 1):
+            theta = i * np.pi / num_latitudes
+            sin_theta = np.sin(theta)
+            cos_theta = np.cos(theta)
+
+            for j in range(num_longitudes + 1):
+                phi = j * 2 * np.pi / num_longitudes
+                sin_phi = np.sin(phi)
+                cos_phi = np.cos(phi)
+
+                x = cos_phi * sin_theta
+                y = cos_theta
+                z = sin_phi * sin_theta
+
+                u = float(j) / num_longitudes
+                v = float(i) / num_latitudes
+
+                vertices.append([x * radius, y * radius, z * radius, x, y, z, u, v])
+
+        for i in range(num_latitudes):
+            for j in range(num_longitudes):
+                first = i * (num_longitudes + 1) + j
+                second = first + num_longitudes + 1
+
+                indices.extend([first, second, first + 1, second, second + 1, first + 1])
+
+        return np.array(vertices, dtype=np.float32), np.array(indices, dtype=np.uint32)
+    
+    @staticmethod
+    def _create_capsule_mesh(radius, half_height, up_axis=1, segments=default_num_segments):
+        vertices = []
+        indices = []
+
+        x_dir, y_dir, z_dir = (
+            (1, 2, 0),
+            (2, 0, 1),
+            (0, 1, 2)
+        )[up_axis]
+        up_vector = np.zeros(3)
+        up_vector[up_axis] = half_height
+
+        for i in range(segments + 1):
+            theta = i * np.pi / segments
+            sin_theta = np.sin(theta)
+            cos_theta = np.cos(theta)
+
+            for j in range(segments + 1):
+                phi = j * 2 * np.pi / segments
+                sin_phi = np.sin(phi)
+                cos_phi = np.cos(phi)
+
+                z = cos_phi * sin_theta
+                y = cos_theta
+                x = sin_phi * sin_theta
+
+                u = float(j) / segments / 2
+                v = float(i) / segments
+
+                xyz = x, y, z
+                x, y, z = xyz[x_dir], xyz[y_dir], xyz[z_dir]
+                xyz = np.array((x, y, z), dtype=np.float32) * radius
+                if j < segments // 2:
+                    xyz += up_vector
+                    u += 0.5
+                else:
+                    xyz -= up_vector
+
+                vertices.append([*xyz, x, y, z, u, v])
+
+        nv = len(vertices)
+        for i in range(segments+1):
+            for j in range(segments+1):
+                first = (i * (segments + 1) + j) % nv
+                second = (first + segments + 1) % nv
+                indices.extend([first, second, (first + 1) % nv, second, (second + 1) % nv, (first + 1) % nv])
+
+        vertex_data = np.array(vertices, dtype=np.float32)
+        index_data = np.array(indices, dtype=np.uint32)
+
+        return vertex_data, index_data
 
 
 if __name__ == "__main__":
