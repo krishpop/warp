@@ -23,6 +23,8 @@ import OpenGL.GL as gl
 import numpy as np
 from OpenGL.GL.shaders import compileProgram, compileShader
 import glm
+import pycuda
+import pycuda.gl
 
 
 vertex_shader = '''
@@ -107,71 +109,28 @@ void main()
 }
 '''
 
-
-
-camera_pos = glm.vec3(0.0, 0.0, 10.0)
-camera_front = glm.vec3(0.0, 0.0, -1.0)
-camera_up = glm.vec3(0.0, 1.0, 0.0)
-camera_speed = 0.1
-yaw, pitch = -90.0, 0.0
-last_x, last_y = 800 // 2, 600 // 2
-first_mouse = True
-left_mouse_pressed = False
-
-def mouse_button_callback(window, button, action, mods):
-    global left_mouse_pressed, first_mouse, last_x, last_y
-    if button == glfw.MOUSE_BUTTON_LEFT:
-        if action == glfw.PRESS:
-            left_mouse_pressed = True
-            xpos, ypos = glfw.get_cursor_pos(window)
-            last_x, last_y = xpos, ypos
-            first_mouse = False
-        elif action == glfw.RELEASE:
-            left_mouse_pressed = False
-
-def mouse_callback(window, xpos, ypos):
-    global left_mouse_pressed
-    if left_mouse_pressed:
-        global first_mouse, yaw, pitch, last_x, last_y
-        if first_mouse:
-            last_x, last_y = xpos, ypos
-            first_mouse = False
-            return
-
-        x_offset = xpos - last_x
-        y_offset = last_y - ypos
-        last_x, last_y = xpos, ypos
-
-        sensitivity = 0.1
-        x_offset *= sensitivity
-        y_offset *= sensitivity
-
-        yaw += x_offset
-        pitch += y_offset
-
-        pitch = max(min(pitch, 89.0), -89.0)
-
-        front = glm.vec3()
-        front.x = np.cos(np.deg2rad(yaw)) * np.cos(np.deg2rad(pitch))
-        front.y = np.sin(np.deg2rad(pitch))
-        front.z = np.sin(np.deg2rad(yaw)) * np.cos(np.deg2rad(pitch))
-        global camera_front
-        camera_front = glm.normalize(front)
-
-def process_input(window):
-    global camera_pos, camera_front, camera_up, camera_speed
-    if glfw.get_key(window, glfw.KEY_W) == glfw.PRESS:
-        camera_pos += camera_speed * camera_front
-    if glfw.get_key(window, glfw.KEY_S) == glfw.PRESS:
-        camera_pos -= camera_speed * camera_front
-    if glfw.get_key(window, glfw.KEY_A) == glfw.PRESS:
-        camera_pos -= camera_speed * glm.normalize(glm.cross(camera_front, camera_up))
-    if glfw.get_key(window, glfw.KEY_D) == glfw.PRESS:
-        camera_pos += camera_speed * glm.normalize(glm.cross(camera_front, camera_up))
-    if glfw.get_key(window, glfw.KEY_ESCAPE) == glfw.PRESS:
-        glfw.set_window_should_close(window, True)
-
-
+@wp.kernel
+def move_instances(
+    positions: wp.array(dtype=wp.vec3),
+    scalings: wp.array(dtype=wp.vec3),
+    time: float,
+    # outputs
+    transforms: wp.array(dtype=wp.mat44),
+):
+    tid = wp.tid()
+    angle = (36.0 * float(tid))*wp.pi/180.0 + time
+    axis = wp.vec3(0., 1., 0.)
+    rot = wp.quat_to_matrix(wp.quat_from_axis_angle(axis, angle))
+    offset = wp.vec3(0.0, 0.0, 5.0 * np.sin(float(tid)*wp.pi/4. + time))
+    position = positions[tid] + offset
+    scaling = scalings[tid]
+    scale = wp.mat33(scaling[0], 0.0, 0.0, 0.0, scaling[1], 0.0, 0.0, 0.0, scaling[2])
+    scaled_rot = scale * rot
+    transforms[tid] = wp.transpose(wp.mat44(
+        scaled_rot[0,0], scaled_rot[0,1], scaled_rot[0,2], position[0],
+        scaled_rot[1,0], scaled_rot[1,1], scaled_rot[1,2], position[1],
+        scaled_rot[2,0], scaled_rot[2,1], scaled_rot[2,2], position[2],
+        0.0, 0.0, 0.0, 1.0))
 
 def check_gl_error():
     error = gl.glGetError()
@@ -213,11 +172,20 @@ class TinyRenderer:
             glfw.terminate()
             raise Exception("GLFW window creation failed!")
         
+        self._camera_pos = glm.vec3(0.0, 0.0, 10.0)
+        self._camera_front = glm.vec3(0.0, 0.0, -1.0)
+        self._camera_up = glm.vec3(0.0, 1.0, 0.0)
+        self._camera_speed = 0.1
+        self._yaw, self._pitch = -90.0, 0.0
+        self._last_x, self._last_y = 800 // 2, 600 // 2
+        self._first_mouse = True
+        self._left_mouse_pressed = False
+        
         # glfw.set_window_pos(self.window, 400, 200)
         glfw.set_window_size_callback(self.window, self._window_resize_callback)
         glfw.set_input_mode(self.window, glfw.CURSOR, glfw.CURSOR_NORMAL)
-        glfw.set_mouse_button_callback(self.window, mouse_button_callback)
-        glfw.set_cursor_pos_callback(self.window, mouse_callback)
+        glfw.set_mouse_button_callback(self.window, self._mouse_button_callback)
+        glfw.set_cursor_pos_callback(self.window, self._mouse_callback)
         glfw.set_scroll_callback(self.window, self._scroll_callback)
 
         glfw.make_context_current(self.window)
@@ -327,7 +295,7 @@ class TinyRenderer:
         projection = glm.perspective(np.deg2rad(45), width / height, self.near_plane, self.far_plane)
         glUniformMatrix4fv(self._loc_projection, 1, GL_FALSE, glm.value_ptr(projection))
 
-        view = glm.lookAt(camera_pos, camera_pos + camera_front, camera_up)
+        view = glm.lookAt(self._camera_pos, self._camera_pos + self._camera_front, self._camera_up)
         glUniformMatrix4fv(self._loc_view, 1, GL_FALSE, glm.value_ptr(view))
         
         model = glm.mat4(1.0)
@@ -337,37 +305,58 @@ class TinyRenderer:
         glUniform3f(glGetUniformLocation(shader, "lightColor"), 1, 1, 1)
         glUniform3f(glGetUniformLocation(shader, "viewPos"), 0, 0, 10)
 
+        import pycuda.gl.autoinit
+        instance_buffer_cuda = pycuda.gl.BufferObject(int(instance_buffer))
+        mapped_buffer = instance_buffer_cuda.map()
+        ptr = mapped_buffer.device_ptr()
+        mapped_buffer.unmap()
+
+        wp_positions = wp.array(instance_positions, dtype=wp.vec3, device='cuda')
+        wp_scalings = wp.array(np.random.uniform(0.5, 2.0, size=(num_instances, 3)), dtype=wp.vec3, device='cuda')
+
         while not glfw.window_should_close(self.window):
             glfw.poll_events()
-            process_input(self.window)
+            self._process_input(self.window)
 
             glClearColor(*self.background_color, 1)
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
             
-            view = glm.lookAt(camera_pos, camera_pos + camera_front, camera_up)
+            view = glm.lookAt(self._camera_pos, self._camera_pos + self._camera_front, self._camera_up)
             glUniformMatrix4fv(self._loc_view, 1, GL_FALSE, glm.value_ptr(view))
 
-            glUniform3f(glGetUniformLocation(shader, "viewPos"), *camera_pos)
+            glUniform3f(glGetUniformLocation(shader, "viewPos"), *self._camera_pos)
 
             glBindVertexArray(vao)
 
 
             
-
-            sphere_transforms = []
-            # Create transform matrices for all spheres
-            for i in range(num_instances):
-                angle = np.deg2rad(36 * i) + glfw.get_time()
-                axis = glm.vec3(0, 1, 0)
-                offset = glm.vec3(0.0, 0.0, 5.0 * np.sin(i*np.pi/4 + glfw.get_time()))
-                # transform = glm.translate(glm.rotate(glm.mat4(1.0), angle, axis), glm.vec3(*instance_positions[i])+offset)
-                transform = glm.rotate(glm.translate(glm.mat4(1.0), glm.vec3(*instance_positions[i])+offset), angle, axis)
-                transform = glm.scale(transform, glm.vec3(0.25, 0.25, 0.25))
-                # transform = glm.mat4(1.0)
-                sphere_transforms.append(np.array(transform).T)
-            sphere_transforms = np.array(sphere_transforms, dtype=np.float32)
-            glBindBuffer(GL_ARRAY_BUFFER, instance_buffer)
-            glBufferData(GL_ARRAY_BUFFER, sphere_transforms.nbytes, sphere_transforms, GL_DYNAMIC_DRAW)
+            if False:
+                sphere_transforms = []
+                # Create transform matrices for all spheres
+                for i in range(num_instances):
+                    angle = np.deg2rad(36 * i) + glfw.get_time()
+                    axis = glm.vec3(0, 1, 0)
+                    offset = glm.vec3(0.0, 0.0, 5.0 * np.sin(i*np.pi/4 + glfw.get_time()))
+                    # transform = glm.translate(glm.rotate(glm.mat4(1.0), angle, axis), glm.vec3(*instance_positions[i])+offset)
+                    transform = glm.rotate(glm.translate(glm.mat4(1.0), glm.vec3(*instance_positions[i])+offset), angle, axis)
+                    transform = glm.scale(transform, glm.vec3(0.25, 0.25, 0.25))
+                    # transform = glm.mat4(1.0)
+                    sphere_transforms.append(np.array(transform).T)
+                sphere_transforms = np.array(sphere_transforms, dtype=np.float32)
+                glBindBuffer(GL_ARRAY_BUFFER, instance_buffer)
+                glBufferData(GL_ARRAY_BUFFER, sphere_transforms.nbytes, sphere_transforms, GL_DYNAMIC_DRAW)
+            else:
+                mapped_buffer = instance_buffer_cuda.map()
+                ptr = mapped_buffer.device_ptr()
+                wp_instance_buffer = wp.array(dtype=wp.mat44, shape=(num_instances,), device='cuda', ptr=ptr, owner=False)
+                wp.launch(
+                    move_instances,
+                    dim=num_instances,
+                    inputs=[wp_positions, wp_scalings, glfw.get_time()],
+                    outputs=[wp_instance_buffer],
+                    device=wp_instance_buffer.device
+                )
+                mapped_buffer.unmap()
 
 
             glDrawElementsInstanced(GL_TRIANGLES, len(sphere_indices), GL_UNSIGNED_INT, None, num_instances)
@@ -393,14 +382,61 @@ class TinyRenderer:
         projection = glm.perspective(glm.radians(self.camera_fov), aspect_ratio, self.near_plane, self.far_plane)
         glUniformMatrix4fv(self._loc_projection, 1, GL_FALSE, glm.value_ptr(projection))
     
+    def _mouse_button_callback(self, window, button, action, mods):
+        if button == glfw.MOUSE_BUTTON_LEFT:
+            if action == glfw.PRESS:
+                self._left_mouse_pressed = True
+                xpos, ypos = glfw.get_cursor_pos(window)
+                self._last_x, self._last_y = xpos, ypos
+                self._first_mouse = False
+            elif action == glfw.RELEASE:
+                self._left_mouse_pressed = False
+
+    def _mouse_callback(self, window, xpos, ypos):
+        if self._left_mouse_pressed:
+            if self._first_mouse:
+                self._last_x, self._last_y = xpos, ypos
+                self._first_mouse = False
+                return
+
+            x_offset = xpos - self._last_x
+            y_offset = self._last_y - ypos
+            self._last_x, self._last_y = xpos, ypos
+
+            sensitivity = 0.1
+            x_offset *= sensitivity
+            y_offset *= sensitivity
+
+            self._yaw += x_offset
+            self._pitch += y_offset
+
+            self._pitch = max(min(self._pitch, 89.0), -89.0)
+
+            front = glm.vec3()
+            front.x = np.cos(np.deg2rad(self._yaw)) * np.cos(np.deg2rad(self._pitch))
+            front.y = np.sin(np.deg2rad(self._pitch))
+            front.z = np.sin(np.deg2rad(self._yaw)) * np.cos(np.deg2rad(self._pitch))
+            self._camera_front = glm.normalize(front)
+
+    def _process_input(self, window):
+        if glfw.get_key(window, glfw.KEY_W) == glfw.PRESS:
+            self._camera_pos += self._camera_speed * self._camera_front
+        if glfw.get_key(window, glfw.KEY_S) == glfw.PRESS:
+            self._camera_pos -= self._camera_speed * self._camera_front
+        if glfw.get_key(window, glfw.KEY_A) == glfw.PRESS:
+            self._camera_pos -= self._camera_speed * glm.normalize(glm.cross(self._camera_front, self._camera_up))
+        if glfw.get_key(window, glfw.KEY_D) == glfw.PRESS:
+            self._camera_pos += self._camera_speed * glm.normalize(glm.cross(self._camera_front, self._camera_up))
+        if glfw.get_key(window, glfw.KEY_ESCAPE) == glfw.PRESS:
+            glfw.set_window_should_close(window, True)
+    
     def _scroll_callback(self, window, x_offset, y_offset):
         self.camera_fov -= y_offset
         self.camera_fov = max(min(self.camera_fov, 90.0), 15.0)
         self.update_projection_matrix()
 
     def _window_resize_callback(self, window, width, height):
-        global first_mouse
-        first_mouse = True
+        self._first_mouse = True
         glViewport(0, 0, width, height)
         self.update_projection_matrix()
     
@@ -441,7 +477,6 @@ class TinyRenderer:
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
         return texture
-    
 
     @staticmethod
     def _create_sphere_mesh(radius=1.0, num_latitudes=default_num_segments, num_longitudes=default_num_segments):
@@ -730,4 +765,5 @@ class TinyRenderer:
 
 
 if __name__ == "__main__":
+    wp.init()
     renderer = TinyRenderer()
