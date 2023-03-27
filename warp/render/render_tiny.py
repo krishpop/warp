@@ -227,7 +227,8 @@ class TinyRenderer:
 
         # sphere_vertices, sphere_indices = self._create_sphere_mesh()
         # sphere_vertices, sphere_indices = self._create_capsule_mesh(radius=0.2, half_height=0.5)
-        sphere_vertices, sphere_indices = self._create_cone_mesh(radius=0.2, half_height=0.5)
+        # sphere_vertices, sphere_indices = self._create_cone_mesh(radius=0.2, half_height=0.5)
+        sphere_vertices, sphere_indices = self._create_cylinder_mesh(radius=0.2, half_height=0.5)
         # sphere_vertices, sphere_indices = self._create_box_mesh([1.0, 2.0, 3.0])
         num_instances = 50
         instance_positions = np.random.rand(num_instances, 3) * 10 - 5
@@ -567,24 +568,19 @@ class TinyRenderer:
         # Create the cone tip vertex
         position = np.array([0, 0, half_height])[[x_dir, y_dir, z_dir]]
         normal = np.array([0, 0, 1])[[x_dir, y_dir, z_dir]]
-        uv = (0.5, 1)
-        tip_vertex = np.hstack([position, normal, uv])
-        vertices.append(tip_vertex)
+        vertices.append([*position, *normal, 0.5, 1])
 
         # Create the cone side indices
         for i in range(segments):
             index1 = i
             index2 = (i + 1) % segments
             index3 = segments
-
             indices.extend([index1, index2, index3])
 
         # Create the cone base vertex
         position = np.array([0, 0, -half_height])[[x_dir, y_dir, z_dir]]
         normal = np.array([0, 0, -1])[[x_dir, y_dir, z_dir]]
-        uv = (0.5, 0.5)
-        base_vertex = np.hstack([position, normal, uv])
-        vertices.append(base_vertex)
+        vertices.append([*position, *normal, 0.5, 0.5])
 
         # Create the cone base triangle fan
         for i in range(segments):
@@ -616,6 +612,70 @@ class TinyRenderer:
             indices.extend([index1, index2, index3])
 
         vertex_data = np.array(vertices, dtype=np.float32)
+        index_data = np.array(indices, dtype=np.uint32)
+
+        return vertex_data, index_data
+    
+    @staticmethod
+    def _create_cylinder_mesh(radius, half_height, up_axis=1, segments=default_num_segments):
+        if up_axis not in (0, 1, 2):
+            raise ValueError("up_axis must be between 0 and 2")
+        
+        x_dir, y_dir, z_dir = (
+            (1, 2, 0),
+            (2, 0, 1),
+            (0, 1, 2)
+        )[up_axis]
+
+        indices = []
+
+        cap_vertices = []
+        side_vertices = []
+
+        # create center cap vertices
+        position = np.array([0, 0, -half_height])[[x_dir, y_dir, z_dir]]
+        normal = np.array([0, 0, -1])[[x_dir, y_dir, z_dir]]
+        cap_vertices.append([*position, *normal, 0.5, 0.5])
+        cap_vertices.append([*-position, *-normal, 0.5, 0.5])
+
+        # Create the cylinder base and top vertices
+        for j in (-1, 1):
+            center_index = max(j, 0)
+            for i in range(segments):
+                theta = 2 * np.pi * i / segments
+
+                cos_theta = np.cos(theta)
+                sin_theta = np.sin(theta)
+
+                x = radius * cos_theta
+                y = radius * sin_theta
+                z = j * half_height
+
+                position = np.array([x, y, z])
+
+                normal = np.array([x, y, 0])
+                normal = normal / np.linalg.norm(normal)
+                uv = (i / segments, (j + 1) / 2)
+                vertex = np.hstack([position[[x_dir, y_dir, z_dir]], normal[[x_dir, y_dir, z_dir]], uv])
+                side_vertices.append(vertex)
+
+                normal = np.array([0, 0, j])
+                uv = (cos_theta*0.5+0.5, sin_theta*0.5+0.5)
+                vertex = np.hstack([position[[x_dir, y_dir, z_dir]], normal[[x_dir, y_dir, z_dir]], uv])
+                cap_vertices.append(vertex)
+
+                indices.extend([center_index, i+center_index*segments+2, (i+1)%segments+center_index*segments+2])
+
+        # Create the cylinder side indices
+        for i in range(segments):
+            index1 = len(cap_vertices) + i + segments
+            index2 = len(cap_vertices) + ((i + 1) % segments) + segments
+            index3 = len(cap_vertices) + i + 1
+            index4 = len(cap_vertices) + ((i + 1) % segments) + 1
+
+            indices.extend([index1, index2, index3, index2, index4, index3])
+
+        vertex_data = np.array(np.vstack((cap_vertices, side_vertices)), dtype=np.float32)
         index_data = np.array(indices, dtype=np.uint32)
 
         return vertex_data, index_data
