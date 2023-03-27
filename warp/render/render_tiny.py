@@ -226,8 +226,10 @@ class TinyRenderer:
         glEnable(GL_DEPTH_TEST)
 
         # sphere_vertices, sphere_indices = self._create_sphere_mesh()
-        sphere_vertices, sphere_indices = self._create_capsule_mesh(radius=0.2, half_height=0.5)
-        num_instances = 5
+        # sphere_vertices, sphere_indices = self._create_capsule_mesh(radius=0.2, half_height=0.5)
+        sphere_vertices, sphere_indices = self._create_cone_mesh(radius=0.2, half_height=0.5)
+        # sphere_vertices, sphere_indices = self._create_box_mesh([1.0, 2.0, 3.0])
+        num_instances = 50
         instance_positions = np.random.rand(num_instances, 3) * 10 - 5
         instance_colors1 = np.random.rand(num_instances, 3)
         instance_colors2 = np.clip(instance_colors1 + 0.25, 0.0, 1.0)
@@ -351,20 +353,20 @@ class TinyRenderer:
 
             
 
-            # sphere_transforms = []
-            # # Create transform matrices for all spheres
-            # for i in range(num_instances):
-            #     angle = np.deg2rad(36 * i) + glfw.get_time()
-            #     axis = glm.vec3(0, 1, 0)
-            #     offset = glm.vec3(0.0, 0.0, 5.0 * np.sin(i*np.pi/4 + glfw.get_time()))
-            #     # transform = glm.translate(glm.rotate(glm.mat4(1.0), angle, axis), glm.vec3(*instance_positions[i])+offset)
-            #     transform = glm.rotate(glm.translate(glm.mat4(1.0), glm.vec3(*instance_positions[i])+offset), angle, axis)
-            #     transform = glm.scale(transform, glm.vec3(0.25, 0.25, 0.25))
-            #     # transform = glm.mat4(1.0)
-            #     sphere_transforms.append(np.array(transform).T)
-            # sphere_transforms = np.array(sphere_transforms, dtype=np.float32)
-            # glBindBuffer(GL_ARRAY_BUFFER, instance_buffer)
-            # glBufferData(GL_ARRAY_BUFFER, sphere_transforms.nbytes, sphere_transforms, GL_DYNAMIC_DRAW)
+            sphere_transforms = []
+            # Create transform matrices for all spheres
+            for i in range(num_instances):
+                angle = np.deg2rad(36 * i) + glfw.get_time()
+                axis = glm.vec3(0, 1, 0)
+                offset = glm.vec3(0.0, 0.0, 5.0 * np.sin(i*np.pi/4 + glfw.get_time()))
+                # transform = glm.translate(glm.rotate(glm.mat4(1.0), angle, axis), glm.vec3(*instance_positions[i])+offset)
+                transform = glm.rotate(glm.translate(glm.mat4(1.0), glm.vec3(*instance_positions[i])+offset), angle, axis)
+                transform = glm.scale(transform, glm.vec3(0.25, 0.25, 0.25))
+                # transform = glm.mat4(1.0)
+                sphere_transforms.append(np.array(transform).T)
+            sphere_transforms = np.array(sphere_transforms, dtype=np.float32)
+            glBindBuffer(GL_ARRAY_BUFFER, instance_buffer)
+            glBufferData(GL_ARRAY_BUFFER, sphere_transforms.nbytes, sphere_transforms, GL_DYNAMIC_DRAW)
 
 
             glDrawElementsInstanced(GL_TRIANGLES, len(sphere_indices), GL_UNSIGNED_INT, None, num_instances)
@@ -525,6 +527,146 @@ class TinyRenderer:
         index_data = np.array(indices, dtype=np.uint32)
 
         return vertex_data, index_data
+    
+    @staticmethod
+    def _create_cone_mesh(radius, half_height, up_axis=1, segments=default_num_segments):
+        if up_axis not in (0, 1, 2):
+            raise ValueError("up_axis must be between 0 and 2")
+
+        vertices = []
+        indices = []
+
+        h = 2*half_height
+        cone_angle = np.arctan2(radius, h)
+        cos_angle = np.cos(cone_angle)
+        sin_angle = np.sin(cone_angle)
+
+        # Create the cone side vertices
+        for i in range(segments):
+            theta = 2 * np.pi * i / segments
+            x_dir, y_dir, z_dir = (
+                (1, 2, 0),
+                (2, 0, 1),
+                (0, 1, 2)
+            )[up_axis]
+
+            cos_theta = np.cos(theta)
+            sin_theta = np.sin(theta)
+
+            x = radius * cos_theta
+            y = radius * sin_theta
+            z = -half_height
+
+            position = np.array([x, y, z])
+            normal = np.array([cos_angle*cos_theta, cos_angle*sin_theta, sin_angle])
+            uv = (i / segments, 0)
+
+            vertex = np.hstack([position[[x_dir, y_dir, z_dir]], normal[[x_dir, y_dir, z_dir]], uv])
+            vertices.append(vertex)
+
+        # Create the cone tip vertex
+        position = np.array([0, 0, half_height])[[x_dir, y_dir, z_dir]]
+        normal = np.array([0, 0, 1])[[x_dir, y_dir, z_dir]]
+        uv = (0.5, 1)
+        tip_vertex = np.hstack([position, normal, uv])
+        vertices.append(tip_vertex)
+
+        # Create the cone side indices
+        for i in range(segments):
+            index1 = i
+            index2 = (i + 1) % segments
+            index3 = segments
+
+            indices.extend([index1, index2, index3])
+
+        # Create the cone base vertex
+        position = np.array([0, 0, -half_height])[[x_dir, y_dir, z_dir]]
+        normal = np.array([0, 0, -1])[[x_dir, y_dir, z_dir]]
+        uv = (0.5, 0.5)
+        base_vertex = np.hstack([position, normal, uv])
+        vertices.append(base_vertex)
+
+        # Create the cone base triangle fan
+        for i in range(segments):
+            theta = 2 * np.pi * i / segments
+            x_dir, y_dir, z_dir = (
+                (1, 2, 0),
+                (2, 0, 1),
+                (0, 1, 2)
+            )[up_axis]
+
+            cos_theta = np.cos(theta)
+            sin_theta = np.sin(theta)
+
+            x = radius * cos_theta
+            y = radius * sin_theta
+            z = -half_height
+
+            position = np.array([x, y, z])
+            normal = np.array([0, 0, -1])
+            uv = (cos_theta*0.5+0.5, sin_theta*0.5+0.5)
+
+            vertex = np.hstack([position[[x_dir, y_dir, z_dir]], normal[[x_dir, y_dir, z_dir]], uv])
+            vertices.append(vertex)
+            
+            index1 = i + segments + 1
+            index2 = (i + 1) % segments + segments + 1
+            index3 = len(vertices) - 1
+
+            indices.extend([index1, index2, index3])
+
+        vertex_data = np.array(vertices, dtype=np.float32)
+        index_data = np.array(indices, dtype=np.uint32)
+
+        return vertex_data, index_data
+    
+    @staticmethod
+    def _create_box_mesh(extents):
+        x_extent, y_extent, z_extent = extents
+        half_x, half_y, half_z = x_extent / 2, y_extent / 2, z_extent / 2
+
+        vertices = [
+            # Position                  Normal    UV
+            [-half_x, -half_y, -half_z, -1, 0, 0, 0, 0],
+            [-half_x, -half_y,  half_z, -1, 0, 0, 1, 0],
+            [-half_x,  half_y,  half_z, -1, 0, 0, 1, 1],
+            [-half_x,  half_y, -half_z, -1, 0, 0, 0, 1],
+
+            [half_x, -half_y, -half_z, 1, 0, 0, 0, 0],
+            [half_x, -half_y,  half_z, 1, 0, 0, 1, 0],
+            [half_x,  half_y,  half_z, 1, 0, 0, 1, 1],
+            [half_x,  half_y, -half_z, 1, 0, 0, 0, 1],
+
+            [-half_x, -half_y, -half_z, 0, -1, 0, 0, 0],
+            [-half_x, -half_y,  half_z, 0, -1, 0, 1, 0],
+            [ half_x, -half_y,  half_z, 0, -1, 0, 1, 1],
+            [ half_x, -half_y, -half_z, 0, -1, 0, 0, 1],
+
+            [-half_x,  half_y, -half_z, 0, 1, 0, 0, 0],
+            [-half_x,  half_y,  half_z, 0, 1, 0, 1, 0],
+            [ half_x,  half_y,  half_z, 0, 1, 0, 1, 1],
+            [ half_x,  half_y, -half_z, 0, 1, 0, 0, 1],
+
+            [-half_x, -half_y, -half_z, 0, 0, -1, 0, 0],
+            [-half_x,  half_y, -half_z, 0, 0, -1, 1, 0],
+            [ half_x,  half_y, -half_z, 0, 0, -1, 1, 1],
+            [ half_x, -half_y, -half_z, 0, 0, -1, 0, 1],
+
+            [-half_x, -half_y,  half_z, 0, 0, 1, 0, 0],
+            [-half_x,  half_y,  half_z, 0, 0, 1, 1, 0],
+            [ half_x,  half_y,  half_z, 0, 0, 1, 1, 1],
+            [ half_x, -half_y,  half_z, 0, 0, 1, 0, 1],
+        ]
+
+        indices = [
+            0, 1, 2, 0, 2, 3,
+            4, 5, 6, 4, 6, 7,
+            8, 9, 10, 8, 10, 11,
+            12, 13, 14, 12, 14, 15,
+            16, 17, 18, 16, 18, 19,
+            20, 21, 22, 20, 22, 23
+        ]
+        return np.array(vertices, dtype=np.float32), np.array(indices, dtype=np.uint32)
 
 
 if __name__ == "__main__":
