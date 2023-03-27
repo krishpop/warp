@@ -306,9 +306,9 @@ class TinyRenderer:
         glUniform3f(glGetUniformLocation(shader, "viewPos"), 0, 0, 10)
 
         import pycuda.gl.autoinit
-        instance_buffer_cuda = pycuda.gl.BufferObject(int(instance_buffer))
+        instance_buffer_cuda = pycuda.gl.RegisteredBuffer(int(instance_buffer))
         mapped_buffer = instance_buffer_cuda.map()
-        ptr = mapped_buffer.device_ptr()
+        ptr, _ = mapped_buffer.device_ptr_and_size()
         mapped_buffer.unmap()
 
         wp_positions = wp.array(instance_positions, dtype=wp.vec3, device='cuda')
@@ -347,7 +347,7 @@ class TinyRenderer:
                 glBufferData(GL_ARRAY_BUFFER, sphere_transforms.nbytes, sphere_transforms, GL_DYNAMIC_DRAW)
             else:
                 mapped_buffer = instance_buffer_cuda.map()
-                ptr = mapped_buffer.device_ptr()
+                ptr, _ = mapped_buffer.device_ptr_and_size()
                 wp_instance_buffer = wp.array(dtype=wp.mat44, shape=(num_instances,), device='cuda', ptr=ptr, owner=False)
                 wp.launch(
                     move_instances,
