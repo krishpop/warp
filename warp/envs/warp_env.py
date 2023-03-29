@@ -3,12 +3,25 @@ from gym import spaces
 import torch
 import numpy as np
 import warp as wp
-from dmanip.utils.common import set_seed, to_torch, clear_state_grads, to_numpy
-from dmanip.utils import warp_utils as wpu
 import warp.torch
 import warp.sim
 import warp.sim.render
+import random
+import imageio
 from warp.envs.environment import Environment, RenderMode, IntegratorType
+
+def set_seed(seed):
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+
+def to_numpy(input):
+    if isinstance(input, np.ndarray):
+        return input
+    return input.detach().cpu().numpy()
+
 
 
 class WarpEnv(Environment):
@@ -18,7 +31,9 @@ class WarpEnv(Environment):
     env_offset = (6.0, 0.0, 6.0)
     tiny_render_settings = dict(scaling=3.0, mode='rgb')
     usd_render_settings = dict(scaling=100.0)
-    use_graph_capture = False
+    use_graph_capture = True
+    update_joints_graph = None
+    forward_sim_graph = None
 
     sim_substeps_euler = 32
     sim_substeps_xpbd = 5
@@ -67,10 +82,13 @@ class WarpEnv(Environment):
         else:
             self.stage_path = stage_path
 
+        # potential imageio writer if writing to an mp4
+        self.writer = None
+
         if self.render_mode == RenderMode.TINY and stage_path:
-            self.tiny_render_settings['mode'] = "video"
+            self.tiny_render_settings['mode'] = "rgb"
         elif self.render_mode == RenderMode.USD:
-            self.usd_render_settings['path'] = f"outputs/{stage_path}.usd"
+            self.usd_render_settings['path'] = f"outputs/{self.stage_path}.usd"
 
         # initialize observation and action space
         self.num_observations = num_obs
@@ -156,9 +174,20 @@ class WarpEnv(Environment):
         self.state_0 = self.model.state(requires_grad=self.requires_grad)
         self.state_1 = self.model.state(requires_grad=self.requires_grad)
 
-    def initialize_renderer(self, stage_path):
+        self._joint_q = wp.zeros_like(self.model.joint_q)
+        self._joint_qd = wp.zeros_like(self.model.joint_qd)
+        start_joint_q = wp.to_torch(self.model.joint_q)
+        start_joint_qd = wp.to_torch(self.model.joint_qd)
+        self.joint_q = None
+
+        # Buffers copying initial state, with env batch dimension
+        self.start_joint_q = start_joint_q.clone().view(self.num_envs, -1)
+        self.start_joint_qd = start_joint_qd.clone().view(self.num_envs, -1)
+
+    def initialize_renderer(self, stage_path=None):
         if stage_path is not None:
             self.stage_path = stage_path
+
         print("Initializing renderer writing to path: outputs/{}".format(self.stage_path))
         if self.render_mode == RenderMode.USD:
             self.renderer = wp.sim.render.SimRenderer(
@@ -167,6 +196,7 @@ class WarpEnv(Environment):
             self.renderer.draw_points = True
             self.renderer.draw_springs = True
         elif self.render_mode == RenderMode.TINY:
+            # self.writer = imageio.get_writer(f"outputs/{self.stage_path}.mp4", fps=30)
             self.renderer = wp.sim.tiny_render.TinyRenderer(
                 self.model,
                 self.env_name,  # window name
@@ -214,8 +244,8 @@ class WarpEnv(Environment):
             # assign model joint_q/qd from start pos/randomized pos
             # this effects body_q when eval_fk is called later
             self.joint_q, self.joint_qd = joint_q.view(-1), joint_qd.view(-1)
-            self.model.joint_q.assign(wp.from_torch(self.joint_q.flatten()))
-            self.model.joint_qd.assign(wp.from_torch(self.joint_qd.flatten()))
+            self.model.joint_q.assign(wp.from_torch(self.joint_q))
+            self.model.joint_qd.assign(wp.from_torch(self.joint_qd))
 
             # requires_grad is properly set in clear_grad()
             self.model.joint_act.zero_()
@@ -243,19 +273,57 @@ class WarpEnv(Environment):
 
         return self.obs_buf
 
+    def update_joints(self):
+        self._joint_q.zero_()
+        self._joint_qd.zero_()
+        if self._joint_q.grad is not None:
+            self._joint_q.grad.zero_()
+            self._joint_qd.grad.zero_()
+
+        if self.use_graph_capture:
+            if self.update_joints_graph is None:
+                wp.capture_begin()
+                wp.sim.eval_ik(self.model, self.state_0, self._joint_q, self._joint_qd)
+                self.update_joints_graph = wp.capture_end()
+            wp.capture_launch(self.update_joints_graph)
+        else:
+            wp.sim.eval_ik(self.model, self.state_0, self._joint_q, self._joint_qd)
+
+        self.joint_q = wp.to_torch(self._joint_q).clone()
+        self.joint_qd = wp.to_torch(self._joint_qd)
+
+    def warp_step(self):
+        # simulates with graph capture if selected
+        def forward():
+            for i in range(self.sim_substeps):
+                self.state_0.clear_forces()
+                wp.sim.collide(self.model, self.state_0)
+                self.state_1 = self.integrator.simulate(
+                    self.model, self.state_0, self.state_1, self.sim_dt
+                )
+                self.state_0, self.state_1 = self.state_1, self.state_0
+            self.update_joints()
+
+        if self.use_graph_capture:
+            if self.forward_sim_graph is None:
+                # create update graph
+                wp.capture_begin()
+                forward()
+                self.forward_sim_graph = wp.capture_end()
+            wp.capture_launch(self.forward_sim_graph)
+        else:
+            forward()
+
     def clear_grad(self, checkpoint=None):
         """
         cut off the gradient from the current state to previous states
         """
-        if checkpoint is not None:
-            self.load_checkpoint(checkpoint_data=checkpoint)
+        if checkpoint is None:
+            checkpoint = self.get_checkpoint()
         with torch.no_grad():
-            current_joint_q = self.joint_q.detach().clone()
-            current_joint_qd = self.joint_qd.detach().clone()
+            self.load_checkpoint(checkpoint)
             current_joint_act = wp.to_torch(self.model.joint_act).detach().clone()
             # grads will not be assigned since variables are detached
-            self.model.joint_q.assign(wp.from_torch(current_joint_q))
-            self.model.joint_qd.assign(wp.from_torch(current_joint_qd))
             self.model.joint_act.assign(wp.from_torch(current_joint_act))
             if self.model.joint_q.grad is not None:
                 self.model.joint_q.grad.zero_()
@@ -291,6 +359,7 @@ class WarpEnv(Environment):
                 self.renderer.render(self.state_0)
                 if mode == "rgb_array" or self.renderer.mode == 'rgb':
                     img = self.renderer.end_frame()
+                    # self.writer.append_data(img)
                 else:
                     if self.renderer.mode == 'video':
                         video_path = f"outputs/{self.stage_path}.mp4"
@@ -301,7 +370,7 @@ class WarpEnv(Environment):
     def get_checkpoint(self, save_path=None):
         checkpoint = {}
         self.update_joints()
-        joint_q, joint_qd = self.joint_q, self.joint_qd
+        joint_q, joint_qd = self.joint_q.detach(), self.joint_qd.detach()
         checkpoint["joint_q"] = joint_q.clone()
         checkpoint["joint_qd"] = joint_qd.clone()
         checkpoint["body_q"] = self.body_q.clone()
@@ -316,14 +385,16 @@ class WarpEnv(Environment):
 
     def load_checkpoint(self, checkpoint_data={}, ckpt_path=None):
         if ckpt_path is not None:
+            print("loading checkpoint from {}".format(ckpt_path))
             checkpoint_data = torch.load(ckpt_path)
-        print("loading checkpoint")
         joint_q = checkpoint_data["joint_q"].clone().view(-1, self.num_joint_q)
-        joint_qd = checkpoint_data["joint_qd"].clone().view(-1, self.num_joint_q)
+        joint_qd = checkpoint_data["joint_qd"].clone().view(-1, self.num_joint_qd)
         self.joint_q = joint_q[: self.num_envs].flatten()
         self.joint_qd = joint_qd[: self.num_envs].flatten()
         self._joint_q.assign(to_numpy(self.joint_q))
         self._joint_qd.assign(to_numpy(self.joint_qd))
+        self.model.joint_q.assign(self._joint_q)
+        self.model.joint_qd.assign(self._joint_qd)
         self.body_q = checkpoint_data["body_q"].clone()[: self.state_0.body_q.size]
         self.body_qd = checkpoint_data["body_qd"].clone()[: self.state_0.body_qd.size]
         with torch.no_grad():
@@ -336,3 +407,8 @@ class WarpEnv(Environment):
         self.clear_grad()
         self.calculateObservations()
         return self.obs_buf
+
+    def close(self):
+        if self.writer is not None:
+            self.writer.close()
+        self.renderer.app.window.set_request_exit()

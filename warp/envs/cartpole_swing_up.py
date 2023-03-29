@@ -1,36 +1,17 @@
-# Copyright (c) 2022 NVIDIA CORPORATION.  All rights reserved.
-# NVIDIA CORPORATION and its licensors retain all intellectual property
-# and proprietary rights in and to this software, related documentation
-# and any modifications thereto.  Any use, reproduction, disclosure or
-# distribution of this software and related documentation without an express
-# license agreement from NVIDIA CORPORATION is strictly prohibited.
-
-import math
-import os
-import sys
-
 import torch
 
-from dmanip.envs import WarpEnv
-
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
-import warp as wp
-
-import numpy as np
-
-np.set_printoptions(precision=5, linewidth=256, suppress=True)
-
-try:
-    from pxr import Usd
-except ModuleNotFoundError:
-    print("No pxr package")
-
-from utils import torch_utils as tu
-from utils.warp_utils import IntegratorSimulate
+from .warp_env import WarpEnv
+from .environment import RenderMode, IntegratorType
+from . import torch_utils as tu
+from .autograd_utils import IntegratorSimulate, assign_act
 
 
-class CartPoleSwingUpWarpEnv(WarpEnv):
+
+class CartPoleSwingUpEnv(WarpEnv):
+    render_mode: RenderMode = RenderMode.TINY
+    integrator_type: IntegratorType = IntegratorType.XPBD
+    activate_ground_plane: bool = False
+
     def __init__(
         self,
         render=False,
@@ -41,12 +22,14 @@ class CartPoleSwingUpWarpEnv(WarpEnv):
         no_grad=True,
         stochastic_init=False,
         early_termination=False,
+        stage_path=None,
+        env_name="CartPoleSwingUpEnv"
     ):
 
         num_obs = 5
         num_act = 1
 
-        super(CartPoleSwingUpWarpEnv, self).__init__(
+        super().__init__(
             num_envs,
             num_obs,
             num_act,
@@ -56,11 +39,35 @@ class CartPoleSwingUpWarpEnv(WarpEnv):
             render,
             stochastic_init,
             device,
+            env_name=env_name,
+            render_mode=self.render_mode,
+            stage_path=stage_path
         )
-
+        self.num_joint_q = 2
+        self.num_joint_qd = 2
         self.early_termination = early_termination
-
         self.init_sim()
+        dof_count = int(self.model.joint_act.shape[0] / self.num_envs)
+        act = wp.zeros(self.num_envs * self.num_acts, dtype=self.model.joint_act.dtype,
+                       device=self.device)
+        assert dof_count * self.num_envs == self.model.joint_act.size
+        self.simulate_params = {"model": self.model, "integrator": self.integrator,
+                                "dt": self.sim_dt, "substeps": self.sim_substeps,
+                                "state_in": self.state_0, "state_out": self.state_1}
+        self.act_params = {"q_offset": 0, "joint_act": self.model.joint_act,
+                           "act": act, "num_envs": self.num_envs,
+                           "dof_count": dof_count}
+        self.graph_capture_params = {"capture_graph": self.use_graph_capture}
+        self.graph_capture_params["joint_q_end"] = wp.zeros_like(model.joint_q)
+        self.graph_capture_params["joint_qd_end"] = wp.zeros_like(model.joint_qd)
+        if self.use_graph_capture and self.requires_grad:
+            backward_model = self.model if not self.use_graph_capture else self.builder.finalize()
+            self.graph_capture_params["bwd_model"] = backward_model
+            self.graph_capture_params["bwd_joint_q_end"] = wp.zeros_like(backward_model.joint_q)
+            self.graph_capture_params["bwd_joint_qd_end"] = wp.zeros_like(backward_model.joint_qd)
+            self.graph_capture_params["tape"] = wp.Tape()
+            self.graph_capture_params["bw_tape"] = wp.Tape()
+            self.simulate_params["state_list"] = [backward_model.state(requires_grad=True) for _ in range(self.sim_substeps + 1)]
 
         # action parameters
         self.action_strength = 1000.0
@@ -74,95 +81,6 @@ class CartPoleSwingUpWarpEnv(WarpEnv):
 
         self.cart_action_penalty = 0.0
 
-        # -----------------------
-        # set up Usd renderer
-        if self.visualize:
-            stage_path = f"outputs/CartPoleSwingUpWarp_{self.num_envs}.usd"
-            print(f"created stage, {stage_path}")
-            self.stage = wp.sim.render.SimRenderer(
-                self.model, stage_path, scaling=100.0
-            )
-            self.stage.draw_points = True
-            self.stage.draw_springs = True
-            self.stage.draw_shapes = True
-            self.render_time = 0.0
-
-    def init_sim(self):
-        wp.init()
-        self.dt = 1.0 / 60.0
-        self.sim_substeps = 32
-        self.sim_dt = self.dt
-
-        self.env_dist = 1.0
-
-        self.num_joint_q = 2
-        self.num_joint_qd = 2
-
-        asset_folder = os.path.join(os.path.dirname(__file__), "assets")
-        self.articulation_builder = wp.sim.ModelBuilder()
-        wp.sim.parse_urdf(
-            os.path.join(asset_folder, "cartpole.urdf"),
-            self.articulation_builder,
-            xform=wp.transform(
-                np.array((0.0, 0.0, 0.0)),
-                wp.quat_from_axis_angle((1.0, 0.0, 0.0), -math.pi * 0.5),
-            ),
-            floating=False,
-            density=0,
-            armature=0.1,
-            stiffness=0.0,
-            damping=0.0,
-            shape_ke=1.0e4,
-            shape_kd=1.0e4,
-            shape_kf=1.0e4,
-            shape_mu=1.0,
-            limit_ke=100,
-            limit_kd=1.0,
-        )
-
-        self.builder = wp.sim.ModelBuilder()
-
-        for i in range(self.num_envs):
-            self.builder.add_rigid_articulation(
-                self.articulation_builder,
-                xform=wp.transform(
-                    np.array((0.0, 2.5, self.env_dist * i)),
-                    wp.quat_from_axis_angle((1.0, 0.0, 0.0), 0),
-                ),
-            )
-            self.builder.joint_q[i * self.num_joint_q + 1] = -math.pi
-            self.builder.joint_target[
-                i * self.num_joint_q : (i + 1) * self.num_joint_q
-            ] = [0.0, 0.0]
-
-        self.model = self.builder.finalize(
-            str(self.device), requires_grad=self.requires_grad
-        )
-        self.model.ground = False
-
-        self.model.joint_attach_ke = 10000.0
-        self.model.joint_attach_kd = 100.0
-
-        self.integrator = wp.sim.SemiImplicitIntegrator()
-
-        self.state_0 = self.model.state(requires_grad=self.requires_grad)
-        self.model.joint_q.requires_grad = self.requires_grad
-        self.model.joint_qd.requires_grad = self.requires_grad
-        self.model.joint_act.requires_grad = self.requires_grad
-
-        start_joint_q = wp.to_torch(self.model.joint_q).clone()
-        start_joint_qd = wp.to_torch(self.model.joint_qd).clone()
-        start_joint_act = wp.to_torch(self.model.joint_act).clone()
-
-        # only stores a single copy of the initial state
-        self.start_joint_q = start_joint_q.view(self.num_envs, -1)
-        self.start_joint_qd = start_joint_qd.view(self.num_envs, -1)
-        self.start_joint_act = start_joint_act.view(self.num_envs, -1)
-        self.joint_q, self.joint_qd = start_joint_q, start_joint_qd
-        if self.requires_grad:
-            self.joint_q.requires_grad = True
-            self.joint_qd.requires_grad = True
-
     def render(self, mode="human"):
         if self.visualize:
             self.render_time += self.dt
@@ -173,11 +91,17 @@ class CartPoleSwingUpWarpEnv(WarpEnv):
                 self.stage.save()
                 self.num_frames -= 40
 
+    def assign_actions(self, actions):
+        actions = actions.flatten() * self.action_strength
+        # actions = torch.clip(actions, -1.0, 1.0)
+        self.act_params['act'].assign(actions)
+        assign_act(**self.act_params)
+
     def step(self, actions):
         with wp.ScopedTimer("simulate", active=False, detailed=False):
             actions = torch.clip(actions, -1.0, 1.0)
             self.actions = actions.view(self.num_envs, -1)
-            joint_act = self.action_strength * actions
+            actions = self.action_strength * actions
 
             if self.requires_grad:
                 # does this cut off grad to prev timestep?
@@ -191,31 +115,16 @@ class CartPoleSwingUpWarpEnv(WarpEnv):
                 )
                 state_out = self.model.state(requires_grad=True)
                 self.joint_q, self.joint_qd, self.state_0 = IntegratorSimulate.apply(
-                    self.model,
-                    self.state_0,
-                    self.integrator,
-                    self.sim_dt,
-                    self.sim_substeps,
-                    joint_act.flatten(),
+                    self.simulate_params,
+                    self.graph_capture_params,
+                    self.act_params,
+                    action.flatten(),
                     body_q,
                     body_qd,
-                    state_out,
                 )
             else:
-                for i in range(self.sim_substeps):
-                    state_out = self.model.state(requires_grad=self.requires_grad)
-                    self.state_0 = self.integrator.simulate(
-                        self.model,
-                        self.state_0,
-                        state_out,
-                        self.sim_dt / float(self.sim_substeps),
-                    )
-                joint_q = wp.zeros_like(self.model.joint_q)
-                joint_qd = wp.zeros_like(self.model.joint_qd)
-                # wp.sim.eval_ik(self.model, self.state_0, joint_q, joint_qd)
-                self.joint_q, self.joint_qd = wp.to_torch(joint_q), wp.to_torch(
-                    joint_qd
-                )
+                self.assign_actions(self.actions)
+                self.warp_step()
 
             self.sim_time += self.sim_dt
 
@@ -253,28 +162,6 @@ class CartPoleSwingUpWarpEnv(WarpEnv):
             torch.rand(size=(len(env_ids), self.num_joint_qd), device=self.device) - 0.5
         )
         return joint_q[env_ids] + rand_init_q, joint_qd[env_ids] + rand_init_qd
-
-    def initialize_trajectory(self):
-        """initialize_trajectory() starts collecting a new trajectory from the current states but cut off the computation graph to the previous states.
-        It has to be called every time the algorithm starts an episode and return the observation vectors
-        """
-        self.clear_grad()
-        self.calculateObservations()
-        return self.obs_buf
-
-    def clear_grad(self, checkpoint=None):
-        super().clear_grad()
-        with torch.no_grad():
-            self.actions = self.actions.clone()
-            if self.actions.grad is not None:
-                self.actions.grad.zero()
-            self.state_0 = self.model.state(requires_grad=self.requires_grad)
-            self.joint_q, self.joint_qd = self.joint_q.clone(), self.joint_qd.clone()
-            self.joint_q.requires_grad = self.requires_grad
-            self.joint_qd.requires_grad = self.requires_grad
-            # self.rew_buf.zero_()
-        if checkpoint is not None:
-            self.load_checkpoint(checkpoint)
 
     def calculateObservations(self):
         joint_q, joint_qd = self.joint_q.view(self.num_envs, -1), self.joint_qd.view(

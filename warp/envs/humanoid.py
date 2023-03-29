@@ -59,19 +59,8 @@ class HumanoidEnv(WarpEnv):
             render_mode=self.render_mode,
             stage_path=stage_path
         )
+        self.num_joint_q, self.num_joint_qd = 28, 27
         self.init_sim()
-        self.update_joints_graph = None
-        self.forward_sim_graph = None
-        self._joint_q = wp.zeros_like(self.model.joint_q)
-        self._joint_qd = wp.zeros_like(self.model.joint_qd)
-        start_joint_q = wp.to_torch(self.model.joint_q)
-        start_joint_qd = wp.to_torch(self.model.joint_qd)
-        joint_X_p = wp.to_torch(self.model.joint_X_p)
-        self.joint_q = None
-
-        # Buffers copying initial state, with env batch dimension
-        self.start_joint_q = start_joint_q.clone().view(self.num_envs, -1)
-        self.start_joint_qd = start_joint_qd.clone().view(self.num_envs, -1)
 
         # initialize some data used later on
         # todo - switch to z-up
@@ -187,28 +176,6 @@ class HumanoidEnv(WarpEnv):
     def to_torch(self, state_arr, num_frames=None):
         return wp.to_torch(state_arr)
 
-    def warp_step(self):
-        # simulate
-        def forward():
-            for i in range(self.sim_substeps):
-                self.state_0.clear_forces()
-                wp.sim.collide(self.model, self.state_0)
-                self.state_1 = self.integrator.simulate(
-                    self.model, self.state_0, self.state_1, self.sim_dt
-                )
-                self.state_0, self.state_1 = self.state_1, self.state_0
-            self.update_joints()
-
-        if self.use_graph_capture:
-            if self.forward_sim_graph is None:
-                # create update graph
-                wp.capture_begin()
-                forward()
-                self.forward_sim_graph = wp.capture_end()
-            wp.capture_launch(self.forward_sim_graph)
-        else:
-            forward()
-
     def assign_actions(self, actions):
         actions = actions.view((self.num_envs, self.num_actions))
         actions = torch.clip(actions, -1.0, 1.0)
@@ -254,17 +221,12 @@ class HumanoidEnv(WarpEnv):
         return self.obs_buf, self.rew_buf, self.reset_buf, self.extras
 
     def reset(self, env_ids=None, force_reset=True):
-        # creating state_1 if no_grad enabled for warp_step and calculateObservation
-        if not self.requires_grad:
-            self.state_1 = self.model.state(requires_grad=False)
-
         super().reset(env_ids, force_reset)  # resets state_0 and joint_q
         self.update_joints()
         self.initialize_trajectory()  # sets goal_trajectory & obs_buf
         if self.requires_grad:
             self.model.allocate_rigid_contacts(requires_grad=self.requires_grad)
             wp.sim.collide(self.model, self.state_0)
-        self.prev_steps = []
         return self.obs_buf
 
     def get_stochastic_init(self, env_ids, joint_q, joint_qd):

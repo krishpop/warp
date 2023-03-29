@@ -26,3 +26,6 @@ examples/assets
 build/
 
 examples/assets
+tags
+.ipynb_checkpoints
+tests/outputs

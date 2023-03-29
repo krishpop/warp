@@ -102,6 +102,7 @@ class TinyRenderer:
         ):
 
         self.paused = False
+        self.start_paused = start_paused
         self.skip_rendering = False
         self._skip_frame_counter = 0
         cudart_path = os.environ.get("LIB_CUDART_PATH")
@@ -113,7 +114,10 @@ class TinyRenderer:
         self.height = height
         self.width = width
         self.mode = mode
-        self.app = p.TinyOpenGL3App(title, width=self.width, height=self.height, windowType=2)
+        window_type = 2 if mode == "rgb" else 0
+        print("setting windowType={}".format(window_type))
+        self.app = p.TinyOpenGL3App(title, width=self.width, height=self.height,
+                windowType=window_type)
         # self.app.set_mp4_fps(fps)
         self.app.renderer.init()
         def keypress(key, pressed):
@@ -199,7 +203,7 @@ class TinyRenderer:
                 scale = np.ones(3)
                 # check whether we can instance an already created shape with the same geometry
                 geo_hash = hash((int(geo_type), geo_src, geo_scale[0], geo_scale[1], geo_scale[2]))
-                
+
                 if (geo_type == warp.sim.GEO_PLANE):
                     if geo_hash in self.geo_shape:
                         shape = self.geo_shape[geo_hash]
@@ -265,7 +269,7 @@ class TinyRenderer:
                             gfx_vertices[i*3+2, :3] = v2
                             n = np.cross(v1-v0, v2-v0)
                             gfx_vertices[i*3:i*3+3, 4:7] = n / np.linalg.norm(n)
-                            
+
                         shape = self.app.renderer.register_shape(
                             gfx_vertices.flatten(),
                             gfx_indices.flatten(),
@@ -329,16 +333,16 @@ class TinyRenderer:
             self.app.renderer.register_graphics_instance(shape, pos, orn, color, scale, opacity, rebuild)
 
         self.app.renderer.write_transforms()
-        
+
         self.num_instances = len(self.instance_shape)
         self.bodies_per_env = len(self.model.body_q) // self.num_envs
         self.instances_per_env = self.num_instances // self.num_envs
-        
+
         # mapping from shape instance to environment ID
         self.instance_envs = wp.array(
             np.tile(np.arange(self.num_envs, dtype=np.int32), self.instances_per_env), dtype=wp.int32,
             device="cuda", owner=False, ndim=1)
-        
+
         env_offsets = compute_env_offsets(self.num_envs, env_offset, self.cam_axis)
         self.env_offsets = wp.array(env_offsets, dtype=wp.vec3, device="cuda")
         self.instance_shape = wp.array(self.instance_shape, dtype=wp.int32, device="cuda")
@@ -386,7 +390,7 @@ class TinyRenderer:
         # render muscles
         if (self.model.muscle_count):
             pass
-            
+
             # body_q = state.body_q.numpy()
 
             # muscle_start = self.model.muscle_start.numpy()
@@ -402,21 +406,21 @@ class TinyRenderer:
             #     points = []
 
             #     for w in range(start, end):
-                    
+
             #         link = muscle_links[w]
             #         point = muscle_points[w]
 
             #         X_sc = wp.transform_expand(body_q[link][0])
 
             #         points.append(Gf.Vec3f(wp.transform_point(X_sc, point).tolist()))
-                
+
             #     self.render_line_strip(name=f"muscle_{m}", vertices=points, radius=0.0075, color=(muscle_activation[m], 0.2, 0.5))
-        
-        
+
+
 
         # update bodies
         if (self.model.body_count):
-            
+
             wp.synchronize()
             if state.body_q.device.is_cuda:
                 self.body_q = state.body_q
@@ -509,4 +513,8 @@ class TinyRenderer:
         img = np.flipud(img)
         return img
 
-
+    def move_camera(self, dist=15., pitch=-30, yaw=45, position=(0.,0.,0.)):
+        self.cam.set_camera_distance(dist)
+        self.cam.set_camera_pitch(pitch)
+        self.cam.set_camera_yaw(yaw)
+        self.cam.set_camera_target_position(*position)

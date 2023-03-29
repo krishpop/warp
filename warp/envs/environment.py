@@ -124,7 +124,7 @@ class Environment:
         self.sim_time = 0.0
         self.render_time = 0.0
 
-        builder = wp.sim.ModelBuilder()
+        self.builder = wp.sim.ModelBuilder(gravity=self.gravity)
         try:
             articulation_builder = wp.sim.ModelBuilder()
             self.create_articulation(articulation_builder)
@@ -141,12 +141,12 @@ class Environment:
             self.bodies_per_env = len(articulation_builder.body_q)
         except NotImplementedError:
             # custom simulation setup where something other than an articulation is used
-            self.setup(builder)
-            self.bodies_per_env = len(builder.body_q)
+            self.setup(self.builder)
+            self.bodies_per_env = len(self.builder.body_q)
 
-        self.model = (
-            builder.finalize()
-        )  # rigid_mesh_contact_max=self.rigid_mesh_contact_max)
+        self.model = self.builder.finalize()
+        # requires_grad=self.requires_grad,
+        # rigid_mesh_contact_max=self.rigid_mesh_contact_max)
         self.device = str(self.model.device)
         self.model.ground = self.activate_ground_plane
 
