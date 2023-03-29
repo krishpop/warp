@@ -119,18 +119,18 @@ CUDA_CALLABLE inline bool intersect_ray_aabb(const vec3& pos, const vec3& rcp_di
 {
 	float l1, l2, lmin, lmax;
 
-    l1 = (lower.x - pos.x) * rcp_dir.x;
-    l2 = (upper.x - pos.x) * rcp_dir.x;
+    l1 = (lower[0] - pos[0]) * rcp_dir[0];
+    l2 = (upper[0] - pos[0]) * rcp_dir[0];
     lmin = min(l1,l2);
     lmax = max(l1,l2);
 
-    l1 = (lower.y - pos.y) * rcp_dir.y;
-    l2 = (upper.y - pos.y) * rcp_dir.y;
+    l1 = (lower[1] - pos[1]) * rcp_dir[1];
+    l2 = (upper[1] - pos[1]) * rcp_dir[1];
     lmin = max(min(l1,l2), lmin);
     lmax = min(max(l1,l2), lmax);
 
-    l1 = (lower.z - pos.z) * rcp_dir.z;
-    l2 = (upper.z - pos.z) * rcp_dir.z;
+    l1 = (lower[2] - pos[2]) * rcp_dir[2];
+    l2 = (upper[2] - pos[2]) * rcp_dir[2];
     lmin = max(min(l1,l2), lmin);
     lmax = min(max(l1,l2), lmax);
 
@@ -246,9 +246,9 @@ CUDA_CALLABLE inline int sign_mask(float x)
 
 CUDA_CALLABLE inline int max_dim(vec3 a)
 {
-	float x = abs(a.x);
-	float y = abs(a.y);
-	float z = abs(a.z);
+	float x = abs(a[0]);
+	float y = abs(a[1]);
+	float z = abs(a[2]);
 
 	return longest_axis(vec3(x, y, z));
 }
@@ -663,7 +663,7 @@ CUDA_CALLABLE inline void adj_closest_point_to_triangle(
     bool var_64;
     float32 var_65;
     vec2 var_66;
-    vec2 var_67;
+    // vec2 var_67;
     float32 var_68;
     float32 var_69;
     float32 var_70;
@@ -671,7 +671,7 @@ CUDA_CALLABLE inline void adj_closest_point_to_triangle(
     float32 var_72;
     float32 var_73;
     float32 var_74;
-    vec2 var_75;
+    // vec2 var_75;
     //---------
     // dual vars
     vec3 adj_0 = 0;
@@ -835,7 +835,7 @@ CUDA_CALLABLE inline void adj_closest_point_to_triangle(
     	var_66 = wp::vec2(var_5, var_65);
     	goto label5;
     }
-    var_67 = wp::select(var_64, var_50, var_66);
+    // var_67 = wp::select(var_64, var_50, var_66);
     var_68 = wp::add(var_53, var_41);
     var_69 = wp::add(var_68, var_21);
     var_70 = wp::div(var_9, var_69);
@@ -843,7 +843,7 @@ CUDA_CALLABLE inline void adj_closest_point_to_triangle(
     var_72 = wp::mul(var_21, var_70);
     var_73 = wp::sub(var_9, var_71);
     var_74 = wp::sub(var_73, var_72);
-    var_75 = wp::vec2(var_74, var_71);
+    // var_75 = wp::vec2(var_74, var_71);
     goto label6;
     //---------
     // reverse

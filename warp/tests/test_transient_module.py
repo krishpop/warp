@@ -17,33 +17,46 @@ CODE = """# -*- coding: utf-8 -*-
 
 import warp as wp
 
+@wp.struct
+class Data:
+    x: wp.array(dtype=int)
+
 @wp.kernel
-def increment(x: wp.array(dtype=int)):
-    x[0] = x[0] + 1
+def increment(data: Data):
+    data.x[0] = data.x[0] + 1
 """
 
 wp.init()
 
 def test_transient_module(test, device):
-    file, file_path = tempfile.mkstemp(suffix=".py", text=True)
-    os.close(file)
+    file, file_path = tempfile.mkstemp(suffix=".py")
 
     try:
-        with open(file_path, "w") as f:
+
+        # Save the embedded code into the temporary file.
+        with os.fdopen(file, "w") as f:
             f.write(CODE)
 
         spec = importlib.util.spec_from_file_location("", file_path)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-    finally:
-        os.remove(file_path)
 
-    x = wp.array(123, dtype=int)
-    wp.launch(module.increment, dim=1, inputs=[x])
-    assert_np_equal(x.numpy(), np.array([124]))
+    finally:
+        os.remove(file_path)    
+
+    data = module.Data()
+    data.x = wp.array(123, dtype=int)
+
+    wp.set_module_options({"foo": "bar"}, module=module)
+    assert wp.get_module_options(module=module).get("foo") == "bar"
+    assert module.increment.module.options.get("foo") == "bar"
+
+    wp.launch(module.increment, dim=1, inputs=[data])
+    assert_np_equal(data.x.numpy(), np.array([124]))
 
 def register(parent):
-    devices = wp.get_devices()
+
+    devices = get_test_devices()
 
     class TestTransientModule(parent):
         pass

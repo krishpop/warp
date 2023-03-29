@@ -30,7 +30,8 @@ import warp.sim
 import warp.sim.render
 
 
-wp.config.verify_fp = True
+wp.config.verify_fp = False
+wp.config.verbose = False
 wp.init()
 
 @wp.kernel
@@ -154,7 +155,7 @@ class CubeSlopeSim:
         self.builder = builder
 
         self.integrator = wp.sim.SemiImplicitIntegrator()
-        # self.integrator = wp.sim.XPBDIntegrator(iterations=1, contact_con_weighting=False)
+        # self.integrator = wp.sim.XPBDIntegrator(iterations=1, rigid_contact_con_weighting=False)
 
 
     def simulate(self, input_mass: wp.array, compute_grad=True):

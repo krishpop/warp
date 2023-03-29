@@ -299,6 +299,46 @@ def kernel_jacobian_fd(kernel: wp.Kernel, dim: int, inputs: List[wp.array], outp
     return jac_fd
 
 
+def plot_jacobian_comparison(
+    jac_ad, jac_fd, title="",
+    input_ticks=None, input_ticks_labels=None,
+    output_ticks=None, output_ticks_labels=None,
+    highlight_xs=None, highlight_ys=None,
+):
+    import matplotlib.pyplot as plt
+    from matplotlib.colors import LogNorm
+    fig, axs = plt.subplots(1, 3)
+    plt.suptitle(title, fontsize=16, fontweight='bold')
+    def plot_matrix(ax, mat, vmin, vmax):
+        mat = np.copy(mat)
+        mat[mat==0.0] = np.nan
+        if vmin is not None and vmin < vmax and vmin != 0.0:
+            ax.imshow(np.abs(mat), cmap='jet', interpolation='nearest', norm=LogNorm())
+        else:
+            ax.imshow(np.abs(mat), cmap='jet', interpolation='nearest')
+        if input_ticks is not None:
+            ax.set_xticks(input_ticks)
+            if input_ticks_labels is not None:
+                ax.set_xticklabels([f"{label} ({tick})" for label, tick in zip(input_ticks_labels, input_ticks)], rotation=90)
+        if output_ticks is not None:
+            ax.set_yticks(output_ticks)
+            if output_ticks_labels is not None:
+                ax.set_yticklabels([f"{label} ({tick})" for label, tick in zip(output_ticks_labels, output_ticks)])
+    vmin = min(np.min(jac_ad), np.min(jac_fd))
+    vmax = max(np.max(jac_ad), np.max(jac_fd))
+    plot_matrix(axs[0], jac_ad, vmin, vmax)
+    axs[0].set_title("Analytical")
+    plot_matrix(axs[1], jac_fd, vmin, vmax)
+    axs[1].set_title("Finite Difference")
+    diff = jac_ad - jac_fd
+    plot_matrix(axs[2], diff, None, None)
+    axs[2].set_title("Difference")
+    if highlight_xs is not None and highlight_ys is not None:
+        axs[2].scatter(highlight_xs, highlight_ys, marker='x', color='red')
+    plt.tight_layout(h_pad=0.0, w_pad=0.0)
+    plt.show()
+
+
 def check_kernel_jacobian(kernel: Callable, dim: Tuple[int], inputs: List, outputs: List = [], eps: float = 1e-4, max_fd_dims_per_var: int = 500, max_outputs_per_var: int = 500, atol: float = 100.0, rtol: float = 1e-2, plot_jac_on_fail: bool = False, tabulate_errors: bool = True, warn_about_missing_requires_grad: bool = True):
     """
     Checks that the Jacobian of the Warp kernel is correct by comparing it to the
@@ -518,33 +558,12 @@ def check_kernel_jacobian(kernel: Callable, dim: Tuple[int], inputs: List, outpu
             print("Install tabulate via `pip install tabulate` to print errors")
 
     if not result and plot_jac_on_fail:
-        import matplotlib.pyplot as plt
-        from matplotlib.colors import LogNorm
-        fig, axs = plt.subplots(1, 3)
-        plt.suptitle(f"{kernel.key} Jacobian", fontsize=16, fontweight='bold')
-        def plot_matrix(ax, mat, vmin, vmax):
-            mat = np.copy(mat)
-            mat[mat==0.0] = np.nan
-            if vmin is not None and vmin < vmax and vmin != 0.0:
-                ax.imshow(np.abs(mat), cmap='jet', interpolation='nearest', norm=LogNorm())
-            else:
-                ax.imshow(np.abs(mat), cmap='jet', interpolation='nearest')
-            ax.set_xticks(input_ticks)
-            ax.set_xticklabels([f"{label} ({tick})" for label, tick in zip(input_ticks_labels, input_ticks)], rotation=90)
-            ax.set_yticks(output_ticks)
-            ax.set_yticklabels([f"{label} ({tick})" for label, tick in zip(output_ticks_labels, output_ticks)])
-        vmin = min(np.min(jac_ad), np.min(jac_fd))
-        vmax = max(np.max(jac_ad), np.max(jac_fd))
-        plot_matrix(axs[0], jac_ad, vmin, vmax)
-        axs[0].set_title("Analytical")
-        plot_matrix(axs[1], jac_fd, vmin, vmax)
-        axs[1].set_title("Finite Difference")
-        diff = jac_ad - jac_fd
-        plot_matrix(axs[2], diff, None, None)
-        axs[2].set_title("Difference")
-        axs[2].scatter(highlight_xs, highlight_ys, marker='x', color='red')
-        plt.tight_layout(h_pad=0.0, w_pad=0.0)
-        plt.show()
+        plot_jacobian_comparison(
+            jac_ad, jac_fd,
+            f"{kernel.key} Jacobian", 
+            input_ticks, input_ticks_labels,
+            output_ticks, output_ticks_labels,
+            highlight_xs, highlight_ys)
 
     return result, stats
 
@@ -720,7 +739,7 @@ def check_backward_pass(
             pos = nx.spring_layout(G)
 
         fig = plt.figure()
-        fig.canvas.set_window_title("Kernel launch graph")
+        fig.canvas.manager.set_window_title("Kernel launch graph")
         array_nodes = list(array_nodes)
         kernel_nodes = list(kernel_nodes)
         node_colors = []

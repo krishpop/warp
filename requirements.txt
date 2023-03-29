@@ -1,0 +1,9 @@
+numpy==1.22.*
+wheel==0.38.*
+matplotlib==3.*
+urdfpy==0.0.22
+meshio==4.1.0
+openmesh==1.2.1
+tqdm==4.*
+usd-core==22.*
+requests

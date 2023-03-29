@@ -17,20 +17,27 @@ import os
 import math
 
 import numpy as np
-import torch
-
-
 import warp as wp
-# wp.config.mode = "debug"
-# wp.config.verify_cuda = True
-# wp.config.verify_fp = True
 import warp.sim
-import warp.sim.render
-import warp.sim.tiny_render
 
-wp.init()
+from environment import Environment, run_env, IntegratorType
 
-class Example:
+class Demo(Environment):
+    sim_name = "example_sim_funnel_granular"
+    env_offset=(20, 0.0, 20)
+    tiny_render_settings = dict(scaling=0.25)
+    usd_render_settings = dict(scaling=5.0)
+
+    num_envs = 4
+
+    sim_substeps_euler = 32
+    sim_substeps_xpbd = 5
+
+    xpbd_settings = dict(
+        iterations=1,
+        enable_restitution=True,
+        rigid_contact_con_weighting=False,
+    )
 
     def load_mesh(self, filename, use_meshio=True):
         if use_meshio:
@@ -45,31 +52,15 @@ class Example:
             mesh_indices = np.array(m.face_vertex_indices(), dtype=np.int32).flatten()
         return wp.sim.Mesh(mesh_points, mesh_indices)
 
-    def __init__(self, stage):
-
-        self.sim_steps = 1000
-        self.sim_dt = 1.0/30.0
-        self.sim_time = 0.0
-        self.sim_substeps = 5
-
-        self.solve_iterations = 1
-        self.relaxation = 1.0
-
+    def create_articulation(self, builder):
         self.num_bodies = 5
         self.scale = 0.5
+
         self.ke = 1.e+5
         self.kd = 250.0
         self.kf = 500.0
         self.mu  = 1.0
-
-        self.device = wp.get_preferred_device()
-
-        self.plot = True
-
-        builder = wp.sim.ModelBuilder()
-
         self.restitution = 0.9
-
 
         builder.set_ground_plane(
             ke=self.ke, 
@@ -78,7 +69,6 @@ class Example:
             mu=self.mu,
             restitution=self.restitution,
         )
-
 
         # funnel
         funnel_mesh = self.load_mesh(os.path.join(os.path.dirname(__file__), f"assets/funnel2.obj"))
@@ -127,61 +117,12 @@ class Example:
                         restitution=self.restitution)
 
         builder.ground = [0.0, 1.0, 0.0, 0.0]
-        
-        self.model = builder.finalize(self.device)
-        self.model.ground = True
+
+    def before_simulate(self):
         self.model.rigid_contact_rolling_friction = 0.05
         self.model.rigid_contact_torsion_friction = 0.05
         self.model.rigid_contact_margin = 0.05
 
-        self.integrator = wp.sim.XPBDIntegrator(self.solve_iterations, enable_restitution=True)
-        # self.integrator = wp.sim.SemiImplicitIntegrator()
-        self.integrator.contact_con_weighting = False
 
-        self.state = self.model.state()
-
-        # self.renderer = wp.sim.render.SimRenderer(self.model, stage, scaling=10.0)
-        self.renderer = wp.sim.tiny_render.TinyRenderer(self.model, stage, scaling=0.4, start_paused=True)
-
-    def update(self):
-
-        with wp.ScopedTimer("simulate", active=False):
-            
-            for i in range(self.sim_substeps):
-                self.state.clear_forces()
-                wp.sim.collide(self.model, self.state)
-                self.state = self.integrator.simulate(self.model, self.state, self.state, self.sim_dt/self.sim_substeps)   
-
-    def render(self, is_live=False):
-
-        with wp.ScopedTimer("render", active=False):
-            time = 0.0 if is_live else self.sim_time
-
-            self.renderer.begin_frame(time)
-            self.renderer.render(self.state)
-            self.renderer.end_frame()
-        
-        self.sim_time += self.sim_dt
-
-
-if __name__ == '__main__':
-    stage_path = os.path.join(os.path.dirname(__file__), "outputs/example_sim_funnel_granular.usd")
-
-    example = Example(stage_path)
-
-    
-    from tqdm import trange
-    wp.capture_begin()
-    example.update()
-    graph = wp.capture_end()
-    
-    example.render()
-    for i in trange(example.sim_steps):
-        wp.capture_launch(graph)
-        # example.update()
-        example.render()
-
-      
-    example.renderer.save()
-
-
+if __name__ == "__main__":
+    run_env(Demo)

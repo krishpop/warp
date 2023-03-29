@@ -22,25 +22,34 @@ import warp as wp
 import warp.sim
 import warp.sim.render
 
-wp.init()
+from pxr import UsdGeom, Usd
 
+wp.init()
 
 class Example:
 
-    def __init__(self, stage):
+    frame_dt = 1.0/60.0
 
-        self.sim_steps = 1000
-        self.sim_dt = 1.0/60.0
-        self.sim_time = 0.0
-        self.sim_substeps = 8
+    episode_duration = 20.0      # seconds
+    episode_frames = int(episode_duration/frame_dt)
+
+    sim_substeps = 10
+    sim_dt = frame_dt / sim_substeps
+    sim_steps = int(episode_duration / sim_dt)
+   
+    sim_time = 0.0
+
+    def __init__(self, stage=None, render=True):
+
+        builder = wp.sim.ModelBuilder()
+
+        self.enable_rendering = render
 
         self.num_bodies = 8
-        self.scale = 0.5
+        self.scale = 0.8
         self.ke = 1.e+5
         self.kd = 250.0
         self.kf = 500.0
-
-        builder = wp.sim.ModelBuilder()
 
         # boxes
         for i in range(self.num_bodies):
@@ -78,7 +87,8 @@ class Example:
             s = builder.add_shape_capsule( 
                 pos=(0.0, 0.0, 0.0),
                 radius=0.25*self.scale,
-                half_width=self.scale*0.5,
+                half_height=self.scale*0.5,
+                up_axis=0,
                 body=b,
                 ke=self.ke,
                 kd=self.kd,
@@ -89,7 +99,7 @@ class Example:
             builder.body_qd[i] = (0.0, 2.0, 10.0, 0.0, 0.0, 0.0)
 
         # meshes
-        monkey = self.load_mesh(os.path.join(os.path.dirname(__file__), f"assets/monkey.obj"))
+        bunny = self.load_mesh(os.path.join(os.path.dirname(__file__), "assets/bunny.usd"), "/bunny/bunny")
         for i in range(self.num_bodies):
             
             b = builder.add_body(origin=wp.transform(
@@ -98,7 +108,7 @@ class Example:
 
             s = builder.add_shape_mesh(
                     body=b,
-                    mesh=monkey,
+                    mesh=bunny,
                     pos=(0.0, 0.0, 0.0),
                     scale=(self.scale, self.scale, self.scale),
                     ke=self.ke,
@@ -106,70 +116,89 @@ class Example:
                     kf=self.kf,
                     density=1e3,
                 )
-        
+
+
+        # finalize model
         self.model = builder.finalize()
         self.model.ground = True
 
-        self.integrator = wp.sim.XPBDIntegrator()
-        self.state = self.model.state()
+        self.model.joint_attach_ke = 1600.0
+        self.model.joint_attach_kd = 20.0
 
-        self.renderer = wp.sim.render.SimRenderer(self.model, stage, scaling=30.0)
+        self.integrator = wp.sim.SemiImplicitIntegrator()
 
-    def load_mesh(self, filename, use_meshio=False):
-        if use_meshio:
-            import meshio
-            m = meshio.read(filename)
-            mesh_points = np.array(m.points)
-            mesh_indices = np.array(m.cells[0].data, dtype=np.int32).flatten()
-        else:
-            import openmesh
-            m = openmesh.read_trimesh(filename)
-            mesh_points = np.array(m.points())
-            mesh_indices = np.array(m.face_vertex_indices(), dtype=np.int32).flatten()
-        return wp.sim.Mesh(mesh_points, mesh_indices)
+        #-----------------------
+        # set up Usd renderer
+        if (self.enable_rendering):
+            self.renderer = wp.sim.render.SimRendererTiny(self.model, stage)
+
+    def load_mesh(self, filename, path):
+        asset_stage = Usd.Stage.Open(filename)
+        mesh_geom = UsdGeom.Mesh(asset_stage.GetPrimAtPath(path))
+
+        points = np.array(mesh_geom.GetPointsAttr().Get())
+        indices = np.array(mesh_geom.GetFaceVertexIndicesAttr().Get()).flatten()
+        
+        return wp.sim.Mesh(points, indices)
 
     def update(self):
-
-        with wp.ScopedTimer("simulate", active=False):
-            
-            for i in range(self.sim_substeps):
-                self.state.clear_forces()
-                wp.sim.collide(self.model, self.state)
-                self.state = self.integrator.simulate(self.model, self.state, self.state, self.sim_dt/self.sim_substeps)   
-
+        for _ in range(self.sim_substeps):
+            self.state_0.clear_forces()
+            wp.sim.collide(self.model, self.state_0)
+            self.integrator.simulate(self.model, self.state_0, self.state_1, self.sim_dt)
+            self.state_0, self.state_1 = self.state_1, self.state_0
+    
     def render(self, is_live=False):
+        time = 0.0 if is_live else self.sim_time
 
-        with wp.ScopedTimer("render", active=False):
-            time = 0.0 if is_live else self.sim_time
+        self.renderer.begin_frame(time)
+        self.renderer.render(self.state_0)
+        self.renderer.end_frame()
 
-            self.renderer.begin_frame(time)
-            self.renderer.render(self.state)
-            self.renderer.end_frame()
-        
-        self.sim_time += self.sim_dt
+    def run(self, render=True):
 
+        #---------------
+        # run simulation
 
-if __name__ == '__main__':
-    stage_path = os.path.join(os.path.dirname(__file__), "outputs/example_sim_rigid_contact.usd")
+        self.sim_time = 0.0
+        self.state_0 = self.model.state()
+        self.state_1 = self.model.state()
 
-    example = Example(stage_path)
+        wp.sim.eval_fk(
+            self.model,
+            self.model.joint_q,
+            self.model.joint_qd,
+            None,
+            self.state_0)
 
-    use_graph = True
-    if use_graph:
+        profiler = {}
+
+        # create update graph
         wp.capture_begin()
-        example.update()
+
+        # simulate
+        self.update()
+                
         graph = wp.capture_end()
 
-    for i in range(example.sim_steps):
-        if use_graph:
-            wp.capture_launch(graph)
-        else:
-            example.update()
-        example.render()
 
-    example.renderer.save()
+        # simulate
+        with wp.ScopedTimer("simulate", detailed=False, print=False, active=True, dict=profiler):
+
+            for f in range(0, self.episode_frames):
+                
+                with wp.ScopedTimer("simulate", active=True):
+                    wp.capture_launch(graph)
+                self.sim_time += self.frame_dt
+
+                if (self.enable_rendering):
+
+                    with wp.ScopedTimer("render", active=True):
+                        self.render()
+
+            wp.synchronize()
 
 
-
-
-
+stage = os.path.join(os.path.dirname(__file__), "outputs/example_sim_rigid_contact.usd")
+robot = Example(stage, render=True)
+robot.run()

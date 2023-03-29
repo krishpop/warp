@@ -13,14 +13,12 @@ except:
 
 import math
 import numpy as np
-import os
-import xml.etree.ElementTree as ET
 
 import warp as wp
 from warp.sim.model import Mesh
 
 
-def urdf_add_collision(builder, link, collisions, density, shape_ke, shape_kd, shape_kf, shape_mu, shape_restitution, thickness):
+def urdf_add_collision(builder, link, collisions, density, shape_ke, shape_kd, shape_kf, shape_mu, shape_restitution):
 
     # add geometry
     for collision in collisions:
@@ -28,7 +26,7 @@ def urdf_add_collision(builder, link, collisions, density, shape_ke, shape_kd, s
         origin = urdfpy.matrix_to_xyz_rpy(collision.origin)
 
         pos = origin[0:3]
-        rot = wp.quat_rpy(*origin[3:6])
+        rot = wp.quatf(*wp.quat_rpy(*origin[3:6]))
 
         geo = collision.geometry
 
@@ -45,8 +43,7 @@ def urdf_add_collision(builder, link, collisions, density, shape_ke, shape_kd, s
                 kd=shape_kd,
                 kf=shape_kf,
                 mu=shape_mu,
-                restitution=shape_restitution,
-                contact_thickness=thickness)
+                restitution=shape_restitution)
 
         if geo.sphere:
             builder.add_shape_sphere(
@@ -63,15 +60,15 @@ def urdf_add_collision(builder, link, collisions, density, shape_ke, shape_kd, s
 
         if geo.cylinder:
 
-            # cylinders in URDF are aligned with z-axis, while Warp uses x-axis
-            r = wp.quat_from_axis_angle((0.0, 1.0, 0.0), math.pi*0.5)
+            # cylinders in URDF are aligned with z-axis, while Warp uses y-axis
+            r = wp.quat_from_axis_angle((1.0, 0.0, 0.0), math.pi*0.5)
 
             builder.add_shape_capsule(
                 body=link,
                 pos=pos,
                 rot=wp.mul(rot, r),
                 radius=geo.cylinder.radius,
-                half_width=geo.cylinder.length*0.5,
+                half_height=geo.cylinder.length*0.5,
                 density=density,
                 ke=shape_ke,
                 kd=shape_kd,
@@ -97,8 +94,7 @@ def urdf_add_collision(builder, link, collisions, density, shape_ke, shape_kd, s
                     kd=shape_kd,
                     kf=shape_kf,
                     mu=shape_mu,
-                    restitution=shape_restitution,
-                    contact_thickness=thickness)
+                    restitution=shape_restitution)
 
 def parse_urdf(
         filename,
@@ -114,7 +110,6 @@ def parse_urdf(
         shape_kf=1.e+2,
         shape_mu=0.25,
         shape_restitution=0.5,
-        shape_thickness=0.0,
         limit_ke=100.0,
         limit_kd=10.0,
         parse_visuals_as_colliders=False,
@@ -169,14 +164,14 @@ def parse_urdf(
         # make sure we do not reset inertia to zero if density is zero where we use the inertia from the URDF
         actual_density = 1.0 if m > 0.0 and density == 0.0 else density
         urdf_add_collision(
-            builder, root, colliders, actual_density, shape_ke, shape_kd, shape_kf, shape_mu, shape_restitution, shape_thickness)
+            builder, root, colliders, actual_density, shape_ke, shape_kd, shape_kf, shape_mu, shape_restitution)
         
     else:
         root = builder.add_body(origin=wp.transform_identity(),
                                 name=robot.base_link.name)
         builder.add_joint_fixed(-1, root, parent_xform=xform, name="fixed_base")
         urdf_add_collision(
-            builder, root, colliders, 0.0, shape_ke, shape_kd, shape_kf, shape_mu, shape_restitution, shape_thickness)
+            builder, root, colliders, 0.0, shape_ke, shape_kd, shape_kf, shape_mu, shape_restitution)
 
     link_index[robot.links[0].name] = root
 
@@ -291,7 +286,7 @@ def parse_urdf(
 
         # add collisions
         urdf_add_collision(
-            builder, link, child_colliders, density, shape_ke, shape_kd, shape_kf, shape_mu, shape_restitution, shape_thickness)
+            builder, link, child_colliders, density, shape_ke, shape_kd, shape_kf, shape_mu, shape_restitution)
 
         # add ourselves to the index
         link_index[joint.child] = link

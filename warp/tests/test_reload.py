@@ -136,10 +136,10 @@ def test_reload_class(test, device):
         import warp.tests.test_class_kernel
         from warp.tests.test_class_kernel import ClassKernelTest
 
-        import imp
+        import importlib as imp
         imp.reload(warp.tests.test_class_kernel)
 
-        ctest = ClassKernelTest()
+        ctest = ClassKernelTest(device)
         expected = np.zeros((10,3,3),dtype=np.float32)
         expected[:] = np.eye(3)
         assert_np_equal(expected, ctest.identities.numpy())
@@ -204,13 +204,9 @@ def test_reload_references(test, device):
     test_dependent.run(expect=4.0, device=device)  # 2 * 2 = 4
 
 
-    # ensure any kernel error output makes it out
-    wp.synchronize_device(device)
-
-
 def register(parent):
 
-    devices = wp.get_devices()
+    devices = get_test_devices()
 
     class TestReload(parent):
         pass

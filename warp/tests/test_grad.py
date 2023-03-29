@@ -80,6 +80,8 @@ def test_for_loop_graph_grad(test, device):
     x = wp.array(val, device=device, requires_grad=True)
     sum = wp.zeros(1, dtype=wp.float32, device=device, requires_grad=True)
 
+    wp.force_load()
+
     wp.capture_begin()
 
     tape = wp.Tape()
@@ -401,7 +403,7 @@ def no_spurious_assignment(xs: wp.array(dtype=wp.vec3), output: wp.array(dtype=w
 
 def register(parent):
 
-    devices = wp.get_devices()
+    devices = get_test_devices()
 
     class TestGrad(parent):
         pass
