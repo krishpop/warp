@@ -137,7 +137,7 @@ class Environment:
                     xform = wp.transform_identity()
                 else:
                     xform = wp.transform(env_offsets[i], wp.quat_identity())
-                builder.add_rigid_articulation(articulation_builder, xform)
+                self.builder.add_builder(articulation_builder, xform)
             self.bodies_per_env = len(articulation_builder.body_q)
         except NotImplementedError:
             # custom simulation setup where something other than an articulation is used

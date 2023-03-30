@@ -1,4 +1,8 @@
 import torch
+import warp as wp
+import os
+import numpy as np
+import math
 
 from .warp_env import WarpEnv
 from .environment import RenderMode, IntegratorType
@@ -56,10 +60,11 @@ class CartPoleSwingUpEnv(WarpEnv):
                                 "state_in": self.state_0, "state_out": self.state_1}
         self.act_params = {"q_offset": 0, "joint_act": self.model.joint_act,
                            "act": act, "num_envs": self.num_envs,
-                           "dof_count": dof_count}
+                           "dof_count": dof_count, "num_acts": self.num_acts,
+                           }
         self.graph_capture_params = {"capture_graph": self.use_graph_capture}
-        self.graph_capture_params["joint_q_end"] = wp.zeros_like(model.joint_q)
-        self.graph_capture_params["joint_qd_end"] = wp.zeros_like(model.joint_qd)
+        self.graph_capture_params["joint_q_end"] = wp.zeros_like(self.model.joint_q)
+        self.graph_capture_params["joint_qd_end"] = wp.zeros_like(self.model.joint_qd)
         if self.use_graph_capture and self.requires_grad:
             backward_model = self.model if not self.use_graph_capture else self.builder.finalize()
             self.graph_capture_params["bwd_model"] = backward_model
@@ -81,20 +86,29 @@ class CartPoleSwingUpEnv(WarpEnv):
 
         self.cart_action_penalty = 0.0
 
-    def render(self, mode="human"):
-        if self.visualize:
-            self.render_time += self.dt
-            self.stage.begin_frame(self.render_time)
-            self.stage.render(self.state_0)
-            self.stage.end_frame()
-            if self.num_frames == 40:
-                self.stage.save()
-                self.num_frames -= 40
+    def create_articulation(self, builder):
+        examples_dir = os.path.split(os.path.dirname(wp.__file__))[0] + "/examples"
+        wp.sim.parse_urdf(
+            os.path.join(examples_dir, "assets/cartpole.urdf"),
+            builder,
+            xform=wp.transform(np.zeros(3), wp.quat_from_axis_angle((1.0, 0.0, 0.0), -math.pi*0.5)),
+            floating=False,
+            density=0,
+            armature=0.1,
+            stiffness=0.0,
+            damping=0.0,
+            shape_ke=1.e+4,
+            shape_kd=1.e+2,
+            shape_kf=1.e+2,
+            shape_mu=1.0,
+            limit_ke=1.e+4,
+            limit_kd=1.e+1,
+            enable_self_collisions=False)
 
     def assign_actions(self, actions):
         actions = actions.flatten() * self.action_strength
         # actions = torch.clip(actions, -1.0, 1.0)
-        self.act_params['act'].assign(actions)
+        self.act_params['act'].assign(wp.from_torch(actions))
         assign_act(**self.act_params)
 
     def step(self, actions):

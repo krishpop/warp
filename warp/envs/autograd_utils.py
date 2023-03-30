@@ -1,11 +1,9 @@
 import torch
 import warp as wp
+import numpy as np
 from warp.sim.utils import quat_decompose, quat_twist
 from torch.cuda.amp import custom_fwd, custom_bwd
-
-ACTION_TORQUE = wp.constant(0)
-ACTION_POSITION = wp.constant(1)
-ACTION_JOINT_STIFFNESS = wp.constant(2)
+# from warp.tests.grad_utils import check_kernel_jacobian, check_backward_pass, plot_jacobian_comparison
 
 
 @wp.kernel
@@ -16,7 +14,6 @@ def assign_act_kernel(
     q_offset: int,
     # outputs
     joint_act: wp.array(dtype=float),  # unflattened shape (n, 6)
-    joint_stiffness: wp.array(dtype=float),
 ):
     i, j = wp.tid()
     joint_act_idx = i * dof_count + j + q_offset  # skip object joint
@@ -27,7 +24,6 @@ def assign_act_kernel(
 def assign_act(
     act,
     joint_act,
-    joint_stiffness,
     num_acts,
     num_envs,
     dof_count,
@@ -42,9 +38,10 @@ def assign_act(
         dim=(num_envs, act_count),
         device=joint_act.device,
         inputs=[act, num_acts, dof_count, q_offset],
-        outputs=[joint_act, joint_stiffness],
+        outputs=[joint_act],
     )
     return
+
 
 def get_compute_graph(func, kwargs):
     wp.capture_begin()
@@ -143,11 +140,11 @@ class IntegratorSimulate(torch.autograd.Function):
             ctx.forward_graph = graph_capture_params.get(
                 'forward_graph', get_compute_graph(forward_simulate, {"ctx": ctx, "forward": True}))
             graph_capture_params['forward_graph'] = ctx.forward_graph
+            wp.capture_launch(ctx.forward_graph)
         else:
             ctx.tape = wp.Tape()
             with ctx.tape:
                 forward_simulate(ctx, forward=True, requires_grad=True)
-
 
         joint_q_end = wp.to_torch(ctx.graph_capture_params['joint_q_end'])
         joint_qd_end = wp.to_torch(ctx.graph_capture_params['joint_qd_end'])
@@ -177,16 +174,19 @@ class IntegratorSimulate(torch.autograd.Function):
             assert ctx.state_list[0].body_q.grad.numpy().sum() == 0
             assert ctx.state_list[-1].body_q.grad.numpy().sum() == 0
             # Do forward sim again, allocating rigid pairs and intermediate states
-            with ctx.bw_tape:
+            # ctx.bw_forward_graph = ctx.graph_capture_params.get(
+            #     'bw_forward_graph', get_compute_graph(tape_backward, {"ctx": ctx}))
+            with ctx.bw_tape:  # check if graph capture works for this
                 forward_simulate(ctx, forward=False)
 
         ctx.joint_q_end.grad = wp.from_torch(adj_joint_q)
         ctx.joint_qd_end.grad = wp.from_torch(adj_joint_qd)
 
         if ctx.capture_graph:
-            ctx.backward_graph = graph_capture_params.get(
+            ctx.backward_graph = ctx.graph_capture_params.get(
                 'backward_graph', get_compute_graph(tape_backward, {"ctx": ctx}))
             graph_capture_params['backward_graph'] = ctx.backward_graph
+            wp.capture_launch(ctx.backward_graph)
         else:
             tape_backward(ctx)
 

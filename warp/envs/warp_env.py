@@ -29,7 +29,7 @@ class WarpEnv(Environment):
     sim_substeps = 4
     sim_dt = dt
     env_offset = (6.0, 0.0, 6.0)
-    tiny_render_settings = dict(scaling=3.0, mode='rgb')
+    tiny_render_settings = dict(scaling=3.0)
     usd_render_settings = dict(scaling=100.0)
     use_graph_capture = True
     update_joints_graph = None
@@ -85,9 +85,7 @@ class WarpEnv(Environment):
         # potential imageio writer if writing to an mp4
         self.writer = None
 
-        if self.render_mode == RenderMode.TINY and stage_path:
-            self.tiny_render_settings['mode'] = "rgb"
-        elif self.render_mode == RenderMode.USD:
+        if self.render_mode == RenderMode.USD:
             self.usd_render_settings['path'] = f"outputs/{self.stage_path}.usd"
 
         # initialize observation and action space
@@ -106,17 +104,16 @@ class WarpEnv(Environment):
         )
 
         # allocate buffers
-        if self.requires_grad:
-            self.obs_buf = torch.zeros(
-                (self.num_envs, self.num_observations),
-                device=self.device,
-                dtype=torch.float,
-            )
-            self.rew_buf = torch.zeros(
-                self.num_envs,
-                device=self.device,
-                dtype=torch.float,
-            )
+        self.obs_buf = torch.zeros(
+            (self.num_envs, self.num_observations),
+            device=self.device,
+            dtype=torch.float,
+        )
+        self.rew_buf = torch.zeros(
+            self.num_envs,
+            device=self.device,
+            dtype=torch.float,
+        )
         self.actions = torch.zeros(
             (self.num_envs, self.num_actions),
             device=self.device,
@@ -197,11 +194,11 @@ class WarpEnv(Environment):
             self.renderer.draw_springs = True
         elif self.render_mode == RenderMode.TINY:
             # self.writer = imageio.get_writer(f"outputs/{self.stage_path}.mp4", fps=30)
-            self.renderer = wp.sim.tiny_render.TinyRenderer(
+            self.renderer = wp.sim.render.SimRendererTiny(
                 self.model,
                 self.env_name,  # window name
                 upaxis=self.upaxis,
-                env_offset=self.env_offset,
+                # env_offset=self.env_offset,
                 **self.tiny_render_settings)
 
         self.render_time = 0.0
@@ -274,21 +271,20 @@ class WarpEnv(Environment):
         return self.obs_buf
 
     def update_joints(self):
-        self._joint_q.zero_()
-        self._joint_qd.zero_()
-        if self._joint_q.grad is not None:
-            self._joint_q.grad.zero_()
-            self._joint_qd.grad.zero_()
+        # self._joint_q.zero_()
+        # self._joint_qd.zero_()
+        # if self._joint_q.grad is not None:
+        #     self._joint_q.grad.zero_()
+        #     self._joint_qd.grad.zero_()
 
-        if self.use_graph_capture:
-            if self.update_joints_graph is None:
-                wp.capture_begin()
-                wp.sim.eval_ik(self.model, self.state_0, self._joint_q, self._joint_qd)
-                self.update_joints_graph = wp.capture_end()
-            wp.capture_launch(self.update_joints_graph)
-        else:
-            wp.sim.eval_ik(self.model, self.state_0, self._joint_q, self._joint_qd)
-
+        # if self.use_graph_capture:
+        #     if self.update_joints_graph is None:
+        #         wp.capture_begin()
+        #         wp.sim.eval_ik(self.model, self.state_0, self._joint_q, self._joint_qd)
+        #         self.update_joints_graph = wp.capture_end()
+        #     wp.capture_launch(self.update_joints_graph)
+        # else:
+        #     wp.sim.eval_ik(self.model, self.state_0, self._joint_q, self._joint_qd)
         self.joint_q = wp.to_torch(self._joint_q).clone()
         self.joint_qd = wp.to_torch(self._joint_qd)
 
@@ -302,7 +298,8 @@ class WarpEnv(Environment):
                     self.model, self.state_0, self.state_1, self.sim_dt
                 )
                 self.state_0, self.state_1 = self.state_1, self.state_0
-            self.update_joints()
+            wp.sim.eval_ik(self.model, self.state_0, self._joint_q, self._joint_qd)
+            # self.update_joints()
 
         if self.use_graph_capture:
             if self.forward_sim_graph is None:
@@ -357,15 +354,9 @@ class WarpEnv(Environment):
             elif self.render_mode is RenderMode.TINY:
                 self.renderer.begin_frame(self.render_time)
                 self.renderer.render(self.state_0)
-                if mode == "rgb_array" or self.renderer.mode == 'rgb':
-                    img = self.renderer.end_frame()
-                    # self.writer.append_data(img)
-                else:
-                    if self.renderer.mode == 'video':
-                        video_path = f"outputs/{self.stage_path}.mp4"
-                        self.renderer.write_to_video(video_path)
-                    self.renderer.end_frame()
-                return img if img is None else np.asarray(img)
+                self.renderer.end_frame()
+                if mode == "rgb_array":
+                    return self.renderer.get_pixel_buffer()
 
     def get_checkpoint(self, save_path=None):
         checkpoint = {}
@@ -373,8 +364,8 @@ class WarpEnv(Environment):
         joint_q, joint_qd = self.joint_q.detach(), self.joint_qd.detach()
         checkpoint["joint_q"] = joint_q.clone()
         checkpoint["joint_qd"] = joint_qd.clone()
-        checkpoint["body_q"] = self.body_q.clone()
-        checkpoint["body_qd"] = self.body_qd.clone()
+        # checkpoint["body_q"] = self.body_q.clone()
+        # checkpoint["body_qd"] = self.body_qd.clone()
         checkpoint["actions"] = self.actions.clone()
         checkpoint["progress_buf"] = self.progress_buf.clone()
         checkpoint["obs_buf"] = self.obs_buf.clone()
