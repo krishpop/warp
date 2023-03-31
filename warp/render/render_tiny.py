@@ -77,7 +77,6 @@ in vec2 TexCoord;
 in vec3 ObjectColor1;
 in vec3 ObjectColor2;
 
-uniform vec3 lightPos;
 uniform vec3 viewPos;
 uniform vec3 lightColor;
 
@@ -87,7 +86,7 @@ void main()
     vec3 ambient = ambientStrength * lightColor;
 
     vec3 norm = normalize(Normal);
-    vec3 lightDir = normalize(lightPos - FragPos);
+    vec3 lightDir = normalize(vec3(-0.2, 1.0, 0.3));
     float diff = max(dot(norm, lightDir), 0.0);
     vec3 diffuse = diff * lightColor;
 
@@ -291,6 +290,7 @@ class TinyRenderer:
         self._last_x, self._last_y = 800 // 2, 600 // 2
         self._first_mouse = True
         self._left_mouse_pressed = False
+        self._keys_pressed = defaultdict(bool)
 
         self.time = 0.0
         self.paused = False
@@ -349,7 +349,6 @@ class TinyRenderer:
         self._loc_shape_view = glGetUniformLocation(self._shape_shader, "view")
         self._loc_shape_projection = glGetUniformLocation(self._shape_shader, "projection")
         self._loc_shape_view_pos = glGetUniformLocation(self._shape_shader, "viewPos")
-        glUniform3f(glGetUniformLocation(self._shape_shader, "lightPos"), 5, 5, 5)
         glUniform3f(glGetUniformLocation(self._shape_shader, "lightColor"), 1, 1, 1)
         glUniform3f(self._loc_shape_view_pos, 0, 0, 10)
         
@@ -843,6 +842,15 @@ class TinyRenderer:
             front.z = np.sin(np.deg2rad(self._yaw)) * np.cos(np.deg2rad(self._pitch))
             self._camera_front = glm.normalize(front)
 
+    def _pressed_key(self, key):
+        # only return True when this key has been pressed and now released to avoid flickering toggles
+        if glfw.get_key(self.window, key) == glfw.PRESS:
+            self._keys_pressed[key] = True
+        elif glfw.get_key(self.window, key) == glfw.RELEASE and self._keys_pressed[key]:
+            self._keys_pressed[key] = False
+            return True
+        return False
+
     def _process_input(self, window):
         if glfw.get_key(window, glfw.KEY_W) == glfw.PRESS or glfw.get_key(window, glfw.KEY_UP) == glfw.PRESS:
             self._camera_pos += self._camera_speed * self._camera_front
@@ -852,11 +860,12 @@ class TinyRenderer:
             self._camera_pos -= self._camera_speed * glm.normalize(glm.cross(self._camera_front, self._camera_up))
         if glfw.get_key(window, glfw.KEY_D) == glfw.PRESS or glfw.get_key(window, glfw.KEY_RIGHT) == glfw.PRESS:
             self._camera_pos += self._camera_speed * glm.normalize(glm.cross(self._camera_front, self._camera_up))
-        if glfw.get_key(window, glfw.KEY_ESCAPE) == glfw.PRESS:
+        
+        if self._pressed_key(glfw.KEY_ESCAPE):
             glfw.set_window_should_close(window, True)
-        if glfw.get_key(window, glfw.KEY_SPACE) == glfw.PRESS:
+        if self._pressed_key(glfw.KEY_SPACE):
             self.paused = not self.paused
-        if glfw.get_key(window, glfw.KEY_TAB) == glfw.PRESS:
+        if self._pressed_key(glfw.KEY_TAB):
             self.skip_rendering = not self.skip_rendering
     
     def _scroll_callback(self, window, x_offset, y_offset):
@@ -915,7 +924,7 @@ class TinyRenderer:
         if color1 is None:
             color1 = self._shapes[shape][2]
         if color2 is None:
-            color2 = self._shapes[shape][3]
+            color2 = np.clip(np.array(color1) + 0.25, 0.0, 1.0)
         instance = len(self._instances)
         self._shape_instances[shape].append(instance)
         body = self._resolve_body_id(body)
@@ -940,8 +949,7 @@ class TinyRenderer:
         self._instance_transform_gl_buffer = glGenBuffers(1)
         glBindBuffer(GL_ARRAY_BUFFER, self._instance_transform_gl_buffer)
 
-        # transforms = np.empty((len(self._instances), 4, 4), dtype=np.float32)
-        transforms = np.tile(np.diag(np.ones(4, dtype=np.float32)), (len(self._instances),1, 1))
+        transforms = np.tile(np.diag(np.ones(4, dtype=np.float32)), (len(self._instances), 1, 1))
         glBufferData(GL_ARRAY_BUFFER, transforms.nbytes, transforms, GL_DYNAMIC_DRAW)
         # glVertexAttribDivisor(1, vertices.shape[0])
 
@@ -954,9 +962,18 @@ class TinyRenderer:
         #     glBufferSubData(GL_ARRAY_BUFFER, offset, matrix.nbytes, matrix)
         #     offset += matrix.nbytes
 
-        
-        colors1 = np.array([instance[4] for instance in self._instances.values()], dtype=np.float32)
-        colors2 = np.array([instance[5] for instance in self._instances.values()], dtype=np.float32)
+        colors1, colors2 = [], []
+        all_instances = list(self._instances.values())
+        for shape, instances in self._shape_instances.items():
+            for i in instances:
+                instance = all_instances[i]
+                colors1.append(instance[5])
+                colors2.append(instance[6])
+        colors1 = np.array(colors1, dtype=np.float32)
+        colors2 = np.array(colors2, dtype=np.float32)
+
+        # colors1 = np.array([instance[5] for instance in self._instances.values()], dtype=np.float32)
+        # colors2 = np.array([instance[6] for instance in self._instances.values()], dtype=np.float32)
 
         # create buffer for checkerboard colors
         self._instance_color1_buffer = glGenBuffers(1)

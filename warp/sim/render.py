@@ -193,7 +193,7 @@ def CreateSimRenderer(renderer):
 
                         self.geo_shape[geo_hash] = shape
 
-                    self.add_shape_instance(name, shape, body, X_bs.p, X_bs.q, scale, color)
+                    self.add_shape_instance(name, shape, body, X_bs.p, X_bs.q, scale)
                     self.instance_count += 1
 
             if model.ground:
@@ -296,6 +296,8 @@ def CreateSimRenderer(renderer):
                         radius=self.contact_points_radius*self.scaling,
                         colors=self.contact_points1_colors)
 
+                    # print("shapes:", self.model.rigid_contact_shape0.numpy(), self.model.rigid_contact_shape1.numpy())
+                    print(self.contact_points0.numpy().max(axis=0))
     return SimRenderer
 
 
