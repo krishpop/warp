@@ -97,13 +97,11 @@ void main()
     float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32);
     vec3 specular = specularStrength * spec * lightColor;
     
-    // Checkerboard pattern
+    // checkerboard pattern
     float u = TexCoord.x;
     float v = TexCoord.y;
     float scale = 2.0;
     float checker = mod(floor(u * scale) + floor(v * scale), 2.0);
-
-    // Set the colors for the checkerboard pattern
     vec3 checkerColor = mix(ObjectColor1, ObjectColor2, checker);
 
     vec3 result = (ambient + diffuse + specular) * checkerColor;
@@ -171,9 +169,10 @@ def update_vbo_transforms(
     # outputs
     vbo_transforms: wp.array(dtype=wp.mat44)):
 
-    instance = wp.tid()
-    body = instance_body[instance]
-    X_ws = instance_transforms[instance]
+    tid = wp.tid()
+    i = instance_id[tid]
+    body = instance_body[i]
+    X_ws = instance_transforms[i]
     if body >= 0:
         if body_q:
             X_ws = body_q[body] * X_ws
@@ -182,11 +181,10 @@ def update_vbo_transforms(
     p = wp.transform_get_translation(X_ws)
     q = wp.transform_get_rotation(X_ws)
     p *= scaling
-    s = instance_scalings[instance] * scaling
+    s = instance_scalings[i] * scaling
     rot = wp.quat_to_matrix(q)
-    i = instance_id[instance]
     # transposed definition
-    vbo_transforms[i] = wp.mat44(
+    vbo_transforms[tid] = wp.mat44(
         rot[0,0]*s[0], rot[1,0]*s[1], rot[2,0]*s[2], 0.0,
         rot[0,1]*s[0], rot[1,1]*s[1], rot[2,1]*s[2], 0.0,
         rot[0,2]*s[0], rot[1,2]*s[1], rot[2,2]*s[2], 0.0,
@@ -928,7 +926,6 @@ class TinyRenderer:
     
     def add_shape_instances(self):
         self._add_shape_instances = False
-        self._wp_instance_ids = wp.array([instance[0] for instance in self._instances.values()], dtype=wp.int32, device=self._device)
         self._wp_instance_transforms = wp.array([instance[3] for instance in self._instances.values()], dtype=wp.transform, device=self._device)
         self._wp_instance_scalings = wp.array([instance[4] for instance in self._instances.values()], dtype=wp.vec3, device=self._device)
         self._wp_instance_bodies = wp.array([instance[1] for instance in self._instances.values()], dtype=wp.int32, device=self._device)
@@ -973,7 +970,7 @@ class TinyRenderer:
         # Set up instance attribute pointers
         matrix_size = transforms[0].nbytes
 
-        
+        instance_ids = []
         for shape, (vao, vbo, ebo, tri_count) in self._shape_gl_buffers.items():
             glBindVertexArray(vao)
 
@@ -996,9 +993,13 @@ class TinyRenderer:
             glVertexAttribPointer(8, 3, GL_FLOAT, GL_FALSE, colors2[0].nbytes, ctypes.c_void_p(0))
             glEnableVertexAttribArray(8)
             glVertexAttribDivisor(8, 1)
+
+            instance_ids.extend(self._shape_instances[shape])
         
         # trigger update to the instance transforms
         self._update_shape_instances = True
+
+        self._wp_instance_ids = wp.array(instance_ids, dtype=wp.int32, device=self._device)
 
         glBindVertexArray(0)
    
