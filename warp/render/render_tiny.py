@@ -84,17 +84,26 @@ void main()
 {
     float ambientStrength = 0.3;
     vec3 ambient = ambientStrength * lightColor;
-
     vec3 norm = normalize(Normal);
-    vec3 lightDir = normalize(vec3(-0.2, 1.0, 0.3));
-    float diff = max(dot(norm, lightDir), 0.0);
+
+    vec3 lightDir1 = normalize(vec3(-0.2, 1.0, 0.3));
+    float diff = max(dot(norm, lightDir1), 0.0);
     vec3 diffuse = diff * lightColor;
+    
+    vec3 lightDir2 = normalize(vec3(1.0, 0.3, -0.3));
+    diff = max(dot(norm, lightDir2), 0.0);
+    diffuse += diff * lightColor * 0.3;
 
     float specularStrength = 0.5;
     vec3 viewDir = normalize(viewPos - FragPos);
-    vec3 reflectDir = reflect(-lightDir, norm);
+
+    vec3 reflectDir = reflect(-lightDir1, norm);
     float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32);
     vec3 specular = specularStrength * spec * lightColor;
+    
+    reflectDir = reflect(-lightDir2, norm);
+    spec = pow(max(dot(viewDir, reflectDir), 0.0), 64);
+    specular += specularStrength * spec * lightColor * 0.3;
     
     // checkerboard pattern
     float u = TexCoord.x;
@@ -109,7 +118,7 @@ void main()
 '''
 
 grid_vertex_shader = '''
-#version 330
+#version 330 core
 
 uniform mat4 view;
 uniform mat4 model;
@@ -124,12 +133,64 @@ void main() {
 
 # Fragment shader source code
 grid_fragment_shader = '''
-#version 330
+#version 330 core
 
 out vec4 outColor;
 
 void main() {
-    outColor = vec4(1.0);
+    outColor = vec4(0.5, 0.5, 0.5, 1.0);
+}
+'''
+
+sky_vertex_shader = '''
+#version 330 core
+
+layout (location = 0) in vec3 aPos;
+layout (location = 1) in vec3 aNormal;
+layout (location = 2) in vec2 aTexCoord;
+
+uniform mat4 view;
+uniform mat4 model;
+uniform mat4 projection;
+uniform vec3 viewPos;
+
+out vec3 Normal;
+out vec3 FragPos;
+out vec2 TexCoord;
+
+void main()
+{
+    vec4 worldPos = model * vec4(aPos + viewPos, 1.0);
+    gl_Position = projection * view * worldPos;
+    FragPos = vec3(worldPos);
+    Normal = mat3(transpose(inverse(model))) * aNormal;
+    TexCoord = aTexCoord;
+}
+'''
+
+sky_fragment_shader = '''
+#version 330 core
+
+out vec4 FragColor;
+
+in vec3 Normal;
+in vec3 FragPos;
+in vec2 TexCoord;
+
+uniform vec3 color1;
+uniform vec3 color2;
+
+void main()
+{
+    float y = tanh(FragPos.y*0.01)*0.5+0.5;
+    float height = sqrt(1.0-y);
+    
+    float s = pow(0.5, 1.0 / 10.0);
+    s = 1.0 - clamp(s, 0.75, 1.0);
+    
+    vec3 haze = mix(vec3(1.0), color2 * 1.3, s);
+    vec3 sky = mix(color1, haze, height / 1.3);
+	FragColor = vec4(sky, 1.0);
 }
 '''
 
@@ -254,8 +315,9 @@ class TinyRenderer:
         near_plane=0.001,
         far_plane=1000.0,
         camera_fov=45.0,
-        background_color=(0.5, 0.5, 0.5),
+        background_color=(0.53, 0.8, 0.92),
         draw_grid=True,
+        draw_sky=True,
     ):
         
         self.scaling = scaling
@@ -264,6 +326,7 @@ class TinyRenderer:
         self.camera_fov = camera_fov
         self.background_color = background_color
         self.draw_grid = draw_grid
+        self.draw_sky = draw_sky
 
         self._device = wp.get_cuda_device()
 
@@ -407,11 +470,59 @@ class TinyRenderer:
         glVertexAttribPointer(self._loc_grid_pos_attribute, 3, GL_FLOAT, GL_FALSE, 0, None)
         glEnableVertexAttribArray(self._loc_grid_pos_attribute)
         
-        glBindVertexArray(0)
-        
         glUniformMatrix4fv(self._loc_grid_projection, 1, GL_FALSE, glm.value_ptr(self._projection_matrix))
         glUniformMatrix4fv(self._loc_grid_view, 1, GL_FALSE, glm.value_ptr(self._view_matrix))
         glUniformMatrix4fv(self._loc_grid_model, 1, GL_FALSE, glm.value_ptr(self._model_matrix))
+
+        # create sky data
+        self._sky_shader = compileProgram(
+            compileShader(sky_vertex_shader, GL_VERTEX_SHADER),
+            compileShader(sky_fragment_shader, GL_FRAGMENT_SHADER)
+        )
+        
+        glUseProgram(self._sky_shader)
+        self._loc_sky_view = glGetUniformLocation(self._sky_shader, "view")
+        self._loc_sky_model = glGetUniformLocation(self._sky_shader, "model")
+        self._loc_sky_projection = glGetUniformLocation(self._sky_shader, "projection")
+        glUniformMatrix4fv(self._loc_sky_projection, 1, GL_FALSE, glm.value_ptr(self._projection_matrix))
+        glUniformMatrix4fv(self._loc_sky_view, 1, GL_FALSE, glm.value_ptr(self._view_matrix))
+        glUniformMatrix4fv(self._loc_sky_model, 1, GL_FALSE, glm.value_ptr(self._model_matrix))
+
+        self._loc_sky_color1 = glGetUniformLocation(self._sky_shader, "color1")
+        self._loc_sky_color2 = glGetUniformLocation(self._sky_shader, "color2")
+        glUniform3f(self._loc_sky_color1, *background_color)
+        glUniform3f(self._loc_sky_color2, *np.clip(np.array(background_color)+0.5, 0.0, 1.0))
+        glUniform3f(self._loc_sky_color2, 0.8, 0.4, 0.05)
+        self._loc_sky_view_pos = glGetUniformLocation(self._sky_shader, "viewPos")
+
+        # Create VAO, VBO, and EBO
+        self._sky_vao = glGenVertexArrays(1)
+        glBindVertexArray(self._sky_vao)
+
+        vertices, indices = self._create_sphere_mesh(self.far_plane * 0.5, 32, 32)
+        self._sky_tri_count = len(indices)
+
+        self._sky_vbo = glGenBuffers(1)
+        glBindBuffer(GL_ARRAY_BUFFER, self._sky_vbo)
+        glBufferData(GL_ARRAY_BUFFER, vertices.nbytes, vertices.flatten(), GL_STATIC_DRAW)
+
+        self._sky_ebo = glGenBuffers(1)
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self._sky_ebo)
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.nbytes, indices, GL_STATIC_DRAW)
+
+        # Set up vertex attributes
+        vertex_stride = vertices.shape[1] * vertices.itemsize
+        # positions
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, vertex_stride, ctypes.c_void_p(0))
+        glEnableVertexAttribArray(0)
+        # normals
+        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, vertex_stride, ctypes.c_void_p(3 * vertices.itemsize))
+        glEnableVertexAttribArray(1)
+        # uv coordinates
+        glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, vertex_stride, ctypes.c_void_p(6 * vertices.itemsize))
+        glEnableVertexAttribArray(2)
+
+        glBindVertexArray(0)
 
         import pycuda.gl.autoinit
 
@@ -747,7 +858,6 @@ class TinyRenderer:
         imgui.pop_style_var()
         imgui.render()
 
-        # draw grid
         if self.draw_grid:
             
             glUseProgram(self._grid_shader)
@@ -760,6 +870,16 @@ class TinyRenderer:
             glDrawArrays(GL_LINES, 0, self._grid_vertex_count)
             glBindVertexArray(0)
 
+        if self.draw_sky:
+            glUseProgram(self._sky_shader)
+            glUniformMatrix4fv(self._loc_sky_view, 1, GL_FALSE, glm.value_ptr(self._view_matrix))
+            glUniformMatrix4fv(self._loc_sky_projection, 1, GL_FALSE, glm.value_ptr(self._projection_matrix))
+            glUniformMatrix4fv(self._loc_sky_model, 1, GL_FALSE, glm.value_ptr(self._model_matrix))
+            glUniform3f(self._loc_sky_view_pos, *self._camera_pos)
+            
+            glBindVertexArray(self._sky_vao)
+            glDrawElements(GL_TRIANGLES, self._sky_tri_count, GL_UNSIGNED_INT, None)
+            glBindVertexArray(0)
         
         glUseProgram(self._shape_shader)
         glUniformMatrix4fv(self._loc_shape_view, 1, GL_FALSE, glm.value_ptr(self._view_matrix))
