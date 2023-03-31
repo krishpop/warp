@@ -43,7 +43,7 @@ def assign_act(
     return
 
 
-def get_compute_graph(func, kwargs):
+def get_compute_graph(func, kwargs={}):
     wp.capture_begin()
     func(**kwargs)
     return wp.capture_end()

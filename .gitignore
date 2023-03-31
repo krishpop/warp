@@ -28,4 +28,4 @@ build/
 examples/assets
 tags
 .ipynb_checkpoints
-tests/outputs
+warp/tests/outputs

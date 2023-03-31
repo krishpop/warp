@@ -8,7 +8,8 @@ import warp.sim
 import warp.sim.render
 import random
 import imageio
-from warp.envs.environment import Environment, RenderMode, IntegratorType
+from .autograd_utils import get_compute_graph
+from .environment import Environment, RenderMode, IntegratorType
 
 def set_seed(seed):
     torch.manual_seed(seed)
@@ -32,7 +33,6 @@ class WarpEnv(Environment):
     tiny_render_settings = dict(scaling=3.0)
     usd_render_settings = dict(scaling=100.0)
     use_graph_capture = True
-    update_joints_graph = None
     forward_sim_graph = None
 
     sim_substeps_euler = 32
@@ -167,7 +167,10 @@ class WarpEnv(Environment):
 
     def init_sim(self):
         self.init()
-        self.initialize_renderer()
+        if self.visualize:
+            self.initialize_renderer()
+        else:
+            self.renderer = None
         self.state_0 = self.model.state(requires_grad=self.requires_grad)
         self.state_1 = self.model.state(requires_grad=self.requires_grad)
 
@@ -271,20 +274,6 @@ class WarpEnv(Environment):
         return self.obs_buf
 
     def update_joints(self):
-        # self._joint_q.zero_()
-        # self._joint_qd.zero_()
-        # if self._joint_q.grad is not None:
-        #     self._joint_q.grad.zero_()
-        #     self._joint_qd.grad.zero_()
-
-        # if self.use_graph_capture:
-        #     if self.update_joints_graph is None:
-        #         wp.capture_begin()
-        #         wp.sim.eval_ik(self.model, self.state_0, self._joint_q, self._joint_qd)
-        #         self.update_joints_graph = wp.capture_end()
-        #     wp.capture_launch(self.update_joints_graph)
-        # else:
-        #     wp.sim.eval_ik(self.model, self.state_0, self._joint_q, self._joint_qd)
         self.joint_q = wp.to_torch(self._joint_q).clone()
         self.joint_qd = wp.to_torch(self._joint_qd)
 
@@ -299,17 +288,15 @@ class WarpEnv(Environment):
                 )
                 self.state_0, self.state_1 = self.state_1, self.state_0
             wp.sim.eval_ik(self.model, self.state_0, self._joint_q, self._joint_qd)
-            # self.update_joints()
 
         if self.use_graph_capture:
             if self.forward_sim_graph is None:
-                # create update graph
-                wp.capture_begin()
-                forward()
-                self.forward_sim_graph = wp.capture_end()
+                self.forward_sim_graph = get_compute_graph(forward)
             wp.capture_launch(self.forward_sim_graph)
         else:
             forward()
+
+        self.update_joints()
 
     def clear_grad(self, checkpoint=None):
         """

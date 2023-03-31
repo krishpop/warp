@@ -2,6 +2,7 @@ import warp as wp
 import warp.sim
 import warp.sim.render
 import warp.sim.tiny_render
+import numpy as np
 
 import argparse
 from enum import Enum

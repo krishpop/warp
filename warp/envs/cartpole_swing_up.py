@@ -12,7 +12,7 @@ from .autograd_utils import IntegratorSimulate, assign_act
 
 
 class CartPoleSwingUpEnv(WarpEnv):
-    render_mode: RenderMode = RenderMode.TINY
+    render_mode: RenderMode = RenderMode.USD
     integrator_type: IntegratorType = IntegratorType.XPBD
     activate_ground_plane: bool = False
 
@@ -91,7 +91,7 @@ class CartPoleSwingUpEnv(WarpEnv):
         wp.sim.parse_urdf(
             os.path.join(examples_dir, "assets/cartpole.urdf"),
             builder,
-            xform=wp.transform(np.zeros(3), wp.quat_from_axis_angle((1.0, 0.0, 0.0), -math.pi*0.5)),
+            xform=wp.transform(np.zeros(3), wp.quat_from_axis_angle((1.0, 0.0, 0.0), -math.pi*0.)),
             floating=False,
             density=0,
             armature=0.1,
