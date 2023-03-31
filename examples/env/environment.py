@@ -68,6 +68,7 @@ def compute_env_offsets(num_envs, env_offset=(5.0, 0.0, 5.0), upaxis="y"):
     env_offsets -= correction
     return env_offsets
 
+
 class Environment:
     sim_name: str = "Environment"
 
