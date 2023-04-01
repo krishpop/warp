@@ -34,6 +34,7 @@ def parse_mjcf(
     armature_scale=1.0,
     parse_meshes=False,
     enable_self_collisions=True,
+    radians=False
 ):
 
     file = ET.parse(filename)
@@ -127,10 +128,14 @@ def parse_mjcf(
             mode = wp.sim.JOINT_MODE_LIMIT
             if stiffness > 0.0 or "stiffness" in joint.attrib:
                 mode = wp.sim.JOINT_MODE_TARGET_POSITION
+            if is_angular and not radians:
+                joint_lower, joint_upper = (np.deg2rad(joint_range[0]), np.deg2rad(joint_range[1]))
+            else:
+                joint_lower, joint_upper = joint_range
             ax = wp.sim.model.JointAxis(
                 axis=parse_vec(joint, "axis", (0.0, 0.0, 0.0)),
-                limit_lower=(np.deg2rad(joint_range[0]) if is_angular else joint_range[0]),
-                limit_upper=(np.deg2rad(joint_range[1]) if is_angular else joint_range[1]),
+                limit_lower=joint_lower,
+                limit_upper=joint_upper,
                 target_ke=parse_float(joint, "stiffness", stiffness),
                 target_kd=parse_float(joint, "damping", damping),
                 limit_ke=limit_ke, limit_kd=limit_kd,

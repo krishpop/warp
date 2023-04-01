@@ -87,11 +87,11 @@ class CartPoleSwingUpEnv(WarpEnv):
         self.cart_action_penalty = 0.0
 
     def create_articulation(self, builder):
-        examples_dir = os.path.split(os.path.dirname(wp.__file__))[0] + "/examples"
+        assets_dir = os.path.join(os.path.dirname(__file__), 'assets')
         wp.sim.parse_urdf(
-            os.path.join(examples_dir, "assets/cartpole.urdf"),
+            os.path.join(assets_dir, "cartpole.urdf"),
             builder,
-            xform=wp.transform(np.zeros(3), wp.quat_from_axis_angle((1.0, 0.0, 0.0), -math.pi*0.)),
+            xform=wp.transform_identity(),
             floating=False,
             density=0,
             armature=0.1,

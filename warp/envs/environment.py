@@ -3,7 +3,7 @@ import warp.sim
 import warp.sim.render
 import warp.sim.tiny_render
 import numpy as np
-
+import math
 import argparse
 from enum import Enum
 from tqdm import trange
@@ -68,8 +68,8 @@ class Environment:
     env_offset: Tuple[float, float, float] = (5.0, 0.0, 5.0)
 
     # stiffness and damping for joint attachment dynamics used by Euler
-    joint_attach_ke: float = 32000.0
-    joint_attach_kd: float = 50.0
+    joint_attach_ke: float = 10000.0
+    joint_attach_kd: float = 10.0
 
     # distance threshold at which contacts are generated
     rigid_contact_margin: float = 0.05
@@ -137,7 +137,10 @@ class Environment:
                     # no need to offset, TinyRenderer will do it
                     xform = wp.transform_identity()
                 else:
-                    xform = wp.transform(env_offsets[i], wp.quat_identity())
+                    quat_rotate = wp.quat(0,0,0,1.)
+                    if self.upaxis == 'y':
+                        quat_rotate = wp.quat_from_axis_angle((1.0, 0.0, 0.0), -math.pi*0.5)
+                    xform = wp.transform(env_offsets[i], quat_rotate)
                 self.builder.add_builder(articulation_builder, xform)
             self.bodies_per_env = len(articulation_builder.body_q)
         except NotImplementedError:

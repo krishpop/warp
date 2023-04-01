@@ -1,4 +1,3 @@
-import math
 import os
 import sys
 
@@ -55,26 +54,29 @@ class HopperEnv(WarpEnv):
     def create_articulation(self, builder):
         start_height = 0.0
 
-        examples_dir = os.path.split(os.path.dirname(wp.__file__))[0] + "/examples"
+        # examples_dir = os.path.split(os.path.dirname(wp.__file__))[0] + "/examples"
+        asset_dir = os.path.join(os.path.dirname(__file__), 'assets')
         wp.sim.parse_mjcf(
-            os.path.join(examples_dir, "assets/hopper.xml"), builder,
+            os.path.join(asset_dir, "hopper.xml"), builder,
             density=1000.0,
             stiffness=0.0,
-            damping=0.2,
+            damping=2.0,
             contact_ke=2.e+4,
             contact_kd=1.e+3,
             contact_kf=1.e+3,
             contact_mu=0.9,
             limit_ke=1.e+3,
             limit_kd=1.e+1,
-            armature=0.1)  # TODO: add enable_self_collisions?
+            armature=1.0,
+            radians=True,
+            enable_self_collisions=False)  # TODO: add enable_self_collisions?
 
         # set joint targets to rest pose in mjcf
         builder.joint_q[self.num_joint_q + 3:self.num_joint_q + 6] = [0., 0., 0.]
         builder.joint_target[self.num_joint_q + 3:self.num_joint_q + 6] = [0., 0., 0., 0.]
 
     def assign_actions(self, actions):
-        actions = actions.view((self.num_envs, self.num_actions))
+        actions = actions.view((self.num_envs, self.num_actions)) * self.action_strength
         actions = torch.clip(actions, -1.0, 1.0)
         acts_per_env = int(self.model.joint_act.shape[0] / self.num_envs)
         joint_act = torch.zeros((self.num_envs*acts_per_env), dtype=torch.float32, device=self.device)

@@ -30,7 +30,7 @@ class WarpEnv(Environment):
     sim_substeps = 4
     sim_dt = dt
     env_offset = (6.0, 0.0, 6.0)
-    tiny_render_settings = dict(scaling=3.0)
+    tiny_render_settings = dict(scaling=3.0, headless=True, screen_width=480, screen_height=480)
     usd_render_settings = dict(scaling=100.0)
     use_graph_capture = True
     forward_sim_graph = None
@@ -244,8 +244,6 @@ class WarpEnv(Environment):
             # assign model joint_q/qd from start pos/randomized pos
             # this effects body_q when eval_fk is called later
             self.joint_q, self.joint_qd = joint_q.view(-1), joint_qd.view(-1)
-            self.model.joint_q.assign(wp.from_torch(self.joint_q))
-            self.model.joint_qd.assign(wp.from_torch(self.joint_qd))
 
             # requires_grad is properly set in clear_grad()
             self.model.joint_act.zero_()
@@ -275,7 +273,7 @@ class WarpEnv(Environment):
 
     def update_joints(self):
         self.joint_q = wp.to_torch(self._joint_q).clone()
-        self.joint_qd = wp.to_torch(self._joint_qd)
+        self.joint_qd = wp.to_torch(self._joint_qd).clone()
 
     def warp_step(self):
         # simulates with graph capture if selected
@@ -351,8 +349,8 @@ class WarpEnv(Environment):
         joint_q, joint_qd = self.joint_q.detach(), self.joint_qd.detach()
         checkpoint["joint_q"] = joint_q.clone()
         checkpoint["joint_qd"] = joint_qd.clone()
-        # checkpoint["body_q"] = self.body_q.clone()
-        # checkpoint["body_qd"] = self.body_qd.clone()
+        checkpoint["body_q"] = wp.to_torch(self.state_0.body_q).clone()
+        checkpoint["body_qd"] = wp.to_torch(self.state_0.body_qd).clone()
         checkpoint["actions"] = self.actions.clone()
         checkpoint["progress_buf"] = self.progress_buf.clone()
         checkpoint["obs_buf"] = self.obs_buf.clone()
