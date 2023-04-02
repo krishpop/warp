@@ -581,6 +581,15 @@ class TinyRenderer:
         self._last_begin_frame_time = self._last_time
         self._last_end_frame_time = self._last_time
 
+        glUseProgram(self._shape_shader)
+        
+        vertices, indices = self._create_arrow_mesh(0.02, base_height=0.85, cap_height=0.15)
+        shape = self.register_shape(123, vertices, indices)
+        self.add_shape_instance("arrow_y", shape, -1, (0., 0., 0.), (0., 0., 0., 1.), color1=(0., 1., 0.), color2=(0., 1., 0.))
+        sqh = np.sqrt(0.5)
+        self.add_shape_instance("arrow_x", shape, -1, (0., 0., 0.), (0.0, 0.0, -sqh, sqh), color1=(1., 0., 0.), color2=(1., 0., 0.))
+        self.add_shape_instance("arrow_z", shape, -1, (0., 0., 0.), (sqh, 0.0, 0.0, sqh), color1=(0., 0., 1.), color2=(0., 0., 1.))
+
     def clear(self):
         for vao, vbo, ebo, _ in self._shape_gl_buffers.values():
             glDeleteVertexArrays(1, [vao])
@@ -725,6 +734,14 @@ class TinyRenderer:
     def _render_scene(self):
         start_instance_idx = 0
         for shape, (vao, vbo, ebo, tri_count) in self._shape_gl_buffers.items():
+
+            num_instances = len(self._shape_instances[shape])
+
+            shape_geo_hash = self._shapes[shape][4]
+            if shape_geo_hash == 123 and not self.draw_axis:
+                start_instance_idx += num_instances
+                continue
+
             glBindVertexArray(vao)
             # glBindBuffer(GL_ARRAY_BUFFER, vbo)
             # glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo)
@@ -742,7 +759,6 @@ class TinyRenderer:
             # glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, vertex_stride, ctypes.c_void_p(6 * 4))
             # glEnableVertexAttribArray(2)
 
-            num_instances = len(self._shape_instances[shape])
             # glDrawElementsInstanced(GL_TRIANGLES, tri_count, GL_UNSIGNED_INT, None, num_instances)
             glDrawElementsInstancedBaseInstance(GL_TRIANGLES, tri_count, GL_UNSIGNED_INT, None, num_instances, start_instance_idx)
             # glDrawArrays(GL_TRIANGLES, 0, tri_count)
@@ -812,6 +828,10 @@ class TinyRenderer:
             self.paused = not self.paused
         if self._pressed_key(glfw.KEY_TAB):
             self.skip_rendering = not self.skip_rendering
+        if self._pressed_key(glfw.KEY_C):
+            self.draw_axis = not self.draw_axis
+        if self._pressed_key(glfw.KEY_G):
+            self.draw_grid = not self.draw_grid
     
     def _scroll_callback(self, window, x_offset, y_offset):
         self.camera_fov -= y_offset
@@ -830,7 +850,7 @@ class TinyRenderer:
         if color2 is None:
             color2 = np.clip(np.array(color1) + 0.25, 0.0, 1.0)
         # TODO check if we actually need to store the shape data
-        self._shapes.append((vertices, indices, color1, color2))
+        self._shapes.append((vertices, indices, color1, color2, geo_hash))
         self._shape_geo_hash[geo_hash] = shape
         
         glUseProgram(self._shape_shader)
@@ -1507,6 +1527,29 @@ class TinyRenderer:
 
         vertex_data = np.array(np.vstack((cap_vertices, side_vertices)), dtype=np.float32)
         index_data = np.array(indices, dtype=np.uint32)
+
+        return vertex_data, index_data
+    
+    @staticmethod
+    def _create_arrow_mesh(base_radius, base_height, cap_radius=None, cap_height=None, up_axis=1, segments=default_num_segments):
+        if up_axis not in (0, 1, 2):
+            raise ValueError("up_axis must be between 0 and 2")
+        if cap_radius is None:
+            cap_radius = base_radius * 1.8
+        if cap_height is None:
+            cap_height = base_height * 0.18
+
+        up_vector = np.array([0, 0, 0])
+        up_vector[up_axis] = 1
+
+        base_vertices, base_indices = TinyRenderer._create_cylinder_mesh(base_radius, base_height/2, up_axis, segments)
+        cap_vertices, cap_indices = TinyRenderer._create_cone_mesh(cap_radius, cap_height/2, up_axis, segments)
+
+        base_vertices[:,:3] += base_height/2 * up_vector
+        cap_vertices[:,:3] += (base_height + cap_height/2) * up_vector
+
+        vertex_data = np.vstack((base_vertices, cap_vertices))
+        index_data = np.hstack((base_indices, cap_indices + len(base_vertices)))
 
         return vertex_data, index_data
     
