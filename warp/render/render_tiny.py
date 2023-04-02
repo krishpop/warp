@@ -28,6 +28,7 @@ import pycuda.gl
 import imgui
 from imgui.integrations.glfw import GlfwRenderer
 
+wp.set_module_options({"enable_backward": False})
 
 shape_vertex_shader = '''
 #version 330 core
@@ -46,6 +47,7 @@ layout (location = 7) in vec3 aObjectColor1;
 layout (location = 8) in vec3 aObjectColor2;
 
 uniform mat4 view;
+uniform mat4 model;
 uniform mat4 projection;
 
 out vec3 Normal;
@@ -56,11 +58,11 @@ out vec3 ObjectColor2;
 
 void main()
 {
-    mat4 model = mat4(aInstanceTransform0, aInstanceTransform1, aInstanceTransform2, aInstanceTransform3);
-    vec4 worldPos = model * vec4(aPos, 1.0);
+    mat4 transform = model * mat4(aInstanceTransform0, aInstanceTransform1, aInstanceTransform2, aInstanceTransform3);
+    vec4 worldPos = transform * vec4(aPos, 1.0);
     gl_Position = projection * view * worldPos;
     FragPos = vec3(worldPos);
-    Normal = mat3(transpose(inverse(model))) * aNormal;
+    Normal = mat3(transpose(inverse(transform))) * aNormal;
     TexCoord = aTexCoord;
     ObjectColor1 = aObjectColor1;
     ObjectColor2 = aObjectColor2;
@@ -79,6 +81,7 @@ in vec3 ObjectColor2;
 
 uniform vec3 viewPos;
 uniform vec3 lightColor;
+uniform vec3 sunDirection;
 
 void main()
 {
@@ -86,8 +89,7 @@ void main()
     vec3 ambient = ambientStrength * lightColor;
     vec3 norm = normalize(Normal);
 
-    vec3 lightDir1 = normalize(vec3(-0.2, 1.0, 0.3));
-    float diff = max(dot(norm, lightDir1), 0.0);
+    float diff = max(dot(norm, sunDirection), 0.0);
     vec3 diffuse = diff * lightColor;
     
     vec3 lightDir2 = normalize(vec3(1.0, 0.3, -0.3));
@@ -97,7 +99,7 @@ void main()
     float specularStrength = 0.5;
     vec3 viewDir = normalize(viewPos - FragPos);
 
-    vec3 reflectDir = reflect(-lightDir1, norm);
+    vec3 reflectDir = reflect(-sunDirection, norm);
     float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32);
     vec3 specular = specularStrength * spec * lightColor;
     
@@ -108,8 +110,14 @@ void main()
     // checkerboard pattern
     float u = TexCoord.x;
     float v = TexCoord.y;
+    // blend the checkerboard pattern dependent on the gradient of the texture coordinates
+    // to void Moire patterns
+    vec2 grad = abs(dFdx(TexCoord)) + abs(dFdy(TexCoord));
+    float blendRange = 1.5;
+    float blendFactor = max(grad.x, grad.y) * blendRange;
     float scale = 2.0;
     float checker = mod(floor(u * scale) + floor(v * scale), 2.0);
+    checker = mix(checker, 0.5, smoothstep(0.0, 1.0, blendFactor));
     vec3 checkerColor = mix(ObjectColor1, ObjectColor2, checker);
 
     vec3 result = (ambient + diffuse + specular) * checkerColor;
@@ -160,7 +168,7 @@ out vec2 TexCoord;
 
 void main()
 {
-    vec4 worldPos = model * vec4(aPos + viewPos, 1.0);
+    vec4 worldPos = vec4(aPos + viewPos, 1.0);
     gl_Position = projection * view * worldPos;
     FragPos = vec3(worldPos);
     Normal = mat3(transpose(inverse(model))) * aNormal;
@@ -180,6 +188,8 @@ in vec2 TexCoord;
 uniform vec3 color1;
 uniform vec3 color2;
 
+uniform vec3 sunDirection;
+
 void main()
 {
     float y = tanh(FragPos.y*0.01)*0.5+0.5;
@@ -190,7 +200,11 @@ void main()
     
     vec3 haze = mix(vec3(1.0), color2 * 1.3, s);
     vec3 sky = mix(color1, haze, height / 1.3);
-	FragColor = vec4(sky, 1.0);
+
+    float diff = max(dot(sunDirection, normalize(FragPos)), 0.0);
+    vec3 sun = pow(diff, 32) * vec3(1.0, 0.8, 0.6) * 0.5;
+
+	FragColor = vec4(sky + sun, 1.0);
 }
 '''
 
@@ -225,7 +239,6 @@ def update_vbo_transforms(
     instance_transforms: wp.array(dtype=wp.transform),
     instance_scalings: wp.array(dtype=wp.vec3),
     body_q: wp.array(dtype=wp.transform),
-    scaling: float,
     # outputs
     vbo_transforms: wp.array(dtype=wp.mat44)):
 
@@ -240,8 +253,7 @@ def update_vbo_transforms(
             return
     p = wp.transform_get_translation(X_ws)
     q = wp.transform_get_rotation(X_ws)
-    p *= scaling
-    s = instance_scalings[i] * scaling
+    s = instance_scalings[i]
     rot = wp.quat_to_matrix(q)
     # transposed definition
     vbo_transforms[tid] = wp.mat44(
@@ -291,6 +303,27 @@ def update_line_transforms(
     vbo_scalings[i] = wp.vec4(1.0, s, 1.0, 1.0)
 
 
+@wp.kernel
+def compute_gfx_vertices(
+    indices: wp.array(dtype=int, ndim=2),
+    vertices: wp.array(dtype=wp.vec3, ndim=1),
+    # outputs
+    gfx_vertices: wp.array(dtype=float, ndim=2)):
+
+    tid = wp.tid()
+    v0 = vertices[indices[tid, 0]]
+    v1 = vertices[indices[tid, 1]]
+    v2 = vertices[indices[tid, 2]]
+    i = tid * 3; j = i + 1; k = i + 2
+    gfx_vertices[i,0] = v0[0]; gfx_vertices[i,1] = v0[1]; gfx_vertices[i,2] = v0[2]
+    gfx_vertices[j,0] = v1[0]; gfx_vertices[j,1] = v1[1]; gfx_vertices[j,2] = v1[2]
+    gfx_vertices[k,0] = v2[0]; gfx_vertices[k,1] = v2[1]; gfx_vertices[k,2] = v2[2]
+    n = wp.normalize(wp.cross(v1-v0, v2-v0))
+    gfx_vertices[i,3] = n[0]; gfx_vertices[i,4] = n[1]; gfx_vertices[i,5] = n[2]
+    gfx_vertices[j,3] = n[0]; gfx_vertices[j,4] = n[1]; gfx_vertices[j,5] = n[2]
+    gfx_vertices[k,3] = n[0]; gfx_vertices[k,4] = n[1]; gfx_vertices[k,5] = n[2]
+
+
 def check_gl_error():
     error = gl.glGetError()
     if error != gl.GL_NO_ERROR:
@@ -312,12 +345,13 @@ class TinyRenderer:
         upaxis="y",
         screen_width=1024,
         screen_height=768,
-        near_plane=0.001,
+        near_plane=0.01,
         far_plane=1000.0,
         camera_fov=45.0,
         background_color=(0.53, 0.8, 0.92),
         draw_grid=True,
         draw_sky=True,
+        draw_axis=True,
     ):
         
         self.scaling = scaling
@@ -327,6 +361,7 @@ class TinyRenderer:
         self.background_color = background_color
         self.draw_grid = draw_grid
         self.draw_sky = draw_sky
+        self.draw_axis = draw_axis
 
         self._device = wp.get_cuda_device()
 
@@ -337,6 +372,8 @@ class TinyRenderer:
         glfw.window_hint(glfw.OPENGL_FORWARD_COMPAT, GL_TRUE)
         glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 3)
         glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 3)
+        # increase depth buffer precision to preven z fighting
+        glfw.window_hint(glfw.DEPTH_BITS, 32)
 
         self.window = glfw.create_window(screen_width, screen_height, title, None, None)
 
@@ -414,8 +451,10 @@ class TinyRenderer:
         self._loc_shape_view_pos = glGetUniformLocation(self._shape_shader, "viewPos")
         glUniform3f(glGetUniformLocation(self._shape_shader, "lightColor"), 1, 1, 1)
         glUniform3f(self._loc_shape_view_pos, 0, 0, 10)
-        
-        
+
+        self._sun_direction = np.array((-0.2, 0.8, 0.3))
+        self._sun_direction /= np.linalg.norm(self._sun_direction)
+        glUniform3f(glGetUniformLocation(self._shape_shader, "sunDirection"), *self._sun_direction)
 
         width, height = glfw.get_window_size(self.window)
         self._projection_matrix = glm.perspective(np.deg2rad(45), width / height, self.near_plane, self.far_plane)
@@ -424,23 +463,24 @@ class TinyRenderer:
         self._view_matrix = glm.lookAt(self._camera_pos, self._camera_pos + self._camera_front, self._camera_up)
         # glUniformMatrix4fv(self._loc_shape_view, 1, GL_FALSE, glm.value_ptr(self._view_matrix))
         
-        # if self._camera_axis == 0:
-        #     self._model_matrix = glm.mat4(self.scaling, 0, 0, 0,
-        #                      0, 0, self.scaling, 0,
-        #                      0, -self.scaling, 0, 0,
-        #                      0, 0, 0, 1)
-        # elif self._camera_axis == 2:
-        #     self._model_matrix = glm.mat4(0, 0, -self.scaling, 0,
-        #                      0, self.scaling, 0, 0,
-        #                      self.scaling, 0, 0, 0,
-        #                      0, 0, 0, 1)
-        # else:
-        #     self._model_matrix = glm.mat4(self.scaling, 0, 0, 0,
-        #                      0, self.scaling, 0, 0,
-        #                      0, 0, self.scaling, 0,
-        #                      0, 0, 0, 1)
-        self._model_matrix = glm.mat4(1.0)
-        # glUniformMatrix4fv(self._loc_shape_model, 1, GL_FALSE, glm.value_ptr(self._model_matrix))
+        if self._camera_axis == 0:
+            self._model_matrix = glm.mat4(self.scaling, 0, 0, 0,
+                             0, 0, self.scaling, 0,
+                             0, -self.scaling, 0, 0,
+                             0, 0, 0, 1)
+        elif self._camera_axis == 2:
+            self._model_matrix = glm.mat4(0, 0, -self.scaling, 0,
+                             0, self.scaling, 0, 0,
+                             self.scaling, 0, 0, 0,
+                             0, 0, 0, 1)
+        else:
+            self._model_matrix = glm.mat4(self.scaling, 0, 0, 0,
+                             0, self.scaling, 0, 0,
+                             0, 0, self.scaling, 0,
+                             0, 0, 0, 1)
+
+        glUniformMatrix4fv(self._loc_shape_model, 1, GL_FALSE, glm.value_ptr(self._model_matrix))
+
 
         glUseProgram(self._grid_shader)
 
@@ -494,12 +534,13 @@ class TinyRenderer:
         glUniform3f(self._loc_sky_color2, *np.clip(np.array(background_color)+0.5, 0.0, 1.0))
         glUniform3f(self._loc_sky_color2, 0.8, 0.4, 0.05)
         self._loc_sky_view_pos = glGetUniformLocation(self._sky_shader, "viewPos")
+        glUniform3f(glGetUniformLocation(self._sky_shader, "sunDirection"), *self._sun_direction)
 
         # Create VAO, VBO, and EBO
         self._sky_vao = glGenVertexArrays(1)
         glBindVertexArray(self._sky_vao)
 
-        vertices, indices = self._create_sphere_mesh(self.far_plane * 0.5, 32, 32)
+        vertices, indices = self._create_sphere_mesh(self.far_plane * 0.9, 32, 32)
         self._sky_tri_count = len(indices)
 
         self._sky_vbo = glGenBuffers(1)
@@ -529,230 +570,6 @@ class TinyRenderer:
 
 
 
-
-        if False:
-            glUseProgram(self._shape_shader)
-
-            glUniformMatrix4fv(self._loc_shape_view, 1, GL_FALSE, glm.value_ptr(self._view_matrix))
-            glUniform3f(self._loc_shape_view_pos, *self._camera_pos)
-            glUniformMatrix4fv(self._loc_shape_view, 1, GL_FALSE, glm.value_ptr(self._view_matrix))
-            glUniformMatrix4fv(self._loc_shape_projection, 1, GL_FALSE, glm.value_ptr(self._projection_matrix))
-            glUniformMatrix4fv(self._loc_shape_model, 1, GL_FALSE, glm.value_ptr(self._model_matrix))
-
-            glClearColor(*self.background_color, 1)
-            glEnable(GL_DEPTH_TEST)
-
-            # sphere_vertices, sphere_indices = self._create_sphere_mesh()
-            # sphere_vertices, sphere_indices = self._create_capsule_mesh(radius=0.2, half_height=0.5)
-            # sphere_vertices, sphere_indices = self._create_cone_mesh(radius=0.2, half_height=0.5)
-            sphere_vertices, sphere_indices = self._create_cylinder_mesh(radius=0.2, half_height=0.5)
-            # sphere_vertices, sphere_indices = self._create_box_mesh([1.0, 2.0, 3.0])
-            num_instances = 50
-            instance_positions = np.random.rand(num_instances, 3) * 10 - 5
-            instance_colors1 = np.random.rand(num_instances, 3)
-            instance_colors2 = np.clip(instance_colors1 + 0.25, 0.0, 1.0)
-            instance_colors1 = np.array(instance_colors1, dtype=np.float32)
-            instance_colors2 = np.array(instance_colors2, dtype=np.float32)
-
-            sphere_transforms = []
-
-            # Create transform matrices for all spheres
-            for i in range(num_instances):
-                angle = np.deg2rad(36 * i)
-                axis = glm.vec3(0, 1, 0)
-                transform = glm.translate(glm.rotate(glm.mat4(1.0), angle, axis), glm.vec3(*instance_positions[i]))
-                # transform = glm.mat4(1.0)
-                sphere_transforms.append(np.array(transform).T)
-
-            sphere_transforms = np.array(sphere_transforms, dtype=np.float32)
-            
-            glUseProgram(self._shape_shader)
-
-            # Create VAO, VBO, and EBO
-            vao = glGenVertexArrays(1)
-            glBindVertexArray(vao)
-
-            vbo = glGenBuffers(1)
-            glBindBuffer(GL_ARRAY_BUFFER, vbo)
-            glBufferData(GL_ARRAY_BUFFER, sphere_vertices.nbytes, sphere_vertices.flatten(), GL_STATIC_DRAW)
-
-            ebo = glGenBuffers(1)
-            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo)
-            glBufferData(GL_ELEMENT_ARRAY_BUFFER, sphere_indices.nbytes, sphere_indices, GL_STATIC_DRAW)
-
-            # Set up vertex attributes
-            vertex_stride = sphere_vertices.shape[1] * sphere_vertices.itemsize
-            # positions
-            glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, vertex_stride, ctypes.c_void_p(0))
-            glEnableVertexAttribArray(0)
-            # normals
-            glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, vertex_stride, ctypes.c_void_p(3 * sphere_vertices.itemsize))
-            glEnableVertexAttribArray(1)
-            # uv coordinates
-            glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, vertex_stride, ctypes.c_void_p(6 * sphere_vertices.itemsize))
-            glEnableVertexAttribArray(2)
-
-            # Create instance buffer and bind it as an instanced array
-            instance_buffer = glGenBuffers(1)
-            glBindBuffer(GL_ARRAY_BUFFER, instance_buffer)
-            glBufferData(GL_ARRAY_BUFFER, sphere_transforms.nbytes, sphere_transforms, GL_DYNAMIC_DRAW)
-            # glVertexAttribDivisor(1, sphere_vertices.shape[0])
-
-            # Upload instance matrices to GPU
-            # offset = 0
-            # for matrix in sphere_transforms:
-            #     glBufferSubData(GL_ARRAY_BUFFER, offset, matrix.nbytes, matrix)
-            #     offset += matrix.nbytes
-            glUseProgram(self._shape_shader)
-
-            # Set up instance attribute pointers
-            matrix_size = sphere_transforms[0].nbytes
-            # glVertexAttribPointer(3, 4*4, GL_FLOAT, GL_FALSE, matrix_size, ctypes.c_void_p(0))
-            # glEnableVertexAttribArray(3)
-            # we can only send vec4s to the shader, so we need to split the instance transforms matrix into its column vectors
-            for i in range(4):
-                glVertexAttribPointer(3 + i, 4, GL_FLOAT, GL_FALSE, matrix_size, ctypes.c_void_p(i * matrix_size // 4))
-                glEnableVertexAttribArray(3 + i)
-                glVertexAttribDivisor(3 + i, 1)
-
-            # create buffer for checkerboard colors
-            color1_buffer = glGenBuffers(1)
-            glBindBuffer(GL_ARRAY_BUFFER, color1_buffer)
-            glBufferData(GL_ARRAY_BUFFER, instance_colors1.nbytes, instance_colors1.flatten(), GL_STATIC_DRAW)
-            glVertexAttribPointer(7, 3, GL_FLOAT, GL_FALSE, instance_colors1[0].nbytes, ctypes.c_void_p(0))
-            glEnableVertexAttribArray(7)
-            glVertexAttribDivisor(7, 1)
-            
-            color2_buffer = glGenBuffers(1)
-            glBindBuffer(GL_ARRAY_BUFFER, color2_buffer)
-            glBufferData(GL_ARRAY_BUFFER, instance_colors2.nbytes, instance_colors2.flatten(), GL_STATIC_DRAW)
-            glVertexAttribPointer(8, 3, GL_FLOAT, GL_FALSE, instance_colors2[0].nbytes, ctypes.c_void_p(0))
-            glEnableVertexAttribArray(8)
-            glVertexAttribDivisor(8, 1)
-
-
-            instance_buffer_cuda = pycuda.gl.RegisteredBuffer(int(instance_buffer))
-            mapped_buffer = instance_buffer_cuda.map()
-            ptr, _ = mapped_buffer.device_ptr_and_size()
-            mapped_buffer.unmap()
-
-            wp_positions = wp.array(instance_positions, dtype=wp.vec3, device=self._device)
-            wp_scalings = wp.array(np.random.uniform(0.5, 2.0, size=(num_instances, 3)), dtype=wp.vec3, device=self._device)
-
-            while not glfw.window_should_close(self.window):
-                glfw.poll_events()
-                self._process_input(self.window)
-                glClearColor(*self.background_color, 1)
-                glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
-                
-                view = glm.lookAt(self._camera_pos, self._camera_pos + self._camera_front, self._camera_up)
-                
-                self._view_matrix = glm.lookAt(self._camera_pos, self._camera_pos + self._camera_front, self._camera_up)
-
-                imgui.new_frame()
-                imgui.set_next_window_bg_alpha(0.0)
-                imgui.set_next_window_position(0, 0)
-                imgui.push_style_var(imgui.STYLE_WINDOW_BORDERSIZE, 0.0)
-                imgui.begin("Custom window", True,
-                            imgui.WINDOW_NO_MOVE | imgui.WINDOW_NO_RESIZE | imgui.WINDOW_NO_TITLE_BAR)
-                # imgui.text(f"FPS: {1.0 / duration:.1f}")
-                imgui.spacing()
-                imgui.text(f"Shapes: {len(self._shapes)}")
-                imgui.text(f"Instances: {len(self._instances)}")
-                # string_var = "test"
-                # float_var = np.pi
-                # if imgui.button("OK"):
-                #     print(f"String: {string_var}")
-                #     print(f"Float: {float_var}")
-                # _, string_var = imgui.input_text("A String", string_var, 256)
-                # _, float_var = imgui.slider_float("float", float_var, 0.25, 1.5)
-                # imgui.show_test_window()
-                imgui.end()
-                imgui.pop_style_var()
-                imgui.render()
-
-                # draw grid
-                if self.draw_grid:
-                    
-                    glUseProgram(self._grid_shader)
-                    
-                    glUniformMatrix4fv(self._loc_grid_view, 1, GL_FALSE, glm.value_ptr(self._view_matrix))
-                    glUniformMatrix4fv(self._loc_grid_projection, 1, GL_FALSE, glm.value_ptr(self._projection_matrix))
-                    glUniformMatrix4fv(self._loc_grid_model, 1, GL_FALSE, glm.value_ptr(self._model_matrix))
-
-                    glBindVertexArray(self._grid_vao)
-
-                    # glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
-
-                    # glEnableVertexAttribArray(0)
-                    # glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self._grid_vbo)
-                    # glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0)
-
-                    # # Enable vertex array and set data
-                    # # glEnableClientState(GL_VERTEX_ARRAY)
-                    # # glVertexPointer(3, GL_FLOAT, 0, None)
-                    
-                    # glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self._grid_ebo)
-
-                    # Draw lines
-                    glDrawArrays(GL_LINES, 0, self._grid_vertex_count)
-                    # glDrawArrays(GL_TRIANGLES, 0, self._grid_vertex_count)
-                    # glDrawElements(GL_LINES, self._grid_vertex_count, GL_UNSIGNED_INT, None)
-
-                    
-                    # Disable vertex array and unbind VBO
-                    # glDisableClientState(GL_VERTEX_ARRAY)
-                    # glBindBuffer(GL_ARRAY_BUFFER, 0)
-                    # glDisableVertexAttribArray(0)
-
-                glUseProgram(self._shape_shader)
-                glUniformMatrix4fv(self._loc_shape_view, 1, GL_FALSE, glm.value_ptr(view))
-
-                glUniform3f(self._loc_shape_view_pos, *self._camera_pos)
-                
-                glBindVertexArray(vao)
-                    
-                if False:
-                    sphere_transforms = []
-                    # Create transform matrices for all spheres
-                    for i in range(num_instances):
-                        angle = np.deg2rad(36 * i) + glfw.get_time()
-                        axis = glm.vec3(0, 1, 0)
-                        offset = glm.vec3(0.0, 0.0, 5.0 * np.sin(i*np.pi/4 + glfw.get_time()))
-                        # transform = glm.translate(glm.rotate(glm.mat4(1.0), angle, axis), glm.vec3(*instance_positions[i])+offset)
-                        transform = glm.rotate(glm.translate(glm.mat4(1.0), glm.vec3(*instance_positions[i])+offset), angle, axis)
-                        transform = glm.scale(transform, glm.vec3(0.25, 0.25, 0.25))
-                        # transform = glm.mat4(1.0)
-                        sphere_transforms.append(np.array(transform).T)
-                    sphere_transforms = np.array(sphere_transforms, dtype=np.float32)
-                    glBindBuffer(GL_ARRAY_BUFFER, instance_buffer)
-                    glBufferData(GL_ARRAY_BUFFER, sphere_transforms.nbytes, sphere_transforms, GL_DYNAMIC_DRAW)
-                else:
-                    mapped_buffer = instance_buffer_cuda.map()
-                    ptr, _ = mapped_buffer.device_ptr_and_size()
-                    wp_instance_buffer = wp.array(dtype=wp.mat44, shape=(num_instances,), device=self._device, ptr=ptr, owner=False)
-                    wp.launch(
-                        move_instances,
-                        dim=num_instances,
-                        inputs=[wp_positions, wp_scalings, glfw.get_time()],
-                        outputs=[wp_instance_buffer],
-                        device=wp_instance_buffer.device
-                    )
-                    mapped_buffer.unmap()
-
-
-                glDrawElementsInstanced(GL_TRIANGLES, len(sphere_indices), GL_UNSIGNED_INT, None, num_instances)
-
-                
-                # Check for OpenGL errors
-                check_gl_error()
-
-                self.imgui_renderer.render(imgui.get_draw_data())
-
-                glfw.swap_buffers(self.window)
-
-
-
         # # Clean up
         # glDeleteVertexArrays(1, [vao])
         # glDeleteBuffers(1, [vbo])
@@ -761,6 +578,8 @@ class TinyRenderer:
         # glfw.terminate()
 
         self._last_time = glfw.get_time()
+        self._last_begin_frame_time = self._last_time
+        self._last_end_frame_time = self._last_time
 
     def clear(self):
         for vao, vbo, ebo, _ in self._shape_gl_buffers.values():
@@ -797,9 +616,11 @@ class TinyRenderer:
         self._projection_matrix = glm.perspective(glm.radians(self.camera_fov), aspect_ratio, self.near_plane, self.far_plane)
     
     def begin_frame(self, time: float):
+        self._last_begin_frame_time = glfw.get_time()
         self.time = time
 
     def end_frame(self):
+        self._last_end_frame_time = glfw.get_time()
         if self._add_shape_instances:
             self.add_shape_instances()
         if self._update_shape_instances:
@@ -819,8 +640,9 @@ class TinyRenderer:
                 self._process_input(self.window)
             return
         
-        duration = glfw.get_time() - self._last_time
-        self._last_time = glfw.get_time()
+        current = glfw.get_time()
+        duration = current - self._last_time
+        self._last_time = current
         
         glfw.poll_events()
         self.imgui_renderer.process_inputs()
@@ -830,7 +652,9 @@ class TinyRenderer:
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
         glBindVertexArray(0)
 
-        self._view_matrix = glm.lookAt(self._camera_pos, self._camera_pos + self._camera_front, self._camera_up)
+        # cache camera position in case it gets changed during rendering
+        cam_pos = self._camera_pos
+        self._view_matrix = glm.lookAt(cam_pos, cam_pos + self._camera_front, self._camera_up)
 
         imgui.new_frame()
         imgui.set_next_window_bg_alpha(0.0)
@@ -839,7 +663,8 @@ class TinyRenderer:
         imgui.push_style_var(imgui.STYLE_WINDOW_BORDERSIZE, 0.0)
         imgui.begin("Custom window", True,
                     imgui.WINDOW_NO_MOVE | imgui.WINDOW_NO_RESIZE | imgui.WINDOW_NO_TITLE_BAR)
-        imgui.text(f"FPS: {1.0 / duration:.1f}")
+        imgui.text(f"Update FPS: {1.0 / (self._last_end_frame_time - self._last_begin_frame_time):.1f}")
+        imgui.text(f"Render FPS: {1.0 / duration:.1f}")
         imgui.spacing()
         imgui.text(f"Shapes: {len(self._shapes)}")
         imgui.text(f"Instances: {len(self._instances)}")
@@ -864,7 +689,7 @@ class TinyRenderer:
             
             glUniformMatrix4fv(self._loc_grid_view, 1, GL_FALSE, glm.value_ptr(self._view_matrix))
             glUniformMatrix4fv(self._loc_grid_projection, 1, GL_FALSE, glm.value_ptr(self._projection_matrix))
-            glUniformMatrix4fv(self._loc_grid_model, 1, GL_FALSE, glm.value_ptr(self._model_matrix))
+            # glUniformMatrix4fv(self._loc_grid_model, 1, GL_FALSE, glm.value_ptr(self._model_matrix))
 
             glBindVertexArray(self._grid_vao)
             glDrawArrays(GL_LINES, 0, self._grid_vertex_count)
@@ -874,8 +699,8 @@ class TinyRenderer:
             glUseProgram(self._sky_shader)
             glUniformMatrix4fv(self._loc_sky_view, 1, GL_FALSE, glm.value_ptr(self._view_matrix))
             glUniformMatrix4fv(self._loc_sky_projection, 1, GL_FALSE, glm.value_ptr(self._projection_matrix))
-            glUniformMatrix4fv(self._loc_sky_model, 1, GL_FALSE, glm.value_ptr(self._model_matrix))
-            glUniform3f(self._loc_sky_view_pos, *self._camera_pos)
+            # glUniformMatrix4fv(self._loc_sky_model, 1, GL_FALSE, glm.value_ptr(self._model_matrix))
+            glUniform3f(self._loc_sky_view_pos, *cam_pos)
             
             glBindVertexArray(self._sky_vao)
             glDrawElements(GL_TRIANGLES, self._sky_tri_count, GL_UNSIGNED_INT, None)
@@ -883,7 +708,7 @@ class TinyRenderer:
         
         glUseProgram(self._shape_shader)
         glUniformMatrix4fv(self._loc_shape_view, 1, GL_FALSE, glm.value_ptr(self._view_matrix))
-        glUniform3f(self._loc_shape_view_pos, *self._camera_pos)
+        glUniform3f(self._loc_shape_view_pos, *cam_pos)
         glUniformMatrix4fv(self._loc_shape_view, 1, GL_FALSE, glm.value_ptr(self._view_matrix))
         glUniformMatrix4fv(self._loc_shape_projection, 1, GL_FALSE, glm.value_ptr(self._projection_matrix))
         glUniformMatrix4fv(self._loc_shape_model, 1, GL_FALSE, glm.value_ptr(self._model_matrix))
@@ -1044,7 +869,7 @@ class TinyRenderer:
         if color1 is None:
             color1 = self._shapes[shape][2]
         if color2 is None:
-            color2 = np.clip(np.array(color1) + 0.25, 0.0, 1.0)
+            color2 = self._shapes[shape][3]
         instance = len(self._instances)
         self._shape_instances[shape].append(instance)
         body = self._resolve_body_id(body)
@@ -1186,7 +1011,6 @@ class TinyRenderer:
                 self._wp_instance_transforms,
                 self._wp_instance_scalings,
                 body_q,
-                self.scaling,
             ],
             outputs=[
                 vbo_transforms,
@@ -1258,7 +1082,7 @@ class TinyRenderer:
     #     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
     #     return texture
 
-    def render_plane(self, name: str, pos: tuple, rot: tuple, width: float, length: float, color: tuple=(1.,1.,1.), texture=None, parent_body: str=None, is_template: bool=False, u_scaling=1.0, v_scaling=1.0):
+    def render_plane(self, name: str, pos: tuple, rot: tuple, width: float, length: float, color: tuple=(1.,1.,1.), color2=None, parent_body: str=None, is_template: bool=False, u_scaling=1.0, v_scaling=1.0):
         """Add a plane for visualization
         
         Args:
@@ -1276,20 +1100,20 @@ class TinyRenderer:
             if self.update_shape_instance(name, pos, rot):
                 return shape
         else:
-            faces = np.array([0, 1, 2, 2, 3, 0])
+            faces = np.array([0, 1, 2, 2, 3, 0], dtype=np.uint32)
             normal = (0.0, 1.0, 0.0)
-            width = (width if width > 0.0 else 100.0) * self.scaling
-            length = (length if length > 0.0 else 100.0) * self.scaling
+            width = (width if width > 0.0 else 100.0)
+            length = (length if length > 0.0 else 100.0)
             aspect = width / length
-            u = width * aspect * u_scaling / self.scaling
-            v = length * v_scaling / self.scaling
+            u = width * aspect * u_scaling
+            v = length * v_scaling
             gfx_vertices = np.array([
-                [-width, 0.0, -length, 0.0, *normal, 0.0, 0.0],
-                [-width, 0.0,  length, 0.0, *normal, 0.0, v],
-                [width, 0.0,  length, 0.0, *normal, u, v],
-                [width, 0.0, -length, 0.0, *normal, u, 0.0],
-            ])
-            shape = self.register_shape(geo_hash, gfx_vertices, faces, color1=color)
+                [-width, 0.0, -length, *normal, 0.0, 0.0],
+                [-width, 0.0,  length, *normal, 0.0, v],
+                [width, 0.0,  length, *normal, u, v],
+                [width, 0.0, -length, *normal, u, 0.0],
+            ], dtype=np.float32)
+            shape = self.register_shape(geo_hash, gfx_vertices, faces, color1=color, color2=color2)
         if not is_template:
             body = self._resolve_body_id(parent_body)
             self.add_shape_instance(name, shape, body, pos, rot)
@@ -1303,7 +1127,28 @@ class TinyRenderer:
         """
         color1 = (200/255, 200/255, 200/255)
         color2 = (150/255, 150/255, 150/255)
-        return self.render_plane("ground", (0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0), size, size, color2, u_scaling=1.0, v_scaling=1.0)
+        return self.render_plane("ground", (0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0), size, size, color1, color2=color2, u_scaling=1.0, v_scaling=1.0)
+        
+    def render_sphere(self, name: str, pos: tuple, rot: tuple, radius: float, parent_body: str=None, is_template: bool=False):
+        """Add a sphere for visualization
+        
+        Args:
+            pos: The position of the sphere
+            radius: The radius of the sphere
+            name: A name for the USD prim on the stage
+        """
+        geo_hash = hash(("sphere", radius))
+        if geo_hash in self._shape_geo_hash:
+            shape = self._shape_geo_hash[geo_hash]
+            if self.update_shape_instance(name, pos, rot):
+                return shape
+        else:
+            vertices, indices = self._create_sphere_mesh(radius)
+            shape = self.register_shape(geo_hash, vertices, indices)
+        if not is_template:
+            body = self._resolve_body_id(parent_body)
+            self.add_shape_instance(name, shape, body, pos, rot)
+        return shape
     
     def render_capsule(self, name: str, pos: tuple, rot: tuple, radius: float, half_height: float, parent_body: str=None, is_template: bool=False):
         """Add a capsule for visualization
@@ -1321,27 +1166,6 @@ class TinyRenderer:
                 return shape
         else:
             vertices, indices = self._create_capsule_mesh(radius, half_height)
-            shape = self.register_shape(geo_hash, vertices, indices)
-        if not is_template:
-            body = self._resolve_body_id(parent_body)
-            self.add_shape_instance(name, shape, body, pos, rot)
-        return shape
-        
-    def render_sphere(self, name: str, pos: tuple, rot: tuple, radius: float, parent_body: str=None, is_template: bool=False):
-        """Add a sphere for visualization
-        
-        Args:
-            pos: The position of the sphere
-            radius: The radius of the sphere
-            name: A name for the USD prim on the stage
-        """
-        geo_hash = hash(("sphere", radius))
-        if geo_hash in self._shape_geo_hash:
-            shape = self._shape_geo_hash[geo_hash]
-            if self.update_shape_instance(name, pos, rot):
-                return shape
-        else:
-            vertices, indices = self._create_sphere_mesh(radius)
             shape = self.register_shape(geo_hash, vertices, indices)
         if not is_template:
             body = self._resolve_body_id(parent_body)
@@ -1387,6 +1211,68 @@ class TinyRenderer:
         else:
             vertices, indices = self._create_cone_mesh(radius, half_height)
             shape = self.register_shape(geo_hash, vertices, indices)
+        if not is_template:
+            body = self._resolve_body_id(parent_body)
+            self.add_shape_instance(name, shape, body, pos, rot)
+        return shape
+    
+    def render_box(self, name: str, pos: tuple, rot: tuple, extents: tuple, parent_body: str=None, is_template: bool=False):
+        """Add a box for visualization
+        
+        Args:
+            pos: The position of the box
+            extents: The extents of the box
+            name: A name for the USD prim on the stage
+        """
+        geo_hash = hash(("box", tuple(extents)))
+        if geo_hash in self._shape_geo_hash:
+            shape = self._shape_geo_hash[geo_hash]
+            if self.update_shape_instance(name, pos, rot):
+                return shape
+        else:
+            vertices, indices = self._create_box_mesh(extents)
+            shape = self.register_shape(geo_hash, vertices, indices)
+        if not is_template:
+            body = self._resolve_body_id(parent_body)
+            self.add_shape_instance(name, shape, body, pos, rot)
+        return shape
+    
+    def render_mesh(self, name: str, points, indices, colors=None, pos=(0.0, 0.0, 0.0), rot=(0.0, 0.0, 0.0, 1.0), scale=(1.0, 1.0, 1.0), update_topology=False, parent_body: str=None, is_template: bool=False):
+        """Add a mesh for visualization
+        
+        Args:
+            points: The points of the mesh
+            indices: The indices of the mesh
+            colors: The colors of the mesh
+            pos: The position of the mesh
+            rot: The rotation of the mesh
+            scale: The scale of the mesh
+            name: A name for the USD prim on the stage
+        """
+        if colors is None:
+            colors = np.ones((len(points), 3), dtype=np.float32)
+        else:
+            colors = np.array(colors, dtype=np.float32)
+        points = np.array(points, dtype=np.float32) * np.array(scale, dtype=np.float32)
+        indices = np.array(indices, dtype=np.int32).reshape((-1, 3))
+        geo_hash = hash((points.tobytes(), indices.tobytes(), colors.tobytes()))
+        if geo_hash in self._shape_geo_hash:
+            shape = self._shape_geo_hash[geo_hash]
+            if self.update_shape_instance(name, pos, rot):
+                return shape
+        else:
+            gfx_vertices = wp.zeros((len(indices)*3, 8), dtype=float)
+            wp.launch(
+                compute_gfx_vertices,
+                dim=len(indices),
+                inputs=[
+                    wp.array(indices, dtype=int),
+                    wp.array(points, dtype=wp.vec3)
+                ],
+                outputs=[gfx_vertices])
+            gfx_vertices = gfx_vertices.numpy()
+            gfx_indices = np.arange(len(indices)*3)
+            shape = self.register_shape(geo_hash, gfx_vertices, gfx_indices)
         if not is_template:
             body = self._resolve_body_id(parent_body)
             self.add_shape_instance(name, shape, body, pos, rot)
@@ -1627,39 +1513,38 @@ class TinyRenderer:
     @staticmethod
     def _create_box_mesh(extents):
         x_extent, y_extent, z_extent = extents
-        half_x, half_y, half_z = x_extent / 2, y_extent / 2, z_extent / 2
 
         vertices = [
-            # Position                  Normal    UV
-            [-half_x, -half_y, -half_z, -1, 0, 0, 0, 0],
-            [-half_x, -half_y,  half_z, -1, 0, 0, 1, 0],
-            [-half_x,  half_y,  half_z, -1, 0, 0, 1, 1],
-            [-half_x,  half_y, -half_z, -1, 0, 0, 0, 1],
+            # Position                        Normal    UV
+            [-x_extent, -y_extent, -z_extent, -1, 0, 0, 0, 0],
+            [-x_extent, -y_extent,  z_extent, -1, 0, 0, 1, 0],
+            [-x_extent,  y_extent,  z_extent, -1, 0, 0, 1, 1],
+            [-x_extent,  y_extent, -z_extent, -1, 0, 0, 0, 1],
 
-            [half_x, -half_y, -half_z, 1, 0, 0, 0, 0],
-            [half_x, -half_y,  half_z, 1, 0, 0, 1, 0],
-            [half_x,  half_y,  half_z, 1, 0, 0, 1, 1],
-            [half_x,  half_y, -half_z, 1, 0, 0, 0, 1],
+            [x_extent, -y_extent, -z_extent, 1, 0, 0, 0, 0],
+            [x_extent, -y_extent,  z_extent, 1, 0, 0, 1, 0],
+            [x_extent,  y_extent,  z_extent, 1, 0, 0, 1, 1],
+            [x_extent,  y_extent, -z_extent, 1, 0, 0, 0, 1],
 
-            [-half_x, -half_y, -half_z, 0, -1, 0, 0, 0],
-            [-half_x, -half_y,  half_z, 0, -1, 0, 1, 0],
-            [ half_x, -half_y,  half_z, 0, -1, 0, 1, 1],
-            [ half_x, -half_y, -half_z, 0, -1, 0, 0, 1],
+            [-x_extent, -y_extent, -z_extent, 0, -1, 0, 0, 0],
+            [-x_extent, -y_extent,  z_extent, 0, -1, 0, 1, 0],
+            [ x_extent, -y_extent,  z_extent, 0, -1, 0, 1, 1],
+            [ x_extent, -y_extent, -z_extent, 0, -1, 0, 0, 1],
 
-            [-half_x,  half_y, -half_z, 0, 1, 0, 0, 0],
-            [-half_x,  half_y,  half_z, 0, 1, 0, 1, 0],
-            [ half_x,  half_y,  half_z, 0, 1, 0, 1, 1],
-            [ half_x,  half_y, -half_z, 0, 1, 0, 0, 1],
+            [-x_extent,  y_extent, -z_extent, 0, 1, 0, 0, 0],
+            [-x_extent,  y_extent,  z_extent, 0, 1, 0, 1, 0],
+            [ x_extent,  y_extent,  z_extent, 0, 1, 0, 1, 1],
+            [ x_extent,  y_extent, -z_extent, 0, 1, 0, 0, 1],
 
-            [-half_x, -half_y, -half_z, 0, 0, -1, 0, 0],
-            [-half_x,  half_y, -half_z, 0, 0, -1, 1, 0],
-            [ half_x,  half_y, -half_z, 0, 0, -1, 1, 1],
-            [ half_x, -half_y, -half_z, 0, 0, -1, 0, 1],
+            [-x_extent, -y_extent, -z_extent, 0, 0, -1, 0, 0],
+            [-x_extent,  y_extent, -z_extent, 0, 0, -1, 1, 0],
+            [ x_extent,  y_extent, -z_extent, 0, 0, -1, 1, 1],
+            [ x_extent, -y_extent, -z_extent, 0, 0, -1, 0, 1],
 
-            [-half_x, -half_y,  half_z, 0, 0, 1, 0, 0],
-            [-half_x,  half_y,  half_z, 0, 0, 1, 1, 0],
-            [ half_x,  half_y,  half_z, 0, 0, 1, 1, 1],
-            [ half_x, -half_y,  half_z, 0, 0, 1, 0, 1],
+            [-x_extent, -y_extent,  z_extent, 0, 0, 1, 0, 0],
+            [-x_extent,  y_extent,  z_extent, 0, 0, 1, 1, 0],
+            [ x_extent,  y_extent,  z_extent, 0, 0, 1, 1, 1],
+            [ x_extent, -y_extent,  z_extent, 0, 0, 1, 0, 1],
         ]
 
         indices = [
