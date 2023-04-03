@@ -35,6 +35,7 @@ class AntEnvironment(Environment):
     joint_attach_kd: float = 10.0
 
     use_graph_capture = True
+    use_tiled_rendering = True
 
     def create_articulation(self, builder):
         wp.sim.parse_mjcf(

@@ -453,7 +453,10 @@ class TinyRenderer:
         self._wp_instance_bodies = None
         self._update_shape_instances = False
         self._add_shape_instances = False
+
         self._tile_instances = None
+        self._tile_ncols = 0
+        self._tile_nrows = 0
 
         glfw.make_context_current(self.window)
 
@@ -634,10 +637,11 @@ class TinyRenderer:
         # create arrow shapes for the coordinate system axes
         vertices, indices = self._create_arrow_mesh(base_radius=0.02*axis_scale, base_height=0.85*axis_scale, cap_height=0.15*axis_scale)
         shape = self.register_shape(123, vertices, indices)
-        self.add_shape_instance("arrow_y", shape, -1, (0., 0., 0.), (0., 0., 0., 1.), color1=(0., 1., 0.), color2=(0., 1., 0.))
+        ayi = self.add_shape_instance("arrow_y", shape, -1, (0., 0., 0.), (0., 0., 0., 1.), color1=(0., 1., 0.), color2=(0., 1., 0.))
         sqh = np.sqrt(0.5)
-        self.add_shape_instance("arrow_x", shape, -1, (0., 0., 0.), (0.0, 0.0, -sqh, sqh), color1=(1., 0., 0.), color2=(1., 0., 0.))
-        self.add_shape_instance("arrow_z", shape, -1, (0., 0., 0.), (sqh, 0.0, 0.0, sqh), color1=(0., 0., 1.), color2=(0., 0., 1.))
+        ayx = self.add_shape_instance("arrow_x", shape, -1, (0., 0., 0.), (0.0, 0.0, -sqh, sqh), color1=(1., 0., 0.), color2=(1., 0., 0.))
+        ayz = self.add_shape_instance("arrow_z", shape, -1, (0., 0., 0.), (sqh, 0.0, 0.0, sqh), color1=(0., 0., 1.), color2=(0., 0., 1.))
+        self._axis_instances = [ayi, ayx, ayz]
 
     def clear(self):
         for vao, vbo, ebo, _ in self._shape_gl_buffers.values():
@@ -667,8 +671,15 @@ class TinyRenderer:
         self._wp_instance_bodies = None
         self._update_shape_instances = False
 
-    def setup_tiled_rendering(self, instances: list):
-        self._tile_instances = instances
+    def setup_tiled_rendering(self, instances: list, rescale_window=False, tile_width=128, tile_height=128):
+        # skip the first 3 instances for the coordinate system axis arrows
+        self._tile_instances = [[i+3 for i in ids] + self._axis_instances for ids in instances]
+        n = len(self._tile_instances)
+        # try to fit the tiles into a square
+        self._tile_ncols = int(np.ceil(np.sqrt(n)))
+        self._tile_nrows = int(np.ceil(n / float(self._tile_ncols)))
+        if rescale_window:
+            glfw.set_window_size(self.window, tile_width * self._tile_ncols, tile_height * self._tile_nrows)
 
     def update_projection_matrix(self):
         resolution = glfw.get_framebuffer_size(self.window)
@@ -834,20 +845,18 @@ class TinyRenderer:
 
     def _render_scene_tiled(self):
         n = len(self._tile_instances)
-        ncols = int(np.ceil(np.sqrt(n)))
-        nrows = int(np.ceil(n / float(ncols)))
-        tile_width = self.screen_width // ncols
-        tile_height = self.screen_height // nrows
+        tile_width = max(32, self.screen_width // self._tile_ncols)
+        tile_height = max(32, self.screen_height // self._tile_nrows)
         aspect_ratio = tile_width / tile_height
-        # self._projection_matrix = glm.perspective(glm.radians(self.camera_fov), aspect_ratio, self.near_plane, self.far_plane)
+        self._projection_matrix = glm.perspective(glm.radians(self.camera_fov), aspect_ratio, self.near_plane, self.far_plane)
 
         i = 0
-        for vy in range(nrows):
-            for vx in range(ncols):
+        for vy in range(self._tile_nrows):
+            for vx in range(self._tile_ncols):
                 if i >= n:
                     break
 
-                glViewport(vx*tile_width, vy*tile_height, tile_width, tile_height)
+                glViewport(vx*tile_width, self.screen_height-(vy+1)*tile_height, tile_width, tile_height)
                 if self.draw_grid:
                     self._draw_grid()
 
@@ -862,7 +871,7 @@ class TinyRenderer:
                     shape = self._instance_shape[instance]
 
                     shape_geo_hash = self._shapes[shape][4]
-                    if shape_geo_hash == 123:
+                    if shape_geo_hash == 123 and not self.draw_axis:
                         # skip axis
                         continue
 
