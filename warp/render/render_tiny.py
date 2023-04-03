@@ -384,6 +384,7 @@ class TinyRenderer:
         draw_sky=True,
         draw_axis=True,
         axis_scale=1.0,
+        use_vsync=False,
     ):
         
         self.scaling = scaling
@@ -419,7 +420,7 @@ class TinyRenderer:
         self._camera_pos = glm.vec3(0.0, 2.0, 10.0)
         self._camera_front = glm.vec3(0.0, 0.0, -1.0)
         self._camera_up = glm.vec3(0.0, 1.0, 0.0)
-        self._camera_speed = 0.1
+        self._camera_speed = 0.04
         self._camera_axis = "xyz".index(upaxis.lower())
         self._yaw, self._pitch = -90.0, 0.0
         self._last_x, self._last_y = 800 // 2, 600 // 2
@@ -428,7 +429,9 @@ class TinyRenderer:
         self._keys_pressed = defaultdict(bool)
 
         self.time = 0.0
+        self.clock_time = glfw.get_time()
         self.paused = False
+        self._frame_speed = 0.0
         self.skip_rendering = False
         self._skip_frame_counter = 0
 
@@ -459,6 +462,8 @@ class TinyRenderer:
         self._tile_nrows = 0
 
         glfw.make_context_current(self.window)
+        if not use_vsync:
+            glfw.swap_interval(0)
 
         # Initialize Dear ImGui and the OpenGL renderer
         imgui.create_context()
@@ -682,10 +687,16 @@ class TinyRenderer:
             glfw.set_window_size(self.window, tile_width * self._tile_ncols, tile_height * self._tile_nrows)
 
     def update_projection_matrix(self):
-        resolution = glfw.get_framebuffer_size(self.window)
-        if resolution[1] == 0:
-            return
-        aspect_ratio = resolution[0] / resolution[1]
+        if self._tile_ncols is None:
+            resolution = glfw.get_framebuffer_size(self.window)
+            if resolution[1] == 0:
+                return
+            aspect_ratio = resolution[0] / resolution[1]
+        else:
+            tile_width = max(32, self.screen_width // self._tile_ncols)
+            tile_height = max(32, self.screen_height // self._tile_nrows)
+            aspect_ratio = tile_width / tile_height
+        
         self._projection_matrix = glm.perspective(glm.radians(self.camera_fov), aspect_ratio, self.near_plane, self.far_plane)
     
     def begin_frame(self, time: float):
@@ -703,6 +714,11 @@ class TinyRenderer:
             self.update()
 
     def update(self):
+        self.clock_time = glfw.get_time()
+        duration = self.clock_time - self._last_time
+        self._last_time = self.clock_time
+        self._frame_speed = duration * 100.0
+
         self._skip_frame_counter += 1
         if self._skip_frame_counter > 100:
             self._skip_frame_counter = 0
@@ -712,10 +728,6 @@ class TinyRenderer:
                 glfw.poll_events()
                 self._process_input(self.window)
             return
-        
-        current = glfw.get_time()
-        duration = current - self._last_time
-        self._last_time = current
         
         glfw.poll_events()
         self.imgui_renderer.process_inputs()
@@ -848,7 +860,6 @@ class TinyRenderer:
         tile_width = max(32, self.screen_width // self._tile_ncols)
         tile_height = max(32, self.screen_height // self._tile_nrows)
         aspect_ratio = tile_width / tile_height
-        self._projection_matrix = glm.perspective(glm.radians(self.camera_fov), aspect_ratio, self.near_plane, self.far_plane)
 
         i = 0
         for vy in range(self._tile_nrows):
@@ -933,13 +944,13 @@ class TinyRenderer:
 
     def _process_input(self, window):
         if glfw.get_key(window, glfw.KEY_W) == glfw.PRESS or glfw.get_key(window, glfw.KEY_UP) == glfw.PRESS:
-            self._camera_pos += self._camera_speed * self._camera_front
+            self._camera_pos += self._camera_speed * self._camera_front * self._frame_speed
         if glfw.get_key(window, glfw.KEY_S) == glfw.PRESS or glfw.get_key(window, glfw.KEY_DOWN) == glfw.PRESS:
-            self._camera_pos -= self._camera_speed * self._camera_front
+            self._camera_pos -= self._camera_speed * self._camera_front * self._frame_speed
         if glfw.get_key(window, glfw.KEY_A) == glfw.PRESS or glfw.get_key(window, glfw.KEY_LEFT) == glfw.PRESS:
-            self._camera_pos -= self._camera_speed * glm.normalize(glm.cross(self._camera_front, self._camera_up))
+            self._camera_pos -= self._camera_speed * glm.normalize(glm.cross(self._camera_front, self._camera_up)) * self._frame_speed
         if glfw.get_key(window, glfw.KEY_D) == glfw.PRESS or glfw.get_key(window, glfw.KEY_RIGHT) == glfw.PRESS:
-            self._camera_pos += self._camera_speed * glm.normalize(glm.cross(self._camera_front, self._camera_up))
+            self._camera_pos += self._camera_speed * glm.normalize(glm.cross(self._camera_front, self._camera_up)) * self._frame_speed
         
         if self._pressed_key(glfw.KEY_ESCAPE):
             glfw.set_window_should_close(window, True)
@@ -1543,89 +1554,11 @@ class TinyRenderer:
     
     @staticmethod
     def _create_cone_mesh(radius, half_height, up_axis=1, segments=default_num_segments):
-        if up_axis not in (0, 1, 2):
-            raise ValueError("up_axis must be between 0 and 2")
-
-        vertices = []
-        indices = []
-
-        h = 2*half_height
-        cone_angle = np.arctan2(radius, h)
-        cos_angle = np.cos(cone_angle)
-        sin_angle = np.sin(cone_angle)
-
-        x_dir, y_dir, z_dir = (
-            (1, 2, 0),
-            (0, 1, 2),
-            (2, 0, 1),
-        )[up_axis]
-
-        # Create the cone side vertices
-        for i in range(segments):
-            theta = 2 * np.pi * i / segments
-
-            cos_theta = np.cos(theta)
-            sin_theta = np.sin(theta)
-
-            x = radius * cos_theta
-            y = -half_height
-            z = radius * sin_theta
-
-            position = np.array([x, y, z])
-            normal = np.array([cos_angle*cos_theta, sin_angle, cos_angle*sin_theta])
-            uv = (cos_theta*0.5 + 0.5, 0.0)
-
-            vertex = np.hstack([position[[x_dir, y_dir, z_dir]], normal[[x_dir, y_dir, z_dir]], uv])
-            vertices.append(vertex)
-
-        # Create the cone tip vertex
-        position = np.array([0, half_height, 0])[[x_dir, y_dir, z_dir]]
-        normal = np.array([0, 1, 0])[[x_dir, y_dir, z_dir]]
-        vertices.append([*position, *normal, 0.5, 1])
-
-        # Create the cone side indices
-        for i in range(segments):
-            index1 = i
-            index2 = (i + 1) % segments
-            index3 = segments
-            indices.extend([index1, index2, index3])
-
-        # Create the cone base vertex
-        position = np.array([0, -half_height, 0])[[x_dir, y_dir, z_dir]]
-        normal = np.array([0, -1, 0])[[x_dir, y_dir, z_dir]]
-        vertices.append([*position, *normal, 0.5, 0.5])
-
-        # Create the cone base triangle fan
-        for i in range(segments):
-            theta = 2 * np.pi * i / segments
-
-            cos_theta = np.cos(theta)
-            sin_theta = np.sin(theta)
-
-            x = radius * cos_theta
-            y = -half_height
-            z = radius * sin_theta
-
-            position = np.array([x, y, z])
-            normal = np.array([0, -1, 0])
-            uv = (cos_theta*0.5+0.5, sin_theta*0.5+0.5)
-
-            vertex = np.hstack([position[[x_dir, y_dir, z_dir]], normal[[x_dir, y_dir, z_dir]], uv])
-            vertices.append(vertex)
-            
-            index1 = i + segments + 2
-            index2 = (i + 1) % segments + segments + 2
-            index3 = segments + 1
-
-            indices.extend([index1, index2, index3])
-
-        vertex_data = np.array(vertices, dtype=np.float32)
-        index_data = np.array(indices, dtype=np.uint32)
-
-        return vertex_data, index_data
+        # render it as a cylinder with zero top radius so we get correct normals on the sides
+        return TinyRenderer._create_cylinder_mesh(radius, half_height, up_axis, segments, 0.0)
     
     @staticmethod
-    def _create_cylinder_mesh(radius, half_height, up_axis=1, segments=default_num_segments):
+    def _create_cylinder_mesh(radius, half_height, up_axis=1, segments=default_num_segments, top_radius=None):
         if up_axis not in (0, 1, 2):
             raise ValueError("up_axis must be between 0 and 2")
         
@@ -1646,22 +1579,28 @@ class TinyRenderer:
         cap_vertices.append([*position, *normal, 0.5, 0.5])
         cap_vertices.append([*-position, *-normal, 0.5, 0.5])
 
+        if top_radius is None:
+            top_radius = radius
+        side_slope = -np.arctan2(top_radius-radius, 2*half_height)
+
         # Create the cylinder base and top vertices
         for j in (-1, 1):
             center_index = max(j, 0)
+            if j == 1:
+                radius = top_radius
             for i in range(segments):
                 theta = 2 * np.pi * i / segments
 
                 cos_theta = np.cos(theta)
                 sin_theta = np.sin(theta)
 
-                x = radius * cos_theta
+                x = cos_theta
                 y = j * half_height
-                z = radius * sin_theta
+                z = sin_theta
 
-                position = np.array([x, y, z])
+                position = np.array([radius * x, y, radius * z])
 
-                normal = np.array([x, 0, z])
+                normal = np.array([x, side_slope, z])
                 normal = normal / np.linalg.norm(normal)
                 uv = (i / (segments-1), (j + 1) / 2)
                 vertex = np.hstack([position[[x_dir, y_dir, z_dir]], normal[[x_dir, y_dir, z_dir]], uv])
