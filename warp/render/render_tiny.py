@@ -394,6 +394,9 @@ class TinyRenderer:
         self.draw_grid = draw_grid
         self.draw_sky = draw_sky
         self.draw_axis = draw_axis
+        
+        self.screen_width = screen_width
+        self.screen_height = screen_height
 
         self._device = wp.get_cuda_device()
 
@@ -435,6 +438,7 @@ class TinyRenderer:
         self._shape_gl_buffers = {}
         self._shape_instances = defaultdict(list)
         self._instances = {}
+        self._instance_shape = {}
         self._instance_gl_buffers = {}
         self._instance_transform_gl_buffer = None
         self._instance_transform_cuda_buffer = None
@@ -442,12 +446,14 @@ class TinyRenderer:
         self._instance_color2_buffer = None
         self._instance_count = 0
         self._wp_instance_ids = None
+        self._instance_ids = None
+        self._inverse_instance_ids = None
         self._wp_instance_transforms = None
         self._wp_instance_scalings = None
         self._wp_instance_bodies = None
         self._update_shape_instances = False
         self._add_shape_instances = False
-        
+        self._tile_instances = None
 
         glfw.make_context_current(self.window)
 
@@ -649,6 +655,7 @@ class TinyRenderer:
         self._shape_gl_buffers.clear()
         self._shape_instances.clear()
         self._instances.clear()
+        self._instance_shape.clear()
         self._instance_gl_buffers.clear()
         self._instance_transform_gl_buffer = None
         self._instance_transform_cuda_buffer = None
@@ -659,6 +666,9 @@ class TinyRenderer:
         self._wp_instance_scalings = None
         self._wp_instance_bodies = None
         self._update_shape_instances = False
+
+    def setup_tiled_rendering(self, instances: list):
+        self._tile_instances = instances
 
     def update_projection_matrix(self):
         resolution = glfw.get_framebuffer_size(self.window)
@@ -715,6 +725,8 @@ class TinyRenderer:
         imgui.push_style_var(imgui.STYLE_WINDOW_BORDERSIZE, 0.0)
         imgui.begin("Custom window", True,
                     imgui.WINDOW_NO_MOVE | imgui.WINDOW_NO_RESIZE | imgui.WINDOW_NO_TITLE_BAR)
+        imgui.text(f"Sim Time: {self.time:.1f}")
+        imgui.spacing()
         imgui.text(f"Update FPS: {1.0 / (self._last_end_frame_time - self._last_begin_frame_time):.1f}")
         imgui.text(f"Render FPS: {1.0 / duration:.1f}")
         imgui.spacing()
@@ -735,28 +747,12 @@ class TinyRenderer:
         imgui.pop_style_var()
         imgui.render()
 
-        if self.draw_grid:
-            
-            glUseProgram(self._grid_shader)
-            
-            glUniformMatrix4fv(self._loc_grid_view, 1, GL_FALSE, glm.value_ptr(self._view_matrix))
-            glUniformMatrix4fv(self._loc_grid_projection, 1, GL_FALSE, glm.value_ptr(self._projection_matrix))
-            # glUniformMatrix4fv(self._loc_grid_model, 1, GL_FALSE, glm.value_ptr(self._model_matrix))
+        if self._tile_instances is None:
+            if self.draw_grid:
+                self._draw_grid()
 
-            glBindVertexArray(self._grid_vao)
-            glDrawArrays(GL_LINES, 0, self._grid_vertex_count)
-            glBindVertexArray(0)
-
-        if self.draw_sky:
-            glUseProgram(self._sky_shader)
-            glUniformMatrix4fv(self._loc_sky_view, 1, GL_FALSE, glm.value_ptr(self._view_matrix))
-            glUniformMatrix4fv(self._loc_sky_projection, 1, GL_FALSE, glm.value_ptr(self._projection_matrix))
-            # glUniformMatrix4fv(self._loc_sky_model, 1, GL_FALSE, glm.value_ptr(self._model_matrix))
-            glUniform3f(self._loc_sky_view_pos, *cam_pos)
-            
-            glBindVertexArray(self._sky_vao)
-            glDrawElements(GL_TRIANGLES, self._sky_tri_count, GL_UNSIGNED_INT, None)
-            glBindVertexArray(0)
+            if self.draw_sky:
+                self._draw_sky()
         
         glUseProgram(self._shape_shader)
         glUniformMatrix4fv(self._loc_shape_view, 1, GL_FALSE, glm.value_ptr(self._view_matrix))
@@ -765,7 +761,10 @@ class TinyRenderer:
         glUniformMatrix4fv(self._loc_shape_projection, 1, GL_FALSE, glm.value_ptr(self._projection_matrix))
         glUniformMatrix4fv(self._loc_shape_model, 1, GL_FALSE, glm.value_ptr(self._model_matrix))
 
-        self._render_scene()
+        if self._tile_instances is None:
+            self._render_scene()
+        else:
+            self._render_scene_tiled()
         
         # Check for OpenGL errors
         check_gl_error()
@@ -773,6 +772,29 @@ class TinyRenderer:
         self.imgui_renderer.render(imgui.get_draw_data())
 
         glfw.swap_buffers(self.window)
+
+    def _draw_grid(self):
+        glUseProgram(self._grid_shader)
+            
+        glUniformMatrix4fv(self._loc_grid_view, 1, GL_FALSE, glm.value_ptr(self._view_matrix))
+        glUniformMatrix4fv(self._loc_grid_projection, 1, GL_FALSE, glm.value_ptr(self._projection_matrix))
+        # glUniformMatrix4fv(self._loc_grid_model, 1, GL_FALSE, glm.value_ptr(self._model_matrix))
+
+        glBindVertexArray(self._grid_vao)
+        glDrawArrays(GL_LINES, 0, self._grid_vertex_count)
+        glBindVertexArray(0)
+
+    def _draw_sky(self):
+        glUseProgram(self._sky_shader)
+
+        glUniformMatrix4fv(self._loc_sky_view, 1, GL_FALSE, glm.value_ptr(self._view_matrix))
+        glUniformMatrix4fv(self._loc_sky_projection, 1, GL_FALSE, glm.value_ptr(self._projection_matrix))
+        # glUniformMatrix4fv(self._loc_sky_model, 1, GL_FALSE, glm.value_ptr(self._model_matrix))
+        glUniform3f(self._loc_sky_view_pos, *self._camera_pos)
+        
+        glBindVertexArray(self._sky_vao)
+        glDrawElements(GL_TRIANGLES, self._sky_tri_count, GL_UNSIGNED_INT, None)
+        glBindVertexArray(0)
 
     def _render_scene(self):
         start_instance_idx = 0
@@ -808,6 +830,51 @@ class TinyRenderer:
 
             start_instance_idx += num_instances
 
+        glBindVertexArray(0)
+
+    def _render_scene_tiled(self):
+        n = len(self._tile_instances)
+        ncols = int(np.ceil(np.sqrt(n)))
+        nrows = int(np.ceil(n / float(ncols)))
+        tile_width = self.screen_width // ncols
+        tile_height = self.screen_height // nrows
+        aspect_ratio = tile_width / tile_height
+        # self._projection_matrix = glm.perspective(glm.radians(self.camera_fov), aspect_ratio, self.near_plane, self.far_plane)
+
+        i = 0
+        for vy in range(nrows):
+            for vx in range(ncols):
+                if i >= n:
+                    break
+
+                glViewport(vx*tile_width, vy*tile_height, tile_width, tile_height)
+                if self.draw_grid:
+                    self._draw_grid()
+
+                if self.draw_sky:
+                    self._draw_sky()
+                
+                glUseProgram(self._shape_shader)
+                
+                instances = self._tile_instances[i]
+
+                for instance in instances:
+                    shape = self._instance_shape[instance]
+
+                    shape_geo_hash = self._shapes[shape][4]
+                    if shape_geo_hash == 123:
+                        # skip axis
+                        continue
+
+                    vao, vbo, ebo, tri_count = self._shape_gl_buffers[shape]
+
+                    start_instance_idx = self._inverse_instance_ids[instance]
+
+                    glBindVertexArray(vao)
+                    glDrawElementsInstancedBaseInstance(GL_TRIANGLES, tri_count, GL_UNSIGNED_INT, None, 1, start_instance_idx)
+
+                i += 1
+        
         glBindVertexArray(0)
     
     def _mouse_button_callback(self, window, button, action, mods):
@@ -885,6 +952,8 @@ class TinyRenderer:
         self._first_mouse = True
         glViewport(0, 0, width, height)
         self.update_projection_matrix()
+        self.screen_width = width
+        self.screen_height = height
     
     def register_shape(self, geo_hash, vertices, indices, color1=None, color2=None):
         shape = len(self._shapes)
@@ -937,6 +1006,7 @@ class TinyRenderer:
         self._shape_instances[shape].append(instance)
         body = self._resolve_body_id(body)
         self._instances[name] = (instance, body, shape, [*pos, *rot], scale, color1, color2)
+        self._instance_shape[instance] = shape
         self._add_shape_instances = True
         self._instance_count = len(self._instances)
         return instance
@@ -996,6 +1066,8 @@ class TinyRenderer:
         matrix_size = transforms[0].nbytes
 
         instance_ids = []
+        inverse_instance_ids = {}
+        instance_count = 0
         for shape, (vao, vbo, ebo, tri_count) in self._shape_gl_buffers.items():
             glBindVertexArray(vao)
 
@@ -1020,11 +1092,16 @@ class TinyRenderer:
             glVertexAttribDivisor(8, 1)
 
             instance_ids.extend(self._shape_instances[shape])
+            for i in self._shape_instances[shape]:
+                inverse_instance_ids[i] = instance_count
+                instance_count += 1
         
         # trigger update to the instance transforms
         self._update_shape_instances = True
 
         self._wp_instance_ids = wp.array(instance_ids, dtype=wp.int32, device=self._device)
+        self._instance_ids = instance_ids
+        self._inverse_instance_ids = inverse_instance_ids
 
         glBindVertexArray(0)
    

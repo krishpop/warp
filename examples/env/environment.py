@@ -89,6 +89,8 @@ class Environment:
     tiny_render_settings = dict()
     usd_render_settings = dict(scaling=10.0)
     show_rigid_contact_points = False
+    # whether TinyRenderer should render each environment in a separate tile
+    use_tiled_rendering = False
 
     # whether to apply model.joint_q, joint_qd to bodies before simulating
     eval_fk: bool = True
@@ -161,6 +163,10 @@ class Environment:
         self.sim_dt = self.frame_dt / self.sim_substeps
         self.sim_steps = int(self.episode_duration / self.sim_dt)
 
+        if self.use_tiled_rendering and self.render_mode == RenderMode.TINY:
+            # no environment offset when using tiled rendering
+            self.env_offset = (0.0, 0.0, 0.0)
+
         builder = wp.sim.ModelBuilder()
         try:
             articulation_builder = wp.sim.ModelBuilder()
@@ -204,6 +210,14 @@ class Environment:
                 upaxis=self.up_axis,
                 show_rigid_contact_points=self.show_rigid_contact_points,
                 **self.tiny_render_settings)
+            if self.use_tiled_rendering and self.num_envs > 1:
+                floor_id = self.model.shape_count-1
+                # all shapes except the floor
+                instance_ids = np.arange((self.model.shape_count-1), dtype=np.int32).tolist()
+                shapes_per_env = (self.model.shape_count-1) // self.num_envs
+                self.renderer.setup_tiled_rendering(instances=[
+                    instance_ids[i*shapes_per_env:(i+1)*shapes_per_env]+[floor_id]
+                    for i in range(self.num_envs)])
         elif self.render_mode == RenderMode.USD:
             filename = os.path.join(os.path.dirname(__file__), "..", "outputs", self.sim_name + ".usd")
             self.renderer = wp.sim.render.SimRendererUsd(

@@ -25,7 +25,7 @@ from environment import Environment, run_env, RenderMode
 class AllegroEnvironment(Environment):
     sim_name = "example_sim_allegro"
     env_offset=(0.5, 0.0, 0.5)
-    tiny_render_settings = dict(scaling=40.0)
+    tiny_render_settings = dict(scaling=4.0)
     usd_render_settings = dict(scaling=200.0)
     episode_duration = 8.0
 
@@ -41,6 +41,8 @@ class AllegroEnvironment(Environment):
         rigid_contact_relaxation=1.0,
         rigid_contact_con_weighting=True,
     )
+
+    use_tiled_rendering = True
 
     # render_mode = RenderMode.USD
     
