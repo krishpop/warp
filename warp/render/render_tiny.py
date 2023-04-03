@@ -162,7 +162,6 @@ uniform mat4 model;
 uniform mat4 projection;
 uniform vec3 viewPos;
 
-out vec3 Normal;
 out vec3 FragPos;
 out vec2 TexCoord;
 
@@ -171,7 +170,6 @@ void main()
     vec4 worldPos = vec4(aPos + viewPos, 1.0);
     gl_Position = projection * view * worldPos;
     FragPos = vec3(worldPos);
-    Normal = mat3(transpose(inverse(model))) * aNormal;
     TexCoord = aTexCoord;
 }
 '''
@@ -181,7 +179,6 @@ sky_fragment_shader = '''
 
 out vec4 FragColor;
 
-in vec3 Normal;
 in vec3 FragPos;
 in vec2 TexCoord;
 
@@ -324,6 +321,40 @@ def compute_gfx_vertices(
     gfx_vertices[k,3] = n[0]; gfx_vertices[k,4] = n[1]; gfx_vertices[k,5] = n[2]
 
 
+@wp.kernel
+def compute_average_normals(
+    indices: wp.array(dtype=int, ndim=2),
+    vertices: wp.array(dtype=wp.vec3),
+    # outputs
+    normals: wp.array(dtype=wp.vec3),
+    faces_per_vertex: wp.array(dtype=int)):
+
+    tid = wp.tid()
+    i = indices[tid, 0]; j = indices[tid, 1]; k = indices[tid, 2]
+    v0 = vertices[i]
+    v1 = vertices[j]
+    v2 = vertices[k]
+    n = wp.normalize(wp.cross(v1-v0, v2-v0))
+    wp.atomic_add(normals, i, n); wp.atomic_add(faces_per_vertex, i, 1)
+    wp.atomic_add(normals, j, n); wp.atomic_add(faces_per_vertex, j, 1)
+    wp.atomic_add(normals, k, n); wp.atomic_add(faces_per_vertex, k, 1)
+
+
+@wp.kernel
+def assemble_gfx_vertices(
+    vertices: wp.array(dtype=wp.vec3, ndim=1),
+    normals: wp.array(dtype=wp.vec3),
+    faces_per_vertex: wp.array(dtype=int),
+    # outputs
+    gfx_vertices: wp.array(dtype=float, ndim=2)):
+
+    tid = wp.tid()    
+    v = vertices[tid]
+    n = normals[tid] / float(faces_per_vertex[tid])
+    gfx_vertices[tid,0] = v[0]; gfx_vertices[tid,1] = v[1]; gfx_vertices[tid,2] = v[2]
+    gfx_vertices[tid,3] = n[0]; gfx_vertices[tid,4] = n[1]; gfx_vertices[tid,5] = n[2]
+
+
 def check_gl_error():
     error = gl.glGetError()
     if error != gl.GL_NO_ERROR:
@@ -352,6 +383,7 @@ class TinyRenderer:
         draw_grid=True,
         draw_sky=True,
         draw_axis=True,
+        axis_scale=1.0,
     ):
         
         self.scaling = scaling
@@ -464,20 +496,23 @@ class TinyRenderer:
         # glUniformMatrix4fv(self._loc_shape_view, 1, GL_FALSE, glm.value_ptr(self._view_matrix))
         
         if self._camera_axis == 0:
-            self._model_matrix = glm.mat4(self.scaling, 0, 0, 0,
-                             0, 0, self.scaling, 0,
-                             0, -self.scaling, 0, 0,
-                             0, 0, 0, 1)
+            self._model_matrix = glm.mat4(
+                0, 0, self.scaling, 0,
+                self.scaling, 0, 0, 0,
+                0, self.scaling, 0, 0,
+                0, 0, 0, 1)
         elif self._camera_axis == 2:
-            self._model_matrix = glm.mat4(0, 0, -self.scaling, 0,
-                             0, self.scaling, 0, 0,
-                             self.scaling, 0, 0, 0,
-                             0, 0, 0, 1)
+            self._model_matrix = glm.mat4(
+                self.scaling, 0, 0, 0,
+                0, 0, self.scaling, 0,
+                0, self.scaling, 0, 0,
+                0, 0, 0, 1)
         else:
-            self._model_matrix = glm.mat4(self.scaling, 0, 0, 0,
-                             0, self.scaling, 0, 0,
-                             0, 0, self.scaling, 0,
-                             0, 0, 0, 1)
+            self._model_matrix = glm.mat4(
+                self.scaling, 0, 0, 0,
+                0, self.scaling, 0, 0,
+                0, 0, self.scaling, 0,
+                0, 0, 0, 1)
 
         glUniformMatrix4fv(self._loc_shape_model, 1, GL_FALSE, glm.value_ptr(self._model_matrix))
 
@@ -489,8 +524,15 @@ class TinyRenderer:
         ticks = np.linspace(-limit, limit, 21)
         grid_vertices = []
         for i in ticks:
-            grid_vertices.extend([-limit, 0, i, limit, 0, i])
-            grid_vertices.extend([i, 0, -limit, i, 0, limit])
+            if self._camera_axis == 0:
+                grid_vertices.extend([0, -limit, i, 0, limit, i])
+                grid_vertices.extend([0, i, -limit, 0, i, limit])
+            elif self._camera_axis == 1:
+                grid_vertices.extend([-limit, 0, i, limit, 0, i])
+                grid_vertices.extend([i, 0, -limit, i, 0, limit])
+            elif self._camera_axis == 2:
+                grid_vertices.extend([-limit, i, 0, limit, i, 0])
+                grid_vertices.extend([i, -limit, 0, i, limit, 0])
         grid_vertices = np.array(grid_vertices, dtype=np.float32)
         self._grid_vertex_count = len(grid_vertices) // 3
 
@@ -583,7 +625,8 @@ class TinyRenderer:
 
         glUseProgram(self._shape_shader)
         
-        vertices, indices = self._create_arrow_mesh(0.02, base_height=0.85, cap_height=0.15)
+        # create arrow shapes for the coordinate system axes
+        vertices, indices = self._create_arrow_mesh(base_radius=0.02*axis_scale, base_height=0.85*axis_scale, cap_height=0.15*axis_scale)
         shape = self.register_shape(123, vertices, indices)
         self.add_shape_instance("arrow_y", shape, -1, (0., 0., 0.), (0., 0., 0., 1.), color1=(0., 1., 0.), color2=(0., 1., 0.))
         sqh = np.sqrt(0.5)
@@ -1257,7 +1300,7 @@ class TinyRenderer:
             self.add_shape_instance(name, shape, body, pos, rot)
         return shape
     
-    def render_mesh(self, name: str, points, indices, colors=None, pos=(0.0, 0.0, 0.0), rot=(0.0, 0.0, 0.0, 1.0), scale=(1.0, 1.0, 1.0), update_topology=False, parent_body: str=None, is_template: bool=False):
+    def render_mesh(self, name: str, points, indices, colors=None, pos=(0.0, 0.0, 0.0), rot=(0.0, 0.0, 0.0, 1.0), scale=(1.0, 1.0, 1.0), update_topology=False, parent_body: str=None, is_template: bool=False, smooth_shading: bool=True):
         """Add a mesh for visualization
         
         Args:
@@ -1268,6 +1311,7 @@ class TinyRenderer:
             rot: The rotation of the mesh
             scale: The scale of the mesh
             name: A name for the USD prim on the stage
+            smooth_shading: Whether to average face normals at each vertex or introduce additional vertices for each face
         """
         if colors is None:
             colors = np.ones((len(points), 3), dtype=np.float32)
@@ -1281,17 +1325,45 @@ class TinyRenderer:
             if self.update_shape_instance(name, pos, rot):
                 return shape
         else:
-            gfx_vertices = wp.zeros((len(indices)*3, 8), dtype=float)
-            wp.launch(
-                compute_gfx_vertices,
-                dim=len(indices),
-                inputs=[
-                    wp.array(indices, dtype=int),
-                    wp.array(points, dtype=wp.vec3)
-                ],
-                outputs=[gfx_vertices])
-            gfx_vertices = gfx_vertices.numpy()
-            gfx_indices = np.arange(len(indices)*3)
+            if smooth_shading:
+                normals = wp.zeros(len(points), dtype=wp.vec3)
+                vertices = wp.array(points, dtype=wp.vec3)
+                faces_per_vertex = wp.zeros(len(points), dtype=int)
+                wp.launch(
+                    compute_average_normals,
+                    dim=len(indices),
+                    inputs=[
+                        wp.array(indices, dtype=int),
+                        vertices
+                    ],
+                    outputs=[
+                        normals,
+                        faces_per_vertex
+                    ])
+                gfx_vertices = wp.zeros((len(points), 8), dtype=float)
+                wp.launch(
+                    assemble_gfx_vertices,
+                    dim=len(points),
+                    inputs=[
+                        vertices,
+                        normals,
+                        faces_per_vertex
+                    ],
+                    outputs=[gfx_vertices])
+                gfx_vertices = gfx_vertices.numpy()
+                gfx_indices = indices.flatten()
+            else:
+                gfx_vertices = wp.zeros((len(indices)*3, 8), dtype=float)
+                wp.launch(
+                    compute_gfx_vertices,
+                    dim=len(indices),
+                    inputs=[
+                        wp.array(indices, dtype=int),
+                        wp.array(points, dtype=wp.vec3)
+                    ],
+                    outputs=[gfx_vertices])
+                gfx_vertices = gfx_vertices.numpy()
+                gfx_indices = np.arange(len(indices)*3)
             shape = self.register_shape(geo_hash, gfx_vertices, gfx_indices)
         if not is_template:
             body = self._resolve_body_id(parent_body)
@@ -1546,7 +1618,8 @@ class TinyRenderer:
         cap_vertices, cap_indices = TinyRenderer._create_cone_mesh(cap_radius, cap_height/2, up_axis, segments)
 
         base_vertices[:,:3] += base_height/2 * up_vector
-        cap_vertices[:,:3] += (base_height + cap_height/2) * up_vector
+        # move cap slightly lower to avoid z-fighting
+        cap_vertices[:,:3] += (base_height + cap_height/2 - 1e-3*base_height) * up_vector
 
         vertex_data = np.vstack((base_vertices, cap_vertices))
         index_data = np.hstack((base_indices, cap_indices + len(base_vertices)))
