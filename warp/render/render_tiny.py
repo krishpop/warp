@@ -810,7 +810,7 @@ class TinyRenderer:
         self._tile_height = max(32, self.screen_height // self._tile_nrows)
 
     def update_projection_matrix(self):
-        if self._tile_ncols is None:
+        if self._tile_ncols is None or self._tile_ncols == 0:
             if self.screen_height == 0:
                 return
             aspect_ratio = self.screen_width / self.screen_height
