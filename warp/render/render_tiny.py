@@ -205,6 +205,33 @@ void main()
 }
 '''
 
+frame_vertex_shader = '''
+#version 330 core
+layout (location = 0) in vec3 aPos;
+layout (location = 1) in vec2 aTexCoord;
+
+out vec2 TexCoord;
+
+void main() {
+    gl_Position = vec4(aPos, 1.0);
+    TexCoord = aTexCoord;
+}
+'''
+
+frame_fragment_shader = '''
+#version 330 core
+in vec2 TexCoord;
+
+out vec4 FragColor;
+
+uniform sampler2D textureSampler;
+
+void main() {
+    FragColor = texture(textureSampler, TexCoord);
+}
+'''
+
+
 @wp.kernel
 def move_instances(
     positions: wp.array(dtype=wp.vec3),
@@ -434,6 +461,9 @@ class TinyRenderer:
         self._frame_speed = 0.0
         self.skip_rendering = False
         self._skip_frame_counter = 0
+        self._fps_update = None
+        self._fps_render = None
+        self._fps_alpha = 0.005  # low pass filter update
 
         self._body_name = {}
         self._shapes = []
@@ -460,6 +490,11 @@ class TinyRenderer:
         self._tile_instances = None
         self._tile_ncols = 0
         self._tile_nrows = 0
+        self._tile_width = 0
+        self._tile_height = 0
+
+        self._frame_texture = None
+        self._frame_fbo = None
 
         glfw.make_context_current(self.window)
         if not use_vsync:
@@ -648,6 +683,92 @@ class TinyRenderer:
         ayz = self.add_shape_instance("arrow_z", shape, -1, (0., 0., 0.), (sqh, 0.0, 0.0, sqh), color1=(0., 0., 1.), color2=(0., 0., 1.))
         self._axis_instances = [ayi, ayx, ayz]
 
+
+        # create frame buffer for rendering to a texture
+        self._frame_texture = None
+        self._frame_fbo = None
+        self._setup_framebuffer()
+
+        # set up VBO for the quad that is rendered to the user window with the texture
+        self._frame_vertices = np.array([
+            # Positions  TexCoords
+            -1.0, -1.0,  0.0, 0.0,
+            1.0, -1.0,  1.0, 0.0,
+            1.0,  1.0,  1.0, 1.0,
+            -1.0,  1.0,  0.0, 1.0
+        ], dtype=np.float32)
+
+        self._frame_indices = np.array([
+            0, 1, 2,
+            2, 3, 0
+        ], dtype=np.uint32)
+
+        self._frame_vao = glGenVertexArrays(1)
+        glBindVertexArray(self._frame_vao)
+
+        self._frame_vbo = glGenBuffers(1)
+        glBindBuffer(GL_ARRAY_BUFFER, self._frame_vbo)
+        glBufferData(GL_ARRAY_BUFFER, self._frame_vertices.nbytes, self._frame_vertices, GL_STATIC_DRAW)
+
+        self._frame_ebo = glGenBuffers(1)
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self._frame_ebo)
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, self._frame_indices.nbytes, self._frame_indices, GL_STATIC_DRAW)
+
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * self._frame_vertices.itemsize, ctypes.c_void_p(0))
+        glEnableVertexAttribArray(0)
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * self._frame_vertices.itemsize, ctypes.c_void_p(2 * vertices.itemsize))
+        glEnableVertexAttribArray(1)
+        
+        self._frame_shader = compileProgram(
+            compileShader(frame_vertex_shader, GL_VERTEX_SHADER),
+            compileShader(frame_fragment_shader, GL_FRAGMENT_SHADER)
+        )
+        glUseProgram(self._frame_shader)
+        self._frame_loc_texture = glGetUniformLocation(self._frame_shader, "textureSampler")
+
+        # Unbind the VBO and VAO
+        glBindBuffer(GL_ARRAY_BUFFER, 0)
+        glBindVertexArray(0)
+
+    def _setup_framebuffer(self):
+        if self._frame_texture is None:
+            self._frame_texture = glGenTextures(1)
+        glBindTexture(GL_TEXTURE_2D, self._frame_texture)
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, self.screen_width, self.screen_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, None)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+        glBindTexture(GL_TEXTURE_2D, 0)
+
+        # Create a framebuffer object (FBO)
+        if self._frame_fbo is None:
+            self._frame_fbo = glGenFramebuffers(1)
+            glBindFramebuffer(GL_FRAMEBUFFER, self._frame_fbo)
+
+            # Attach the texture to the FBO as its color attachment
+            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, self._frame_texture, 0)
+            
+            self._frame_depth_renderbuffer = glGenRenderbuffers(1)
+            glBindRenderbuffer(GL_RENDERBUFFER, self._frame_depth_renderbuffer)
+            glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, self.screen_width, self.screen_height)
+
+            # Attach the depth renderbuffer to the FBO
+            glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, self._frame_depth_renderbuffer)
+
+            # Check if the framebuffer is complete
+            if glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE:
+                print("Framebuffer is not complete!")
+                glBindFramebuffer(GL_FRAMEBUFFER, 0)
+                sys.exit(1)
+
+            glBindRenderbuffer(GL_RENDERBUFFER, 0)
+        else:
+            glBindRenderbuffer(GL_RENDERBUFFER, self._frame_depth_renderbuffer)
+            glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, self.screen_width, self.screen_height)
+            glBindRenderbuffer(GL_RENDERBUFFER, 0)
+
+        # Unbind the FBO (switch back to the default framebuffer)
+        glBindFramebuffer(GL_FRAMEBUFFER, 0)
+
     def clear(self):
         for vao, vbo, ebo, _ in self._shape_gl_buffers.values():
             glDeleteVertexArrays(1, [vao])
@@ -685,17 +806,18 @@ class TinyRenderer:
         self._tile_nrows = int(np.ceil(n / float(self._tile_ncols)))
         if rescale_window:
             glfw.set_window_size(self.window, tile_width * self._tile_ncols, tile_height * self._tile_nrows)
+        self._tile_width = max(32, self.screen_width // self._tile_ncols)
+        self._tile_height = max(32, self.screen_height // self._tile_nrows)
 
     def update_projection_matrix(self):
         if self._tile_ncols is None:
-            resolution = glfw.get_framebuffer_size(self.window)
-            if resolution[1] == 0:
+            if self.screen_height == 0:
                 return
-            aspect_ratio = resolution[0] / resolution[1]
+            aspect_ratio = self.screen_width / self.screen_height
         else:
-            tile_width = max(32, self.screen_width // self._tile_ncols)
-            tile_height = max(32, self.screen_height // self._tile_nrows)
-            aspect_ratio = tile_width / tile_height
+            self._tile_width = max(32, self.screen_width // self._tile_ncols)
+            self._tile_height = max(32, self.screen_height // self._tile_nrows)
+            aspect_ratio = self._tile_width / self._tile_height
         
         self._projection_matrix = glm.perspective(glm.radians(self.camera_fov), aspect_ratio, self.near_plane, self.far_plane)
     
@@ -732,6 +854,9 @@ class TinyRenderer:
         glfw.poll_events()
         self.imgui_renderer.process_inputs()
         self._process_input(self.window)
+
+        if self._frame_fbo is not None:
+            glBindFramebuffer(GL_FRAMEBUFFER, self._frame_fbo)
         
         glClearColor(*self.background_color, 1)
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
@@ -741,17 +866,28 @@ class TinyRenderer:
         cam_pos = self._camera_pos
         self._view_matrix = glm.lookAt(cam_pos, cam_pos + self._camera_front, self._camera_up)
 
+        if self._fps_update is None:
+            self._fps_update = 1.0 / (self._last_end_frame_time - self._last_begin_frame_time)
+        else:
+            update = 1.0 / (self._last_end_frame_time - self._last_begin_frame_time)
+            self._fps_update = (1.0 - self._fps_alpha) * self._fps_update + self._fps_alpha * update
+        if self._fps_render is None:
+            self._fps_render = 1.0 / duration
+        else:
+            update = 1.0 / duration
+            self._fps_render = (1.0 - self._fps_alpha) * self._fps_render + self._fps_alpha * update
+
         imgui.new_frame()
-        imgui.set_next_window_bg_alpha(0.0)
+        imgui.set_next_window_bg_alpha(0.8)
         imgui.set_next_window_position(0, 0)
-        imgui.set_next_window_size(*glfw.get_framebuffer_size(self.window))
+        # imgui.set_next_window_size(180, 110)
         imgui.push_style_var(imgui.STYLE_WINDOW_BORDERSIZE, 0.0)
-        imgui.begin("Custom window", True,
-                    imgui.WINDOW_NO_MOVE | imgui.WINDOW_NO_RESIZE | imgui.WINDOW_NO_TITLE_BAR)
+        imgui.begin("Stats", True,
+                    imgui.WINDOW_NO_RESIZE | imgui.WINDOW_NO_TITLE_BAR | imgui.WINDOW_ALWAYS_AUTO_RESIZE | imgui.WINDOW_NO_SCROLLBAR)
         imgui.text(f"Sim Time: {self.time:.1f}")
         imgui.spacing()
-        imgui.text(f"Update FPS: {1.0 / (self._last_end_frame_time - self._last_begin_frame_time):.1f}")
-        imgui.text(f"Render FPS: {1.0 / duration:.1f}")
+        imgui.text(f"Update FPS: {self._fps_update:.1f}")
+        imgui.text(f"Render FPS: {self._fps_render:.1f}")
         imgui.spacing()
         imgui.text(f"Shapes: {len(self._shapes)}")
         imgui.text(f"Instances: {len(self._instances)}")
@@ -788,6 +924,22 @@ class TinyRenderer:
             self._render_scene()
         else:
             self._render_scene_tiled()
+        
+        if self._frame_fbo is not None:
+            glBindFramebuffer(GL_FRAMEBUFFER, 0)
+            glUseProgram(self._frame_shader)
+            glViewport(0, 0, self.screen_width, self.screen_height)
+
+            # glClearColor(0.0, 0.0, 0.0, 1.0)
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+            glActiveTexture(GL_TEXTURE0)
+            glBindTexture(GL_TEXTURE_2D, self._frame_texture)
+            glUniform1i(self._frame_loc_texture, 0)
+            glBindVertexArray(self._frame_vao)
+            glDrawElements(GL_TRIANGLES, len(self._frame_indices), GL_UNSIGNED_INT, None)
+            glBindVertexArray(0)
+            glBindTexture(GL_TEXTURE_2D, 0)
+
         
         # Check for OpenGL errors
         check_gl_error()
@@ -857,9 +1009,8 @@ class TinyRenderer:
 
     def _render_scene_tiled(self):
         n = len(self._tile_instances)
-        tile_width = max(32, self.screen_width // self._tile_ncols)
-        tile_height = max(32, self.screen_height // self._tile_nrows)
-        aspect_ratio = tile_width / tile_height
+        tile_width = self._tile_width
+        tile_height = self._tile_height
 
         i = 0
         for vy in range(self._tile_nrows):
@@ -971,9 +1122,10 @@ class TinyRenderer:
     def _window_resize_callback(self, window, width, height):
         self._first_mouse = True
         glViewport(0, 0, width, height)
-        self.update_projection_matrix()
         self.screen_width = width
         self.screen_height = height
+        self.update_projection_matrix()
+        self._setup_framebuffer()
     
     def register_shape(self, geo_hash, vertices, indices, color1=None, color2=None):
         shape = len(self._shapes)
