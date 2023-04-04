@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 
 wp.init()
 
-renderer = wp.render.TinyRenderer()
+renderer = wp.render.TinyRenderer(headless=False)
 renderer.setup_tiled_rendering([np.arange(13)]*10)
 
 renderer.render_ground()
