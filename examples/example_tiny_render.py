@@ -11,8 +11,8 @@ renderer.setup_tiled_rendering([np.arange(13)]*10)
 renderer.render_ground()
 
 pixels = wp.zeros((renderer.screen_height, renderer.screen_width, 3), dtype=wp.float32)
-plt.figure(1)
-img_plot = plt.imshow(pixels.numpy())
+fig = plt.figure(1)
+img_plot = plt.imshow(pixels.numpy(), )
 plt.ion()
 plt.show()
 
@@ -32,4 +32,6 @@ while renderer.is_running():
 
         renderer.get_pixels(pixels)
         img_plot.set_data(pixels.numpy())
+        fig.canvas.draw()
+        fig.canvas.flush_events()
 renderer.clear()
