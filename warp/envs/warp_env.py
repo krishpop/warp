@@ -11,6 +11,7 @@ import imageio
 from .autograd_utils import get_compute_graph
 from .environment import Environment, RenderMode, IntegratorType
 
+
 def set_seed(seed):
     torch.manual_seed(seed)
     if torch.cuda.is_available():
@@ -18,19 +19,20 @@ def set_seed(seed):
     np.random.seed(seed)
     random.seed(seed)
 
+
 def to_numpy(input):
     if isinstance(input, np.ndarray):
         return input
     return input.detach().cpu().numpy()
 
 
-
 class WarpEnv(Environment):
     dt = 1.0 / 60.0
-    sim_substeps = 4
     sim_dt = dt
     env_offset = (6.0, 0.0, 6.0)
-    tiny_render_settings = dict(scaling=3.0, headless=True, screen_width=480, screen_height=480)
+    tiny_render_settings = dict(
+        scaling=3.0, headless=True, screen_width=480, screen_height=480
+    )
     usd_render_settings = dict(scaling=100.0)
     use_graph_capture = True
     forward_sim_graph = None
@@ -60,7 +62,7 @@ class WarpEnv(Environment):
         device="cuda",
         env_name="warp_env",
         render_mode=RenderMode.USD,
-        stage_path=None
+        stage_path=None,
     ):
         self.seed = seed
         self.requires_grad = not no_grad
@@ -73,12 +75,11 @@ class WarpEnv(Environment):
         self.sim_time = 0.0
         self.num_frames = 0
 
-
         self.num_environments = num_envs
         self.env_name = env_name
 
         if stage_path is None:
-            self.stage_path = f'{self.env_name}_{self.num_envs}'
+            self.stage_path = f"{self.env_name}_{self.num_envs}"
         else:
             self.stage_path = stage_path
 
@@ -86,7 +87,7 @@ class WarpEnv(Environment):
         self.writer = None
 
         if self.render_mode == RenderMode.USD:
-            self.usd_render_settings['path'] = f"outputs/{self.stage_path}.usd"
+            self.usd_render_settings["path"] = f"outputs/{self.stage_path}.usd"
 
         # initialize observation and action space
         self.num_observations = num_obs
@@ -188,7 +189,9 @@ class WarpEnv(Environment):
         if stage_path is not None:
             self.stage_path = stage_path
 
-        print("Initializing renderer writing to path: outputs/{}".format(self.stage_path))
+        print(
+            "Initializing renderer writing to path: outputs/{}".format(self.stage_path)
+        )
         if self.render_mode == RenderMode.USD:
             self.renderer = wp.sim.render.SimRenderer(
                 self.model, **self.usd_render_settings
@@ -202,7 +205,8 @@ class WarpEnv(Environment):
                 self.env_name,  # window name
                 upaxis=self.upaxis,
                 # env_offset=self.env_offset,
-                **self.tiny_render_settings)
+                **self.tiny_render_settings,
+            )
 
         self.render_time = 0.0
         self.render_freq = 10
@@ -303,6 +307,9 @@ class WarpEnv(Environment):
         if checkpoint is None:
             checkpoint = self.get_checkpoint()
         with torch.no_grad():
+            self.actions = self.actions.clone()
+            if self.actions.grad is not None:
+                self.actions.grad.zero()
             self.load_checkpoint(checkpoint)
             current_joint_act = wp.to_torch(self.model.joint_act).detach().clone()
             # grads will not be assigned since variables are detached
@@ -315,6 +322,11 @@ class WarpEnv(Environment):
                 self.state_0.body_q.grad.zero_()
                 self.state_0.body_qd.grad.zero_()
                 self.state_0.body_f.grad.zero_()
+            if self.state_1.body_q.grad is not None:
+                self.state_1.body_q.grad.zero_()
+                self.state_1.body_qd.grad.zero_()
+                self.state_1.body_f.grad.zero_()
+
         if self.requires_grad:
             assert self.model.joint_q.requires_grad, "joint_q requires_grad not set"
             assert self.model.joint_qd.requires_grad, "joint_qd requires_grad not set"

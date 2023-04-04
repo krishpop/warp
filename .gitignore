@@ -29,3 +29,5 @@ examples/assets
 tags
 .ipynb_checkpoints
 warp/tests/outputs
+
+**outputs/

@@ -2,7 +2,6 @@ import torch
 import warp as wp
 import os
 import numpy as np
-import math
 
 from .warp_env import WarpEnv
 from .environment import RenderMode, IntegratorType
@@ -10,11 +9,11 @@ from . import torch_utils as tu
 from .autograd_utils import IntegratorSimulate, assign_act
 
 
-
 class CartPoleSwingUpEnv(WarpEnv):
     render_mode: RenderMode = RenderMode.USD
-    integrator_type: IntegratorType = IntegratorType.XPBD
+    integrator_type: IntegratorType = IntegratorType.EULER
     activate_ground_plane: bool = False
+    use_graph_capture = False
 
     def __init__(
         self,
@@ -27,9 +26,8 @@ class CartPoleSwingUpEnv(WarpEnv):
         stochastic_init=False,
         early_termination=False,
         stage_path=None,
-        env_name="CartPoleSwingUpEnv"
+        env_name="CartPoleSwingUpEnv",
     ):
-
         num_obs = 5
         num_act = 1
 
@@ -45,35 +43,16 @@ class CartPoleSwingUpEnv(WarpEnv):
             device,
             env_name=env_name,
             render_mode=self.render_mode,
-            stage_path=stage_path
+            stage_path=stage_path,
         )
         self.num_joint_q = 2
         self.num_joint_qd = 2
         self.early_termination = early_termination
         self.init_sim()
-        dof_count = int(self.model.joint_act.shape[0] / self.num_envs)
-        act = wp.zeros(self.num_envs * self.num_acts, dtype=self.model.joint_act.dtype,
-                       device=self.device)
-        assert dof_count * self.num_envs == self.model.joint_act.size
-        self.simulate_params = {"model": self.model, "integrator": self.integrator,
-                                "dt": self.sim_dt, "substeps": self.sim_substeps,
-                                "state_in": self.state_0, "state_out": self.state_1}
-        self.act_params = {"q_offset": 0, "joint_act": self.model.joint_act,
-                           "act": act, "num_envs": self.num_envs,
-                           "dof_count": dof_count, "num_acts": self.num_acts,
-                           }
-        self.graph_capture_params = {"capture_graph": self.use_graph_capture}
-        self.graph_capture_params["joint_q_end"] = wp.zeros_like(self.model.joint_q)
-        self.graph_capture_params["joint_qd_end"] = wp.zeros_like(self.model.joint_qd)
-        if self.use_graph_capture and self.requires_grad:
-            backward_model = self.model if not self.use_graph_capture else self.builder.finalize()
-            self.graph_capture_params["bwd_model"] = backward_model
-            self.graph_capture_params["bwd_joint_q_end"] = wp.zeros_like(backward_model.joint_q)
-            self.graph_capture_params["bwd_joint_qd_end"] = wp.zeros_like(backward_model.joint_qd)
-            self.graph_capture_params["tape"] = wp.Tape()
-            self.graph_capture_params["bw_tape"] = wp.Tape()
-            self.simulate_params["state_list"] = [backward_model.state(requires_grad=True) for _ in range(self.sim_substeps + 1)]
+        self.model.joint_attach_ke = 1e4
+        self.model.joint_attach_kd = 100.0
 
+        self.setup_autograd_vars()
         # action parameters
         self.action_strength = 1000.0
 
@@ -86,8 +65,60 @@ class CartPoleSwingUpEnv(WarpEnv):
 
         self.cart_action_penalty = 0.0
 
+    def setup_autograd_vars(self):
+        dof_count = int(self.model.joint_act.shape[0] / self.num_envs)
+        act = wp.zeros(
+            self.num_envs * self.num_acts,
+            dtype=self.model.joint_act.dtype,
+            device=self.device,
+        )
+        assert dof_count * self.num_envs == self.model.joint_act.size
+        self.simulate_params = {
+            "model": self.model,
+            "integrator": self.integrator,
+            "dt": self.sim_dt,
+            "substeps": self.sim_substeps,
+            "state_in": self.state_0,
+            "state_out": self.state_1,
+        }
+        self.act_params = {
+            "q_offset": 0,
+            "joint_act": self.model.joint_act,
+            "act": act,
+            "num_envs": self.num_envs,
+            "dof_count": dof_count,
+            "num_acts": self.num_acts,
+        }
+        self.graph_capture_params = {"capture_graph": self.use_graph_capture}
+        self.graph_capture_params["joint_q_end"] = wp.zeros_like(self.model.joint_q)
+        self.graph_capture_params["joint_qd_end"] = wp.zeros_like(self.model.joint_qd)
+        if self.use_graph_capture and self.requires_grad:
+            backward_model = (
+                self.model if not self.use_graph_capture else self.builder.finalize()
+            )
+            self.graph_capture_params["bwd_model"] = backward_model
+            self.graph_capture_params["bwd_joint_q_end"] = wp.zeros_like(
+                backward_model.joint_q
+            )
+            self.graph_capture_params["bwd_joint_qd_end"] = wp.zeros_like(
+                backward_model.joint_qd
+            )
+            self.graph_capture_params["tape"] = wp.Tape()
+            self.graph_capture_params["bwd_tape"] = wp.Tape()
+            self.simulate_params["state_list"] = [
+                backward_model.state(requires_grad=True)
+                for _ in range(self.sim_substeps + 1)
+            ]
+        else:
+            self.simulate_params["state_list"] = [self.state_0]
+            self.simulate_params["state_list"] += [
+                self.model.state(requires_grad=True)
+                for _ in range(self.sim_substeps - 1)
+            ]
+            self.simulate_params["state_list"] += [self.state_1]
+
     def create_articulation(self, builder):
-        assets_dir = os.path.join(os.path.dirname(__file__), 'assets')
+        assets_dir = os.path.join(os.path.dirname(__file__), "assets")
         wp.sim.parse_urdf(
             os.path.join(assets_dir, "cartpole.urdf"),
             builder,
@@ -97,18 +128,19 @@ class CartPoleSwingUpEnv(WarpEnv):
             armature=0.1,
             stiffness=0.0,
             damping=0.0,
-            shape_ke=1.e+4,
-            shape_kd=1.e+2,
-            shape_kf=1.e+2,
+            shape_ke=1.0e4,
+            shape_kd=1.0e4,
+            shape_kf=1.0e4,
             shape_mu=1.0,
-            limit_ke=1.e+4,
-            limit_kd=1.e+1,
-            enable_self_collisions=False)
+            limit_ke=100,
+            limit_kd=1.0,
+            enable_self_collisions=False,
+        )
 
     def assign_actions(self, actions):
         actions = actions.flatten() * self.action_strength
         # actions = torch.clip(actions, -1.0, 1.0)
-        self.act_params['act'].assign(wp.from_torch(actions))
+        self.act_params["act"].assign(wp.from_torch(actions))
         assign_act(**self.act_params)
 
     def step(self, actions):
@@ -127,15 +159,20 @@ class CartPoleSwingUpEnv(WarpEnv):
                     self.model.body_q.requires_grad
                     and self.state_0.body_q.requires_grad
                 )
-                state_out = self.model.state(requires_grad=True)
-                self.joint_q, self.joint_qd, self.state_0 = IntegratorSimulate.apply(
+                # state_out = self.model.state(requires_grad=True)
+                self.joint_q, self.joint_qd = IntegratorSimulate.apply(
                     self.simulate_params,
                     self.graph_capture_params,
                     self.act_params,
-                    action.flatten(),
+                    actions.flatten(),
                     body_q,
                     body_qd,
                 )
+                self.simulate_params["state_in"], self.simulate_params["state_out"] = (
+                    self.state_1,
+                    self.state_0,
+                )
+                self.state_0, self.state_1 = self.state_1, self.state_0
             else:
                 self.assign_actions(self.actions)
                 self.warp_step()

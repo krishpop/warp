@@ -1,15 +1,12 @@
 import os
-import sys
 
 import torch
-
-# from numpy.lib.function_base import angle
 from .warp_env import WarpEnv
-from warp.envs.environment import Environment, RenderMode, IntegratorType
+from warp.envs.environment import RenderMode, IntegratorType
 
 import warp as wp
+import warp.sim
 import numpy as np
-import random
 np.set_printoptions(precision=5, linewidth=256, suppress=True)
 from . import torch_utils as tu
 
@@ -52,8 +49,6 @@ class HopperEnv(WarpEnv):
         # initialize other data to be used later
 
     def create_articulation(self, builder):
-        start_height = 0.0
-
         # examples_dir = os.path.split(os.path.dirname(wp.__file__))[0] + "/examples"
         asset_dir = os.path.join(os.path.dirname(__file__), 'assets')
         wp.sim.parse_mjcf(

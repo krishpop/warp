@@ -5,7 +5,6 @@
 # distribution of this software and related documentation without an express
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
-from dmanip.envs import WarpEnv
 import math
 import torch
 
@@ -15,7 +14,9 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 
 import warp as wp
 import warp.sim.render
+# from warp.tests.grad_utils import check_grads
 
+from .warp_env import WarpEnv
 import numpy as np
 np.set_printoptions(precision=5, linewidth=256, suppress=True)
 
@@ -24,17 +25,17 @@ try:
 except ModuleNotFoundError:
     print("No pxr package")
 
-from utils import torch_utils as tu
-from torch.warp_utils import check_grads, IntegratorSimulate
+from . import torch_utils as tu
+from .autograd_utils import IntegratorSimulate, assign_act
 
 
-class AntWarpEnv(WarpEnv):
+class AntEnv(WarpEnv):
 
     def __init__(self, render=False, device='cuda', num_envs=4096, seed=0, episode_length=1000, no_grad=True, stochastic_init=False, early_termination = True):
         num_obs = 37
         num_act = 8
     
-        super(AntWarpEnv, self).__init__(num_envs, num_obs, num_act, episode_length, seed, no_grad, render, stochastic_init, device)
+        super().__init__(num_envs, num_obs, num_act, episode_length, seed, no_grad, render, stochastic_init, device)
 
         self.early_termination = early_termination
 

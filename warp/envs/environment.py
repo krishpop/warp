@@ -56,6 +56,7 @@ class Environment:
     profile: bool = False
 
     use_graph_capture: bool = wp.get_preferred_device().is_cuda
+    device: str = "cuda"
 
     num_envs: int = 100
 
@@ -148,10 +149,8 @@ class Environment:
             self.setup(self.builder)
             self.bodies_per_env = len(self.builder.body_q)
 
-        self.model = self.builder.finalize()
-        # requires_grad=self.requires_grad,
+        self.model = self.builder.finalize(requires_grad=self.requires_grad, device=self.device)
         # rigid_mesh_contact_max=self.rigid_mesh_contact_max)
-        self.device = str(self.model.device)
         self.model.ground = self.activate_ground_plane
 
         self.model.joint_attach_ke = self.joint_attach_ke
