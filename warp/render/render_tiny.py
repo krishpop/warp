@@ -433,6 +433,7 @@ class TinyRenderer:
         draw_axis=True,
         axis_scale=1.0,
         use_vsync=False,
+        headless=False,
     ):
         
         self.scaling = scaling
@@ -458,6 +459,8 @@ class TinyRenderer:
         glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 3)
         # increase depth buffer precision to preven z fighting
         glfw.window_hint(glfw.DEPTH_BITS, 32)
+        if headless:
+            glfw.window_hint(glfw.VISIBLE, glfw.FALSE)
 
         self.window = glfw.create_window(screen_width, screen_height, title, None, None)
 
