@@ -382,6 +382,27 @@ def assemble_gfx_vertices(
     gfx_vertices[tid,3] = n[0]; gfx_vertices[tid,4] = n[1]; gfx_vertices[tid,5] = n[2]
 
 
+@wp.kernel
+def copy_frame(
+    input_img: wp.array(dtype=float),
+    width: int,
+    height: int,
+    # outputs
+    output_img: wp.array(dtype=float, ndim=3)):
+
+    tid = wp.tid()
+    w = tid // height
+    v = tid % height
+    pixel = v*width + w
+    r = input_img[pixel*3+0]; g = input_img[pixel*3+1]; b = input_img[pixel*3+2]
+    # flip vertically (OpenGL coordinates start at bottom)
+    v = height - v
+    output_img[v, w, 0] = r
+    output_img[v, w, 1] = g
+    output_img[v, w, 2] = b
+
+
+
 def check_gl_error():
     error = gl.glGetError()
     if error != gl.GL_NO_ERROR:
@@ -463,7 +484,7 @@ class TinyRenderer:
         self._skip_frame_counter = 0
         self._fps_update = None
         self._fps_render = None
-        self._fps_alpha = 0.005  # low pass filter update
+        self._fps_alpha = 0.1  # low pass filter update
 
         self._body_name = {}
         self._shapes = []
@@ -495,6 +516,7 @@ class TinyRenderer:
 
         self._frame_texture = None
         self._frame_fbo = None
+        self._frame_pbo = None
 
         glfw.make_context_current(self.window)
         if not use_vsync:
@@ -688,6 +710,8 @@ class TinyRenderer:
         self._frame_texture = None
         self._frame_fbo = None
         self._setup_framebuffer()
+        
+        # self._frame_cuda_buffer = pycuda.gl.RegisteredImage(self._frame_texture, GL_TEXTURE_2D, pycuda.gl.graphics_map_flags.READ_ONLY)
 
         # set up VBO for the quad that is rendered to the user window with the texture
         self._frame_vertices = np.array([
@@ -733,8 +757,9 @@ class TinyRenderer:
     def _setup_framebuffer(self):
         if self._frame_texture is None:
             self._frame_texture = glGenTextures(1)
+
         glBindTexture(GL_TEXTURE_2D, self._frame_texture)
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, self.screen_width, self.screen_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, None)
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, self.screen_width, self.screen_height, 0, GL_RGB, GL_FLOAT, None)
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
         glBindTexture(GL_TEXTURE_2D, 0)
@@ -769,6 +794,16 @@ class TinyRenderer:
         # Unbind the FBO (switch back to the default framebuffer)
         glBindFramebuffer(GL_FRAMEBUFFER, 0)
 
+        if self._frame_pbo is None:
+            self._frame_pbo = glGenBuffers(1) # generate 1 buffer reference
+        glBindBuffer(GL_PIXEL_PACK_BUFFER, self._frame_pbo) # binding to this buffer
+        # allocate memory for PBO
+        pixels = np.zeros((self.screen_height, self.screen_width, 3), dtype=np.float32)
+        glBufferData(GL_PIXEL_PACK_BUFFER, pixels.nbytes, pixels, GL_DYNAMIC_DRAW) # Allocate the buffer
+        # bsize = glGetBufferParameteriv(GL_PIXEL_PACK_BUFFER, GL_BUFFER_SIZE) # Check allocated buffer size
+        # assert bsize == pixels.nbytes
+        glBindBuffer(GL_PIXEL_PACK_BUFFER, 0) # Unbind
+
     def clear(self):
         for vao, vbo, ebo, _ in self._shape_gl_buffers.values():
             glDeleteVertexArrays(1, [vao])
@@ -778,6 +813,7 @@ class TinyRenderer:
             glDeleteBuffers(1, [self._instance_transform_gl_buffer])
             glDeleteBuffers(1, [self._instance_color1_buffer])
             glDeleteBuffers(1, [self._instance_color2_buffer])
+            self._instance_transform_cuda_buffer.unregister()
         
         self._body_name.clear()
         self._shapes.clear()
@@ -861,6 +897,7 @@ class TinyRenderer:
         glClearColor(*self.background_color, 1)
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
         glBindVertexArray(0)
+        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, self._frame_fbo)
 
         # cache camera position in case it gets changed during rendering
         cam_pos = self._camera_pos
@@ -925,6 +962,7 @@ class TinyRenderer:
         else:
             self._render_scene_tiled()
         
+        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0)
         if self._frame_fbo is not None:
             glBindFramebuffer(GL_FRAMEBUFFER, 0)
             glUseProgram(self._frame_shader)
@@ -1203,7 +1241,7 @@ class TinyRenderer:
         glBufferData(GL_ARRAY_BUFFER, transforms.nbytes, transforms, GL_DYNAMIC_DRAW)
         # glVertexAttribDivisor(1, vertices.shape[0])
 
-        # Create CUDA buffer
+        # Create CUDA buffer for instance transforms
         self._instance_transform_cuda_buffer = pycuda.gl.RegisteredBuffer(int(self._instance_transform_gl_buffer))
 
         # Upload instance matrices to GPU
@@ -1355,6 +1393,24 @@ class TinyRenderer:
             self.clear()
             glfw.terminate()
 
+    def get_pixels(self, target_image: wp.array):
+        assert target_image.shape == (self.screen_height, self.screen_width, 3), f"Shape of `target_image` array does not match {self.screen_height} x {self.screen_width} x 3"
+
+        glBindBuffer(GL_PIXEL_PACK_BUFFER, self._frame_pbo)
+        glBindTexture(GL_TEXTURE_2D, self._frame_texture)
+        # read screen texture into PBO
+        glGetTexImage(GL_TEXTURE_2D, 0, GL_RGB, GL_FLOAT, ctypes.c_void_p(0))
+        glBindTexture(GL_TEXTURE_2D, 0)
+        glBindBuffer(GL_PIXEL_PACK_BUFFER, 0)
+
+        # glBufferData(GL_PIXEL_PACK_BUFFER, self.screen_width * self.screen_height * 3, None, GL_STREAM_READ)
+        self._frame_pbo_buffer = pycuda.gl.RegisteredBuffer(int(self._frame_pbo), pycuda.gl.graphics_map_flags.WRITE_DISCARD)
+        # self._frame_cuda_buffer = pycuda.gl.RegisteredImage(self._frame_fbo, GL_RENDERBUFFER)
+        mapped_buffer = self._frame_pbo_buffer.map()
+        ptr, size = mapped_buffer.device_ptr_and_size()
+        img = wp.array(dtype=wp.float32, shape=(self.screen_height*self.screen_width*3), device=self._device, ptr=ptr, owner=False)
+        wp.launch(copy_frame, dim=self.screen_height*self.screen_width, inputs=[img, self.screen_width, self.screen_height], outputs=[target_image])
+        mapped_buffer.unmap()
 
     # def create_image_texture(self, file_path):
     #     from PIL import Image
