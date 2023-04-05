@@ -390,17 +390,38 @@ def copy_frame(
     # outputs
     output_img: wp.array(dtype=float, ndim=3)):
 
-    tid = wp.tid()
-    w = tid // height
-    v = tid % height
+    w, v = wp.tid()
     pixel = v*width + w
-    r = input_img[pixel*3+0]; g = input_img[pixel*3+1]; b = input_img[pixel*3+2]
+    pixel *= 3
+    r = input_img[pixel+0]; g = input_img[pixel+1]; b = input_img[pixel+2]
     # flip vertically (OpenGL coordinates start at bottom)
-    v = height - v
+    v = height - v - 1
     output_img[v, w, 0] = r
     output_img[v, w, 1] = g
     output_img[v, w, 2] = b
 
+
+@wp.kernel
+def copy_frame_tiles(
+    input_img: wp.array(dtype=float),
+    screen_width: int,
+    tile_ncols: int,
+    tile_width: int,
+    tile_height: int,
+    # outputs
+    output_img: wp.array(dtype=float, ndim=4)):
+
+    tile, w, v = wp.tid()
+    row = tile_ncols - tile // tile_ncols - 1
+    col = tile % tile_ncols
+    pixel = v*screen_width + w + row * tile_height * screen_width + col * tile_width
+    pixel *= 3
+    r = input_img[pixel+0]; g = input_img[pixel+1]; b = input_img[pixel+2]
+    # flip vertically (OpenGL coordinates start at bottom)
+    v = tile_height - v - 1
+    output_img[tile, v, w, 0] = r
+    output_img[tile, v, w, 1] = g
+    output_img[tile, v, w, 2] = b
 
 
 def check_gl_error():
@@ -859,6 +880,26 @@ class TinyRenderer:
             aspect_ratio = self._tile_width / self._tile_height
         
         self._projection_matrix = glm.perspective(glm.radians(self.camera_fov), aspect_ratio, self.near_plane, self.far_plane)
+
+    @property
+    def num_tiles(self):
+        return len(self._tile_instances)
+    
+    @property
+    def tile_width(self):
+        return self._tile_width
+    
+    @property
+    def tile_height(self):
+        return self._tile_height
+
+    @property
+    def num_shapes(self):
+        return len(self._shapes)
+    
+    @property
+    def num_instances(self):
+        return self._instance_count
     
     def begin_frame(self, time: float):
         self._last_begin_frame_time = glfw.get_time()
@@ -1396,8 +1437,12 @@ class TinyRenderer:
             self.clear()
             glfw.terminate()
 
-    def get_pixels(self, target_image: wp.array):
-        assert target_image.shape == (self.screen_height, self.screen_width, 3), f"Shape of `target_image` array does not match {self.screen_height} x {self.screen_width} x 3"
+    def get_pixels(self, target_image: wp.array, split_up_tiles=True):
+        split_up_tiles = split_up_tiles and self._tile_ncols > 0
+        if split_up_tiles:
+            assert target_image.shape == (self.num_tiles, self._tile_height, self._tile_width, 3), f"Shape of `target_image` array does not match {self.num_tiles} x {self.screen_height} x {self.screen_width} x 3"
+        else:
+            assert target_image.shape == (self.screen_height, self.screen_width, 3), f"Shape of `target_image` array does not match {self.screen_height} x {self.screen_width} x 3"
 
         glBindBuffer(GL_PIXEL_PACK_BUFFER, self._frame_pbo)
         glBindTexture(GL_TEXTURE_2D, self._frame_texture)
@@ -1406,13 +1451,34 @@ class TinyRenderer:
         glBindTexture(GL_TEXTURE_2D, 0)
         glBindBuffer(GL_PIXEL_PACK_BUFFER, 0)
 
-        # glBufferData(GL_PIXEL_PACK_BUFFER, self.screen_width * self.screen_height * 3, None, GL_STREAM_READ)
-        self._frame_pbo_buffer = pycuda.gl.RegisteredBuffer(int(self._frame_pbo), pycuda.gl.graphics_map_flags.WRITE_DISCARD)
-        # self._frame_cuda_buffer = pycuda.gl.RegisteredImage(self._frame_fbo, GL_RENDERBUFFER)
-        mapped_buffer = self._frame_pbo_buffer.map()
-        ptr, size = mapped_buffer.device_ptr_and_size()
-        img = wp.array(dtype=wp.float32, shape=(self.screen_height*self.screen_width*3), device=self._device, ptr=ptr, owner=False)
-        wp.launch(copy_frame, dim=self.screen_height*self.screen_width, inputs=[img, self.screen_width, self.screen_height], outputs=[target_image])
+        pbo_buffer = pycuda.gl.RegisteredBuffer(int(self._frame_pbo), pycuda.gl.graphics_map_flags.WRITE_DISCARD)
+        mapped_buffer = pbo_buffer.map()
+        ptr, _ = mapped_buffer.device_ptr_and_size()
+        num_tiles = max(1, self.num_tiles)
+        img = wp.array(dtype=wp.float32, shape=(num_tiles*self._tile_width*self._tile_height*3), device=self._device, ptr=ptr, owner=False)
+        if split_up_tiles:
+            wp.launch(
+                copy_frame_tiles,
+                dim=(self.num_tiles, self._tile_width, self._tile_height),
+                inputs=[
+                    img,
+                    self.screen_width,
+                    self._tile_ncols,
+                    self._tile_width,
+                    self._tile_height
+                ],
+                outputs=[target_image]
+            )
+        else:
+            wp.launch(
+                copy_frame,
+                dim=(self.screen_width, self.screen_height),
+                inputs=[
+                    img,
+                    self.screen_width,
+                    self.screen_height
+                ],
+                outputs=[target_image])
         mapped_buffer.unmap()
 
     # def create_image_texture(self, file_path):
