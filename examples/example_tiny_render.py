@@ -78,4 +78,7 @@ while renderer.is_running():
                 img_plot.set_data(pixels_np[i])
         else:
             img_plot.set_data(pixels.numpy())
+        fig.canvas.draw()
+        fig.canvas.flush_events()
+
 renderer.clear()
