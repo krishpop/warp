@@ -215,8 +215,11 @@ class Environment:
                 # all shapes except the floor
                 instance_ids = np.arange((self.model.shape_count-1), dtype=np.int32).tolist()
                 shapes_per_env = (self.model.shape_count-1) // self.num_envs
+                additional_instances = []
+                if self.activate_ground_plane:
+                    additional_instances.append(floor_id)
                 self.renderer.setup_tiled_rendering(instances=[
-                    instance_ids[i*shapes_per_env:(i+1)*shapes_per_env]+[floor_id]
+                    instance_ids[i*shapes_per_env:(i+1)*shapes_per_env]+additional_instances
                     for i in range(self.num_envs)])
         elif self.render_mode == RenderMode.USD:
             filename = os.path.join(os.path.dirname(__file__), "..", "outputs", self.sim_name + ".usd")

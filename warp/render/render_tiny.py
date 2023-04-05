@@ -859,7 +859,8 @@ class TinyRenderer:
 
     def setup_tiled_rendering(self, instances: list, rescale_window=False, tile_width=128, tile_height=128):
         # skip the first 3 instances for the coordinate system axis arrows
-        self._tile_instances = [[i+3 for i in ids] + self._axis_instances for ids in instances]
+        num_axes = len(self._axis_instances)
+        self._tile_instances = [[i+num_axes for i in ids] + self._axis_instances for ids in instances]
         n = len(self._tile_instances)
         # try to fit the tiles into a square
         self._tile_ncols = int(np.ceil(np.sqrt(n)))
