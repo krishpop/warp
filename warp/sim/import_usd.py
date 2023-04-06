@@ -318,13 +318,13 @@ def parse_usd(
 
         elif type_name == "Material":
             material = {}
-            if prim.GetAttribute("physics:density").HasAuthoredValue():
-                material["density"] = parse_float(prim, "physics:density") * mass_unit / (linear_unit**3)
-            if prim.GetAttribute("physics:restitution").HasAuthoredValue():
+            if has_attribute(prim, "physics:density"):
+                material["density"] = parse_float(prim, "physics:density") * mass_unit #/ (linear_unit**3)
+            if has_attribute(prim, "physics:restitution"):
                 material["restitution"] = parse_float(prim, "physics:restitution", default_restitution)
-            if prim.GetAttribute("physics:staticFriction").HasAuthoredValue():
+            if has_attribute(prim, "physics:staticFriction"):
                 material["staticFriction"] = parse_float(prim, "physics:staticFriction", default_mu)
-            if prim.GetAttribute("physics:dynamicFriction").HasAuthoredValue():
+            if has_attribute(prim, "physics:dynamicFriction"):
                 material["dynamicFriction"] = parse_float(prim, "physics:dynamicFriction", default_mu)
             materials[path] = material
             
@@ -371,7 +371,7 @@ def parse_usd(
         
         geo_tf = local_xform
         body_id = parent_body
-        is_rigid_body = "PhysicsRigidBodyAPI" in schemas
+        is_rigid_body = "PhysicsRigidBodyAPI" in schemas and parent_body == -1
         create_rigid_body = (is_rigid_body or path in joint_parents)
         if create_rigid_body:
             body_id = builder.add_body(
@@ -482,9 +482,9 @@ def parse_usd(
         if material is not None:
             if "density" in material:
                 density = material["density"]
-        if prim.GetAttribute("physics:density").HasAuthoredValue():
+        if has_attribute(prim, "physics:density"):
             d = parse_float(prim, "physics:density")
-            density = d * mass_unit / (linear_unit**3)
+            density = d * mass_unit #/ (linear_unit**3)
 
         # assert prim.GetAttribute('orientation').Get() == "rightHanded", "Only right-handed orientations are supported."
         enabled = parse_generic(prim, "physics:rigidBodyEnabled", True)
@@ -507,6 +507,7 @@ def parse_usd(
         i_diag = parse_vec(prim, "physics:diagonalInertia", np.zeros(3, dtype=np.float32))
         i_rot = parse_quat(prim, "physics:principalAxes", wp.quat_identity())
         
+        # parse children
         if type_name == "Xform":
             if prim.IsInstance():
                 proto = prim.GetPrototype()
@@ -519,10 +520,10 @@ def parse_usd(
             for child in children_refs:
                 parse_prim(child, incoming_xform, incoming_scale, parent_body)
         elif type_name in shape_types:
-
+            # parse shapes
             shape_params = dict(
                 ke=default_ke, kd=default_kd, kf=default_kf, mu=default_mu,
-                restitution=default_restitution)
+                restitution=default_restitution, has_ground_collision=False)
             if material is not None:
                 if "restitution" in material:
                     shape_params["restitution"] = material["restitution"]
@@ -626,7 +627,7 @@ def parse_usd(
                         # assert False, f"Error while parsing USD mesh {path}: encountered polygon with {count} vertices, but only triangles and quads are supported."
                         continue
                     face_id += count
-                m = wp.sim.Mesh(points, np.array(faces, dtype=np.float32).flatten())
+                m = wp.sim.Mesh(points, np.array(faces, dtype=np.int32).flatten())
                 shape_id = builder.add_shape_mesh(
                     body_id, geo_tf.p, geo_tf.q,
                     scale=scale, mesh=m, density=density, thickness=default_thickness,
@@ -643,7 +644,7 @@ def parse_usd(
                 for other_path in other_paths:
                     path_collision_filters.add((path, str(other_path)))
 
-            if "PhysicsCollisionAPI" not in schemas:
+            if "PhysicsCollisionAPI" not in schemas or not parse_generic(prim, "physics:collisionEnabled", True):
                 no_collision_shapes.add(shape_id)
 
         else:
