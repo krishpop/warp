@@ -306,9 +306,9 @@ def compute_mesh_inertia(density: float, vertices: list, indices: list, is_solid
                         vol_warp])
 
     # Extract mass and inertia and save to class attributes.
-    mass = mass_warp.numpy()[0] * density
+    mass = float(mass_warp.numpy()[0] * density)
     I = I_warp.numpy()[0] * density
-    volume = vol_warp.numpy()[0]
+    volume = float(vol_warp.numpy()[0])
     return mass, com, I, volume
 
 
