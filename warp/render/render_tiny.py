@@ -6,14 +6,12 @@
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
 import sys
-import os
 
 import warp as wp
 # import warp.sim
 from .utils import tab10_color_map
 
 from collections import defaultdict
-from typing import Union
 
 import numpy as np
 
