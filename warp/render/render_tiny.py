@@ -1932,6 +1932,18 @@ class TinyRenderer:
             self.add_shape_instance(name, shape, body, pos, rot)
         return shape
     
+    def render_ref(self, name: str, path: str, pos: tuple, rot: tuple, scale: tuple):
+        """
+        Create a reference (instance) with the given name to the given path.
+        """
+
+        if path in self._instances:
+            _, body, shape, _, original_scale, color1, color2 = self._instances[path]
+            self.add_shape_instance(name, shape, body, pos, rot, scale or original_scale, color1, color2)
+            return
+
+        raise Exception("Cannot create reference to path: " + path)
+    
     def render_points(self, name: str, points, radius, colors=None):
         """Add a set of points
         
