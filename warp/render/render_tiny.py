@@ -263,6 +263,19 @@ def update_vbo_transforms(
 
 
 @wp.kernel
+def update_vbo_vertices(
+    points: wp.array(dtype=wp.vec3),
+    # outputs
+    vbo_vertices: wp.array(dtype=float, ndim=2)):
+
+    tid = wp.tid()
+    p = points[tid]
+    vbo_vertices[tid, 0] = p[0]
+    vbo_vertices[tid, 1] = p[1]
+    vbo_vertices[tid, 2] = p[2]
+
+
+@wp.kernel
 def update_points_positions(
     instance_positions: wp.array(dtype=wp.vec3),
     instance_scalings: wp.array(dtype=wp.vec3),
@@ -430,11 +443,11 @@ class ShapeInstancer:
         self.num_instances = 0
         self.transforms = None
         self.scalings = None
-        self.instance_cuda_buffer = None
+        self._instance_transform_cuda_buffer = None
 
     def __del__(self):
-        if self.instance_cuda_buffer is not None:
-            self.instance_cuda_buffer.unregister()
+        if self._instance_transform_cuda_buffer is not None:
+            self._instance_transform_cuda_buffer.unregister()
         if self.instance_transform_gl_buffer is not None:
             glDeleteBuffers(1, [self.instance_transform_gl_buffer])
             glDeleteBuffers(1, [self.instance_color1_buffer])
@@ -496,7 +509,7 @@ class ShapeInstancer:
         glBufferData(GL_ARRAY_BUFFER, transforms.nbytes, transforms, GL_DYNAMIC_DRAW)
 
         # Create CUDA buffer for instance transforms
-        self.instance_cuda_buffer = pycuda.gl.RegisteredBuffer(int(self.instance_transform_gl_buffer))
+        self._instance_transform_cuda_buffer = pycuda.gl.RegisteredBuffer(int(self.instance_transform_gl_buffer))
 
         # Upload instance matrices to GPU
         # offset = 0
@@ -582,7 +595,7 @@ class ShapeInstancer:
 
         if transforms is not None or scalings is not None:
             glBindVertexArray(self.vao)
-            mapped_buffer = self.instance_cuda_buffer.map()
+            mapped_buffer = self._instance_transform_cuda_buffer.map()
             ptr, _ = mapped_buffer.device_ptr_and_size()
             vbo_transforms = wp.array(dtype=wp.mat44, shape=(self.num_instances,), device=self.device, ptr=ptr, owner=False)
 
@@ -613,7 +626,7 @@ class ShapeInstancer:
     # scope exposes VBO transforms to be set directly by a warp kernel
     def __enter__(self):
         glBindVertexArray(self.vao)
-        self._mapped_buffer = self.instance_cuda_buffer.map()
+        self._mapped_buffer = self._instance_transform_cuda_buffer.map()
         ptr, _ = self._mapped_buffer.device_ptr_and_size()
         self.vbo_transforms = wp.array(dtype=wp.mat44, shape=(self.num_instances,), device=self.device, ptr=ptr, owner=False)
         return self
@@ -1029,7 +1042,8 @@ class TinyRenderer:
             glDeleteBuffers(1, [self._instance_transform_gl_buffer])
             glDeleteBuffers(1, [self._instance_color1_buffer])
             glDeleteBuffers(1, [self._instance_color2_buffer])
-        for vao, vbo, ebo, _ in self._shape_gl_buffers.values():
+        for vao, vbo, ebo, _, vertex_cuda_buffer in self._shape_gl_buffers.values():
+            vertex_cuda_buffer.unregister()
             glDeleteVertexArrays(1, [vao])
             glDeleteBuffers(1, [vbo])
             glDeleteBuffers(1, [ebo])
@@ -1251,7 +1265,7 @@ class TinyRenderer:
 
     def _render_scene(self):
         start_instance_idx = 0
-        for shape, (vao, vbo, ebo, tri_count) in self._shape_gl_buffers.items():
+        for shape, (vao, _, _, tri_count, _) in self._shape_gl_buffers.items():
 
             num_instances = len(self._shape_instances[shape])
 
@@ -1318,7 +1332,7 @@ class TinyRenderer:
                         # skip axis
                         continue
 
-                    vao, vbo, ebo, tri_count = self._shape_gl_buffers[shape]
+                    vao, _, _, tri_count, _ = self._shape_gl_buffers[shape]
 
                     start_instance_idx = self._inverse_instance_ids[instance]
 
@@ -1430,6 +1444,8 @@ class TinyRenderer:
         vbo = glGenBuffers(1)
         glBindBuffer(GL_ARRAY_BUFFER, vbo)
         glBufferData(GL_ARRAY_BUFFER, vertices.nbytes, vertices.flatten(), GL_STATIC_DRAW)
+        
+        vertex_cuda_buffer = pycuda.gl.RegisteredBuffer(int(vbo))
 
         ebo = glGenBuffers(1)
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo)
@@ -1449,7 +1465,7 @@ class TinyRenderer:
 
         glBindVertexArray(0)
 
-        self._shape_gl_buffers[shape] = (vao, vbo, ebo, len(indices))
+        self._shape_gl_buffers[shape] = (vao, vbo, ebo, len(indices), vertex_cuda_buffer)
 
         return shape
     
@@ -1500,6 +1516,9 @@ class TinyRenderer:
         all_instances = list(self._instances.values())
         for shape, instances in self._shape_instances.items():
             for i in instances:
+                # TODO remove!!!
+                if i >= len(all_instances):
+                    continue
                 instance = all_instances[i]
                 colors1.append(instance[5])
                 colors2.append(instance[6])
@@ -1524,7 +1543,7 @@ class TinyRenderer:
         instance_ids = []
         inverse_instance_ids = {}
         instance_count = 0
-        for shape, (vao, vbo, ebo, tri_count) in self._shape_gl_buffers.items():
+        for shape, (vao, vbo, ebo, tri_count, vertex_cuda_buffer) in self._shape_gl_buffers.items():
             glBindVertexArray(vao)
 
             glBindBuffer(GL_ARRAY_BUFFER, self._instance_transform_gl_buffer)
@@ -1572,7 +1591,7 @@ class TinyRenderer:
         if name in self._instances:
             i, body, shape, _, scale, old_color1, old_color2 = self._instances[name]
             self._instances[name] = (i, body, shape, [*pos, *rot], scale, color1 or old_color1, color2 or old_color2)
-            self._update_shape_instances = True
+            # self._update_shape_instances = True
             return True
         return False
     
@@ -1895,6 +1914,11 @@ class TinyRenderer:
             colors = np.array(colors, dtype=np.float32)
         points = np.array(points, dtype=np.float32) * np.array(scale, dtype=np.float32)
         indices = np.array(indices, dtype=np.int32).reshape((-1, 3))
+        if name in self._instances:
+            self.update_shape_instance(name, pos, rot)
+            shape = self._instances[name][2]
+            self.update_shape_vertices(shape, points)
+            return
         geo_hash = hash((points.tobytes(), indices.tobytes(), colors.tobytes()))
         if geo_hash in self._shape_geo_hash:
             shape = self._shape_geo_hash[geo_hash]
@@ -2041,6 +2065,31 @@ class TinyRenderer:
             lines.append((vertices[i], vertices[i+1]))
         lines = np.array(lines)
         self._render_lines(name, lines, color, radius)
+
+    def update_shape_vertices(self, shape, points):
+        if isinstance(points, wp.array):
+            wp_points = points.to(self._device)
+        else:
+            wp_points = wp.array(points, dtype=wp.vec3, device=self._device)
+        
+        cuda_buffer = self._shape_gl_buffers[shape][4]
+        vertices_shape = self._shapes[shape][0].shape
+        mapped_buffer = cuda_buffer.map()
+        ptr, _ = mapped_buffer.device_ptr_and_size()
+        vbo_vertices = wp.array(dtype=wp.float32, shape=vertices_shape, device=self._device, ptr=ptr, owner=False)
+
+        wp.launch(
+            update_vbo_vertices,
+            dim=vertices_shape[0],
+            inputs=[
+                wp_points
+            ],
+            outputs=[
+                vbo_vertices,
+            ],
+            device=self._device)
+        
+        mapped_buffer.unmap()
 
     @staticmethod
     def _create_sphere_mesh(radius=1.0, num_latitudes=default_num_segments, num_longitudes=default_num_segments):
