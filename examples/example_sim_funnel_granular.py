@@ -20,7 +20,7 @@ import numpy as np
 import warp as wp
 import warp.sim
 
-from environment import Environment, run_env, IntegratorType
+from env.environment import Environment, run_env, IntegratorType
 
 class Demo(Environment):
     sim_name = "example_sim_funnel_granular"
@@ -31,7 +31,7 @@ class Demo(Environment):
     num_envs = 4
 
     sim_substeps_euler = 32
-    sim_substeps_xpbd = 5
+    sim_substeps_xpbd = 15
 
     xpbd_settings = dict(
         iterations=1,
@@ -87,6 +87,7 @@ class Demo(Environment):
             mu=self.mu,
             restitution=self.restitution,
             density=0.0,
+            thickness=0.01,
         )
 
         height = 30
