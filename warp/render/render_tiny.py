@@ -670,7 +670,7 @@ class TinyRenderer:
         draw_sky=True,
         draw_axis=True,
         axis_scale=1.0,
-        use_vsync=True,
+        vsync=True,
         headless=False,
     ):
         
@@ -763,7 +763,7 @@ class TinyRenderer:
         self._frame_pbo = None
 
         glfw.make_context_current(self.window)
-        if not use_vsync:
+        if not vsync:
             glfw.swap_interval(0)
 
         # Initialize Dear ImGui and the OpenGL renderer
