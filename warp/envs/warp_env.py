@@ -1,15 +1,12 @@
-import os
 from gym import spaces
 import torch
 import numpy as np
 import warp as wp
-import warp.torch
-import warp.sim
+import warp.sim  # pyright: ignore
 import warp.sim.render
 import random
-import imageio
 from .autograd_utils import get_compute_graph
-from .environment import Environment, RenderMode, IntegratorType
+from .environment import Environment, RenderMode
 
 
 def set_seed(seed):
@@ -284,7 +281,8 @@ class WarpEnv(Environment):
         def forward():
             for i in range(self.sim_substeps):
                 self.state_0.clear_forces()
-                wp.sim.collide(self.model, self.state_0)
+                if self.activate_ground_plane:
+                    wp.sim.collide(self.model, self.state_0)
                 self.state_1 = self.integrator.simulate(
                     self.model, self.state_0, self.state_1, self.sim_dt
                 )
@@ -339,8 +337,7 @@ class WarpEnv(Environment):
         raise NotImplementedError
 
     def render(self, mode="human"):
-        if self.visualize:
-            img = None
+        if self.visualize and self.renderer:
             if self.render_mode is RenderMode.USD:
                 self.render_time += self.dt
                 self.renderer.begin_frame(self.render_time)

@@ -121,6 +121,8 @@ class IntegratorSimulate(torch.autograd.Function):
         ctx.act.assign(wp.from_torch(ctx.act_pt.detach()))
         ctx.body_q_pt = body_q
         ctx.body_qd_pt = body_qd
+        ctx.joint_q_end = graph_capture_params["joint_q_end"]
+        ctx.joint_qd_end = graph_capture_params["joint_qd_end"]
         ctx.capture_graph = graph_capture_params["capture_graph"]
         ctx.graph_capture_params = graph_capture_params
 
@@ -131,8 +133,10 @@ class IntegratorSimulate(torch.autograd.Function):
 
         # record gradients for act, joint_q, and joint_qd
         ctx.act.requires_grad = True
-        ctx.graph_capture_params["joint_q_end"].requires_grad = True
-        ctx.graph_capture_params["joint_qd_end"].requires_grad = True
+        ctx.joint_q_end.requires_grad = True
+        ctx.joint_qd_end.requires_grad = True
+        ctx.state_in.body_q.requires_grad = True
+        ctx.state_in.body_qd.requires_grad = True
 
         if ctx.capture_graph:
             ctx.backward_model = graph_capture_params["bwd_model"]
