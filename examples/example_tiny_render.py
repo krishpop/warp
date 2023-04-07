@@ -45,7 +45,7 @@ if split_up_tiles:
             continue
         img_plots.append(ax.imshow(tile_temp))
 else:
-    plt.figure(1)
+    fig = plt.figure(1)
     pixels = wp.zeros((renderer.screen_height, renderer.screen_width, 3), dtype=wp.float32)
     img_plot = plt.imshow(pixels.numpy())
 plt.ion()
