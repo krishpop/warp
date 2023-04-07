@@ -233,30 +233,6 @@ void main() {
 
 
 @wp.kernel
-def move_instances(
-    positions: wp.array(dtype=wp.vec3),
-    scalings: wp.array(dtype=wp.vec3),
-    time: float,
-    # outputs
-    transforms: wp.array(dtype=wp.mat44),
-):
-    tid = wp.tid()
-    angle = (36.0 * float(tid))*wp.pi/180.0 + time
-    axis = wp.vec3(0., 1., 0.)
-    rot = wp.quat_to_matrix(wp.quat_from_axis_angle(axis, angle))
-    offset = wp.vec3(0.0, 0.0, 5.0 * np.sin(float(tid)*wp.pi/4. + time))
-    position = positions[tid] + offset
-    scaling = scalings[tid]
-    scale = wp.mat33(scaling[0], 0.0, 0.0, 0.0, scaling[1], 0.0, 0.0, 0.0, scaling[2])
-    scaled_rot = scale * rot
-    transforms[tid] = wp.transpose(wp.mat44(
-        scaled_rot[0,0], scaled_rot[0,1], scaled_rot[0,2], position[0],
-        scaled_rot[1,0], scaled_rot[1,1], scaled_rot[1,2], position[1],
-        scaled_rot[2,0], scaled_rot[2,1], scaled_rot[2,2], position[2],
-        0.0, 0.0, 0.0, 1.0))
-
-
-@wp.kernel
 def update_vbo_transforms(
     instance_id: wp.array(dtype=int),
     instance_body: wp.array(dtype=int),
@@ -280,9 +256,9 @@ def update_vbo_transforms(
     rot = wp.quat_to_matrix(q)
     # transposed definition
     vbo_transforms[tid] = wp.mat44(
-        rot[0,0]*s[0], rot[1,0]*s[1], rot[2,0]*s[2], 0.0,
-        rot[0,1]*s[0], rot[1,1]*s[1], rot[2,1]*s[2], 0.0,
-        rot[0,2]*s[0], rot[1,2]*s[1], rot[2,2]*s[2], 0.0,
+        rot[0,0]*s[0], rot[1,0]*s[0], rot[2,0]*s[0], 0.0,
+        rot[0,1]*s[1], rot[1,1]*s[1], rot[2,1]*s[1], 0.0,
+        rot[0,2]*s[2], rot[1,2]*s[2], rot[2,2]*s[2], 0.0,
         p[0], p[1], p[2], 1.0)
 
 
@@ -308,18 +284,14 @@ def update_points_positions(
 
 @wp.kernel
 def update_line_transforms(
-    instance_id: wp.array(dtype=int),
     lines: wp.array(dtype=wp.vec3, ndim=2),
-    scaling: float,
     # outputs
-    vbo_positions: wp.array(dtype=wp.vec4),
-    vbo_orientations: wp.array(dtype=wp.quat),
-    vbo_scalings: wp.array(dtype=wp.vec4)):
+    vbo_transforms: wp.array(dtype=wp.mat44)):
 
     tid = wp.tid()
     p0 = lines[tid, 0]
     p1 = lines[tid, 1]
-    p = (p0 + p1) * (0.5 * scaling)
+    p = 0.5 * (p0 + p1)
     d = p1 - p0
     s = wp.length(d)
     axis = wp.normalize(d)
@@ -327,10 +299,13 @@ def update_line_transforms(
     angle = wp.acos(wp.dot(axis, y_up))
     axis = wp.normalize(wp.cross(axis, y_up))
     q = wp.quat_from_axis_angle(axis, -angle)
-    i = instance_id[tid]
-    vbo_positions[i] = wp.vec4(p[0], p[1], p[2], 0.0)
-    vbo_orientations[i] = q
-    vbo_scalings[i] = wp.vec4(1.0, s, 1.0, 1.0)
+    rot = wp.quat_to_matrix(q)
+    # transposed definition
+    vbo_transforms[tid] = wp.mat44(
+        rot[0,0], rot[1,0], rot[2,0], 0.0,
+        rot[0,1]*s, rot[1,1]*s, rot[2,1]*s, 0.0,
+        rot[0,2], rot[1,2], rot[2,2], 0.0,
+        p[0], p[1], p[2], 1.0)
 
 
 @wp.kernel
@@ -1997,10 +1972,12 @@ class TinyRenderer:
             else:
                 color = colors[0]
             instancer.register_shape(vertices, indices, color, color)
-            instancer.allocate_instances(np.array(points))
+            instancer.allocate_instances(np.array(points), colors1=colors, colors2=colors)
             self._shape_instancers[name] = instancer
         else:
             instancer = self._shape_instancers[name]
+            if len(points) != instancer.num_instances:
+                instancer.allocate_instances(np.array(points))
 
         with instancer:
             wp.launch(
@@ -2009,6 +1986,61 @@ class TinyRenderer:
                 inputs=[wp_points, None],
                 outputs=[instancer.vbo_transforms],
                 device=self._device)
+    
+    def _render_lines(self, name: str, lines, color: tuple, radius: float=0.01):
+        if len(lines) == 0:
+            return
+        
+        if name not in self._shape_instancers:
+            instancer = ShapeInstancer(self._shape_shader, self._device)
+            vertices, indices = self._create_capsule_mesh(radius, 0.5)
+            if color is None:
+                color = tab10_color_map(len(self._shape_geo_hash))
+            instancer.register_shape(vertices, indices, color, color)
+            instancer.allocate_instances(np.zeros((len(lines),3)))
+            self._shape_instancers[name] = instancer
+        else:
+            instancer = self._shape_instancers[name]
+            if len(lines) != instancer.num_instances:
+                instancer.allocate_instances(np.zeros((len(lines),3)))
+
+        lines_wp = wp.array(lines, dtype=wp.vec3, ndim=2, device=self._device)
+        with instancer:
+            wp.launch(
+                update_line_transforms,
+                dim=len(lines),
+                inputs=[lines_wp],
+                outputs=[instancer.vbo_transforms],
+                device=self._device)
+    
+    def render_line_list(self, name, vertices, indices, color, radius):
+        """Add a line list as a set of capsules
+        
+        Args:
+            vertices: The vertices of the line-list
+            indices: The indices of the line-list
+            color: The color of the line
+            radius: The radius of the line
+        """
+        lines = []
+        for i in range(len(indices)//2):
+            lines.append((vertices[indices[2*i]], vertices[indices[2*i+1]]))
+        lines = np.array(lines)
+        self._render_lines(name, lines, color, radius)
+
+    def render_line_strip(self, name: str, vertices, color: tuple, radius: float=0.01):
+        """Add a line strip as a set of capsules
+        
+        Args:
+            vertices: The vertices of the line-strip
+            color: The color of the line
+            radius: The radius of the line
+        """
+        lines = []
+        for i in range(len(vertices)-1):
+            lines.append((vertices[i], vertices[i+1]))
+        lines = np.array(lines)
+        self._render_lines(name, lines, color, radius)
 
     @staticmethod
     def _create_sphere_mesh(radius=1.0, num_latitudes=default_num_segments, num_longitudes=default_num_segments):
