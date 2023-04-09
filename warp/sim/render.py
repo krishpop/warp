@@ -302,5 +302,5 @@ def CreateSimRenderer(renderer):
 
 
 SimRendererUsd = CreateSimRenderer(wp.render.UsdRenderer)
-SimRendererTiny = CreateSimRenderer(wp.render.TinyRenderer)
+SimRendererNano = CreateSimRenderer(wp.render.NanoRenderer)
 SimRenderer = SimRendererUsd

@@ -90,7 +90,7 @@ class Example:
         #-----------------------
         # set up Usd renderer
         if (self.enable_rendering):
-            self.renderer = wp.sim.render.SimRenderer(self.model, stage)
+            self.renderer = wp.sim.render.SimRendererNano(self.model, stage)
 
     def update(self):
         for _ in range(self.sim_substeps):
@@ -143,7 +143,7 @@ class Example:
 
                     with wp.ScopedTimer("render", active=True):
                         self.render()
-                    self.renderer.save()
+                    # self.renderer.save()
 
             wp.synchronize()
 

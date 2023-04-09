@@ -1,3 +1,10 @@
+# Copyright (c) 2022 NVIDIA CORPORATION.  All rights reserved.
+# NVIDIA CORPORATION and its licensors retain all intellectual property
+# and proprietary rights in and to this software, related documentation
+# and any modifications thereto.  Any use, reproduction, disclosure or
+# distribution of this software and related documentation without an express
+# license agreement from NVIDIA CORPORATION is strictly prohibited.
+
 import warp as wp
 import warp.sim
 import warp.sim.render
@@ -13,7 +20,7 @@ wp.init()
 
 class RenderMode(Enum):
     NONE = "none"
-    TINY = "tiny"
+    NANO = "nano"
     USD = "usd"
 
     def __str__(self):
@@ -85,11 +92,11 @@ class Environment:
     euler_settings = dict()
     xpbd_settings = dict()
 
-    render_mode: RenderMode = RenderMode.TINY
+    render_mode: RenderMode = RenderMode.NANO
     tiny_render_settings = dict()
     usd_render_settings = dict(scaling=10.0)
     show_rigid_contact_points = False
-    # whether TinyRenderer should render each environment in a separate tile
+    # whether NanoRenderer should render each environment in a separate tile
     use_tiled_rendering = False
 
     # whether to apply model.joint_q, joint_qd to bodies before simulating
@@ -163,7 +170,7 @@ class Environment:
         self.sim_dt = self.frame_dt / self.sim_substeps
         self.sim_steps = int(self.episode_duration / self.sim_dt)
 
-        if self.use_tiled_rendering and self.render_mode == RenderMode.TINY:
+        if self.use_tiled_rendering and self.render_mode == RenderMode.NANO:
             # no environment offset when using tiled rendering
             self.env_offset = (0.0, 0.0, 0.0)
 
@@ -203,8 +210,8 @@ class Environment:
         self.renderer = None
         if self.profile:
             self.render_mode = RenderMode.NONE
-        if self.render_mode == RenderMode.TINY:
-            self.renderer = wp.sim.render.SimRendererTiny(
+        if self.render_mode == RenderMode.NANO:
+            self.renderer = wp.sim.render.SimRendererNano(
                 self.model,
                 self.sim_name,
                 upaxis=self.up_axis,
@@ -293,7 +300,7 @@ class Environment:
         if (self.renderer is not None):
             self.render()
 
-            if self.render_mode == RenderMode.TINY:
+            if self.render_mode == RenderMode.NANO:
                 self.renderer.paused = True
 
         profiler = {}
@@ -337,7 +344,7 @@ class Environment:
                         self.renderer.end_frame()
 
             while True:
-                if not self.continuous_tiny_render or self.render_mode != RenderMode.TINY:
+                if not self.continuous_tiny_render or self.render_mode != RenderMode.NANO:
                     progress = trange(self.episode_frames)
                 else:
                     progress = trange(self.episode_frames, leave=False)
@@ -368,7 +375,7 @@ class Environment:
 
                     self.render()
 
-                if not self.continuous_tiny_render or self.render_mode != RenderMode.TINY:
+                if not self.continuous_tiny_render or self.render_mode != RenderMode.NANO:
                     break
 
             wp.synchronize()

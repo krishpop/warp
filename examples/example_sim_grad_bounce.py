@@ -87,10 +87,10 @@ class Bounce:
 
         self.stage = None
         if (render):
-            self.stage = wp.sim.render.SimRenderer(
+            self.stage = wp.sim.render.SimRendererNano(
                 self.model,
                 os.path.join(os.path.dirname(__file__), "outputs/example_sim_grad_bounce.usd"),
-                scaling=40.0)
+                scaling=4.0)
 
 
     @wp.kernel
@@ -157,7 +157,7 @@ class Bounce:
 
             self.render_time += self.frame_dt
 
-        self.stage.save()
+        # self.stage.save()
 
     def check_grad(self):
 
@@ -234,6 +234,8 @@ class Bounce:
                 wp.launch(self.step_kernel, dim=len(x), inputs=[x, x_grad, self.train_rate], device=self.device)
 
             tape.zero()
+
+        self.stage.save()
 
 
     def train_graph(self):

@@ -8,7 +8,6 @@
 import sys
 
 import warp as wp
-# import warp.sim
 from .utils import tab10_color_map
 
 from collections import defaultdict
@@ -636,7 +635,7 @@ class ShapeInstancer:
         self._mapped_buffer.unmap()
 
 
-class TinyRenderer:
+class NanoRenderer:
     # number of segments to use for rendering spheres, capsules, cones and cylinders
     default_num_segments = 32
 
@@ -2151,7 +2150,7 @@ class TinyRenderer:
     @staticmethod
     def _create_cone_mesh(radius, half_height, up_axis=1, segments=default_num_segments):
         # render it as a cylinder with zero top radius so we get correct normals on the sides
-        return TinyRenderer._create_cylinder_mesh(radius, half_height, up_axis, segments, 0.0)
+        return NanoRenderer._create_cylinder_mesh(radius, half_height, up_axis, segments, 0.0)
     
     @staticmethod
     def _create_cylinder_mesh(radius, half_height, up_axis=1, segments=default_num_segments, top_radius=None):
@@ -2235,8 +2234,8 @@ class TinyRenderer:
         up_vector = np.array([0, 0, 0])
         up_vector[up_axis] = 1
 
-        base_vertices, base_indices = TinyRenderer._create_cylinder_mesh(base_radius, base_height/2, up_axis, segments)
-        cap_vertices, cap_indices = TinyRenderer._create_cone_mesh(cap_radius, cap_height/2, up_axis, segments)
+        base_vertices, base_indices = NanoRenderer._create_cylinder_mesh(base_radius, base_height/2, up_axis, segments)
+        cap_vertices, cap_indices = NanoRenderer._create_cone_mesh(cap_radius, cap_height/2, up_axis, segments)
 
         base_vertices[:,:3] += base_height/2 * up_vector
         # move cap slightly lower to avoid z-fighting
@@ -2297,4 +2296,4 @@ class TinyRenderer:
 
 if __name__ == "__main__":
     wp.init()
-    renderer = TinyRenderer()
+    renderer = NanoRenderer()

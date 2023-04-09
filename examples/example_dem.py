@@ -141,7 +141,8 @@ class Example:
 
         self.inv_mass = 64.0
        
-        self.renderer = wp.render.UsdRenderer(stage)
+        # self.renderer = wp.render.UsdRenderer(stage)
+        self.renderer = wp.render.NanoRenderer(stage, vsync=False)
         self.renderer.render_ground()
 
         self.grid = wp.HashGrid(128, 128, 128)

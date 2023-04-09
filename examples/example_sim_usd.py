@@ -15,9 +15,9 @@
 import os
 
 import warp as wp
-
-import warp as wp
 import warp.sim
+
+wp.init()
 
 from env.environment import Environment, run_env, IntegratorType, RenderMode
 
@@ -28,25 +28,27 @@ class Demo(Environment):
     tiny_render_settings = dict(scaling=10.0, draw_grid=True)
     usd_render_settings = dict(scaling=100.0)
 
+    show_rigid_contact_points = True
+
     episode_duration = 2.0
 
     sim_substeps_euler = 64
     sim_substeps_xpbd = 8
 
     xpbd_settings = dict(
+        # iterations=1,
         iterations=10,
         enable_restitution=True,
-        joint_linear_relaxation=0.8,
-        joint_angular_relaxation=0.45,
-        rigid_contact_relaxation=1.0,
+        # joint_linear_relaxation=0.8,
+        # joint_angular_relaxation=0.45,
+        # rigid_contact_relaxation=1.0,
         rigid_contact_con_weighting=True,
     )
+    use_graph_capture = False
 
     # USD files define their own ground plane if necessary
     activate_ground_plane = False
     num_envs = 1
-
-    use_graph_capture = True
 
     # render_mode = RenderMode.USD
     # integrator_type = IntegratorType.EULER
@@ -59,6 +61,9 @@ class Demo(Environment):
         
         settings = wp.sim.parse_usd(
             # os.path.join(folder, "box_on_quad.usd"),
+            # os.path.join(folder, "box_on_box.usda"),
+            # os.path.join(folder, "box_on_box_noscale.usda"),
+            # os.path.join(folder, "visual_collision_shape.usda"),
             # os.path.join(folder, "contact_pair_filtering.usd"),
             # os.path.join(folder, "distance_joint.usd"),
             # os.path.join(".usd_cache", "franka_instanceable_20230310135702", "franka_instanceable.usda"),
@@ -72,15 +77,17 @@ class Demo(Environment):
             # os.path.join(folder, "articulation.usda"),
             # os.path.join(folder, "ropes.usda"),
             builder,
-            default_thickness=0.01,
+            default_thickness=0.0,
+            # default_density=1e-3,
             # ignore collision meshes from Franka robot
             ignore_paths=[".*collisions.*"],
-            default_ke=1e6
+            default_ke=1e1,
+            verbose=True
         )
     
         self.frame_dt = 1.0 / settings["fps"]
-        if settings["duration"] > 0.0:
-            self.episode_duration = settings["duration"]
+        # if settings["duration"] > 0.0:
+        #     self.episode_duration = settings["duration"]
         self.sim_substeps = 10
         self.sim_dt = self.frame_dt / self.sim_substeps
         self.episode_frames = int(self.episode_duration/self.frame_dt)

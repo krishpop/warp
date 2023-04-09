@@ -30,7 +30,7 @@ class Example:
 
     frame_dt = 1.0/60.0
 
-    episode_duration = 3.0      # seconds
+    episode_duration = 6.0      # seconds
     episode_frames = int(episode_duration/frame_dt)
 
     sim_substeps = 10
@@ -47,7 +47,7 @@ class Example:
 
         self.num_bodies = 8
         self.scale = 0.8
-        self.ke = 1.e+5
+        self.ke = 1.e+2
         self.kd = 250.0
         self.kf = 500.0
 
@@ -110,12 +110,24 @@ class Example:
                     body=b,
                     mesh=bunny,
                     pos=(0.0, 0.0, 0.0),
-                    scale=(self.scale, self.scale, self.scale),
+                    scale=(self.scale*1.73, self.scale*0.73, self.scale*0.73),
                     ke=self.ke,
                     kd=self.kd,
                     kf=self.kf,
-                    density=1e3,
+                    # density=1e0,
+                    thickness=0.0
                 )
+            
+        # ground box
+        builder.add_shape_box(
+            pos=(0.0, 0.0, 0.0),
+            hx=10.0*self.scale,
+            hy=0.1*self.scale,
+            hz=10.0*self.scale,
+            body=-1,
+            ke=self.ke,
+            kd=self.kd,
+            kf=self.kf)
 
 
         # finalize model
@@ -125,13 +137,14 @@ class Example:
         self.model.joint_attach_ke = 1600.0
         self.model.joint_attach_kd = 20.0
 
-        self.integrator = wp.sim.SemiImplicitIntegrator()
+        # self.integrator = wp.sim.SemiImplicitIntegrator()
+        self.integrator = wp.sim.XPBDIntegrator()
 
         #-----------------------
         # set up Usd renderer
         if (self.enable_rendering):
-            self.renderer = wp.sim.render.SimRendererTiny(self.model, stage)
-            self.renderer.app.dump_frames_to_video("my_video.mp4")
+            self.renderer = wp.sim.render.SimRendererNano(self.model, stage)
+            # self.renderer = wp.sim.render.SimRendererUsd(self.model, stage)
 
     def load_mesh(self, filename, path):
         asset_stage = Usd.Stage.Open(filename)
@@ -198,6 +211,8 @@ class Example:
                         self.render()
 
             wp.synchronize()
+
+        self.renderer.save()
 
 
 stage = os.path.join(os.path.dirname(__file__), "outputs/example_sim_rigid_contact.usd")

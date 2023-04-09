@@ -42,7 +42,7 @@ class AllegroEnvironment(Environment):
         rigid_contact_con_weighting=True,
     )
 
-    use_tiled_rendering = True
+    use_tiled_rendering = False
 
     # render_mode = RenderMode.USD
     

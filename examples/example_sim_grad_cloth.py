@@ -88,10 +88,10 @@ class Cloth:
             self.states.append(self.model.state(requires_grad=True))
 
         if (self.render):
-            self.stage = wp.sim.render.SimRenderer(
+            self.stage = wp.sim.render.SimRendererNano(
                 self.model,
                 os.path.join(os.path.dirname(__file__), "outputs/example_sim_grad_cloth.usd"),
-                scaling=40.0)
+                scaling=4.0)
        
 
     @wp.kernel
@@ -166,7 +166,7 @@ class Cloth:
 
             self.render_time += self.frame_dt
 
-        self.stage.save()
+        # self.stage.save()
 
 
     def train(self, mode='gd'):
