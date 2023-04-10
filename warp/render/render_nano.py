@@ -1104,9 +1104,9 @@ class NanoRenderer:
     def num_instances(self):
         return self._instance_count
     
-    def begin_frame(self, time: float):
+    def begin_frame(self, time: float = None):
         self._last_begin_frame_time = glfw.get_time()
-        self.time = time
+        self.time = time or self.clock_time
 
     def end_frame(self):
         self._last_end_frame_time = glfw.get_time()
@@ -1550,7 +1550,7 @@ class NanoRenderer:
         if name in self._instances:
             i, body, shape, _, scale, old_color1, old_color2 = self._instances[name]
             self._instances[name] = (i, body, shape, [*pos, *rot], scale, color1 or old_color1, color2 or old_color2)
-            # self._update_shape_instances = True
+            self._update_shape_instances = True
             return True
         return False
     
