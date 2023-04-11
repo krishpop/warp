@@ -24,3 +24,7 @@ exts/omni.warp/omni/warp/ogn/tests/usd
 build/
 
 examples/assets
+
+**outputs/
+**.ipynb_checkpoints/
+tags
