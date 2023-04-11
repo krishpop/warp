@@ -970,11 +970,11 @@ class array (Array):
             if device.is_cpu and copy == False:
 
                 # ref numpy memory directly
-                self.shape=shape
+                self.shape = shape
                 self.ptr = ptr
-                self.dtype=dtype
+                self.dtype = dtype
                 self.strides = strides
-                self.capacity=arr.size*type_size_in_bytes(dtype)
+                self.capacity = arr.size*type_size_in_bytes(dtype)
                 self.device = device
                 self.owner = False
                 self.pinned = False
