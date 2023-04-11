@@ -82,8 +82,8 @@ class Environment:
 
     episode_duration = 5.0      # seconds
 
-    # whether to play the simulation indefinitely when using the Tiny renderer
-    continuous_tiny_render: bool = True
+    # whether to play the simulation indefinitely when using the nano renderer
+    continuous_nano_render: bool = True
 
     sim_substeps_euler: int = 16
     sim_substeps_xpbd: int = 5
@@ -92,7 +92,7 @@ class Environment:
     xpbd_settings = dict()
 
     render_mode: RenderMode = RenderMode.NANO
-    tiny_render_settings = dict()
+    nano_render_settings = dict()
     usd_render_settings = dict(scaling=10.0)
     show_rigid_contact_points = False
     # whether NanoRenderer should render each environment in a separate tile
@@ -196,7 +196,7 @@ class Environment:
 
         self.model.joint_attach_ke = self.joint_attach_ke
         self.model.joint_attach_kd = self.joint_attach_kd
-        
+
         # set up current and next state to be used by the integrator
         self.state_0 = None
         self.state_1 = None
@@ -215,7 +215,7 @@ class Environment:
                 self.sim_name,
                 upaxis=self.up_axis,
                 show_rigid_contact_points=self.show_rigid_contact_points,
-                **self.tiny_render_settings)
+                **self.nano_render_settings)
             if self.use_tiled_rendering and self.num_envs > 1:
                 floor_id = self.model.shape_count-1
                 # all shapes except the floor
@@ -272,7 +272,8 @@ class Environment:
             with wp.ScopedTimer("render", False):
                 self.render_time += self.frame_dt
                 self.renderer.begin_frame(self.render_time)
-                self.renderer.render(self.state_0)
+                # render state 1 (swapped with state 0 just before)
+                self.renderer.render(self.state_1)
                 self.renderer.end_frame()
 
     def run(self):
@@ -294,7 +295,6 @@ class Environment:
                 self.state_0)
 
         self.before_simulate()
-        # self.update()
 
         if (self.renderer is not None):
             self.render()
@@ -334,17 +334,10 @@ class Environment:
             if (self.renderer is not None):
  
                 with wp.ScopedTimer("render", False):
-
-                    if (self.renderer is not None):
-                        self.render_time += self.frame_dt
-                        
-                        self.renderer.begin_frame(self.render_time)
-                        self.renderer.render(self.state_0)
-                        self.renderer.end_frame()
+                    self.render()
 
             while True:
-                progress = range(self.episode_frames)
-                for f in progress:
+                for f in range(self.episode_frames):
                     if self.use_graph_capture:
                         wp.capture_launch(graph)
                         self.sim_time += self.frame_dt
@@ -371,7 +364,7 @@ class Environment:
 
                     self.render()
 
-                if not self.continuous_tiny_render or self.render_mode != RenderMode.NANO:
+                if not self.continuous_nano_render or self.render_mode != RenderMode.NANO:
                     break
 
             wp.synchronize()

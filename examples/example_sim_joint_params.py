@@ -102,7 +102,7 @@ class Example:
 
         self.integrator = wp.sim.XPBDIntegrator(iterations=2)
 
-        self.renderer = wp.sim.render.SimRendererTiny(self.model, "Example Sim Joint Params", scaling=2.0)
+        self.renderer = wp.sim.render.SimRendererNano(self.model, "Example Sim Joint Params", scaling=2.0)
 
 
     def update(self):

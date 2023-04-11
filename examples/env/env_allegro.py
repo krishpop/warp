@@ -25,7 +25,7 @@ from environment import Environment, run_env, RenderMode
 class AllegroEnvironment(Environment):
     sim_name = "example_sim_allegro"
     env_offset=(0.5, 0.0, 0.5)
-    tiny_render_settings = dict(scaling=4.0)
+    nano_render_settings = dict(scaling=4.0)
     usd_render_settings = dict(scaling=200.0)
     episode_duration = 8.0
 

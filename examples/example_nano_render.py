@@ -10,7 +10,7 @@ num_tiles = 9
 # whether to split tiles into subplots
 split_up_tiles = True
 
-renderer = wp.render.TinyRenderer()
+renderer = wp.render.NanoRenderer(vsync=True)
 instance_ids = []
 # set up instances to hide one of the capsules in each tile
 for i in range(num_tiles):

@@ -28,7 +28,7 @@ class Demo(Environment):
     sim_name = "example_sim_rigid_contact_xpbd"
     num_envs = 1
 
-    tiny_render_settings = dict(scaling=5)
+    nano_render_settings = dict(scaling=5)
 
     def create_articulation(self, builder):
 

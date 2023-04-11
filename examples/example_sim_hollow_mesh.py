@@ -26,7 +26,7 @@ from env.environment import Environment, run_env, RenderMode
 class Demo(Environment):
     sim_name = "example_sim_hollow_mesh"
     env_offset=(2.0, 0.0, 2.0)
-    tiny_render_settings = dict(scaling=10.0, move_camera_target_to_center=False)
+    nano_render_settings = dict(scaling=10.0, move_camera_target_to_center=False)
     usd_render_settings = dict(scaling=100.0)
 
     sim_substeps_euler = 64

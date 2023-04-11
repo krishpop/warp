@@ -25,7 +25,7 @@ from env.environment import Environment, run_env, IntegratorType
 class Demo(Environment):
     sim_name = "example_sim_funnel_granular"
     env_offset=(20, 0.0, 20)
-    tiny_render_settings = dict(scaling=0.25)
+    nano_render_settings = dict(scaling=0.25)
     usd_render_settings = dict(scaling=5.0)
 
     num_envs = 4

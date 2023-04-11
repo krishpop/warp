@@ -25,7 +25,7 @@ from env.environment import Environment, run_env, IntegratorType, RenderMode
 class Demo(Environment):
     sim_name = "example_sim_usd"
     env_offset=(6.0, 0.0, 6.0)
-    tiny_render_settings = dict(scaling=10.0, draw_grid=True)
+    nano_render_settings = dict(scaling=10.0, draw_grid=True)
     usd_render_settings = dict(scaling=100.0)
 
     show_rigid_contact_points = True
