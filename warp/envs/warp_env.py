@@ -169,11 +169,21 @@ class WarpEnv(Environment):
             self.initialize_renderer()
         else:
             self.renderer = None
-        self.state_0 = self.model.state(requires_grad=self.requires_grad)
-        self.state_1 = self.model.state(requires_grad=self.requires_grad)
-
+        self.state_0 = self.model.state()
+        self.state_1 = self.model.state()
         self._joint_q = wp.zeros_like(self.model.joint_q)
         self._joint_qd = wp.zeros_like(self.model.joint_qd)
+        if self.requires_grad:
+            self.state_0.body_q.requires_grad = True
+            self.state_1.body_q.requires_grad = True
+            self.state_0.body_qd.requires_grad = True
+            self.state_1.body_qd.requires_grad = True
+            self.state_0.body_f.requires_grad = True
+            self.state_1.body_f.requires_grad = True
+            self._joint_q.requires_grad = True
+            self._joint_qd.requires_grad = True
+        self.body_q, self.body_qd = wp.to_torch(self.state_0.body_qd), wp.to_torch(self.state_0.body_qd)
+
         start_joint_q = wp.to_torch(self.model.joint_q)
         start_joint_qd = wp.to_torch(self.model.joint_qd)
         self.joint_q = None
@@ -360,10 +370,11 @@ class WarpEnv(Environment):
         checkpoint = {}
         self.update_joints()
         joint_q, joint_qd = self.joint_q.detach(), self.joint_qd.detach()
+        body_q, body_qd = self.body_q.detach(), self.body_qd.detach()
         checkpoint["joint_q"] = joint_q.clone()
         checkpoint["joint_qd"] = joint_qd.clone()
-        checkpoint["body_q"] = wp.to_torch(self.state_0.body_q).clone()
-        checkpoint["body_qd"] = wp.to_torch(self.state_0.body_qd).clone()
+        checkpoint["body_q"] = body_q.clone()
+        checkpoint["body_qd"] = body_qd.clone()
         checkpoint["actions"] = self.actions.clone()
         checkpoint["progress_buf"] = self.progress_buf.clone()
         checkpoint["obs_buf"] = self.obs_buf.clone()
