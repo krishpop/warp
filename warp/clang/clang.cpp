@@ -37,7 +37,7 @@ namespace wp {
 
 extern "C" {
 
-std::unique_ptr<llvm::Module> cpp_to_llvm(const std::string &input_file, const char* cpp_src, const char* include_dir, llvm::LLVMContext& context)
+std::unique_ptr<llvm::Module> cpp_to_llvm(const std::string& input_file, const char* cpp_src, const char* include_dir, llvm::LLVMContext& context)
 {
     // Compilation arguments
     std::vector<const char*> args;
@@ -78,7 +78,13 @@ std::unique_ptr<llvm::Module> cpp_to_llvm(const std::string &input_file, const c
 
 WP_API int compile_cpp(const char* cpp_src, const char* include_dir, const char* output_file)
 {
-    std::string input_file = std::string(output_file).substr(0, std::strlen(output_file) - std::strlen(".obj"));
+    #if defined (_WIN32)
+        const char* obj_ext = ".obj";
+    #else
+        const char* obj_ext = ".o";
+    #endif
+
+    std::string input_file = std::string(output_file).substr(0, std::strlen(output_file) - std::strlen(obj_ext));
 
     llvm::InitializeAllTargetInfos();
     llvm::InitializeAllTargets();
@@ -101,7 +107,8 @@ WP_API int compile_cpp(const char* cpp_src, const char* include_dir, const char*
     const char* features = "";
     llvm::TargetOptions target_options;
     llvm::Reloc::Model relocation_model = llvm::Reloc::PIC_;  // DLLs need Position Independent Code
-    llvm::TargetMachine* target_machine = target->createTargetMachine(target_triple, CPU, features, target_options, relocation_model);
+    llvm::CodeModel::Model code_model = llvm::CodeModel::Large;  // Don't make assumptions about displacement sizes
+    llvm::TargetMachine* target_machine = target->createTargetMachine(target_triple, CPU, features, target_options, relocation_model, code_model);
 
     module->setDataLayout(target_machine->createDataLayout());
 
@@ -149,8 +156,14 @@ WP_API int load_obj(const char* object_file, const char* module_name)
 
     // Enable searching for external symbols in the calling module
     {
+        #if defined (_WIN32)
+            const char* clang_dll = "clang.dll";
+        #else
+            const char* clang_dll = "clang.so";
+        #endif
+
         char global_prefix = '\0';
-        auto search = llvm::orc::DynamicLibrarySearchGenerator::GetForCurrentProcess(global_prefix);
+        auto search = llvm::orc::DynamicLibrarySearchGenerator::Load(clang_dll, global_prefix);
 
         if(!search)
         {
@@ -172,7 +185,7 @@ WP_API int load_obj(const char* object_file, const char* module_name)
     auto err = jit->addObjectFile(*dll, std::move(*buffer));
     if(err)
     {
-         std::cerr << "Failed to add object file: " << llvm::toString(std::move(err)) << std::endl;
+        std::cerr << "Failed to add object file: " << llvm::toString(std::move(err)) << std::endl;
         return -1;
     }
 

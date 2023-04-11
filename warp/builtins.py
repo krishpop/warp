@@ -62,19 +62,19 @@ add_builtin("pow", input_types={"x": Float, "y": Float}, value_func=sametype_val
 
 add_builtin("round", input_types={"x": Float}, value_func=sametype_value_func(Float), group="Scalar Math",
     doc="""Calculate the nearest integer value, rounding halfway cases away from zero.
-This is the most intuitive form of rounding in the colloquial sense, but can be slower than other options like ``warp.rint()``.
-Differs from ``numpy.round()``, which behaves the same way as ``numpy.rint()``.""")
+    This is the most intuitive form of rounding in the colloquial sense, but can be slower than other options like ``warp.rint()``.
+    Differs from ``numpy.round()``, which behaves the same way as ``numpy.rint()``.""")
 
 add_builtin("rint", input_types={"x": Float}, value_func=sametype_value_func(Float), group="Scalar Math",
     doc="""Calculate the nearest integer value, rounding halfway cases to nearest even integer.
-It is generally faster than ``warp.round()``.
-Equivalent to ``numpy.rint()``.""")
+    It is generally faster than ``warp.round()``.
+    Equivalent to ``numpy.rint()``.""")
 
 add_builtin("trunc", input_types={"x": Float}, value_func=sametype_value_func(Float), group="Scalar Math",
     doc="""Calculate the nearest integer that is closer to zero than x.
-In other words, it discards the fractional part of x.
-It is similar to casting ``float(int(x))``, but preserves the negative sign when x is in the range [-0.0, -1.0).
-Equivalent to ``numpy.trunc()`` and ``numpy.fix()``.""")
+    In other words, it discards the fractional part of x.
+    It is similar to casting ``float(int(x))``, but preserves the negative sign when x is in the range [-0.0, -1.0).
+    Equivalent to ``numpy.trunc()`` and ``numpy.fix()``.""")
 
 add_builtin("floor", input_types={"x": Float}, value_func=sametype_value_func(Float), group="Scalar Math",
     doc="""Calculate the largest integer that is less than or equal to x.""")
@@ -155,26 +155,30 @@ add_builtin("transpose", input_types={"m": matrix(shape=(Any,Any), dtype=Scalar)
 def value_func_mat_inv(args, kwds, _):
     if args is None:
         return matrix(shape=(Any,Any), dtype=Float)
-    if args[0].type._shape_[0] != args[0].type._shape_[1]:
-        raise RuntimeError(f"Matrix shape is {args[0].type._shape_}. Cannot invert non square matrices")
-    if args[0].type._shape_[0] not in [2,3,4]:
-        raise RuntimeError(f"Matrix inverse only supported for sizes 2,3 and 4 right now")
     return args[0].type
 
-add_builtin("inverse", input_types={"m": matrix(shape=(Any,Any), dtype=Float)}, value_func=value_func_mat_inv, group="Vector Math",
-    doc="Return the inverse of the matrix m")
+add_builtin("inverse", input_types={"m": matrix(shape=(2,2), dtype=Float)}, value_func=value_func_mat_inv, group="Vector Math",
+    doc="Return the inverse of a 2x2 matrix m")
+
+add_builtin("inverse", input_types={"m": matrix(shape=(3,3), dtype=Float)}, value_func=value_func_mat_inv, group="Vector Math",
+    doc="Return the inverse of a 3x3 matrix m")
+
+add_builtin("inverse", input_types={"m": matrix(shape=(4,4), dtype=Float)}, value_func=value_func_mat_inv, group="Vector Math",
+    doc="Return the inverse of a 4x4 matrix m")
 
 def value_func_mat_det(args, kwds, _):
     if args is None:
         return Scalar
-    if args[0].type._shape_[0] != args[0].type._shape_[1]:
-        raise RuntimeError(f"Matrix shape is {args[0].type._shape_}. Cannot find the determinant of non square matrices")
-    if args[0].type._shape_[0] not in [2,3,4]:
-        raise RuntimeError(f"Matrix determinant only supported for sizes 2,3 and 4 right now")
     return args[0].type._wp_scalar_type_
 
-add_builtin("determinant", input_types={"m": matrix(shape=(Any,Any), dtype=Scalar)}, value_func=value_func_mat_det, group="Vector Math",
-    doc="Return the determinant of the matrix m")
+add_builtin("determinant", input_types={"m": matrix(shape=(2,2), dtype=Float)}, value_func=value_func_mat_det, group="Vector Math",
+    doc="Return the determinant of a 2x2 matrix m")
+
+add_builtin("determinant", input_types={"m": matrix(shape=(3,3), dtype=Float)}, value_func=value_func_mat_det, group="Vector Math",
+    doc="Return the determinant of a 3x3 matrix m")
+
+add_builtin("determinant", input_types={"m": matrix(shape=(4,4), dtype=Float)}, value_func=value_func_mat_det, group="Vector Math",
+    doc="Return the determinant of a 4x4 matrix m")
 
 def value_func_mat_trace(args, kwds, _):
     if args is None:
@@ -186,8 +190,13 @@ def value_func_mat_trace(args, kwds, _):
 add_builtin("trace", input_types={"m": matrix(shape=(Any,Any), dtype=Scalar)}, value_func=value_func_mat_trace, group="Vector Math",
     doc="Return the trace of the matrix m")
 
-add_builtin("diag", input_types={"d": vector(length=Any, dtype=Scalar)}, value_func=lambda args, kwds, _: matrix(shape=(args[0].type._length_,args[0].type._length_), dtype=args[0].type._wp_scalar_type_), group="Vector Math",
-    doc="Returns a matrix with the components of the vector d on the diagonal")
+def value_func_diag(args, kwds, _):
+    if args is None:
+        return matrix(shape=(Any, Any), dtype=Scalar)
+    else:
+        return matrix(shape=(args[0].type._length_,args[0].type._length_), dtype=args[0].type._wp_scalar_type_)
+
+add_builtin("diag", input_types={"d": vector(length=Any, dtype=Scalar)}, value_func=value_func_diag, group="Vector Math", doc="Returns a matrix with the components of the vector d on the diagonal")
 
 add_builtin("cw_mul", input_types={"x": vector(length=Any, dtype=Scalar), "y": vector(length=Any, dtype=Scalar)}, value_func=sametype_value_func(vector(length=Any, dtype=Scalar)), group="Vector Math",
      doc="Component wise multiply of two 2d vectors.")
@@ -200,7 +209,7 @@ add_builtin("cw_div", input_types={"x": matrix(shape=(Any,Any), dtype=Scalar), "
     doc="Component wise division of two 2d vectors.")
 
 
-# scalar type construtors between all storage / compute types 
+# scalar type constructors between all storage / compute types 
 scalar_types_all = [*scalar_types, int, float]
 for t in scalar_types_all:
     for u in scalar_types_all:
@@ -221,7 +230,7 @@ def vector_constructor_func(args, kwds, templates):
                     raise RuntimeError("vec() must have dtype as a keyword argument if it has no positional arguments, e.g.: wp.vector(length=5, dtype=wp.float32)")
 
                 # zero initialization e.g.: wp.vector(length=5, dtype=wp.float32)
-                veclen = kwds["length"] 
+                veclen = kwds["length"]
                 vectype = kwds["dtype"]
 
             elif len(args) == 1:
@@ -265,12 +274,12 @@ def vector_constructor_func(args, kwds, templates):
 
 add_builtin(
     "vector",
-    input_types={},
+    input_types={"*args": Scalar, "length": int, "dtype": Scalar},
     variadic=True,
     initializer_list_func=lambda args, _: len(args) > 4,
     value_func=vector_constructor_func,
     native_func="vec_t",
-    doc="Construct a vector",
+    doc="Construct a vector of with given length and dtype.",
     group="Vector Math",
     export=False
 )
@@ -284,24 +293,24 @@ def matrix_constructor_func(args, kwds, templates):
     if len(templates) == 0:
         # anonymous construction        
         if "shape" not in kwds:
-                raise RuntimeError("shape keyword must be specified when calling mat() function")
+                raise RuntimeError("shape keyword must be specified when calling matrix() function")
               
         if len(args) == 0:
             if "dtype" not in kwds:
-                raise RuntimeError("mat() must have dtype as a keyword argument if it has no positional arguments")
+                raise RuntimeError("matrix() must have dtype as a keyword argument if it has no positional arguments")
             
             # zero initialization, e.g.: m = matrix(shape=(3,2), dtype=wp.float16)
             shape = kwds["shape"]
-            dtype = kwds["dtype"].__class__
+            dtype = kwds["dtype"]
 
         else:
             
-            # value initialization, e.g.: m = mat(1.0, shape=(3,2))
+            # value initialization, e.g.: m = matrix(1.0, shape=(3,2))
             shape = kwds["shape"]
             dtype = args[0].type
 
             if len(args) > 1 and len(args) != shape[0] * shape[1]:
-                raise RuntimeError("Wrong number of arguments for mat() function, must initialize with either a scalar value, or m*n values")
+                raise RuntimeError("Wrong number of arguments for matrix() function, must initialize with either a scalar value, or m*n values")
               
 
         templates.append(shape[0])
@@ -355,12 +364,12 @@ def matrix_initlist_func(args, templates):
 
 add_builtin(
     "matrix",
-    input_types={},
+    input_types={"*args": Scalar, "shape": Tuple[int, int], "dtype": Scalar},
     variadic=True,
     initializer_list_func=matrix_initlist_func,
     value_func=matrix_constructor_func,
     native_func="mat_t",
-    doc="Construct a matrix.",
+    doc="Construct a matrix, if positional args are not given then matrix will be zero-initialized.",
     group="Vector Math",    
     export=False
 )
@@ -379,7 +388,10 @@ def matrix_identity_value_func(args, kwds, templates):
     if "dtype" not in kwds:
         raise RuntimeError("'dtype' keyword argument must be specified when calling identity() function")
 
-    n, dtype = [kwds["n"], kwds["dtype"].__class__]
+    n, dtype = [kwds["n"], kwds["dtype"]]
+
+    if n == None:
+        raise RuntimeError("'n' must be a constant when calling identity() function")
 
     templates.append(n)
     templates.append(dtype)
@@ -389,9 +401,10 @@ def matrix_identity_value_func(args, kwds, templates):
 
 add_builtin(
     "identity",
-    input_types={},
+    input_types={"n": int, "dtype": Scalar},
     value_func=matrix_identity_value_func,
-    doc="Create an identity matrix with shape=(n,n).",
+    variadic=True,
+    doc="Create an identity matrix with shape=(n,n) with the type given by ``dtype``.",
     group="Vector Math",
     export=False
 )
@@ -424,10 +437,10 @@ add_builtin("svd3", input_types={"A": matrix(shape=(3,3), dtype=Float), "U": mat
    while the left and right basis vectors are returned in U and V.""")
 
 add_builtin("qr3", input_types={"A": matrix(shape=(3,3), dtype=Float), "Q": matrix(shape=(3,3), dtype=Float), "R": matrix(shape=(3,3), dtype=Float)}, value_type=None, group="Vector Math", export=False,
-    doc="""Compute the QR decomposition of a 3x3 matrix. The orthogonal matrix is returned in Q, while the upper triangular matrix is returend in R.""")
+    doc="""Compute the QR decomposition of a 3x3 matrix. The orthogonal matrix is returned in Q, while the upper triangular matrix is returned in R.""")
 
 add_builtin("eig3", input_types={"A": matrix(shape=(3,3), dtype=Float), "Q": matrix(shape=(3,3), dtype=Float), "d": vector(length=3, dtype=Float)}, value_type=None, group="Vector Math", export=False,
-    doc="""Compute the eigen decomposition of a 3x3 marix. The eigen vectors are returned as the columns of Q, while the corresponding eigen values are returned in d.""")
+    doc="""Compute the eigendecomposition of a 3x3 matrix. The eigenvectors are returned as the columns of Q, while the corresponding eigenvalues are returned in d.""")
 
 #---------------------------------
 # Quaternion Math
@@ -465,7 +478,7 @@ def quat_identity_value_func(args, kwds, templates):
         # defaulting to float32 to preserve current behavior:
         dtype = float32
     else:
-        dtype = kwds["dtype"].__class__
+        dtype = kwds["dtype"]
 
     templates.append(dtype)
 
@@ -527,7 +540,7 @@ def transform_identity_value_func(args, kwds, templates):
         # defaulting to float32 to preserve current behavior:
         dtype = float32
     else:
-        dtype = kwds["dtype"].__class__
+        dtype = kwds["dtype"]
 
     templates.append(dtype)
 
@@ -548,13 +561,13 @@ add_builtin("transform_point", input_types={"t": transformation(dtype=Scalar), "
 add_builtin("transform_point", input_types={"m": matrix(shape=(4,4), dtype=Scalar), "p": vector(length=3, dtype=Scalar)}, value_func=lambda args, kwds, _: vector(length=3, dtype=infer_scalar_type(args)), group="Vector Math",
     doc="""Apply the transform to a point ``p`` treating the homogenous coordinate as w=1. The transformation is applied treating ``p`` as a column vector, e.g.: ``y = M*p``
    note this is in contrast to some libraries, notably USD, which applies transforms to row vectors, ``y^T = p^T*M^T``. If the transform is coming from a library that uses row-vectors
-   then users should transpose the tranformation matrix before calling this method.""")
+   then users should transpose the transformation matrix before calling this method.""")
 add_builtin("transform_vector", input_types={"t": transformation(dtype=Scalar), "v": vector(length=3, dtype=Scalar)}, value_func=lambda args, kwds, _: vector(length=3, dtype=infer_scalar_type(args)), group="Transformations",
     doc="Apply the transform to a vector v treating the homogenous coordinate as w=0 (rotation only).")
 add_builtin("transform_vector", input_types={"m": matrix(shape=(4,4), dtype=Scalar), "v": vector(length=3, dtype=Scalar)}, value_func=lambda args, kwds, _: vector(length=3, dtype=infer_scalar_type(args)), group="Vector Math",
     doc="""Apply the transform to a vector ``v`` treating the homogenous coordinate as w=0. The transformation is applied treating ``v`` as a column vector, e.g.: ``y = M*v``
    note this is in contrast to some libraries, notably USD, which applies transforms to row vectors, ``y^T = v^T*M^T``. If the transform is coming from a library that uses row-vectors
-   then users should transpose the tranformation matrix before calling this method.""")
+   then users should transpose the transformation matrix before calling this method.""")
 add_builtin("transform_inverse", input_types={"t": transformation(dtype=Float)}, value_func=sametype_value_func(transformation(dtype=Float)), group="Transformations",
     doc="Compute the inverse of the transform.")
 #---------------------------------
@@ -715,7 +728,7 @@ add_builtin("mesh_query_point", input_types={"id": uint64, "point": vec3, "max_d
    :param inside: Returns a value < 0 if query point is inside the mesh, >=0 otherwise. Note that mesh must be watertight for this to be robust
    :param face: Returns the index of the closest face
    :param bary_u: Returns the barycentric u coordinate of the closest point
-   :param bary_v: Retruns the barycentric v coordinate of the closest point""")
+   :param bary_v: Returns the barycentric v coordinate of the closest point""")
 
 add_builtin("mesh_query_ray", input_types={"id": uint64, "start": vec3, "dir": vec3, "max_t": float, "t": float, "bary_u": float, "bary_v": float, "sign": float, "normal": vec3, "face": int}, value_type=bool, group="Geometry",
     doc="""Computes the closest ray hit on the mesh with identifier `id`, returns ``True`` if a point < ``max_t`` is found.
@@ -888,6 +901,12 @@ add_builtin("sample_unit_square", input_types={"state": uint32}, value_type=vec2
 add_builtin("sample_unit_cube", input_types={"state": uint32}, value_type=vec3, group="Random",
     doc="Uniformly sample a unit cube")
 
+add_builtin("poisson", input_types={"state": uint32, "lam": float}, value_type=uint32, group="Random",
+    doc="""Generate a random sample from a Poisson distribution.
+    
+    :param state: RNG state
+    :param lam: The expected value of the distribution""")
+
 add_builtin("noise", input_types={"state": uint32, "x": float}, value_type=float, group="Random",
     doc="Non-periodic Perlin-style noise in 1d.")
 add_builtin("noise", input_types={"state": uint32, "xy": vec2}, value_type=float, group="Random",
@@ -938,10 +957,10 @@ add_builtin("copy", variadic=True, hidden=True, export=False, group="Utility")
 add_builtin("select", input_types={"cond": bool, "arg1": Any, "arg2": Any}, value_func=lambda args, kwds, _: args[1].type, doc="Select between two arguments, if cond is false then return ``arg1``, otherwise return ``arg2``", group="Utility")
 add_builtin("select", input_types={"arr": array(dtype=Any), "arg1": Any, "arg2": Any}, value_func=lambda args, kwds, _: args[1].type, doc="Select between two arguments, if array is null then return ``arg1``, otherwise return ``arg2``", group="Utility")
 
-# does argument checking and type progagation for load()
+# does argument checking and type propagation for load()
 def load_value_func(args, kwds, _):
 
-    if (type(args[0].type) != array):
+    if not is_array(args[0].type):
         raise RuntimeError("load() argument 0 must be an array")
 
     num_indices = len(args[1:])
@@ -960,9 +979,9 @@ def load_value_func(args, kwds, _):
 
     return args[0].type.dtype
 
-# does argument checking and type progagation for view()
+# does argument checking and type propagation for view()
 def view_value_func(args, kwds, _):
-    if (type(args[0].type) != array):
+    if not is_array(args[0].type):
         raise RuntimeError("view() argument 0 must be an array")
 
     # check array dim big enough to support view
@@ -984,10 +1003,10 @@ def view_value_func(args, kwds, _):
     
     return view_type
 
-# does argument checking and type progagation for store()
+# does argument checking and type propagation for store()
 def store_value_func(args, kwds, _):
     # check target type
-    if (type(args[0].type) != array):
+    if not is_array(args[0].type):
         raise RuntimeError("store() argument 0 must be an array")
     
     num_indices = len(args[1:-1])
@@ -1019,7 +1038,7 @@ add_builtin("store", variadic=True, hidden=True, value_func=store_value_func, sk
 def atomic_op_value_func(args, kwds, _):
 
     # check target type
-    if (type(args[0].type) != array):
+    if not is_array(args[0].type):
         raise RuntimeError("atomic() operation argument 0 must be an array")
     
     num_indices = len(args[1:-1])
@@ -1042,26 +1061,30 @@ def atomic_op_value_func(args, kwds, _):
 
     return args[0].type.dtype
 
+for array_type in array_types:
 
-add_builtin("atomic_add", input_types={"a": array(dtype=Any), "i": int, "value": Any}, value_func=atomic_op_value_func, doc="Atomically add ``value`` onto the array at location given by index.", group="Utility", skip_replay=True)
-add_builtin("atomic_add", input_types={"a": array(dtype=Any), "i": int, "j": int, "value": Any}, value_func=atomic_op_value_func, doc="Atomically add ``value`` onto the array at location given by indices.", group="Utility", skip_replay=True)
-add_builtin("atomic_add", input_types={"a": array(dtype=Any), "i": int, "j": int, "k": int, "value": Any}, value_func=atomic_op_value_func, doc="Atomically add ``value`` onto the array at location given by indices.", group="Utility", skip_replay=True)
-add_builtin("atomic_add", input_types={"a": array(dtype=Any), "i": int, "j": int, "k": int, "l": int, "value": Any}, value_func=atomic_op_value_func, doc="Atomically add ``value`` onto the array at location given by indices.", group="Utility", skip_replay=True)
+    # don't list indexed array operations explicitly in docs
+    hidden = array_type == indexedarray
 
-add_builtin("atomic_sub", input_types={"a": array(dtype=Any), "i": int, "value": Any}, value_func=atomic_op_value_func, doc="Atomically subtract ``value`` onto the array at location given by index.", group="Utility", skip_replay=True)
-add_builtin("atomic_sub", input_types={"a": array(dtype=Any), "i": int, "j": int, "value": Any}, value_func=atomic_op_value_func, doc="Atomically subtract ``value`` onto the array at location given by indices.", group="Utility", skip_replay=True)
-add_builtin("atomic_sub", input_types={"a": array(dtype=Any), "i": int, "j": int, "k":int, "value": Any}, value_func=atomic_op_value_func, doc="Atomically subtract ``value`` onto the array at location given by indices.", group="Utility", skip_replay=True)
-add_builtin("atomic_sub", input_types={"a": array(dtype=Any), "i": int, "j": int, "k":int, "l": int, "value": Any}, value_func=atomic_op_value_func, doc="Atomically subtract ``value`` onto the array at location given by indices.", group="Utility", skip_replay=True)
+    add_builtin("atomic_add", hidden=hidden, input_types={"a": array_type(dtype=Any), "i": int, "value": Any}, value_func=atomic_op_value_func, doc="Atomically add ``value`` onto the array at location given by index.", group="Utility", skip_replay=True)
+    add_builtin("atomic_add", hidden=hidden, input_types={"a": array_type(dtype=Any), "i": int, "j": int, "value": Any}, value_func=atomic_op_value_func, doc="Atomically add ``value`` onto the array at location given by indices.", group="Utility", skip_replay=True)
+    add_builtin("atomic_add", hidden=hidden, input_types={"a": array_type(dtype=Any), "i": int, "j": int, "k": int, "value": Any}, value_func=atomic_op_value_func, doc="Atomically add ``value`` onto the array at location given by indices.", group="Utility", skip_replay=True)
+    add_builtin("atomic_add", hidden=hidden, input_types={"a": array_type(dtype=Any), "i": int, "j": int, "k": int, "l": int, "value": Any}, value_func=atomic_op_value_func, doc="Atomically add ``value`` onto the array at location given by indices.", group="Utility", skip_replay=True)
 
-add_builtin("atomic_min", input_types={"a": array(dtype=Any), "i": int, "value": Any}, value_func=atomic_op_value_func, doc="Compute the minimum of ``value`` and ``array[index]`` and atomically update the array. Note that for vectors and matrices the operation is only atomic on a per-component basis.", group="Utility", skip_replay=True)
-add_builtin("atomic_min", input_types={"a": array(dtype=Any), "i": int, "j": int, "value": Any}, value_func=atomic_op_value_func, doc="Compute the minimum of ``value`` and ``array[index]`` and atomically update the array. Note that for vectors and matrices the operation is only atomic on a per-component basis.", group="Utility", skip_replay=True)
-add_builtin("atomic_min", input_types={"a": array(dtype=Any), "i": int, "j": int, "k": int, "value": Any}, value_func=atomic_op_value_func, doc="Compute the minimum of ``value`` and ``array[index]`` and atomically update the array. Note that for vectors and matrices the operation is only atomic on a per-component basis.", group="Utility", skip_replay=True)
-add_builtin("atomic_min", input_types={"a": array(dtype=Any), "i": int, "j": int, "k": int, "l": int, "value": Any}, value_func=atomic_op_value_func, doc="Compute the minimum of ``value`` and ``array[index]`` and atomically update the array. Note that for vectors and matrices the operation is only atomic on a per-component basis.", group="Utility", skip_replay=True)
+    add_builtin("atomic_sub", hidden=hidden, input_types={"a": array_type(dtype=Any), "i": int, "value": Any}, value_func=atomic_op_value_func, doc="Atomically subtract ``value`` onto the array at location given by index.", group="Utility", skip_replay=True)
+    add_builtin("atomic_sub", hidden=hidden, input_types={"a": array_type(dtype=Any), "i": int, "j": int, "value": Any}, value_func=atomic_op_value_func, doc="Atomically subtract ``value`` onto the array at location given by indices.", group="Utility", skip_replay=True)
+    add_builtin("atomic_sub", hidden=hidden, input_types={"a": array_type(dtype=Any), "i": int, "j": int, "k":int, "value": Any}, value_func=atomic_op_value_func, doc="Atomically subtract ``value`` onto the array at location given by indices.", group="Utility", skip_replay=True)
+    add_builtin("atomic_sub", hidden=hidden, input_types={"a": array_type(dtype=Any), "i": int, "j": int, "k":int, "l": int, "value": Any}, value_func=atomic_op_value_func, doc="Atomically subtract ``value`` onto the array at location given by indices.", group="Utility", skip_replay=True)
 
-add_builtin("atomic_max", input_types={"a": array(dtype=Any), "i": int, "value": Any}, value_func=atomic_op_value_func, doc="Compute the maximum of ``value`` and ``array[index]`` and atomically update the array. Note that for vectors and matrices the operation is only atomic on a per-component basis.", group="Utility", skip_replay=True)
-add_builtin("atomic_max", input_types={"a": array(dtype=Any), "i": int, "j": int, "value": Any}, value_func=atomic_op_value_func, doc="Compute the maximum of ``value`` and ``array[index]`` and atomically update the array. Note that for vectors and matrices the operation is only atomic on a per-component basis.", group="Utility", skip_replay=True)
-add_builtin("atomic_max", input_types={"a": array(dtype=Any), "i": int, "j": int, "k":int, "value": Any}, value_func=atomic_op_value_func, doc="Compute the maximum of ``value`` and ``array[index]`` and atomically update the array. Note that for vectors and matrices the operation is only atomic on a per-component basis.", group="Utility", skip_replay=True)
-add_builtin("atomic_max", input_types={"a": array(dtype=Any), "i": int, "j": int, "k":int, "l": int, "value": Any}, value_func=atomic_op_value_func, doc="Compute the maximum of ``value`` and ``array[index]`` and atomically update the array. Note that for vectors and matrices the operation is only atomic on a per-component basis.", group="Utility", skip_replay=True)
+    add_builtin("atomic_min", hidden=hidden, input_types={"a": array_type(dtype=Any), "i": int, "value": Any}, value_func=atomic_op_value_func, doc="Compute the minimum of ``value`` and ``array[index]`` and atomically update the array. Note that for vectors and matrices the operation is only atomic on a per-component basis.", group="Utility", skip_replay=True)
+    add_builtin("atomic_min", hidden=hidden, input_types={"a": array_type(dtype=Any), "i": int, "j": int, "value": Any}, value_func=atomic_op_value_func, doc="Compute the minimum of ``value`` and ``array[index]`` and atomically update the array. Note that for vectors and matrices the operation is only atomic on a per-component basis.", group="Utility", skip_replay=True)
+    add_builtin("atomic_min", hidden=hidden, input_types={"a": array_type(dtype=Any), "i": int, "j": int, "k": int, "value": Any}, value_func=atomic_op_value_func, doc="Compute the minimum of ``value`` and ``array[index]`` and atomically update the array. Note that for vectors and matrices the operation is only atomic on a per-component basis.", group="Utility", skip_replay=True)
+    add_builtin("atomic_min", hidden=hidden, input_types={"a": array_type(dtype=Any), "i": int, "j": int, "k": int, "l": int, "value": Any}, value_func=atomic_op_value_func, doc="Compute the minimum of ``value`` and ``array[index]`` and atomically update the array. Note that for vectors and matrices the operation is only atomic on a per-component basis.", group="Utility", skip_replay=True)
+
+    add_builtin("atomic_max", hidden=hidden, input_types={"a": array_type(dtype=Any), "i": int, "value": Any}, value_func=atomic_op_value_func, doc="Compute the maximum of ``value`` and ``array[index]`` and atomically update the array. Note that for vectors and matrices the operation is only atomic on a per-component basis.", group="Utility", skip_replay=True)
+    add_builtin("atomic_max", hidden=hidden, input_types={"a": array_type(dtype=Any), "i": int, "j": int, "value": Any}, value_func=atomic_op_value_func, doc="Compute the maximum of ``value`` and ``array[index]`` and atomically update the array. Note that for vectors and matrices the operation is only atomic on a per-component basis.", group="Utility", skip_replay=True)
+    add_builtin("atomic_max", hidden=hidden, input_types={"a": array_type(dtype=Any), "i": int, "j": int, "k":int, "value": Any}, value_func=atomic_op_value_func, doc="Compute the maximum of ``value`` and ``array[index]`` and atomically update the array. Note that for vectors and matrices the operation is only atomic on a per-component basis.", group="Utility", skip_replay=True)
+    add_builtin("atomic_max", hidden=hidden, input_types={"a": array_type(dtype=Any), "i": int, "j": int, "k":int, "l": int, "value": Any}, value_func=atomic_op_value_func, doc="Compute the maximum of ``value`` and ``array[index]`` and atomically update the array. Note that for vectors and matrices the operation is only atomic on a per-component basis.", group="Utility", skip_replay=True)
 
 
 # used to index into builtin types, i.e.: y = vec3[1]
@@ -1071,7 +1094,7 @@ def index_value_func(args, kwds, _):
 add_builtin("index", input_types={"a": vector(length=Any, dtype=Scalar), "i": int}, value_func=index_value_func, hidden=True, group="Utility")
 add_builtin("index", input_types={"a": quaternion(dtype=Scalar), "i": int}, value_func=index_value_func, hidden=True, group="Utility")
 
-add_builtin("index", input_types={"a": matrix(shape=(Any,Any), dtype=Scalar), "i": int}, value_func=lambda args, kwds, _: vector(length=args[0].type._shape_[0], dtype=args[0].type._wp_scalar_type_), hidden=True, group="Utility")
+add_builtin("index", input_types={"a": matrix(shape=(Any,Any), dtype=Scalar), "i": int}, value_func=lambda args, kwds, _: vector(length=args[0].type._shape_[1], dtype=args[0].type._wp_scalar_type_), hidden=True, group="Utility")
 add_builtin("index", input_types={"a": matrix(shape=(Any,Any), dtype=Scalar), "i": int, "j": int}, value_func=index_value_func, hidden=True, group="Utility")
 
 add_builtin("index", input_types={"a": transformation(dtype=Scalar), "i": int}, value_func=index_value_func, hidden=True, group="Utility")
@@ -1081,18 +1104,18 @@ add_builtin("index", input_types={"s": shape_t, "i": int}, value_type=int, hidde
 for t in scalar_types + vector_types:
     if "vec" in t.__name__ or "mat" in t.__name__:
         continue
-    add_builtin("expect_eq", input_types={"arg1": t, "arg2": t}, value_type=None, doc="Prints an error to stdout if arg1 and arg2 are not equal", group="Utility")
+    add_builtin("expect_eq", input_types={"arg1": t, "arg2": t}, value_type=None, doc="Prints an error to stdout if arg1 and arg2 are not equal", group="Utility", hidden=True)
 
 def expect_eq_val_func(args, kwds, _):
     if not types_equal(args[0].type,args[1].type):
         raise RuntimeError("Can't test equality for objects with different types")
     return None
 
-add_builtin("expect_eq", input_types={"arg1": vector(length=Any, dtype=Scalar), "arg2": vector(length=Any, dtype=Scalar)}, value_func=expect_eq_val_func, doc="Prints an error to stdout if arg1 and arg2 are not equal", group="Utility")
-add_builtin("expect_neq", input_types={"arg1": vector(length=Any, dtype=Scalar), "arg2": vector(length=Any, dtype=Scalar)}, value_func=expect_eq_val_func, doc="Prints an error to stdout if arg1 and arg2 are equal", group="Utility")
+add_builtin("expect_eq", input_types={"arg1": vector(length=Any, dtype=Scalar), "arg2": vector(length=Any, dtype=Scalar)}, value_func=expect_eq_val_func, doc="Prints an error to stdout if arg1 and arg2 are not equal", group="Utility", hidden=True)
+add_builtin("expect_neq", input_types={"arg1": vector(length=Any, dtype=Scalar), "arg2": vector(length=Any, dtype=Scalar)}, value_func=expect_eq_val_func, doc="Prints an error to stdout if arg1 and arg2 are equal", group="Utility", hidden=True)
 
-add_builtin("expect_eq", input_types={"arg1": matrix(shape=(Any,Any), dtype=Scalar), "arg2": matrix(shape=(Any,Any), dtype=Scalar)}, value_func=expect_eq_val_func, doc="Prints an error to stdout if arg1 and arg2 are not equal", group="Utility")
-add_builtin("expect_neq", input_types={"arg1": matrix(shape=(Any,Any), dtype=Scalar), "arg2": matrix(shape=(Any,Any), dtype=Scalar)}, value_func=expect_eq_val_func, doc="Prints an error to stdout if arg1 and arg2 are equal", group="Utility")
+add_builtin("expect_eq", input_types={"arg1": matrix(shape=(Any,Any), dtype=Scalar), "arg2": matrix(shape=(Any,Any), dtype=Scalar)}, value_func=expect_eq_val_func, doc="Prints an error to stdout if arg1 and arg2 are not equal", group="Utility", hidden=True)
+add_builtin("expect_neq", input_types={"arg1": matrix(shape=(Any,Any), dtype=Scalar), "arg2": matrix(shape=(Any,Any), dtype=Scalar)}, value_func=expect_eq_val_func, doc="Prints an error to stdout if arg1 and arg2 are equal", group="Utility", hidden=True)
     
 add_builtin("lerp", input_types={"a": Float, "b": Float, "t": Float}, value_func=sametype_value_func(Float), doc="Linearly interpolate two values a and b using factor t, computed as ``a*(1-t) + b*t``", group="Utility")
 add_builtin("smoothstep", input_types={"edge0": Float, "edge1": Float, "x": Float}, value_func=sametype_value_func(Float), doc="Smoothly interpolate between two values edge0 and edge1 using a factor x, and return a result between 0 and 1 using a cubic Hermite interpolation after clamping", group="Utility")
@@ -1166,7 +1189,7 @@ def mul_matvec_value_func(args, kwds, _):
 
 def mul_matmat_value_func(args, kwds, _):
     if args is None:
-        return mat(length=Any, dtype=Scalar)
+        return matrix(length=Any, dtype=Scalar)
 
     if args[0].type._wp_scalar_type_ != args[1].type._wp_scalar_type_:
         raise RuntimeError(f"Can't multiply matrices with different types {args[0].type._wp_scalar_type_}, {args[1].type._wp_scalar_type_}")

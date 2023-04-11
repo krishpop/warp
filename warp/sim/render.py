@@ -296,8 +296,6 @@ def CreateSimRenderer(renderer):
                         radius=self.contact_points_radius*self.scaling,
                         colors=self.contact_points1_colors)
 
-                    # print("shapes:", self.model.rigid_contact_shape0.numpy(), self.model.rigid_contact_shape1.numpy())
-                    print(self.contact_points0.numpy().max(axis=0))
     return SimRenderer
 
 

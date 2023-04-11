@@ -86,7 +86,7 @@ class Example:
 
         self.model.joint_attach_ke = 16000.0
         self.model.joint_attach_kd = 200.0
-
+        
         self.integrator = wp.sim.XPBDIntegrator()
 
         #-----------------------

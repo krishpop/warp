@@ -2391,6 +2391,91 @@ def test_minmax(test,device,dtype, register_kernels=False):
                 tape.zero()
     
 
+def test_equivalent_types(test, device, dtype, register_kernels=False):
+
+    wptype = wp.types.np_dtype_to_warp_type[np.dtype(dtype)]
+
+    # vector types
+    vec2 = wp.types.vector(length=2, dtype=wptype)
+    vec3 = wp.types.vector(length=3, dtype=wptype)
+    vec4 = wp.types.vector(length=4, dtype=wptype)
+    vec5 = wp.types.vector(length=5, dtype=wptype)
+
+    # vector types equivalent to the above
+    vec2_equiv = wp.types.vector(length=2, dtype=wptype)
+    vec3_equiv = wp.types.vector(length=3, dtype=wptype)
+    vec4_equiv = wp.types.vector(length=4, dtype=wptype)
+    vec5_equiv = wp.types.vector(length=5, dtype=wptype)
+
+    # declare kernel with original types
+    def check_equivalence(
+        v2: vec2,
+        v3: vec3,
+        v4: vec4,
+        v5: vec5,
+    ):
+        wp.expect_eq(v2, vec2(wptype(1), wptype(2)))
+        wp.expect_eq(v3, vec3(wptype(1), wptype(2), wptype(3)))
+        wp.expect_eq(v4, vec4(wptype(1), wptype(2), wptype(3), wptype(4)))
+        wp.expect_eq(v5, vec5(wptype(1), wptype(2), wptype(3), wptype(4), wptype(5)))
+
+        wp.expect_eq(v2, vec2_equiv(wptype(1), wptype(2)))
+        wp.expect_eq(v3, vec3_equiv(wptype(1), wptype(2), wptype(3)))
+        wp.expect_eq(v4, vec4_equiv(wptype(1), wptype(2), wptype(3), wptype(4)))
+        wp.expect_eq(v5, vec5_equiv(wptype(1), wptype(2), wptype(3), wptype(4), wptype(5)))
+
+    kernel = getkernel(check_equivalence, suffix=dtype.__name__)
+
+    if register_kernels:
+        return
+
+    # call kernel with equivalent types
+    v2 = vec2_equiv(1, 2)
+    v3 = vec3_equiv(1, 2, 3)
+    v4 = vec4_equiv(1, 2, 3, 4)
+    v5 = vec5_equiv(1, 2, 3, 4, 5)
+
+    wp.launch(kernel, dim=1, inputs=[v2, v3, v4, v5], device=device)
+
+
+# Test matrix constructors using explicit type (float16)
+# note that these tests are specifically not using generics / closure
+# args to create kernels dynamically (like the rest of this file)
+# as those use different code paths to resolve arg types which
+# has lead to regressions.
+@wp.kernel
+def test_constructors_explicit_precision():
+
+    # construction for custom matrix types
+    ones = wp.vector(wp.float16(1.0), length=2)
+    zeros = wp.vector(length=2, dtype=wp.float16)
+    custom = wp.vector(wp.float16(0.0), wp.float16(1.0))
+
+    for i in range(2):
+        wp.expect_eq(ones[i], wp.float16(1.0))
+        wp.expect_eq(zeros[i], wp.float16(0.0))
+        wp.expect_eq(custom[i], wp.float16(i))
+
+
+# Same as above but with a default (float/int) type
+# which tests some different code paths that
+# need to ensure types are correctly canonicalized 
+# during codegen
+@wp.kernel
+def test_constructors_default_precision():
+
+    # construction for custom matrix types
+    ones = wp.vector(1.0, length=2)
+    zeros = wp.vector(length=2, dtype=float)
+    custom = wp.vector(0.0, 1.0)
+
+    for i in range(2):
+        wp.expect_eq(ones[i], 1.0)
+        wp.expect_eq(zeros[i], 0.0)
+        wp.expect_eq(custom[i], float(i))
+
+
+
 def register(parent):
 
     devices = get_test_devices()
@@ -2398,6 +2483,10 @@ def register(parent):
     class TestVec(parent):
         pass
     
+    add_kernel_test(TestVec, test_constructors_explicit_precision, dim=1, devices=devices)
+    add_kernel_test(TestVec, test_constructors_default_precision, dim=1, devices=devices)
+
+
     for dtype in np_unsigned_int_types:
         add_function_test_register_kernel(TestVec, f"test_subtraction_unsigned_{dtype.__name__}", test_subtraction_unsigned, devices=devices, dtype=dtype)
 
@@ -2423,6 +2512,7 @@ def register(parent):
         add_function_test_register_kernel(TestVec, f"test_cw_division_{dtype.__name__}", test_cw_division, devices=devices, dtype=dtype)
         add_function_test_register_kernel(TestVec, f"test_addition_{dtype.__name__}", test_addition, devices=devices, dtype=dtype)
         add_function_test_register_kernel(TestVec, f"test_dotproduct_{dtype.__name__}", test_dotproduct, devices=devices, dtype=dtype)
+        add_function_test_register_kernel(TestVec, f"test_equivalent_types_{dtype.__name__}", test_equivalent_types, devices=devices, dtype=dtype)
 
         # the kernels in this test compile incredibly slowly...
         # add_function_test_register_kernel(TestVec, f"test_minmax_{dtype.__name__}", test_minmax, devices=devices, dtype=dtype)

@@ -14,7 +14,6 @@
 #
 ###########################################################################
 
-import math
 import numpy as np
 import os
 
@@ -142,7 +141,7 @@ class Example:
         # finalize model
         self.model = builder.finalize()
         self.model.ground = False
-
+        
         self.integrator = wp.sim.XPBDIntegrator(iterations=5)
 
         #-----------------------

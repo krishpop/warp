@@ -95,8 +95,12 @@ def _get_struct_instance_ctype(
         elif isinstance(var_type, Struct):
             _get_struct_instance_ctype(value, inst_ctype, field_name)
         elif issubclass(var_type, ctypes.Array):
-            # array type e.g. vec3
-            setattr(inst_ctype, field_name, var_type(*value))
+            # vector/matrix type, e.g. vec3
+            if types_equal(type(value), var_type):
+                setattr(inst_ctype, field_name, value)
+            else:
+                # conversion from list/tuple, ndarray, etc.
+                setattr(inst_ctype, field_name, var_type(*value))
         else:
             # primitive type
             setattr(inst_ctype, field_name, var_type._type_(value))
@@ -196,6 +200,21 @@ class Struct:
                 StructInstance.__init__(inst, self)
         return NewStructInstance()
 
+    def initializer(self):
+
+        input_types = {label : var.type for label, var in self.vars.items()}
+
+        return warp.context.Function(
+            func=None,
+            key = self.key,
+            namespace = "",
+            value_func = lambda *_: self,
+            input_types = input_types,
+            initializer_list_func = lambda *_ : False,
+            native_func=make_full_qualified_name(self.cls),
+        )
+
+
 def compute_type_str(base_name, template_params):
 
     if template_params == None or len(template_params) == 0:
@@ -227,12 +246,13 @@ class Var:
         return self.label
 
     def ctype(self):
-        if (isinstance(self.type, array)):
+        if is_array(self.type):
             if hasattr(self.type.dtype,"_wp_generic_type_str_"):
-                typestr = compute_type_str( self.type.dtype._wp_generic_type_str_, self.type.dtype._wp_type_params_ )
+                dtypestr = compute_type_str(self.type.dtype._wp_generic_type_str_, self.type.dtype._wp_type_params_)
             else:
-                typestr = str(self.type.dtype.__name__)
-            return f"array_t<{typestr}>"
+                dtypestr = str(self.type.dtype.__name__)
+            classstr = type(self.type).__name__
+            return f"{classstr}_t<{dtypestr}>"
         elif (isinstance(self.type, Struct)):
             return make_full_qualified_name(self.type.cls)
         elif hasattr(self.type,"_wp_generic_type_str_"):
@@ -353,22 +373,9 @@ class Adjoint:
                 raise e
 
         for a in adj.args:
-            structs = []
             if isinstance(a.type, Struct):
-                stack = [a.type]
-                while stack:
-                    s = stack.pop()
+                builder.build_struct_recursive(a.type)
 
-                    if not s in structs:
-                        structs.append(s)
-
-                    for var in s.vars.values():
-                        if isinstance(var.type, Struct):
-                            stack.append(var.type)
-
-            # Build them in reverse to generate a correct dependency order.
-            for s in reversed(structs):
-                builder.build_struct(s)
 
     # code generation methods
     def format_template(adj, template, input_vars, output_var):
@@ -572,7 +579,7 @@ class Adjoint:
 
         # evaluate the function type based on inputs
         value_type = func.value_func(args, kwds, templates)
-                
+            
         func_name = compute_type_str( func.native_func, templates)
 
         use_initializer_list = func.initializer_list_func(args, templates)
@@ -746,7 +753,10 @@ class Adjoint:
 
         # zero adjoints
         for i in body_block.vars:
-             reverse.append(adj.prefix + f"\tadj_{i} = {i.ctype()}(0);")
+            if isinstance(i.type, Struct):
+                reverse.append(adj.prefix + f"\tadj_{i} = {i.ctype()}{{}};")
+            else:
+                reverse.append(adj.prefix + f"\tadj_{i} = {i.ctype()}(0);")
 
         # replay
         for i in body_block.body_replay:
@@ -809,7 +819,10 @@ class Adjoint:
 
         # zero adjoints of local vars
         for i in body_block.vars:
-             reverse.append(f"adj_{i} = {i.ctype()}(0);")
+            if isinstance(i.type, Struct):
+                reverse.append(f"adj_{i} = {i.ctype()}{{}};")
+            else:
+                reverse.append(f"adj_{i} = {i.ctype()}(0);")
 
         # replay
         for i in body_block.body_replay:
@@ -1260,40 +1273,27 @@ class Adjoint:
             if len(path) == 0:
                 raise RuntimeError(f"Unrecognized syntax for function call, path not valid: '{node.func}'")
 
-            # try and lookup function in builtins, this allows users to avoid 
-            # using "wp." prefix, and also handles type constructors
-            # e.g.: wp.vec3 which aren't explicitly function objects
             attr = path[-1]
             caller = func
             func = None
+
+            # try and lookup function name in builtins (e.g.: using `dot` directly without wp prefix)
             if attr in warp.context.builtin_functions:
                 func = warp.context.builtin_functions[attr]
-            elif hasattr(caller,"_wp_generic_type_str_"):
-
-                # This is a constructor for an object with a generic type,
-                # so we're going to need the template information stored in
-                # the class to actually figure out what the c++ template arguments
-                # are:
-                
+            
+            # vector class type e.g.: wp.vec3f constructor
+            if func == None and hasattr(caller,"_wp_generic_type_str_"):               
                 templates = caller._wp_type_params_
                 func = warp.context.builtin_functions.get(caller._wp_constructor_)
 
-            if func is None and caller.__class__.__name__ in warp.context.builtin_functions:
+            # scalar class type e.g.: wp.int8 constructor
+            if func == None and hasattr(caller, "__name__") and caller.__name__ in warp.context.builtin_functions:              
+                func = warp.context.builtin_functions.get(caller.__name__)
 
-                # This can be necessary if you've aliased a type before defining the
-                # kernel then used it inside the kernel, eg
-                    
-                # wptype = wp.float64
-                # @wp.kernel
-                # def mykernel( ... )
-                #   ...
-                #   a = wptype(2)
-                
-                # The attr variable we used to try and look up the builtin for wptype
-                # is just "wptype", which isn't in the builtins, so we try and look
-                # it up based on wptype's class name instead:
-                
-                func = warp.context.builtin_functions.get(caller.__class__.__name__)
+            # struct constructor
+            if func is None and isinstance(caller, Struct):
+                adj.builder.build_struct_recursive(caller)
+                func = caller.initializer()
 
             if func is None:
                 raise RuntimeError(f"Could not find function {'.'.join(path)} as a built-in or user-defined function. Note that user functions must be annotated with a @wp.func decorator to be called from a kernel.")
@@ -1352,7 +1352,7 @@ class Adjoint:
             var = adj.eval(node.slice)
             indices.append(var)
 
-        if isinstance(target.type, array):
+        if is_array(target.type):
             
             if len(indices) == target.type.ndim:
                 # handles array loads (where each dimension has an index specified)
@@ -1425,7 +1425,7 @@ class Adjoint:
                 var = adj.eval(slice)
                 indices.append(var)
 
-            if (isinstance(target.type, array)):
+            if is_array(target.type):
                 adj.add_call(warp.context.builtin_functions["store"], [target, *indices, value])
             else:
                 raise RuntimeError("Can only subscript assign array types")
@@ -1557,8 +1557,8 @@ class Adjoint:
 
             # Look up the closure info and append it to adj.func.__globals__
             # in case you want to define a kernel inside a function and refer
-            # to varibles you've declared inside that function:
-            extract_contents = lambda contents : contents if isinstance(contents, warp.context.Function) or not callable(contents) else contents()
+            # to variables you've declared inside that function:
+            extract_contents = lambda contents : contents if isinstance(contents, warp.context.Function) or not callable(contents) else contents
             capturedvars = dict(zip(adj.func.__code__.co_freevars,[ extract_contents(c.cell_contents) for c in (adj.func.__closure__ or []) ]))
 
             vars_dict = {**adj.func.__globals__, **capturedvars}
@@ -1636,8 +1636,20 @@ struct_template = '''
 struct {name}
 {{
 {struct_body}
+
+    CUDA_CALLABLE {name}({forward_args})
+    {forward_initializers}
+    {{
+    }}
+
+    {name}& operator += (const {name}&) {{ return *this; }}
+
 }};
 
+static CUDA_CALLABLE void adj_{name}({reverse_args})
+{{
+{reverse_body}
+}}
 '''
 
 cpu_function_template = '''
@@ -1674,7 +1686,7 @@ cuda_kernel_template = '''
 
 extern "C" __global__ void {name}_cuda_kernel_forward({forward_args})
 {{
-    int _idx = blockDim.x * blockIdx.x + threadIdx.x;
+    size_t _idx = grid_index();
     if (_idx >= dim.size) 
         return;
 
@@ -1685,7 +1697,7 @@ extern "C" __global__ void {name}_cuda_kernel_forward({forward_args})
 
 extern "C" __global__ void {name}_cuda_kernel_backward({reverse_args})
 {{
-    int _idx = blockDim.x * blockIdx.x + threadIdx.x;
+    size_t _idx = grid_index();
     if (_idx >= dim.size) 
         return;
 
@@ -1738,7 +1750,7 @@ WP_API void {name}_cpu_forward({forward_args})
 {{
     set_launch_bounds(dim);
 
-    for (int i=0; i < dim.size; ++i)
+    for (size_t i=0; i < dim.size; ++i)
     {{
         s_threadIdx = i;
 
@@ -1750,7 +1762,7 @@ WP_API void {name}_cpu_backward({reverse_args})
 {{
     set_launch_bounds(dim);
 
-    for (int i=0; i < dim.size; ++i)
+    for (size_t i=0; i < dim.size; ++i)
     {{
         s_threadIdx = i;
 
@@ -1818,15 +1830,49 @@ def indent(args, stops=1):
 def make_full_qualified_name(func):
     return re.sub('[^0-9a-zA-Z_]+', '', func.__qualname__.replace('.', '__'))
 
-def codegen_struct(struct, indent=4):
+def codegen_struct(struct, device='cpu', indent_size=4):
+
+    name = make_full_qualified_name(struct.cls)
+
     body = []
-    indent_block = " " * indent
+    indent_block = " " * indent_size
     for label, var in struct.vars.items():
         body.append(var.ctype() + " " + label + ";\n")
 
+
+    forward_args = []
+    reverse_args = []
+
+    forward_initializers = []
+    reverse_body = []
+
+    # forward args
+    for label, var in struct.vars.items():
+        forward_args.append(f"{var.ctype()} const& {label} = {{}}")
+        reverse_args.append(f"{var.ctype()} const&")
+
+        prefix = f"{indent_block}," if forward_initializers else ":"
+        forward_initializers.append(
+            f"{indent_block}{prefix} {label}{{{label}}}\n"
+        )
+
+    # reverse args
+    for label, var in struct.vars.items():
+        reverse_args.append(var.ctype() + " const& adj_" + label)
+        
+        reverse_body.append(
+            f"{indent_block}adj_ret.{label} = adj_{label};\n"
+        )
+    
+    reverse_args.append(name + " & adj_ret")
+
     return struct_template.format(
-        name=make_full_qualified_name(struct.cls),
-        struct_body="".join([indent_block + l for l in body])
+        name=name,
+        struct_body="".join([indent_block + l for l in body]),
+        forward_args=indent(forward_args),
+        forward_initializers="".join(forward_initializers),
+        reverse_args=indent(reverse_args),
+        reverse_body="".join(reverse_body)
     )
 
 
@@ -1911,7 +1957,10 @@ def codegen_func_reverse(adj, func_type='kernel', device='cpu'):
     s += "    // dual vars\n"
 
     for var in adj.variables:
-        s += "    " + var.ctype() + " adj_" + str(var.label) + "(0);\n"
+        if isinstance(var.type, Struct):
+            s += "    " + var.ctype() + " adj_" + str(var.label) + ";\n"
+        else:
+            s += "    " + var.ctype() + " adj_" + str(var.label) + "(0);\n"
 
     if device == 'cpu':
         s += codegen_func_reverse_body(adj, device=device, indent=4)
@@ -1943,7 +1992,12 @@ def codegen_func(adj, device='cpu'):
 
     # reverse args
     for arg in adj.args:
-        reverse_args.append(arg.ctype() + " & adj_" + arg.label)
+        # indexed array gradients are regular arrays
+        if isinstance(arg.type, indexedarray):
+            _arg = Var(arg.label, array(dtype=arg.type.dtype, ndim=arg.type.ndim))
+            reverse_args.append(_arg.ctype() + " & adj_" + arg.label)
+        else:
+            reverse_args.append(arg.ctype() + " & adj_" + arg.label)
     
     if return_type != 'void':
         reverse_args.append(return_type + " & adj_ret")
@@ -1989,7 +2043,12 @@ def codegen_kernel(kernel, device, options):
 
     # reverse args
     for arg in adj.args:
-        reverse_args.append(arg.ctype() + " adj_" + arg.label)
+        # indexed array gradients are regular arrays
+        if isinstance(arg.type, indexedarray):
+            _arg = Var(arg.label, array(dtype=arg.type.dtype, ndim=arg.type.ndim))
+            reverse_args.append(_arg.ctype() + " adj_" + arg.label)
+        else:
+            reverse_args.append(arg.ctype() + " adj_" + arg.label)
 
     # codegen body
     forward_body = codegen_func_forward(adj, func_type='kernel', device=device)
@@ -2026,16 +2085,31 @@ def codegen_module(kernel, device='cpu'):
     forward_params = ["dim"]
 
     for arg in adj.args:
-        forward_args.append(arg.ctype() + " var_" + arg.label)
-        forward_params.append("var_" + arg.label)
+        if hasattr(arg.type, "_wp_generic_type_str_"):
+            # vectors and matrices are passed from Python by pointer
+            forward_args.append(f"const {arg.ctype()}* var_" + arg.label)
+            forward_params.append(f"*var_{arg.label}")
+        else:
+            forward_args.append(f"{arg.ctype()} var_{arg.label}")
+            forward_params.append("var_" + arg.label)
 
     # build reverse signature
     reverse_args = [*forward_args]
     reverse_params = [*forward_params]
 
     for arg in adj.args:
-        reverse_args.append(arg.ctype() + " adj_" + arg.label)
-        reverse_params.append("adj_" + arg.label)
+        if isinstance(arg.type, indexedarray):
+            # indexed array gradients are regular arrays
+            _arg = Var(arg.label, array(dtype=arg.type.dtype, ndim=arg.type.ndim))
+            reverse_args.append(f"const {_arg.ctype()} adj_{arg.label}")
+            reverse_params.append(f"adj_{_arg.label}")
+        elif hasattr(arg.type, "_wp_generic_type_str_"):
+            # vectors and matrices are passed from Python by pointer
+            reverse_args.append(f"const {arg.ctype()}* adj_{arg.label}")
+            reverse_params.append(f"*adj_{arg.label}")
+        else:
+            reverse_args.append(f"{arg.ctype()} adj_{arg.label}")
+            reverse_params.append(f"adj_{arg.label}")
 
     if device == 'cpu':
         template = cpu_module_template
@@ -2050,6 +2124,3 @@ def codegen_module(kernel, device='cpu'):
                         forward_params=indent(forward_params, 3),
                         reverse_params=indent(reverse_params, 3))
     return s
-
-
-

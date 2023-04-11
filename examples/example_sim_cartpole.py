@@ -89,8 +89,9 @@ class Example:
 
         #-----------------------
         # set up Usd renderer
-        if (self.enable_rendering):
-            self.renderer = wp.sim.render.SimRendererNano(self.model, stage)
+        self.renderer = None
+        if (render):
+            self.renderer = wp.sim.render.SimRenderer(self.model, stage, scaling=15.0)
 
     def update(self):
         for _ in range(self.sim_substeps):

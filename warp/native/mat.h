@@ -16,7 +16,7 @@ namespace wp
 //----------------------------------------------------------
 // mat
 template<typename T>
-class quat_t;
+struct quat_t;
 
 template<unsigned Rows, unsigned Cols, typename Type>
 struct mat_t
@@ -151,7 +151,7 @@ struct mat_t
         {
             for (unsigned i=0; i < Rows; ++i)
             {
-                data[j][i] = l[i][j];
+                data[i][j] = l[j][i];
             }
         }
     }

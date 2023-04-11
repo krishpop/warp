@@ -6,7 +6,6 @@
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
 import unittest
-from unittest import runner
 import os
 
 import warp as wp
@@ -14,6 +13,8 @@ import warp as wp
 # Uncomment to run the tests on all devices
 # import warp.tests.test_base
 # warp.tests.test_base.test_mode = "all"
+
+from warp.tests.test_base import get_test_devices
 
 import warp.tests.test_codegen
 import warp.tests.test_mesh_query_aabb
@@ -61,6 +62,8 @@ import warp.tests.test_arithmetic
 import warp.tests.test_spatial
 import warp.tests.test_math
 import warp.tests.test_generics
+import warp.tests.test_indexedarray
+import warp.tests.test_copy
 
 
 def register_tests(parent):
@@ -113,6 +116,8 @@ def register_tests(parent):
     tests.append(warp.tests.test_spatial.register(parent))
     tests.append(warp.tests.test_math.register(parent))
     tests.append(warp.tests.test_generics.register(parent))
+    tests.append(warp.tests.test_indexedarray.register(parent))
+    tests.append(warp.tests.test_copy.register(parent))
 
     return tests
 
@@ -194,7 +199,8 @@ def run():
     wp.build.clear_kernel_cache()
 
     # load all modules
-    wp.force_load()
+    for device in get_test_devices():
+        wp.force_load(device)
 
     runner = TeamCityTestRunner(verbosity=2, failfast=False)
     ret = not runner.run(test_suite, "WarpTests").wasSuccessful()
