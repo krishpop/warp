@@ -446,13 +446,19 @@ class ShapeInstancer:
         if self._instance_transform_cuda_buffer is not None:
             self._instance_transform_cuda_buffer.unregister()
         if self.instance_transform_gl_buffer is not None:
-            glDeleteBuffers(1, [self.instance_transform_gl_buffer])
-            glDeleteBuffers(1, [self.instance_color1_buffer])
-            glDeleteBuffers(1, [self.instance_color2_buffer])
+            try:
+                glDeleteBuffers(1, [self.instance_transform_gl_buffer])
+                glDeleteBuffers(1, [self.instance_color1_buffer])
+                glDeleteBuffers(1, [self.instance_color2_buffer])
+            except:
+                pass
         if self.vao is not None:
-            glDeleteVertexArrays(1, [self.vao])
-            glDeleteBuffers(1, [self.vbo])
-            glDeleteBuffers(1, [self.ebo])
+            try:
+                glDeleteVertexArrays(1, [self.vao])
+                glDeleteBuffers(1, [self.vbo])
+                glDeleteBuffers(1, [self.ebo])
+            except:
+                pass
 
     def register_shape(self, vertices, indices, color1=(1., 1., 1.), color2=(0., 0., 0.)):
         if color1 is not None and color2 is None:
@@ -1033,14 +1039,20 @@ class NanoRenderer:
     def clear(self):
         if self._instance_transform_gl_buffer is not None:
             self._instance_transform_cuda_buffer.unregister()
-            glDeleteBuffers(1, [self._instance_transform_gl_buffer])
-            glDeleteBuffers(1, [self._instance_color1_buffer])
-            glDeleteBuffers(1, [self._instance_color2_buffer])
+            try:
+                glDeleteBuffers(1, [self._instance_transform_gl_buffer])
+                glDeleteBuffers(1, [self._instance_color1_buffer])
+                glDeleteBuffers(1, [self._instance_color2_buffer])
+            except:
+                pass
         for vao, vbo, ebo, _, vertex_cuda_buffer in self._shape_gl_buffers.values():
             vertex_cuda_buffer.unregister()
-            glDeleteVertexArrays(1, [vao])
-            glDeleteBuffers(1, [vbo])
-            glDeleteBuffers(1, [ebo])
+            try:
+                glDeleteVertexArrays(1, [vao])
+                glDeleteBuffers(1, [vbo])
+                glDeleteBuffers(1, [ebo])
+            except:
+                pass
         
         self._body_name.clear()
         self._shapes.clear()
