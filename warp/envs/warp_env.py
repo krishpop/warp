@@ -31,7 +31,7 @@ class WarpEnv(Environment):
         scaling=3.0, headless=True, screen_width=480, screen_height=480
     )
     usd_render_settings = dict(scaling=100.0)
-    use_graph_capture = True
+    use_graph_capture = False
     forward_sim_graph = None
 
     sim_substeps_euler = 32
@@ -163,6 +163,56 @@ class WarpEnv(Environment):
     def num_obs(self):
         return self.num_observations
 
+    def setup_autograd_vars(self, graph_capture=False):
+        dof_count = int(self.model.joint_act.shape[0] / self.num_envs)
+        act = wp.zeros(
+            self.num_envs * self.num_acts,
+            dtype=self.model.joint_act.dtype,
+            device=self.device,
+        )
+        assert dof_count * self.num_envs == self.model.joint_act.size
+        self.simulate_params = {
+            "model": self.model,
+            "integrator": self.integrator,
+            "dt": self.sim_dt,
+            "substeps": self.sim_substeps,
+            "state_in": self.state_0,
+            "state_out": self.state_1,
+        }
+        self.act_params = {
+            "q_offset": 0,
+            "joint_act": self.model.joint_act,
+            "act": act,
+            "num_envs": self.num_envs,
+            "dof_count": dof_count,
+            "num_acts": self.num_acts,
+        }
+        self.graph_capture_params = {
+            "capture_graph": self.use_graph_capture,
+            "model": self.model,
+            "bwd_model": self.model,
+        }
+        self.graph_capture_params["joint_q_end"] = self._joint_q
+        self.graph_capture_params["joint_qd_end"] = self._joint_qd
+
+        if (graph_capture or self.use_graph_capture) and self.requires_grad:
+            backward_model = self.builder.finalize(requires_grad=True)
+            backward_model.ground = self.activate_ground_plane
+            self.graph_capture_params["bwd_model"] = backward_model
+            # persist tape across multiple calls to backward
+            self.graph_capture_params["tape"] = wp.Tape()
+            self.simulate_params["bwd_state_in"] = backward_model.state()
+            self.simulate_params["bwd_state_out"] = backward_model.state()
+            self.simulate_params["state_list"] = [
+                backward_model.state(requires_grad=True)
+                for _ in range(self.sim_substeps - 1)
+            ]
+        elif self.requires_grad:
+            self.simulate_params["state_list"] = [
+                self.model.state(requires_grad=True)
+                for _ in range(self.sim_substeps - 1)
+            ]
+
     def init_sim(self):
         self.init()
         if self.visualize:
@@ -182,7 +232,9 @@ class WarpEnv(Environment):
             self.state_1.body_f.requires_grad = True
             self._joint_q.requires_grad = True
             self._joint_qd.requires_grad = True
-        self.body_q, self.body_qd = wp.to_torch(self.state_0.body_qd), wp.to_torch(self.state_0.body_qd)
+        self.body_q, self.body_qd = wp.to_torch(self.state_0.body_qd), wp.to_torch(
+            self.state_0.body_qd
+        )
 
         start_joint_q = wp.to_torch(self.model.joint_q)
         start_joint_qd = wp.to_torch(self.model.joint_qd)

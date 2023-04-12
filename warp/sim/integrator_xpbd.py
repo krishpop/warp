@@ -2008,6 +2008,8 @@ class XPBDIntegrator:
                             state_in.body_f
                         ],
                         device=model.device)
+                    # compute body_f
+                    # create a separate warp array to handle joint friction torques
 
                 wp.launch(
                     kernel=integrate_bodies,

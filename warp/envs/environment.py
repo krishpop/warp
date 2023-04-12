@@ -152,11 +152,16 @@ class Environment:
             self.setup(self.builder)
             self.bodies_per_env = len(self.builder.body_q)
 
-        self.model = self.builder.finalize(
-            requires_grad=self.requires_grad, device=self.device
-        )
+        self.model = self.builder.finalize()
+        #     requires_grad=self.requires_grad, device=self.device
+        # )
         # rigid_mesh_contact_max=self.rigid_mesh_contact_max)
         self.model.ground = self.activate_ground_plane
+        self.model.joint_q.requires_grad = True
+        self.model.joint_qd.requires_grad = True
+        self.model.joint_act.requires_grad = True
+        self.model.body_q.requires_grad = True
+        self.model.body_qd.requires_grad = True
 
         self.model.joint_attach_ke = self.joint_attach_ke
         self.model.joint_attach_kd = self.joint_attach_kd
