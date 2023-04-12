@@ -152,10 +152,16 @@ class Environment:
             self.setup(self.builder)
             self.bodies_per_env = len(self.builder.body_q)
 
-        self.model = self.builder.finalize()
-        #     requires_grad=self.requires_grad, device=self.device
+        if not self.activate_ground_plane:
+            self.model = self.builder.finalize(device=self.device)
+        else:
+            self.model = self.builder.finalize(
+                device=self.device,
+                rigid_mesh_contact_max=self.rigid_mesh_contact_max,
+                requires_grad=self.requires_grad,
+            )
+        #     requires_grad=self.requires_grad,
         # )
-        # rigid_mesh_contact_max=self.rigid_mesh_contact_max)
         self.model.ground = self.activate_ground_plane
         self.model.joint_q.requires_grad = True
         self.model.joint_qd.requires_grad = True

@@ -60,7 +60,8 @@ def get_compute_graph(func, kwargs={}, tape=None):
         with tape:
             wp.capture_begin()
             func(**kwargs)
-            return wp.capture_end()
+            graph = wp.capture_end()
+        return graph
     wp.capture_begin()
     func(**kwargs)
     return wp.capture_end()
@@ -73,10 +74,12 @@ def forward_simulate(ctx, forward=False, requires_grad=False):
         model = ctx.model
         state_temp = ctx.state_in
         state_out = ctx.state_out
+        joint_act = ctx.joint_act
     else:
         model = ctx.backward_model
         state_temp = ctx.bwd_state_in
         state_out = ctx.bwd_state_out
+        joint_act = ctx.bwd_joint_act
 
     num_envs = ctx.act_params["num_envs"]
     dof_count = ctx.act_params["dof_count"]
@@ -85,7 +88,7 @@ def forward_simulate(ctx, forward=False, requires_grad=False):
 
     assign_act(
         ctx.act,
-        ctx.joint_act,
+        joint_act,
         num_acts=num_acts,
         num_envs=num_envs,
         dof_count=dof_count,
@@ -115,7 +118,7 @@ def forward_simulate(ctx, forward=False, requires_grad=False):
             state_temp,
             ctx.dt,
         )
-    wp.sim.eval_ik(ctx.model, state_out, joint_q_end, joint_qd_end)
+    wp.sim.eval_ik(model, state_out, joint_q_end, joint_qd_end)
 
 
 class IntegratorSimulate(torch.autograd.Function):
@@ -168,25 +171,25 @@ class IntegratorSimulate(torch.autograd.Function):
 
         if ctx.capture_graph:
             ctx.tape = graph_capture_params["tape"]
+            ctx.bwd_joint_act = act_params["bwd_joint_act"]
             ctx.bwd_state_in = simulate_params["bwd_state_in"]
             ctx.bwd_state_out = simulate_params["bwd_state_out"]
             ctx.bwd_state_in.body_q.requires_grad = True
             ctx.bwd_state_in.body_qd.requires_grad = True
             ctx.bwd_state_out.body_q.requires_grad = True
             ctx.bwd_state_out.body_qd.requires_grad = True
-            ctx.forward_graph = graph_capture_params.get(
+            graph_capture_params["forward_graph"] = graph_capture_params.get(
                 "forward_graph",
                 get_compute_graph(forward_simulate, {"ctx": ctx, "forward": True}),
             )
-            graph_capture_params["forward_graph"] = ctx.forward_graph
-            wp.capture_launch(ctx.forward_graph)
+            wp.capture_launch(graph_capture_params["forward_graph"])
         else:
             ctx.tape = wp.Tape()
             with ctx.tape:
                 forward_simulate(ctx, forward=False, requires_grad=True)
 
-        joint_q_end = wp.to_torch(ctx.graph_capture_params["joint_q_end"])
-        joint_qd_end = wp.to_torch(ctx.graph_capture_params["joint_qd_end"])
+        joint_q_end = wp.to_torch(ctx.graph_capture_params["joint_q_end"]).clone()
+        joint_qd_end = wp.to_torch(ctx.graph_capture_params["joint_qd_end"]).clone()
         if ctx.return_body:
             body_q, body_qd = wp.to_torch(ctx.state_out.body_q), wp.to_torch(
                 ctx.state_out.body_qd
@@ -213,9 +216,11 @@ class IntegratorSimulate(torch.autograd.Function):
         if ctx.capture_graph:
             state_in = ctx.bwd_state_in
             state_out = ctx.bwd_state_out
-            state_in.body_q.assign(wp.from_torch(ctx.body_q_pt, dtype=wp.transform))
+            state_in.body_q.assign(
+                wp.from_torch(ctx.body_q_pt.detach(), dtype=wp.transform)
+            )
             state_in.body_qd.assign(
-                wp.from_torch(ctx.body_qd_pt, dtype=wp.spatial_vector)
+                wp.from_torch(ctx.body_qd_pt.detach(), dtype=wp.spatial_vector)
             )
             ctx.act.zero_()
             ctx.act.grad.zero_()

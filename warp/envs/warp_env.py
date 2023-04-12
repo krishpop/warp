@@ -163,7 +163,7 @@ class WarpEnv(Environment):
     def num_obs(self):
         return self.num_observations
 
-    def setup_autograd_vars(self, graph_capture=False):
+    def setup_autograd_vars(self):
         dof_count = int(self.model.joint_act.shape[0] / self.num_envs)
         act = wp.zeros(
             self.num_envs * self.num_acts,
@@ -195,9 +195,15 @@ class WarpEnv(Environment):
         self.graph_capture_params["joint_q_end"] = self._joint_q
         self.graph_capture_params["joint_qd_end"] = self._joint_qd
 
-        if (graph_capture or self.use_graph_capture) and self.requires_grad:
+        if self.use_graph_capture and self.requires_grad:
             backward_model = self.builder.finalize(requires_grad=True)
+            backward_model.joint_q.requires_grad = True
+            backward_model.joint_qd.requires_grad = True
+            backward_model.joint_act.requires_grad = True
+            backward_model.body_q.requires_grad = True
+            backward_model.body_qd.requires_grad = True
             backward_model.ground = self.activate_ground_plane
+            self.act_params["bwd_joint_act"] = backward_model.joint_act
             self.graph_capture_params["bwd_model"] = backward_model
             # persist tape across multiple calls to backward
             self.graph_capture_params["tape"] = wp.Tape()

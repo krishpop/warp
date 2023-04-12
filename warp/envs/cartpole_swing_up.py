@@ -28,9 +28,12 @@ class CartPoleSwingUpEnv(WarpEnv):
         stage_path=None,
         env_name="CartPoleSwingUpEnv",
         ag_return_body=False,
+        graph_capture=False,
     ):
         num_obs = 5
         num_act = 1
+        if graph_capture:
+            self.use_graph_capture = True
 
         super().__init__(
             num_envs,
@@ -51,10 +54,14 @@ class CartPoleSwingUpEnv(WarpEnv):
         self.early_termination = early_termination
         self.ag_return_body = ag_return_body
         self.init_sim()
+        self.setup_autograd_vars()
+
         self.model.joint_attach_ke = 3.2e4
         self.model.joint_attach_kd = 50.0
+        if self.use_graph_capture:
+            self.graph_capture_params["bwd_model"].joint_attach_ke = 3.2e4
+            self.graph_capture_params["bwd_model"].joint_attach_kd = 50.0
 
-        self.setup_autograd_vars()
         self.simulate_params["ag_return_body"] = self.ag_return_body
         # action parameters
         self.action_strength = 1000.0
@@ -87,8 +94,8 @@ class CartPoleSwingUpEnv(WarpEnv):
             limit_kd=1e1,
             enable_self_collisions=False,
         )
-        # builder.joint_q[-2:] = [0.0, 0.0]
-        # builder.joint_qd[-2:] = [5.0, 0.0]
+        builder.joint_q[-2:] = [0.0, 0.0]
+        builder.joint_qd[-2:] = [5.0, 0.0]
 
     def assign_actions(self, actions):
         actions = actions.flatten() * self.action_strength
@@ -96,8 +103,13 @@ class CartPoleSwingUpEnv(WarpEnv):
         self.act_params["act"].assign(wp.from_torch(actions))
         assign_act(**self.act_params)
 
-    def step(self, actions):
-        with wp.ScopedTimer("simulate", active=False, detailed=False):
+    def step(self, actions, profiler=None):
+        active, detailed = False, False
+        if profiler is not None:
+            active, detailed = True, True
+        with wp.ScopedTimer(
+            "simulate", active=active, detailed=detailed, dict=profiler
+        ):
             actions = torch.clip(actions, -1.0, 1.0)
             self.actions = actions.view(self.num_envs, -1)
             actions = self.action_strength * actions
@@ -108,10 +120,13 @@ class CartPoleSwingUpEnv(WarpEnv):
                     self.model.body_q.requires_grad
                     and self.state_0.body_q.requires_grad
                 )
+                # all grads should be from joint_q, not from body_q
+                # with torch.no_grad():
                 if not self.ag_return_body:
-                    # all grads should be from joint_q, not from body_q
-                    with torch.no_grad():
-                        body_q, body_qd = self.body_q.clone(), self.body_qd.clone()
+                    body_q, body_qd = (
+                        self.body_q.detach().clone(),
+                        self.body_qd.detach().clone(),
+                    )
                 else:
                     body_q = self.body_q.clone()
                     body_qd = self.body_qd.clone()
@@ -163,20 +178,26 @@ class CartPoleSwingUpEnv(WarpEnv):
 
         env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
 
-        with wp.ScopedTimer("reset", active=False, detailed=False):
-            if len(env_ids) > 0:
+        if len(env_ids) > 0:
+            with wp.ScopedTimer(
+                "reset", active=active, detailed=detailed, dict=profiler
+            ):
                 self.reset(env_ids)
 
-        with wp.ScopedTimer("render", active=False, detailed=False):
-            self.render()
+        if self.visualize:
+            with wp.ScopedTimer(
+                "render", active=active, detailed=detailed, dict=profiler
+            ):
+                self.render()
 
         return self.obs_buf, self.rew_buf, self.reset_buf, self.extras
 
     def reset(self, env_ids=None):
-        self.state_0, self.state_1 = (
-            self.simulate_params["state_in"],
-            self.simulate_params["state_out"],
-        )
+        if not self.use_graph_capture:
+            self.state_0, self.state_1 = (
+                self.simulate_params["state_in"],
+                self.simulate_params["state_out"],
+            )
         return super().reset(env_ids)
 
     def get_stochastic_init(self, env_ids, joint_q, joint_qd):
