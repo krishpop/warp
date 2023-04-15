@@ -65,7 +65,10 @@ class WarpEnv(Environment):
         self.requires_grad = not no_grad
         self.device = str(device)
         self.visualize = render
-        self.render_mode = render_mode
+        if not self.visualize:
+            self.render_mode = RenderMode.NONE
+        else:
+            self.render_mode = render_mode
         self.stochastic_init = stochastic_init
 
         print("Running with stochastic_init: ", self.stochastic_init)
@@ -82,9 +85,6 @@ class WarpEnv(Environment):
 
         # potential imageio writer if writing to an mp4
         self.writer = None
-
-        if self.render_mode == RenderMode.USD:
-            self.usd_render_settings["path"] = f"outputs/{self.stage_path}.usd"
 
         # initialize observation and action space
         self.num_observations = num_obs
@@ -209,6 +209,12 @@ class WarpEnv(Environment):
             self.graph_capture_params["tape"] = wp.Tape()
             self.simulate_params["bwd_state_in"] = backward_model.state()
             self.simulate_params["bwd_state_out"] = backward_model.state()
+            self.simulate_params["bwd_state_in"].body_q.requires_grad = True
+            self.simulate_params["bwd_state_in"].body_qd.requires_grad = True
+            self.simulate_params["bwd_state_in"].body_f.requires_grad = True
+            self.simulate_params["bwd_state_out"].body_q.requires_grad = True
+            self.simulate_params["bwd_state_out"].body_qd.requires_grad = True
+            self.simulate_params["bwd_state_out"].body_f.requires_grad = True
             self.simulate_params["state_list"] = [
                 backward_model.state(requires_grad=True)
                 for _ in range(self.sim_substeps - 1)
@@ -221,10 +227,6 @@ class WarpEnv(Environment):
 
     def init_sim(self):
         self.init()
-        if self.visualize:
-            self.initialize_renderer()
-        else:
-            self.renderer = None
         self.state_0 = self.model.state()
         self.state_1 = self.model.state()
         self._joint_q = wp.zeros_like(self.model.joint_q)
@@ -249,32 +251,6 @@ class WarpEnv(Environment):
         # Buffers copying initial state, with env batch dimension
         self.start_joint_q = start_joint_q.clone().view(self.num_envs, -1)
         self.start_joint_qd = start_joint_qd.clone().view(self.num_envs, -1)
-
-    def initialize_renderer(self, stage_path=None):
-        if stage_path is not None:
-            self.stage_path = stage_path
-
-        print(
-            "Initializing renderer writing to path: outputs/{}".format(self.stage_path)
-        )
-        if self.render_mode == RenderMode.USD:
-            self.renderer = wp.sim.render.SimRenderer(
-                self.model, **self.usd_render_settings
-            )
-            self.renderer.draw_points = True
-            self.renderer.draw_springs = True
-        elif self.render_mode == RenderMode.TINY:
-            # self.writer = imageio.get_writer(f"outputs/{self.stage_path}.mp4", fps=30)
-            self.renderer = wp.sim.render.SimRendererTiny(
-                self.model,
-                self.env_name,  # window name
-                upaxis=self.upaxis,
-                # env_offset=self.env_offset,
-                **self.tiny_render_settings,
-            )
-
-        self.render_time = 0.0
-        self.render_freq = 10
 
     def calculateObservations(self):
         """
@@ -356,9 +332,11 @@ class WarpEnv(Environment):
                 self.state_1 = self.integrator.simulate(
                     self.model, self.state_0, self.state_1, self.sim_dt
                 )
-                self.state_0, self.state_1 = self.state_1, self.state_0
-                # self.state_0.body_q.assign(self.state_1.body_q)
-                # self.state_0.body_qd.assign(self.state_1.body_qd)
+                if not self.use_graph_capture:
+                    self.state_0, self.state_1 = self.state_1, self.state_0
+                else:
+                    self.state_0.body_q.assign(self.state_1.body_q)
+                    self.state_0.body_qd.assign(self.state_1.body_qd)
             wp.sim.eval_ik(self.model, self.state_0, self._joint_q, self._joint_qd)
 
         if self.use_graph_capture:
@@ -469,4 +447,5 @@ class WarpEnv(Environment):
     def close(self):
         if self.writer is not None:
             self.writer.close()
-        self.renderer.app.window.set_request_exit()
+        if self.render_mode is RenderMode.USD:
+            self.renderer.app.window.set_request_exit()

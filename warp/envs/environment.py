@@ -5,11 +5,52 @@ import warp.sim.tiny_render
 import numpy as np
 import math
 import argparse
+import os
 from enum import Enum
 from tqdm import trange
 from typing import Tuple
 
 wp.init()
+
+
+def compute_env_offsets(num_envs, env_offset=(5.0, 0.0, 5.0), upaxis="y"):
+    # compute positional offsets per environment
+    nonzeros = np.nonzero(env_offset)[0]
+    num_dim = nonzeros.shape[0]
+    if num_dim > 0:
+        side_length = int(np.ceil(num_envs ** (1.0 / num_dim)))
+        env_offsets = []
+    else:
+        env_offsets = np.zeros((num_envs, 3))
+    if num_dim == 1:
+        for i in range(num_envs):
+            env_offsets.append(i * env_offset)
+    elif num_dim == 2:
+        for i in range(num_envs):
+            d0 = i // side_length
+            d1 = i % side_length
+            offset = np.zeros(3)
+            offset[nonzeros[0]] = d0 * env_offset[nonzeros[0]]
+            offset[nonzeros[1]] = d1 * env_offset[nonzeros[1]]
+            env_offsets.append(offset)
+    elif num_dim == 3:
+        for i in range(num_envs):
+            d0 = i // (side_length * side_length)
+            d1 = (i // side_length) % side_length
+            d2 = i % side_length
+            offset = np.zeros(3)
+            offset[0] = d0 * env_offset[0]
+            offset[1] = d1 * env_offset[1]
+            offset[2] = d2 * env_offset[2]
+            env_offsets.append(offset)
+    env_offsets = np.array(env_offsets)
+    min_offsets = np.min(env_offsets, axis=0)
+    correction = min_offsets + (np.max(env_offsets, axis=0) - min_offsets) / 2.0
+    if isinstance(upaxis, str):
+        upaxis = "xyz".index(upaxis.lower())
+    correction[upaxis] = 0.0  # ensure the envs are not shifted below the ground plane
+    env_offsets -= correction
+    return env_offsets
 
 
 class RenderMode(Enum):
@@ -46,7 +87,7 @@ class Environment:
     euler_settings = dict()
     xpbd_settings = dict()
 
-    render_mode: RenderMode = RenderMode.TINY
+    render_mode: RenderMode = RenderMode.USD
     tiny_render_settings = dict()
     usd_render_settings = dict(scaling=10.0)
 
@@ -76,6 +117,10 @@ class Environment:
     rigid_contact_margin: float = 0.05
     # maximal number of contacts per shape mesh
     rigid_mesh_contact_max: int = 1000
+    # render rigid contacts
+    show_rigid_contact_points: bool = False
+    # render models in different collision groups
+    separate_collision_group: bool = True
 
     plot_body_coords: bool = False
     plot_joint_coords: bool = False
@@ -83,6 +128,7 @@ class Environment:
     requires_grad: bool = False
 
     def __init__(self):
+        self.stage_path = None
         self.parser = argparse.ArgumentParser()
         self.parser.add_argument(
             "--integrator",
@@ -105,7 +151,10 @@ class Environment:
             default=self.num_envs,
         )
         self.parser.add_argument(
-            "--profile", help="Enable profiling", type=bool, default=self.profile
+            "--profile",
+            help="Enable profiling",
+            default=self.profile,
+            action="store_true",
         )
 
     def parse_args(self):
@@ -113,6 +162,8 @@ class Environment:
         self.integrator_type = args.integrator
         self.render_mode = args.visualizer
         self.num_envs = args.num_envs
+        self.profile = args.profile
+        self.stage_path = f"{self.env_name}_{self.num_envs}"
 
     def init(self):
         if self.integrator_type == IntegratorType.EULER:
@@ -130,22 +181,24 @@ class Environment:
         try:
             articulation_builder = wp.sim.ModelBuilder()
             self.create_articulation(articulation_builder)
-            env_offsets = wp.sim.tiny_render.compute_env_offsets(
+            env_offsets = compute_env_offsets(
                 self.num_envs, self.env_offset, self.upaxis
             )
             for i in range(self.num_envs):
-                if self.render_mode == RenderMode.TINY:
-                    # no need to offset, TinyRenderer will do it
-                    xform = wp.transform_identity()
-                else:
-                    quat_rotate = wp.quat(0, 0, 0, 1.0)
-                    if self.upaxis == "y":
-                        quat_rotate = wp.quat_from_axis_angle(
-                            (1.0, 0.0, 0.0), -math.pi * 0.5
-                        )
-                    xform = wp.transform(env_offsets[i], quat_rotate)
+                xform = wp.transform_identity()
+                # if self.render_mode == RenderMode.USD:
+                #     quat_rotate = wp.quat(0, 0, 0, 1.0)
+                #     if self.upaxis == "y":
+                #         quat_rotate = wp.quat_from_axis_angle(
+                #             (1.0, 0.0, 0.0), -math.pi * 0.5
+                #         )
+                #     xform = wp.transform(env_offsets[i], quat_rotate)
                 # self.builder.add_builder(articulation_builder, xform)
-                self.builder.add_rigid_articulation(articulation_builder, xform)
+                self.builder.add_rigid_articulation(
+                    articulation_builder,
+                    xform,
+                    separate_collision_group=self.separate_collision_group,
+                )
             self.bodies_per_env = len(articulation_builder.body_q)
         except NotImplementedError:
             # custom simulation setup where something other than an articulation is used
@@ -177,6 +230,47 @@ class Environment:
         elif self.integrator_type == IntegratorType.XPBD:
             self.integrator = wp.sim.XPBDIntegrator(**self.xpbd_settings)
 
+        if self.render_mode != RenderMode.NONE:
+            self.initialize_renderer()
+        else:
+            self.renderer = None
+
+    def initialize_renderer(self, stage_path=None):
+        if stage_path is not None:
+            self.stage_path = stage_path
+        if not self.stage_path.endswith(".usd"):
+            self.stage_path += ".usd"
+
+        if os.path.dirname(self.stage_path) == "":
+            self.stage_path = "outputs/" + self.stage_path
+
+        if not os.path.exists(os.path.dirname(self.stage_path)):
+            os.makedirs(os.path.dirname(self.stage_path))
+
+        if self.render_mode == RenderMode.USD:
+            print("Initializing renderer writing to path: {}".format(self.stage_path))
+            self.renderer = wp.sim.render.SimRenderer(
+                self.model,
+                self.stage_path,
+                upaxis=self.upaxis,
+                show_rigid_contact_points=self.show_rigid_contact_points,
+                **self.usd_render_settings,
+            )
+            self.renderer.draw_points = True
+            self.renderer.draw_springs = True
+        elif self.render_mode == RenderMode.TINY:
+            # self.writer = imageio.get_writer(f"outputs/{self.stage_path}.mp4", fps=30)
+            self.renderer = wp.sim.render.SimRendererTiny(
+                self.model,
+                self.env_name,  # window name
+                upaxis="z",
+                # env_offset=self.env_offset,
+                **self.tiny_render_settings,
+            )
+
+        self.render_time = 0.0
+        self.render_freq = 10
+
     def create_articulation(self, builder):
         raise NotImplementedError
 
@@ -189,24 +283,38 @@ class Environment:
     def before_simulate(self):
         pass
 
+    def custom_update(self):
+        pass
+
+    def update(self):
+        for i in range(self.sim_substeps):
+            self.state_0.clear_forces()
+            self.custom_update()
+            wp.sim.collide(self.model, self.state_0)
+            self.state_1 = self.integrator.simulate(
+                self.model, self.state_0, self.state_1, self.sim_dt
+            )
+            self.state_0, self.state_1 = self.state_1, self.state_0
+
     def run(self):
         # ---------------
         # run simulation
 
         self.sim_time = 0.0
         self.render_time = 0.0
-        self.state = self.model.state()
+        self.state_0 = self.model.state()
+        self.state_1 = self.model.state()
 
         if self.eval_fk:
             wp.sim.eval_fk(
-                self.model, self.model.joint_q, self.model.joint_qd, None, self.state
+                self.model, self.model.joint_q, self.model.joint_qd, None, self.state_0
             )
 
         self.before_simulate()
 
         if self.renderer is not None:
             self.renderer.begin_frame(self.render_time)
-            self.renderer.render(self.state)
+            self.renderer.render(self.state_0)
             self.renderer.end_frame()
 
             if self.render_mode == RenderMode.TINY and self.renderer.start_paused:
@@ -219,22 +327,16 @@ class Environment:
             wp.capture_begin()
 
             # simulate
-            for i in range(self.sim_substeps):
-                self.state.clear_forces()
-                wp.sim.collide(self.model, self.state)
-                self.state = self.integrator.simulate(
-                    self.model, self.state, self.state, self.sim_dt
-                )
-
+            self.update()
             graph = wp.capture_end()
         else:
             if self.plot_body_coords:
                 q_history = []
-                q_history.append(self.state.body_q.numpy().copy())
+                q_history.append(self.state_0.body_q.numpy().copy())
                 qd_history = []
-                qd_history.append(self.state.body_qd.numpy().copy())
+                qd_history.append(self.state_0.body_qd.numpy().copy())
                 delta_history = []
-                delta_history.append(self.state.body_deltas.numpy().copy())
+                delta_history.append(self.state_0.body_deltas.numpy().copy())
                 num_con_history = []
                 num_con_history.append(
                     self.model.rigid_contact_inv_weight.numpy().copy()
@@ -250,12 +352,11 @@ class Environment:
         ):
             if self.renderer is not None:
                 with wp.ScopedTimer("render", False):
-                    if self.renderer is not None:
-                        self.render_time += self.frame_dt
+                    self.render_time += self.frame_dt
 
-                        self.renderer.begin_frame(self.render_time)
-                        self.renderer.render(self.state)
-                        self.renderer.end_frame()
+                    self.renderer.begin_frame(self.render_time)
+                    self.renderer.render(self.state_0)
+                    self.renderer.end_frame()
 
             while True:
                 for f in trange(self.episode_frames):
@@ -263,160 +364,24 @@ class Environment:
                         wp.capture_launch(graph)
                     else:
                         for i in range(0, self.sim_substeps):
-                            self.state.clear_forces()
-
-                            # random_actions = True
-                            # if (random_actions):
-                            #     act = np.zeros(len(self.model.joint_qd))
-                            #     scale = np.array([200.0,
-                            #                     200.0,
-                            #                     200.0,
-                            #                     200.0,
-                            #                     200.0,
-                            #                     600.0,
-                            #                     400.0,
-                            #                     100.0,
-                            #                     100.0,
-                            #                     200.0,
-                            #                     200.0,
-                            #                     600.0,
-                            #                     400.0,
-                            #                     100.0,
-                            #                     100.0,
-                            #                     100.0,
-                            #                     100.0,
-                            #                     200.0,
-                            #                     100.0,
-                            #                     100.0,
-                            #                     200.0])
-                            #     for j in range(self.num_envs):
-                            #         act[j*self.dof_qd+6:(j+1)*self.dof_qd] = np.clip((np.random.rand(self.dof_qd-6)*2.0 - 1.0)*1000.0, a_min=-1.0, a_max=1.0)*scale*0.35
-
-                            #     self.model.joint_act.assign(act)
-
-                            wp.sim.collide(self.model, self.state)
-
-                            if False and not self.profile:
-                                rigid_contact_inv_weight = (
-                                    self.model.rigid_contact_inv_weight
-                                )
-                                rigid_active_contact_distance = (
-                                    self.model.rigid_active_contact_distance
-                                )
-                                rigid_active_contact_point0 = (
-                                    self.model.rigid_active_contact_point0
-                                )
-                                rigid_active_contact_point1 = (
-                                    self.model.rigid_active_contact_point1
-                                )
-                                rigid_contact_inv_weight.zero_()
-                                rigid_active_contact_distance.zero_()
-
-                                wp.launch(
-                                    kernel=update_body_contact_weights,
-                                    dim=self.model.rigid_contact_max,
-                                    inputs=[
-                                        self.state.body_q,
-                                        0,
-                                        self.model.rigid_contact_count,
-                                        self.model.rigid_contact_body0,
-                                        self.model.rigid_contact_body1,
-                                        self.model.rigid_contact_point0,
-                                        self.model.rigid_contact_point1,
-                                        self.model.rigid_contact_normal,
-                                        self.model.rigid_contact_thickness,
-                                        self.model.rigid_contact_shape0,
-                                        self.model.rigid_contact_shape1,
-                                        self.model.shape_transform,
-                                    ],
-                                    outputs=[
-                                        rigid_contact_inv_weight,
-                                        rigid_active_contact_point0,
-                                        rigid_active_contact_point1,
-                                        rigid_active_contact_distance,
-                                    ],
-                                    device=self.model.device,
-                                )
-
-                                if i == 0:
-                                    # remember the contacts from the first iteration
-                                    if self.requires_grad:
-                                        self.model.rigid_active_contact_distance_prev = wp.clone(
-                                            rigid_active_contact_distance
-                                        )
-                                        self.model.rigid_active_contact_point0_prev = (
-                                            wp.clone(rigid_active_contact_point0)
-                                        )
-                                        self.model.rigid_active_contact_point1_prev = (
-                                            wp.clone(rigid_active_contact_point1)
-                                        )
-                                        self.model.rigid_contact_inv_weight_prev = (
-                                            wp.clone(rigid_contact_inv_weight)
-                                        )
-                                    else:
-                                        self.model.rigid_active_contact_distance_prev.assign(
-                                            rigid_active_contact_distance
-                                        )
-                                        self.model.rigid_active_contact_point0_prev.assign(
-                                            rigid_active_contact_point0
-                                        )
-                                        self.model.rigid_active_contact_point1_prev.assign(
-                                            rigid_active_contact_point1
-                                        )
-                                        self.model.rigid_contact_inv_weight_prev.assign(
-                                            rigid_contact_inv_weight
-                                        )
-
-                            self.state = self.integrator.simulate(
+                            self.state_0.clear_forces()
+                            wp.sim.collide(self.model, self.state_0)
+                            self.state_1 = self.integrator.simulate(
                                 self.model,
-                                self.state,
-                                self.state,
+                                self.state_0,
+                                self.state_1,
                                 self.sim_dt,
                                 requires_grad=self.requires_grad,
                             )
+                            self.state_0, self.state_1 = self.state_1, self.state_0
                             self.sim_time += self.sim_dt
-
-                            if not self.profile:
-                                if False:
-                                    rigid_contact_count = min(
-                                        self.model.rigid_contact_count.numpy()[0],
-                                        self.max_contact_count,
-                                    )
-                                    self.points_a.fill(0.0)
-                                    self.points_b.fill(0.0)
-                                    self.points_a[
-                                        :rigid_contact_count
-                                    ] = self.model.rigid_active_contact_point0_prev.numpy()[
-                                        :rigid_contact_count
-                                    ]
-                                    self.points_b[
-                                        :rigid_contact_count
-                                    ] = self.model.rigid_active_contact_point1_prev.numpy()[
-                                        :rigid_contact_count
-                                    ]
-
-                                if self.plot_body_coords:
-                                    q_history.append(self.state.body_q.numpy().copy())
-                                    qd_history.append(self.state.body_qd.numpy().copy())
-                                    delta_history.append(
-                                        self.state.body_deltas.numpy().copy()
-                                    )
-                                    num_con_history.append(
-                                        self.model.rigid_contact_inv_weight.numpy().copy()
-                                    )
-
-                                if self.plot_joint_coords:
-                                    wp.sim.eval_ik(
-                                        self.model, self.state, joint_q, joint_qd
-                                    )
-                                    joint_q_history.append(joint_q.numpy().copy())
 
                     if self.renderer is not None:
                         with wp.ScopedTimer("render", False):
                             self.render_time += self.frame_dt  # * 300.0
 
                             self.renderer.begin_frame(self.render_time)
-                            self.renderer.render(self.state)
+                            self.renderer.render(self.state_0)
 
                             if False and self.max_contact_count > 0:
                                 self.renderer.render_points(
