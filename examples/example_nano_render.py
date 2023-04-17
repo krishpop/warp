@@ -6,17 +6,27 @@ import matplotlib.pyplot as plt
 wp.init()
 
 # number of viewports to render in a single frame
-num_tiles = 9
+num_tiles = 4
 # whether to split tiles into subplots
 split_up_tiles = True
+# whether to apply custom tile arrangement
+custom_tile_arrangement = True
 
-renderer = wp.render.NanoRenderer(vsync=True)
+renderer = wp.render.NanoRenderer(vsync=False, maximize_window=False)
 instance_ids = []
+
+positions = []
+sizes = []
+
 # set up instances to hide one of the capsules in each tile
 for i in range(num_tiles):
     instances = [j for j in np.arange(13) if j != i+2]
     instance_ids.append(instances)
-renderer.setup_tiled_rendering(instance_ids)
+    if custom_tile_arrangement:
+        angle = np.pi*2.0 / num_tiles * i
+        positions.append((int(np.cos(angle)*150 + 250), int(np.sin(angle)*150 + 250)))
+        sizes.append((150, 150))
+renderer.setup_tiled_rendering(instance_ids, tile_positions=positions, tile_sizes=sizes)
 
 renderer.render_ground()
 

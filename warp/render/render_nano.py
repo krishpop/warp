@@ -11,6 +11,7 @@ import warp as wp
 from .utils import tab10_color_map
 
 from collections import defaultdict
+from typing import List, Tuple, Union, Optional
 
 import numpy as np
 
@@ -24,6 +25,8 @@ import pycuda
 import pycuda.gl
 import imgui
 from imgui.integrations.glfw import GlfwRenderer
+
+Mat44 = Union[List[float], List[List[float]], np.ndarray, glm.mat4]
 
 wp.set_module_options({"enable_backward": False})
 
@@ -395,24 +398,57 @@ def copy_frame(
 @wp.kernel
 def copy_frame_tiles(
     input_img: wp.array(dtype=float),
+    positions: wp.array(dtype=int, ndim=2),
     screen_width: int,
-    tile_ncols: int,
-    tile_width: int,
+    screen_height: int,
     tile_height: int,
     # outputs
     output_img: wp.array(dtype=float, ndim=4)):
 
-    tile, w, v = wp.tid()
-    row = tile_ncols - tile // tile_ncols - 1
-    col = tile % tile_ncols
-    pixel = v*screen_width + w + row * tile_height * screen_width + col * tile_width
+    tile, x, y = wp.tid()
+    p = positions[tile]
+    qx = x + p[0]; qy = y + p[1]
+    pixel = qy*screen_width + qx
+    # flip vertically (OpenGL coordinates start at bottom)
+    y = tile_height - y - 1
+    if qx >= screen_width or qy >= screen_height:
+        output_img[tile, y, x, 0] = 0.0
+        output_img[tile, y, x, 1] = 0.0
+        output_img[tile, y, x, 2] = 0.0
+        return  # prevent out-of-bounds access
     pixel *= 3
     r = input_img[pixel+0]; g = input_img[pixel+1]; b = input_img[pixel+2]
+    output_img[tile, y, x, 0] = r
+    output_img[tile, y, x, 1] = g
+    output_img[tile, y, x, 2] = b
+    
+
+@wp.kernel
+def copy_frame_tile(
+    input_img: wp.array(dtype=float),
+    offset_x: int,
+    offset_y: int,
+    screen_width: int,
+    screen_height: int,
+    tile_height: int,
+    # outputs
+    output_img: wp.array(dtype=float, ndim=4)):
+
+    tile, x, y = wp.tid()
+    qx = x + offset_x; qy = y + offset_y
+    pixel = qy*screen_width + qx
     # flip vertically (OpenGL coordinates start at bottom)
-    v = tile_height - v - 1
-    output_img[tile, v, w, 0] = r
-    output_img[tile, v, w, 1] = g
-    output_img[tile, v, w, 2] = b
+    y = tile_height - y - 1
+    if qx >= screen_width or qy >= screen_height:
+        output_img[tile, y, x, 0] = 0.0
+        output_img[tile, y, x, 1] = 0.0
+        output_img[tile, y, x, 2] = 0.0
+        return  # prevent out-of-bounds access
+    pixel *= 3
+    r = input_img[pixel+0]; g = input_img[pixel+1]; b = input_img[pixel+2]
+    output_img[tile, y, x, 0] = r
+    output_img[tile, y, x, 1] = g
+    output_img[tile, y, x, 2] = b
 
 
 def check_gl_error():
@@ -642,11 +678,12 @@ class ShapeInstancer:
 
 
 class NanoRenderer:
+    """
+    NanoRenderer is a simple OpenGL renderer for rendering 3D shapes and meshes.
+    """
+
     # number of segments to use for rendering spheres, capsules, cones and cylinders
     default_num_segments = 32
-
-    # number of horizontal and vertical pixels to use for checkerboard texture
-    default_texture_size = 256
 
     def __init__(
         self,
@@ -666,25 +703,23 @@ class NanoRenderer:
         axis_scale=1.0,
         vsync=True,
         headless=False,
+        maximize_window=False,
     ):
         
-        self.scaling = scaling
-        self.near_plane = near_plane
-        self.far_plane = far_plane
+        self.camera_near_plane = near_plane
+        self.camera_far_plane = far_plane
         self.camera_fov = camera_fov
+
         self.background_color = background_color
         self.draw_grid = draw_grid
         self.draw_sky = draw_sky
         self.draw_axis = draw_axis
-        
-        self.screen_width = screen_width
-        self.screen_height = screen_height
 
         self._device = wp.get_cuda_device()
 
         if not glfw.init():
             raise Exception("GLFW initialization failed!")
-        
+
         glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
         glfw.window_hint(glfw.OPENGL_FORWARD_COMPAT, GL_TRUE)
         glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 3)
@@ -693,8 +728,12 @@ class NanoRenderer:
         glfw.window_hint(glfw.DEPTH_BITS, 32)
         if headless:
             glfw.window_hint(glfw.VISIBLE, glfw.FALSE)
+        elif maximize_window:
+            glfw.window_hint(glfw.MAXIMIZED, glfw.TRUE)
 
         self.window = glfw.create_window(screen_width, screen_height, title, None, None)
+        
+        self.screen_width, self.screen_height = glfw.get_framebuffer_size(self.window)
 
         if not self.window:
             glfw.terminate()
@@ -706,10 +745,13 @@ class NanoRenderer:
         self._camera_speed = 0.04
         self._camera_axis = "xyz".index(upaxis.lower())
         self._yaw, self._pitch = -90.0, 0.0
-        self._last_x, self._last_y = 800 // 2, 600 // 2
+        self._last_x, self._last_y = self.screen_width // 2, self.screen_height // 2
         self._first_mouse = True
         self._left_mouse_pressed = False
         self._keys_pressed = defaultdict(bool)
+
+        self.update_view_matrix()
+        self.update_projection_matrix()
 
         self.time = 0.0
         self.clock_time = glfw.get_time()
@@ -719,7 +761,7 @@ class NanoRenderer:
         self._skip_frame_counter = 0
         self._fps_update = None
         self._fps_render = None
-        self._fps_alpha = 0.1  # low pass filter update
+        self._fps_alpha = 0.1  # low pass filter rate to update FPS stats
 
         self._body_name = {}
         self._shapes = []
@@ -749,11 +791,16 @@ class NanoRenderer:
         # instancer for the arrow shapes sof the coordinate system axes
         self._axis_instancer = None
 
+        # toggle tiled rendering
+        self._tiled_rendering = False
         self._tile_instances = None
         self._tile_ncols = 0
         self._tile_nrows = 0
         self._tile_width = 0
         self._tile_height = 0
+        self._tile_viewports = None
+        self._tile_view_matrices = None
+        self._tile_projection_matrices = None
 
         self._frame_texture = None
         self._frame_fbo = None
@@ -800,33 +847,12 @@ class NanoRenderer:
         self._sun_direction /= np.linalg.norm(self._sun_direction)
         glUniform3f(glGetUniformLocation(self._shape_shader, "sunDirection"), *self._sun_direction)
 
-        width, height = glfw.get_window_size(self.window)
-        self._projection_matrix = glm.perspective(np.deg2rad(45), width / height, self.near_plane, self.far_plane)
-        # glUniformMatrix4fv(self._loc_shape_projection, 1, GL_FALSE, glm.value_ptr(self._projection_matrix))
+        # width, height = glfw.get_window_size(self.window)
+        # self._projection_matrix = glm.perspective(np.deg2rad(45), width / height, self.camera_near_plane, self.camera_far_plane)
+        # # glUniformMatrix4fv(self._loc_shape_projection, 1, GL_FALSE, glm.value_ptr(self._projection_matrix))
 
-        self._view_matrix = glm.lookAt(self._camera_pos, self._camera_pos + self._camera_front, self._camera_up)
-        # glUniformMatrix4fv(self._loc_shape_view, 1, GL_FALSE, glm.value_ptr(self._view_matrix))
-        
-        if self._camera_axis == 0:
-            self._model_matrix = glm.mat4(
-                0, 0, self.scaling, 0,
-                self.scaling, 0, 0, 0,
-                0, self.scaling, 0, 0,
-                0, 0, 0, 1)
-        elif self._camera_axis == 2:
-            self._model_matrix = glm.mat4(
-                self.scaling, 0, 0, 0,
-                0, 0, self.scaling, 0,
-                0, self.scaling, 0, 0,
-                0, 0, 0, 1)
-        else:
-            self._model_matrix = glm.mat4(
-                self.scaling, 0, 0, 0,
-                0, self.scaling, 0, 0,
-                0, 0, self.scaling, 0,
-                0, 0, 0, 1)
-
-        glUniformMatrix4fv(self._loc_shape_model, 1, GL_FALSE, glm.value_ptr(self._model_matrix))
+        # self._view_matrix = glm.lookAt(self._camera_pos, self._camera_pos + self._camera_front, self._camera_up)
+        # # glUniformMatrix4fv(self._loc_shape_view, 1, GL_FALSE, glm.value_ptr(self._view_matrix))
 
 
         glUseProgram(self._grid_shader)
@@ -864,9 +890,9 @@ class NanoRenderer:
         glVertexAttribPointer(self._loc_grid_pos_attribute, 3, GL_FLOAT, GL_FALSE, 0, None)
         glEnableVertexAttribArray(self._loc_grid_pos_attribute)
         
-        glUniformMatrix4fv(self._loc_grid_projection, 1, GL_FALSE, glm.value_ptr(self._projection_matrix))
-        glUniformMatrix4fv(self._loc_grid_view, 1, GL_FALSE, glm.value_ptr(self._view_matrix))
-        glUniformMatrix4fv(self._loc_grid_model, 1, GL_FALSE, glm.value_ptr(self._model_matrix))
+        # glUniformMatrix4fv(self._loc_grid_projection, 1, GL_FALSE, glm.value_ptr(self._projection_matrix))
+        # glUniformMatrix4fv(self._loc_grid_view, 1, GL_FALSE, glm.value_ptr(self._view_matrix))
+        # glUniformMatrix4fv(self._loc_grid_model, 1, GL_FALSE, glm.value_ptr(self._model_matrix))
 
         # create sky data
         self._sky_shader = compileProgram(
@@ -878,9 +904,9 @@ class NanoRenderer:
         self._loc_sky_view = glGetUniformLocation(self._sky_shader, "view")
         self._loc_sky_model = glGetUniformLocation(self._sky_shader, "model")
         self._loc_sky_projection = glGetUniformLocation(self._sky_shader, "projection")
-        glUniformMatrix4fv(self._loc_sky_projection, 1, GL_FALSE, glm.value_ptr(self._projection_matrix))
-        glUniformMatrix4fv(self._loc_sky_view, 1, GL_FALSE, glm.value_ptr(self._view_matrix))
-        glUniformMatrix4fv(self._loc_sky_model, 1, GL_FALSE, glm.value_ptr(self._model_matrix))
+        # glUniformMatrix4fv(self._loc_sky_projection, 1, GL_FALSE, glm.value_ptr(self._projection_matrix))
+        # glUniformMatrix4fv(self._loc_sky_view, 1, GL_FALSE, glm.value_ptr(self._view_matrix))
+        # glUniformMatrix4fv(self._loc_sky_model, 1, GL_FALSE, glm.value_ptr(self._model_matrix))
 
         self._loc_sky_color1 = glGetUniformLocation(self._sky_shader, "color1")
         self._loc_sky_color2 = glGetUniformLocation(self._sky_shader, "color2")
@@ -894,7 +920,7 @@ class NanoRenderer:
         self._sky_vao = glGenVertexArrays(1)
         glBindVertexArray(self._sky_vao)
 
-        vertices, indices = self._create_sphere_mesh(self.far_plane * 0.9, 32, 32)
+        vertices, indices = self._create_sphere_mesh(self.camera_far_plane * 0.9, 32, 32)
         self._sky_tri_count = len(indices)
 
         self._sky_vbo = glGenBuffers(1)
@@ -985,6 +1011,9 @@ class NanoRenderer:
         # Unbind the VBO and VAO
         glBindBuffer(GL_ARRAY_BUFFER, 0)
         glBindVertexArray(0)
+        
+        # update model matrix
+        self.scaling = scaling
 
     def _setup_framebuffer(self):
         if self._frame_texture is None:
@@ -1072,29 +1101,206 @@ class NanoRenderer:
         self._wp_instance_bodies = None
         self._update_shape_instances = False
 
-    def setup_tiled_rendering(self, instances: list, rescale_window=False, tile_width=128, tile_height=128):
-        # skip the first 3 instances for the coordinate system axis arrows
-        self._tile_instances = [[i for i in ids] for ids in instances]
+    @property
+    def tiled_rendering(self):
+        return self._tiled_rendering
+    
+    @tiled_rendering.setter
+    def tiled_rendering(self, value):
+        if value:
+            assert self._tile_instances is not None, "Tiled rendering is not set up. Call setup_tiled_rendering first."
+        self._tiled_rendering = value
+
+    def setup_tiled_rendering(
+        self,
+        instances: List[List[int]],
+        rescale_window: bool = False,
+        tile_width: Optional[int] = None,
+        tile_height: Optional[int] = None,
+        tile_ncols: Optional[int] = None,
+        tile_nrows: Optional[int] = None,
+        tile_positions: Optional[List[Tuple[int]]] = None,
+        tile_sizes: Optional[List[Tuple[int]]] = None,
+        projection_matrices: Optional[List[Mat44]] = None,
+        view_matrices: Optional[List[Mat44]] = None
+    ):
+        """
+        Set up tiled rendering where the render buffer is split into multiple tiles that can visualize
+        different shape instances of the scene with different view and projection matrices.
+        See `get_pixels` which allows to retrieve the pixels of for each tile.
+
+        :param instances: A list of lists of shape instance ids. Each list of shape instance ids
+            will be rendered into a separate tile.
+        :param rescale_window: If True, the window will be resized to fit the tiles.
+        :param tile_width: The width of each tile in pixels (optional).
+        :param tile_height: The height of each tile in pixels (optional).
+        :param tile_ncols: The number of tiles rendered horizontally (optional). Will be considered
+            if `tile_width` is set to compute the tile positions, unless `tile_positions` is defined.
+        :param tile_positions: A list of (x, y) tuples specifying the position of each tile in pixels.
+            If None, the tiles will be arranged in a square grid, or, if `tile_ncols` and `tile_nrows`
+            is set, in a grid with the specified number of columns and rows.
+        :param tile_sizes: A list of (width, height) tuples specifying the size of each tile in pixels.
+            If None, the tiles will have the same size as specified by `tile_width` and `tile_height`.
+        :param projection_matrices: A list of projection matrices for each tile (each view matrix is
+            either a flattened 16-dimensional array or a 4x4 matrix).
+            If the entire array is None, or only a view instances, the projection matrices for all, or these 
+            instances, respectively, will be derived from the current render settings.
+        :param view_matrices: A list of view matrices for each tile (each view matrix is either a flattened
+            16-dimensional array or a 4x4 matrix).
+            If the entire array is None, or only a view instances, the view matrices for all, or these 
+            instances, respectively, will be derived from the current camera settings and be
+            updated when the camera is moved.
+        """
+
+        assert len(instances) > 0 and all(isinstance(i, list) for i in instances), "Invalid tile instances."
+        
+        self._tile_instances = instances
         n = len(self._tile_instances)
-        # try to fit the tiles into a square
-        self._tile_ncols = int(np.ceil(np.sqrt(n)))
-        self._tile_nrows = int(np.ceil(n / float(self._tile_ncols)))
-        if rescale_window:
-            glfw.set_window_size(self.window, tile_width * self._tile_ncols, tile_height * self._tile_nrows)
-        self._tile_width = max(32, self.screen_width // self._tile_ncols)
-        self._tile_height = max(32, self.screen_height // self._tile_nrows)
+
+        if tile_positions is None or tile_sizes is None:
+            if tile_ncols is None or tile_nrows is None:
+                # try to fit the tiles into a square
+                self._tile_ncols = int(np.ceil(np.sqrt(n)))
+                self._tile_nrows = int(np.ceil(n / float(self._tile_ncols)))
+            else:
+                self._tile_ncols = tile_ncols
+                self._tile_nrows = tile_nrows
+            self._tile_width = tile_width or max(32, self.screen_width // self._tile_ncols)
+            self._tile_height = tile_height or max(32, self.screen_height // self._tile_nrows)
+            self._tile_viewports = [
+                (i * self._tile_width, j * self._tile_height, self._tile_width, self._tile_height)
+                for i in range(self._tile_ncols) for j in range(self._tile_nrows)
+            ]
+            if rescale_window:
+                glfw.set_window_size(self.window, self._tile_width * self._tile_ncols, self._tile_height * self._tile_nrows)
+        else:
+            assert len(tile_positions) == n and len(tile_sizes) == n, "Number of tiles does not match number of instances."
+            self._tile_ncols = None
+            self._tile_nrows = None
+            self._tile_width = None
+            self._tile_height = None
+            if all([tile_sizes[i][0] == tile_sizes[0][0] for i in range(n)]):
+                # tiles all have the same width
+                self._tile_width = tile_sizes[0][0]
+            if all([tile_sizes[i][1] == tile_sizes[0][1] for i in range(n)]):
+                # tiles all have the same height
+                self._tile_height = tile_sizes[0][1]
+            self._tile_viewports = [
+                (x, y, w, h)
+                for (x, y), (w, h) in zip(tile_positions, tile_sizes)
+            ]
+
+        if projection_matrices is None:
+            projection_matrices = [None] * n
+        self._tile_projection_matrices = []
+        for i, p in enumerate(projection_matrices):
+            if p is None:
+                w, h = self._tile_viewports[i][2:]
+                self._tile_projection_matrices.append(self.compute_projection_matrix(
+                    self.camera_fov, w / h, self.camera_near_plane, self.camera_far_plane))
+            else:
+                self._tile_projection_matrices.append(glm.mat4(np.array(p).flatten()))
+
+        if view_matrices is None:
+            self._tile_view_matrices = [None] * n
+        else:
+            self._tile_view_matrices = [glm.mat4(np.array(m).flatten()) for m in view_matrices]
+
+        self._tiled_rendering = True
+
+    def update_tile(
+        self,
+        tile_id,
+        instances: Optional[List[int]] = None,
+        projection_matrix: Optional[Mat44] = None,
+        view_matrix: Optional[Mat44] = None,
+        tile_size: Optional[Tuple[int]] = None,
+        tile_position: Optional[Tuple[int]] = None,
+    ):
+        """
+        Update the shape instances, projection matrix, view matrix, tile size, or tile position
+        for a given tile given its index.
+
+        :param tile_id: The index of the tile to update.
+        :param instances: A list of shape instance ids (optional).
+        :param projection_matrix: A projection matrix (optional).
+        :param view_matrix: A view matrix (optional).
+        :param tile_size: A (width, height) tuple specifying the size of the tile in pixels (optional).
+        :param tile_position: A (x, y) tuple specifying the position of the tile in pixels (optional).
+        """
+
+        assert self._tile_instances is not None, "Tiled rendering is not set up. Call setup_tiled_rendering first."
+        assert tile_id < len(self._tile_instances), "Invalid tile id."
+
+        if instances is not None:
+            self._tile_instances[tile_id] = instances
+        if projection_matrix is not None:
+            self._tile_projection_matrices[tile_id] = glm.mat4(np.array(projection_matrix).flatten())
+        if view_matrix is not None:
+            self._tile_view_matrices[tile_id] = glm.mat4(np.array(view_matrix).flatten())
+        (x, y, w, h) = self._tile_viewports[tile_id]
+        if tile_size is not None:
+            w, h = tile_size
+        if tile_position is not None:
+            x, y = tile_position
+        self._tile_viewports[tile_id] = (x, y, w, h)
+
+    @staticmethod
+    def compute_projection_matrix(
+        fov: float,
+        aspect_ratio: float,
+        near_plane: float,
+        far_plane: float,
+    ) -> Mat44:
+        """
+        Compute a projection matrix given the field of view, aspect ratio, near plane, and far plane.
+
+        :param fov: The field of view in degrees.
+        :param aspect_ratio: The aspect ratio (width / height).
+        :param near_plane: The near plane.
+        :param far_plane: The far plane.
+        :return: A projection matrix.
+        """
+
+        return glm.perspective(glm.radians(fov), aspect_ratio, near_plane, far_plane)
 
     def update_projection_matrix(self):
-        if self._tile_ncols is None or self._tile_ncols == 0:
-            if self.screen_height == 0:
-                return
-            aspect_ratio = self.screen_width / self.screen_height
-        else:
-            self._tile_width = max(32, self.screen_width // self._tile_ncols)
-            self._tile_height = max(32, self.screen_height // self._tile_nrows)
-            aspect_ratio = self._tile_width / self._tile_height
+        if self.screen_height == 0:
+            return
+        aspect_ratio = self.screen_width / self.screen_height        
+        self._projection_matrix = self.compute_projection_matrix(
+            self.camera_fov, aspect_ratio, self.camera_near_plane, self.camera_far_plane)
         
-        self._projection_matrix = glm.perspective(glm.radians(self.camera_fov), aspect_ratio, self.near_plane, self.far_plane)
+    def update_view_matrix(self):
+        cam_pos = self._camera_pos
+        self._view_matrix = glm.lookAt(cam_pos, cam_pos + self._camera_front, self._camera_up)
+        
+    def update_model_matrix(self):
+        if self._camera_axis == 0:
+            self._model_matrix = glm.mat4(
+                0, 0, self._scaling, 0,
+                self._scaling, 0, 0, 0,
+                0, self._scaling, 0, 0,
+                0, 0, 0, 1)
+        elif self._camera_axis == 2:
+            self._model_matrix = glm.mat4(
+                self._scaling, 0, 0, 0,
+                0, 0, self._scaling, 0,
+                0, self._scaling, 0, 0,
+                0, 0, 0, 1)
+        else:
+            self._model_matrix = glm.mat4(
+                self._scaling, 0, 0, 0,
+                0, self._scaling, 0, 0,
+                0, 0, self._scaling, 0,
+                0, 0, 0, 1)
+            
+        glUseProgram(self._shape_shader)
+        glUniformMatrix4fv(self._loc_shape_model, 1, GL_FALSE, glm.value_ptr(self._model_matrix))
+        glUseProgram(self._grid_shader)
+        glUniformMatrix4fv(self._loc_grid_model, 1, GL_FALSE, glm.value_ptr(self._model_matrix))
+        glUseProgram(self._sky_shader)
+        glUniformMatrix4fv(self._loc_sky_model, 1, GL_FALSE, glm.value_ptr(self._model_matrix))
 
     @property
     def num_tiles(self):
@@ -1115,6 +1321,15 @@ class NanoRenderer:
     @property
     def num_instances(self):
         return self._instance_count
+    
+    @property
+    def scaling(self):
+        return self._scaling
+    
+    @scaling.setter
+    def scaling(self, scaling):
+        self._scaling = scaling
+        self.update_model_matrix()
     
     def begin_frame(self, time: float = None):
         self._last_begin_frame_time = glfw.get_time()
@@ -1156,11 +1371,7 @@ class NanoRenderer:
         glClearColor(*self.background_color, 1)
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
         glBindVertexArray(0)
-        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, self._frame_fbo)
-
-        # cache camera position in case it gets changed during rendering
-        cam_pos = self._camera_pos
-        self._view_matrix = glm.lookAt(cam_pos, cam_pos + self._camera_front, self._camera_up)
+        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, self._frame_fbo)        
 
         if self._fps_update is None:
             self._fps_update = 1.0 / (self._last_end_frame_time - self._last_begin_frame_time)
@@ -1202,7 +1413,7 @@ class NanoRenderer:
         imgui.pop_style_var()
         imgui.render()
 
-        if self._tile_instances is None:
+        if not self._tiled_rendering:
             if self.draw_grid:
                 self._draw_grid()
 
@@ -1211,15 +1422,15 @@ class NanoRenderer:
         
         glUseProgram(self._shape_shader)
         glUniformMatrix4fv(self._loc_shape_view, 1, GL_FALSE, glm.value_ptr(self._view_matrix))
-        glUniform3f(self._loc_shape_view_pos, *cam_pos)
+        glUniform3f(self._loc_shape_view_pos, *self._camera_pos)
         glUniformMatrix4fv(self._loc_shape_view, 1, GL_FALSE, glm.value_ptr(self._view_matrix))
         glUniformMatrix4fv(self._loc_shape_projection, 1, GL_FALSE, glm.value_ptr(self._projection_matrix))
-        glUniformMatrix4fv(self._loc_shape_model, 1, GL_FALSE, glm.value_ptr(self._model_matrix))
+        # glUniformMatrix4fv(self._loc_shape_model, 1, GL_FALSE, glm.value_ptr(self._model_matrix))
 
-        if self._tile_instances is None:
-            self._render_scene()
-        else:
+        if self._tiled_rendering:
             self._render_scene_tiled()
+        else:
+            self._render_scene()
         
         glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0)
         if self._frame_fbo is not None:
@@ -1244,24 +1455,26 @@ class NanoRenderer:
 
         glfw.swap_buffers(self.window)
 
-    def _draw_grid(self):
-        glUseProgram(self._grid_shader)
-            
-        glUniformMatrix4fv(self._loc_grid_view, 1, GL_FALSE, glm.value_ptr(self._view_matrix))
-        glUniformMatrix4fv(self._loc_grid_projection, 1, GL_FALSE, glm.value_ptr(self._projection_matrix))
-        # glUniformMatrix4fv(self._loc_grid_model, 1, GL_FALSE, glm.value_ptr(self._model_matrix))
+    def _draw_grid(self, is_tiled=False):
+        if not is_tiled:
+            glUseProgram(self._grid_shader)
+                
+            glUniformMatrix4fv(self._loc_grid_view, 1, GL_FALSE, glm.value_ptr(self._view_matrix))
+            glUniformMatrix4fv(self._loc_grid_projection, 1, GL_FALSE, glm.value_ptr(self._projection_matrix))
+            # glUniformMatrix4fv(self._loc_grid_model, 1, GL_FALSE, glm.value_ptr(self._model_matrix))
 
         glBindVertexArray(self._grid_vao)
         glDrawArrays(GL_LINES, 0, self._grid_vertex_count)
         glBindVertexArray(0)
 
-    def _draw_sky(self):
-        glUseProgram(self._sky_shader)
+    def _draw_sky(self, is_tiled=False):
+        if not is_tiled:
+            glUseProgram(self._sky_shader)
 
-        glUniformMatrix4fv(self._loc_sky_view, 1, GL_FALSE, glm.value_ptr(self._view_matrix))
-        glUniformMatrix4fv(self._loc_sky_projection, 1, GL_FALSE, glm.value_ptr(self._projection_matrix))
-        # glUniformMatrix4fv(self._loc_sky_model, 1, GL_FALSE, glm.value_ptr(self._model_matrix))
-        glUniform3f(self._loc_sky_view_pos, *self._camera_pos)
+            glUniformMatrix4fv(self._loc_sky_view, 1, GL_FALSE, glm.value_ptr(self._view_matrix))
+            glUniformMatrix4fv(self._loc_sky_projection, 1, GL_FALSE, glm.value_ptr(self._projection_matrix))
+            # glUniformMatrix4fv(self._loc_sky_model, 1, GL_FALSE, glm.value_ptr(self._model_matrix))
+            glUniform3f(self._loc_sky_view_pos, *self._camera_pos)
         
         glBindVertexArray(self._sky_vao)
         glDrawElements(GL_TRIANGLES, self._sky_tri_count, GL_UNSIGNED_INT, None)
@@ -1287,44 +1500,44 @@ class NanoRenderer:
         glBindVertexArray(0)
 
     def _render_scene_tiled(self):
-        n = len(self._tile_instances)
-        tile_width = self._tile_width
-        tile_height = self._tile_height
+        for i, viewport in enumerate(self._tile_viewports):
+            projection_matrix_ptr = glm.value_ptr(self._tile_projection_matrices[i])
+            view_matrix_ptr = glm.value_ptr(self._tile_view_matrices[i] or self._view_matrix)
 
-        i = 0
-        for vy in range(self._tile_nrows):
-            for vx in range(self._tile_ncols):
-                if i >= n:
-                    break
+            glViewport(*viewport)
+            if self.draw_grid:
+                glUseProgram(self._grid_shader)
+                glUniformMatrix4fv(self._loc_grid_projection, 1, GL_FALSE, projection_matrix_ptr)
+                glUniformMatrix4fv(self._loc_grid_view, 1, GL_FALSE, view_matrix_ptr)
+                self._draw_grid(is_tiled=True)
 
-                glViewport(vx*tile_width, self.screen_height-(vy+1)*tile_height, tile_width, tile_height)
-                if self.draw_grid:
-                    self._draw_grid()
+            if self.draw_sky:
+                glUseProgram(self._sky_shader)
+                glUniformMatrix4fv(self._loc_sky_projection, 1, GL_FALSE, projection_matrix_ptr)
+                glUniformMatrix4fv(self._loc_sky_view, 1, GL_FALSE, view_matrix_ptr)
+                self._draw_sky(is_tiled=True)
+            
+            glUseProgram(self._shape_shader)
+            glUniformMatrix4fv(self._loc_shape_projection, 1, GL_FALSE, projection_matrix_ptr)
+            glUniformMatrix4fv(self._loc_shape_view, 1, GL_FALSE, view_matrix_ptr)
+            
+            instances = self._tile_instances[i]
 
-                if self.draw_sky:
-                    self._draw_sky()
-                
-                glUseProgram(self._shape_shader)
-                
-                instances = self._tile_instances[i]
+            for instance in instances:
+                shape = self._instance_shape[instance]
 
-                for instance in instances:
-                    shape = self._instance_shape[instance]
+                vao, _, _, tri_count, _ = self._shape_gl_buffers[shape]
 
-                    vao, _, _, tri_count, _ = self._shape_gl_buffers[shape]
+                start_instance_idx = self._inverse_instance_ids[instance]
 
-                    start_instance_idx = self._inverse_instance_ids[instance]
+                glBindVertexArray(vao)
+                glDrawElementsInstancedBaseInstance(GL_TRIANGLES, tri_count, GL_UNSIGNED_INT, None, 1, start_instance_idx)
 
-                    glBindVertexArray(vao)
-                    glDrawElementsInstancedBaseInstance(GL_TRIANGLES, tri_count, GL_UNSIGNED_INT, None, 1, start_instance_idx)
+            if self.draw_axis:
+                self._axis_instancer.render()
 
-                if self.draw_axis:
-                    self._axis_instancer.render()
-
-                for instancer in self._shape_instancers.values():
-                    instancer.render()
-
-                i += 1
+            for instancer in self._shape_instancers.values():
+                instancer.render()
         
         glBindVertexArray(0)
     
@@ -1363,6 +1576,7 @@ class NanoRenderer:
             front.y = np.sin(np.deg2rad(self._pitch))
             front.z = np.sin(np.deg2rad(self._yaw)) * np.cos(np.deg2rad(self._pitch))
             self._camera_front = glm.normalize(front)
+            self.update_view_matrix()
 
     def _pressed_key(self, key):
         # only return True when this key has been pressed and now released to avoid flickering toggles
@@ -1376,12 +1590,16 @@ class NanoRenderer:
     def _process_input(self, window):
         if glfw.get_key(window, glfw.KEY_W) == glfw.PRESS or glfw.get_key(window, glfw.KEY_UP) == glfw.PRESS:
             self._camera_pos += self._camera_speed * self._camera_front * self._frame_speed
+            self.update_view_matrix()
         if glfw.get_key(window, glfw.KEY_S) == glfw.PRESS or glfw.get_key(window, glfw.KEY_DOWN) == glfw.PRESS:
             self._camera_pos -= self._camera_speed * self._camera_front * self._frame_speed
+            self.update_view_matrix()
         if glfw.get_key(window, glfw.KEY_A) == glfw.PRESS or glfw.get_key(window, glfw.KEY_LEFT) == glfw.PRESS:
             self._camera_pos -= self._camera_speed * glm.normalize(glm.cross(self._camera_front, self._camera_up)) * self._frame_speed
+            self.update_view_matrix()
         if glfw.get_key(window, glfw.KEY_D) == glfw.PRESS or glfw.get_key(window, glfw.KEY_RIGHT) == glfw.PRESS:
             self._camera_pos += self._camera_speed * glm.normalize(glm.cross(self._camera_front, self._camera_up)) * self._frame_speed
+            self.update_view_matrix()
         
         if self._pressed_key(glfw.KEY_ESCAPE):
             glfw.set_window_should_close(window, True)
@@ -1401,7 +1619,6 @@ class NanoRenderer:
 
     def _window_resize_callback(self, window, width, height):
         self._first_mouse = True
-        glViewport(0, 0, width, height)
         self.screen_width = width
         self.screen_height = height
         self.update_projection_matrix()
@@ -1630,8 +1847,10 @@ class NanoRenderer:
             glfw.terminate()
 
     def get_pixels(self, target_image: wp.array, split_up_tiles=True):
-        split_up_tiles = split_up_tiles and self._tile_ncols > 0
         if split_up_tiles:
+            assert self._tile_width is not None and self._tile_height is not None, f"Tile width and height are not set, tiles must all have the same size"
+            assert all(vp[2] == self._tile_width for vp in self._tile_viewports), f"Tile widths do not all equal global tile_width, use `get_tile_pixels` instead to retrieve pixels for a single tile"
+            assert all(vp[3] == self._tile_height for vp in self._tile_viewports), f"Tile heights do not all equal global tile_height, use `get_tile_pixels` instead to retrieve pixels for a single tile"
             assert target_image.shape == (self.num_tiles, self._tile_height, self._tile_width, 3), f"Shape of `target_image` array does not match {self.num_tiles} x {self.screen_height} x {self.screen_width} x 3"
         else:
             assert target_image.shape == (self.screen_height, self.screen_width, 3), f"Shape of `target_image` array does not match {self.screen_height} x {self.screen_width} x 3"
@@ -1646,17 +1865,18 @@ class NanoRenderer:
         pbo_buffer = pycuda.gl.RegisteredBuffer(int(self._frame_pbo), pycuda.gl.graphics_map_flags.WRITE_DISCARD)
         mapped_buffer = pbo_buffer.map()
         ptr, _ = mapped_buffer.device_ptr_and_size()
-        num_tiles = max(1, self.num_tiles)
-        img = wp.array(dtype=wp.float32, shape=(num_tiles*self._tile_width*self._tile_height*3), device=self._device, ptr=ptr, owner=False)
+        screen_size = self.screen_height*self.screen_width
+        img = wp.array(dtype=wp.float32, shape=(screen_size*3), device=self._device, ptr=ptr, owner=False)
         if split_up_tiles:
+            positions = wp.array(self._tile_viewports, ndim=2, dtype=wp.int32, device=self._device)
             wp.launch(
                 copy_frame_tiles,
                 dim=(self.num_tiles, self._tile_width, self._tile_height),
                 inputs=[
                     img,
+                    positions,
                     self.screen_width,
-                    self._tile_ncols,
-                    self._tile_width,
+                    self.screen_height,
                     self._tile_height
                 ],
                 outputs=[target_image]
@@ -1671,6 +1891,36 @@ class NanoRenderer:
                     self.screen_height
                 ],
                 outputs=[target_image])
+        mapped_buffer.unmap()
+
+    def get_tile_pixels(self, tile_id: int, target_image: wp.array):
+        viewport = self._tile_viewports[tile_id]
+        assert target_image.shape == (viewport[3], viewport[2], 3), f"Shape of `target_image` array does not match {viewport[3]} x {viewport[2]} x 3"
+        glBindBuffer(GL_PIXEL_PACK_BUFFER, self._frame_pbo)
+        glBindTexture(GL_TEXTURE_2D, self._frame_texture)
+        # read screen texture into PBO
+        glGetTexImage(GL_TEXTURE_2D, 0, GL_RGB, GL_FLOAT, ctypes.c_void_p(0))
+        glBindTexture(GL_TEXTURE_2D, 0)
+        glBindBuffer(GL_PIXEL_PACK_BUFFER, 0)
+
+        pbo_buffer = pycuda.gl.RegisteredBuffer(int(self._frame_pbo), pycuda.gl.graphics_map_flags.WRITE_DISCARD)
+        mapped_buffer = pbo_buffer.map()
+        ptr, _ = mapped_buffer.device_ptr_and_size()
+        screen_size = self.screen_height*self.screen_width
+        img = wp.array(dtype=wp.float32, shape=(screen_size*3), device=self._device, ptr=ptr, owner=False)
+        wp.launch(
+            copy_frame_tiles,
+            dim=(self.num_tiles, self._tile_width, self._tile_height),
+            inputs=[
+                img,
+                viewport[0],
+                viewport[1],
+                self.screen_width,
+                self.screen_height,
+                self._tile_height
+            ],
+            outputs=[target_image]
+        )
         mapped_buffer.unmap()
 
     # def create_image_texture(self, file_path):
