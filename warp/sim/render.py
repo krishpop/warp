@@ -98,9 +98,9 @@ def CreateSimRenderer(renderer):
                 body_name = f"body_{b}_{self.model.body_name[b].replace(' ', '_')}"
                 self.body_names.append(body_name)
                 self.register_body(body_name)
-                self.body_env.append(env_id)
                 if b > 0 and b % self.bodies_per_env == 0:
                     env_id += 1
+                self.body_env.append(env_id)
 
             # create rigid shape children
             if (self.model.shape_count):
