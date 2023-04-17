@@ -5,7 +5,7 @@ import warp as wp
 import warp.sim  # pyright: ignore
 import warp.sim.render
 import random
-from .autograd_utils import get_compute_graph
+from .autograd_utils import get_compute_graph, count_contact_copy
 from .environment import Environment, RenderMode
 
 
@@ -24,8 +24,6 @@ def to_numpy(input):
 
 
 class WarpEnv(Environment):
-    dt = 1.0 / 60.0
-    sim_dt = dt
     env_offset = (6.0, 0.0, 6.0)
     tiny_render_settings = dict(
         scaling=3.0, headless=True, screen_width=480, screen_height=480
@@ -164,7 +162,7 @@ class WarpEnv(Environment):
         return self.num_observations
 
     def setup_autograd_vars(self):
-        dof_count = int(self.model.joint_act.shape[0] / self.num_envs)
+        dof_count = int(self.model.joint_act.size / self.num_envs)
         act = wp.zeros(
             self.num_envs * self.num_acts,
             dtype=self.model.joint_act.dtype,
@@ -322,7 +320,7 @@ class WarpEnv(Environment):
         self.joint_q = wp.to_torch(self._joint_q).clone()
         self.joint_qd = wp.to_torch(self._joint_qd).clone()
 
-    def warp_step(self):
+    def update(self):
         # simulates with graph capture if selected
         def forward():
             for _ in range(self.sim_substeps):

@@ -17,9 +17,28 @@ def clear_grads(obj: Union[State, Model], filter=None):
             v.grad.zero_()
     return obj
 
+clear_array_dtypes = {wp.float32, wp.int32, wp.vec3}
+
+def clear_arrays(obj: Model, filter=None):
+    for k, v in getmembers(obj):
+        if filter is not None and not filter(k):
+            continue
+        if isinstance(v, wp.array) and v.dtype in clear_array_dtypes:
+            v.grad.zero_()
+            v.zero_()
+    return obj
+
 
 zero_mat = wp.constant(wp.mat33(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0))
 
+
+@wp.kernel
+def count_contact_copy(
+    contact_count: wp.array(dtype=int),
+    contact_count_copy: wp.array(dtype=int),
+):
+    i = wp.tid()
+    contact_count_copy[i] = contact_count[i]
 
 @wp.kernel
 def assign_act_kernel(

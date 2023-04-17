@@ -10,6 +10,7 @@ import numpy as np
 
 np.set_printoptions(precision=5, linewidth=256, suppress=True)
 from . import torch_utils as tu
+from .autograd_utils import assign_act, clear_arrays
 
 
 class HopperEnv(WarpEnv):
@@ -52,6 +53,11 @@ class HopperEnv(WarpEnv):
             stage_path=stage_path,
         )
         self.init_sim()
+        self.setup_autograd_vars()
+        self.prev_contact_count = np.zeros(self.num_envs, dtype=int)
+        self.contact_count_changed = torch.zeros_like(self.reset_buf)
+        self.contact_count = wp.clone(self.model.rigid_contact_count)
+
         self.start_joint_q[:, :3] *= 0.0
         self.start_pos = self.start_joint_q[:, :2]
         self.start_rotation = self.start_joint_q[:, 2:3]
@@ -133,11 +139,23 @@ class HopperEnv(WarpEnv):
         self.assign_actions(actions)
 
         with wp.ScopedTimer("simulate", active=False, detailed=False):
-            self.warp_step()  # iterates num_frames
-            self.sim_time += self.sim_dt
-        self.sim_time += self.sim_dt
+            self.update()  # iterates num_frames
+        self.sim_time += self.sim_dt * self.sim_substeps
 
         self.reset_buf = torch.zeros_like(self.reset_buf)
+
+        contact_count = np.zeros(self.num_envs, dtype=int)
+        shape0 = self.model.rigid_contact_shape0.numpy()
+        for i in range(self.model.rigid_contact_count.numpy().item()):
+            if shape0[i] <= 0:
+                continue
+            env_idx = self.model.shape_collision_group[shape0[i]] - 1
+            contact_count[env_idx] += 1
+        self.contact_count_changed[:] = torch.as_tensor(
+            contact_count != self.prev_contact_count
+        )
+        self.prev_contact_count = contact_count
+        self.extras["contact_count_changed"] = self.contact_count_changed
 
         self.progress_buf += 1
         self.num_frames += 1
@@ -192,11 +210,12 @@ class HopperEnv(WarpEnv):
 
     def reset(self, env_ids=None, force_reset=True):
         super().reset(env_ids, force_reset)  # resets state_0 and joint_q
-        self.update_joints()
         self.initialize_trajectory()  # sets goal_trajectory & obs_buf
-        if self.requires_grad:
+        if self.requires_grad and not self.use_graph_capture:
             self.model.allocate_rigid_contacts(requires_grad=self.requires_grad)
-            wp.sim.collide(self.model, self.state_0)
+        elif self.use_graph_capture:
+            clear_arrays(self.model, lambda k: k.starts_with("rigid"))
+        wp.sim.collide(self.model, self.state_0)
         return self.obs_buf
 
     def calculateObservations(self):

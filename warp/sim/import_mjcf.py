@@ -34,8 +34,8 @@ def parse_mjcf(
     armature_scale=1.0,
     parse_meshes=False,
     enable_self_collisions=True,
+    radians=False,
 ):
-
     file = ET.parse(filename)
     root = file.getroot()
 
@@ -61,6 +61,7 @@ def parse_mjcf(
 
     def parse_mesh(geom):
         import trimesh
+
         faces = []
         vertices = []
         stl_file = next(
@@ -84,7 +85,6 @@ def parse_mjcf(
         return Mesh(vertices, faces), m.scale
 
     def parse_body(body, parent):
-
         body_name = body.attrib["name"]
         body_pos = parse_vec(body, "pos", (0.0, 0.0, 0.0))
         body_ori_euler = parse_vec(body, "euler", (0.0, 0.0, 0.0))
@@ -100,7 +100,7 @@ def parse_mjcf(
         joint_armature = []
         joint_name = []
         joint_pos = []
-        
+
         linear_axes = []
         angular_axes = []
         joint_type = None
@@ -118,21 +118,29 @@ def parse_mjcf(
             joint_armature.append(
                 parse_float(joint, "armature", armature) * armature_scale
             )
-            
+
             if joint.attrib["type"].lower() == "free":
                 joint_type = wp.sim.JOINT_FREE
                 break
-            is_angular = (joint.attrib["type"].lower() == "hinge")
+            is_angular = joint.attrib["type"].lower() == "hinge"
             mode = wp.sim.JOINT_MODE_LIMIT
             if stiffness > 0.0 or "stiffness" in joint.attrib:
                 mode = wp.sim.JOINT_MODE_TARGET_POSITION
+            if is_angular and not radians:
+                joint_lower, joint_upper = (
+                    np.deg2rad(joint_range[0]),
+                    np.deg2rad(joint_range[1]),
+                )
+            else:
+                joint_lower, joint_upper = joint_range
             ax = wp.sim.model.JointAxis(
                 axis=parse_vec(joint, "axis", (0.0, 0.0, 0.0)),
-                limit_lower=(np.deg2rad(joint_range[0]) if is_angular else joint_range[0]),
-                limit_upper=(np.deg2rad(joint_range[1]) if is_angular else joint_range[1]),
+                limit_lower=joint_lower,
+                limit_upper=joint_upper,
                 target_ke=parse_float(joint, "stiffness", stiffness),
                 target_kd=parse_float(joint, "damping", damping),
-                limit_ke=limit_ke, limit_kd=limit_kd,
+                limit_ke=limit_ke,
+                limit_kd=limit_kd,
                 mode=mode,
             )
             if is_angular:
@@ -176,9 +184,8 @@ def parse_mjcf(
         # add shapes
 
         for geom in body.findall("geom"):
-
             geom_name = geom.attrib["name"]
-            geom_type = geom.attrib["type"]
+            geom_type = geom.attrib.get("type", "mesh")
 
             geom_size = parse_vec(geom, "size", [1.0])
             geom_pos = parse_vec(geom, "pos", (0.0, 0.0, 0.0))
@@ -186,7 +193,6 @@ def parse_mjcf(
             geom_density = parse_float(geom, "density", density)
 
             if geom_type == "sphere":
-
                 builder.add_shape_sphere(
                     link,
                     pos=geom_pos,
@@ -218,7 +224,6 @@ def parse_mjcf(
                 )
 
             elif geom_type == "capsule":
-
                 if "fromto" in geom.attrib:
                     geom_fromto = parse_vec(
                         geom, "fromto", (0.0, 0.0, 0.0, 1.0, 0.0, 0.0)
@@ -239,7 +244,6 @@ def parse_mjcf(
                     geom_width = np.linalg.norm(end - start) * 0.5
 
                 else:
-
                     geom_radius = geom_size[0]
                     geom_width = geom_size[1]
                     geom_pos = parse_vec(geom, "pos", (0.0, 0.0, 0.0))

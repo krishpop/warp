@@ -185,7 +185,7 @@ class Environment:
                 self.num_envs, self.env_offset, self.upaxis
             )
             for i in range(self.num_envs):
-                xform = wp.transform_identity()
+                xform = wp.transform(env_offsets[i], wp.quat_identity())
                 # if self.render_mode == RenderMode.USD:
                 #     quat_rotate = wp.quat(0, 0, 0, 1.0)
                 #     if self.upaxis == "y":

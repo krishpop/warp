@@ -1008,9 +1008,8 @@ class ModelBuilder:
             self.shape_collision_group.extend([self.last_collision_group + 1 for _ in articulation.shape_collision_group])
         else:
             self.shape_collision_group.extend([(g + self.last_collision_group if g > -1 else -1) for g in articulation.shape_collision_group])
-        shape_count = len(self.shape_geo_type)
         for i, j in articulation.shape_collision_filter_pairs:
-            self.shape_collision_filter_pairs.add((i + shape_count, j + shape_count))
+            self.shape_collision_filter_pairs.add((i + start_shape_idx, j + start_shape_idx))
         for group, shapes in articulation.shape_collision_group_map.items():
             if separate_collision_group:
                 group = self.last_collision_group + 1
@@ -1018,7 +1017,7 @@ class ModelBuilder:
                 group = (group + self.last_collision_group if group > -1 else -1)
             if group not in articulation.shape_collision_group_map:
                 self.shape_collision_group_map[group] = []
-            self.shape_collision_group_map[group].extend([s + shape_count for s in shapes])
+            self.shape_collision_group_map[group].extend([s + start_shape_idx for s in shapes])
 
         # update last collision group counter
         if separate_collision_group:
@@ -3110,7 +3109,7 @@ class ModelBuilder:
             if self.num_rigid_contacts_per_env is None:
                 potential_contact_count, actual_contact_count = m.count_contact_points()
             else:
-                potential_contact_count, actual_contact_count = self.num_rigid_contacts_per_env*self.num_envs
+                potential_contact_count, actual_contact_count = None, self.num_rigid_contacts_per_env*self.num_envs
             if wp.config.verbose:
                 print(f"Allocating {actual_contact_count} rigid contacts ({potential_contact_count} potential contacts).")
             m.allocate_rigid_contacts(potential_contact_count, actual_contact_count, requires_grad=requires_grad)
