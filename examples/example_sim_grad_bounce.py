@@ -27,14 +27,14 @@ import warp.sim.render
 
 wp.init()
 
-class Bounce:
 
+class Bounce:
     # seconds
     sim_duration = 0.6
 
     # control frequency
-    frame_dt = 1.0/60.0
-    frame_steps = int(sim_duration/frame_dt)
+    frame_dt = 1.0 / 60.0
+    frame_steps = int(sim_duration / frame_dt)
 
     # sim frequency
     sim_substeps = 8
@@ -48,7 +48,6 @@ class Bounce:
     train_rate = 0.01
 
     def __init__(self, render=True, profile=False, adapter=None):
-
         builder = wp.sim.ModelBuilder()
 
         builder.add_particle(pos=(-0.5, 1.0, 0.0), vel=(5.0, -5.0, 0.0), mass=1.0)
@@ -60,72 +59,94 @@ class Bounce:
         self.model = builder.finalize(self.device)
         self.model.ground = True
 
-        self.model.soft_contact_ke = 1.e+4
+        self.model.soft_contact_ke = 1.0e4
         self.model.soft_contact_kf = 0.0
-        self.model.soft_contact_kd = 1.e+1
+        self.model.soft_contact_kd = 1.0e1
         self.model.soft_contact_mu = 0.25
         self.model.soft_contact_margin = 10.0
-                
+
         self.integrator = wp.sim.SemiImplicitIntegrator()
 
         self.target = (-2.0, 1.5, 0.0)
-        self.loss = wp.zeros(1, dtype=wp.float32, device=self.device, requires_grad=True)  
+        self.loss = wp.zeros(
+            1, dtype=wp.float32, device=self.device, requires_grad=True
+        )
 
         # allocate sim states for trajectory
         self.states = []
-        for i in range(self.sim_steps+1):
+        self.contact_count = wp.zeros(self.sim_steps, dtype=int, device=self.device)
+        self.prev_contact_count = np.zeros(self.sim_steps)
+        for i in range(self.sim_steps + 1):
             self.states.append(self.model.state(requires_grad=True))
 
         # one-shot contact creation (valid if we're doing simple collision against a constant normal plane)
         wp.sim.collide(self.model, self.states[0])
 
-        if (self.render):
+        if self.render:
             self.stage = wp.sim.render.SimRenderer(
                 self.model,
-                os.path.join(os.path.dirname(__file__), "outputs/example_sim_grad_bounce.usd"),
-                scaling=40.0)
-
+                os.path.join(
+                    os.path.dirname(__file__), "outputs/example_sim_grad_bounce.usd"
+                ),
+                scaling=40.0,
+            )
 
     @wp.kernel
-    def loss_kernel(pos: wp.array(dtype=wp.vec3),
-                    target: wp.vec3, 
-                    loss: wp.array(dtype=float)):
-
+    def loss_kernel(
+        pos: wp.array(dtype=wp.vec3), target: wp.vec3, loss: wp.array(dtype=float)
+    ):
         # distance to target
-        delta = pos[0]-target
+        delta = pos[0] - target
         loss[0] = wp.dot(delta, delta)
 
-
     @wp.kernel
-    def step_kernel(x: wp.array(dtype=wp.vec3),
-                    grad: wp.array(dtype=wp.vec3),
-                    alpha: float):
-
+    def step_kernel(
+        x: wp.array(dtype=wp.vec3), grad: wp.array(dtype=wp.vec3), alpha: float
+    ):
         tid = wp.tid()
 
         # gradient descent step
-        x[tid] = x[tid] - grad[tid]*alpha
+        x[tid] = x[tid] - grad[tid] * alpha
 
+    @wp.kernel
+    def count_contact_changes_kernel(
+        contact_count: wp.array(dtype=int),
+        contact_count_id: int,
+        contact_count_copy: wp.array(dtype=int),
+    ):
+        wp.atomic_add(contact_count_copy, contact_count_id, contact_count[0])
+
+    def count_contact_changes(self, i):
+        # count contact changes
+        wp.launch(
+            self.count_contact_changes_kernel,
+            dim=1,
+            inputs=[self.model.soft_contact_count, i],
+            outputs=[self.contact_count],
+            device=self.device,
+        )
 
     def compute_loss(self):
-
         # run control loop
         for i in range(self.sim_steps):
-
             self.states[i].clear_forces()
 
-            self.integrator.simulate(self.model, 
-                                     self.states[i], 
-                                     self.states[i+1], 
-                                     self.sim_dt)
-        
+            self.integrator.simulate(
+                self.model, self.states[i], self.states[i + 1], self.sim_dt
+            )
+            self.count_contact_changes(i)
+
         # compute loss on final state
-        wp.launch(self.loss_kernel, dim=1, inputs=[self.states[-1].particle_q, self.target, self.loss], device=self.device)
+        wp.launch(
+            self.loss_kernel,
+            dim=1,
+            inputs=[self.states[-1].particle_q, self.target, self.loss],
+            device=self.device,
+        )
 
         return self.loss
 
     def render(self, iter):
-
         # render every 16 iters
         if iter % 16 > 0:
             return
@@ -134,13 +155,22 @@ class Bounce:
         traj_verts = [self.states[0].particle_q.numpy()[0].tolist()]
 
         for i in range(0, self.sim_steps, self.sim_substeps):
-
             traj_verts.append(self.states[i].particle_q.numpy()[0].tolist())
 
             self.stage.begin_frame(self.render_time)
             self.stage.render(self.states[i])
-            self.stage.render_box(pos=self.target, rot=wp.quat_identity(), extents=(0.1, 0.1, 0.1), name="target")
-            self.stage.render_line_strip(vertices=traj_verts, color=wp.render.bourke_color_map(0.0, 7.0, self.loss.numpy()[0]), radius=0.02, name=f"traj_{iter}")
+            self.stage.render_box(
+                pos=self.target,
+                rot=wp.quat_identity(),
+                extents=(0.1, 0.1, 0.1),
+                name="target",
+            )
+            self.stage.render_line_strip(
+                vertices=traj_verts,
+                color=wp.render.bourke_color_map(0.0, 7.0, self.loss.numpy()[0]),
+                radius=0.02,
+                name=f"traj_{iter}",
+            )
             self.stage.end_frame()
 
             self.render_time += self.frame_dt
@@ -148,7 +178,6 @@ class Bounce:
         self.stage.save()
 
     def check_grad(self):
-
         param = self.states[0].particle_qd
 
         # initial value
@@ -158,8 +187,7 @@ class Bounce:
         x_grad_numeric = np.zeros_like(x_c)
 
         for i in range(len(x_c)):
-                
-            eps = 1.e-3
+            eps = 1.0e-3
 
             step = np.zeros_like(x_c)
             step[i] = eps
@@ -173,7 +201,7 @@ class Bounce:
             param.assign(x_0)
             l_0 = self.compute_loss().numpy()[0]
 
-            dldx = (l_1-l_0)/(eps*2.0)
+            dldx = (l_1 - l_0) / (eps * 2.0)
 
             x_grad_numeric[i] = dldx
 
@@ -194,12 +222,8 @@ class Bounce:
 
         tape.zero()
 
-
-
     def train(self):
-
         for i in range(self.train_iters):
-
             tape = wp.Tape()
 
             with wp.ScopedTimer("Forward", active=self.profile):
@@ -219,13 +243,16 @@ class Bounce:
                 print(f"Iter: {i} Loss: {self.loss}")
                 print(f"   x: {x} g: {x_grad}")
 
-                wp.launch(self.step_kernel, dim=len(x), inputs=[x, x_grad, self.train_rate], device=self.device)
+                wp.launch(
+                    self.step_kernel,
+                    dim=len(x),
+                    inputs=[x, x_grad, self.train_rate],
+                    device=self.device,
+                )
 
             tape.zero()
 
-
     def train_graph(self):
-
         # capture forward/backward passes
         wp.capture_begin()
 
@@ -239,17 +266,29 @@ class Bounce:
 
         # replay and optimize
         for i in range(self.train_iters):
-   
             with wp.ScopedTimer("Step", active=self.profile):
-
                 # forward + backward
                 wp.capture_launch(self.graph)
+                # count number of contact changes:
+                contact_count = self.contact_count.numpy()
+                contact_changes = np.sum(
+                    np.abs(contact_count - self.prev_contact_count)
+                )
+                self.prev_contact_count = contact_count
+                self.contact_count.zero_()
 
                 # gradient descent step
                 x = self.states[0].particle_qd
-                wp.launch(self.step_kernel, dim=len(x), inputs=[x, x.grad, self.train_rate], device=self.device)
+                wp.launch(
+                    self.step_kernel,
+                    dim=len(x),
+                    inputs=[x, x.grad, self.train_rate],
+                    device=self.device,
+                )
 
-                print(f"Iter: {i} Loss: {self.loss}")
+                print(
+                    f"Iter: {i} Loss: {self.loss}, contact_changes: {contact_changes}"
+                )
                 print(tape.gradients[self.states[0].particle_qd])
 
                 # clear grads for next iteration
@@ -259,8 +298,6 @@ class Bounce:
                 self.render(i)
 
 
-
 bounce = Bounce(profile=False, render=True)
 bounce.check_grad()
 bounce.train_graph()
- 
