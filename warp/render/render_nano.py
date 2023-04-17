@@ -815,7 +815,6 @@ class NanoRenderer:
         self.imgui_io = imgui.get_io()
         self.imgui_renderer = GlfwRenderer(self.window)
         
-        # glfw.set_window_pos(self.window, 400, 200)
         glfw.set_window_size_callback(self.window, self._window_resize_callback)
         glfw.set_input_mode(self.window, glfw.CURSOR, glfw.CURSOR_NORMAL)
         glfw.set_mouse_button_callback(self.window, self._mouse_button_callback)
@@ -847,16 +846,7 @@ class NanoRenderer:
         self._sun_direction /= np.linalg.norm(self._sun_direction)
         glUniform3f(glGetUniformLocation(self._shape_shader, "sunDirection"), *self._sun_direction)
 
-        # width, height = glfw.get_window_size(self.window)
-        # self._projection_matrix = glm.perspective(np.deg2rad(45), width / height, self.camera_near_plane, self.camera_far_plane)
-        # # glUniformMatrix4fv(self._loc_shape_projection, 1, GL_FALSE, glm.value_ptr(self._projection_matrix))
-
-        # self._view_matrix = glm.lookAt(self._camera_pos, self._camera_pos + self._camera_front, self._camera_up)
-        # # glUniformMatrix4fv(self._loc_shape_view, 1, GL_FALSE, glm.value_ptr(self._view_matrix))
-
-
         glUseProgram(self._grid_shader)
-
         # create grid data
         limit = 10.0
         ticks = np.linspace(-limit, limit, 21)
@@ -890,10 +880,6 @@ class NanoRenderer:
         glVertexAttribPointer(self._loc_grid_pos_attribute, 3, GL_FLOAT, GL_FALSE, 0, None)
         glEnableVertexAttribArray(self._loc_grid_pos_attribute)
         
-        # glUniformMatrix4fv(self._loc_grid_projection, 1, GL_FALSE, glm.value_ptr(self._projection_matrix))
-        # glUniformMatrix4fv(self._loc_grid_view, 1, GL_FALSE, glm.value_ptr(self._view_matrix))
-        # glUniformMatrix4fv(self._loc_grid_model, 1, GL_FALSE, glm.value_ptr(self._model_matrix))
-
         # create sky data
         self._sky_shader = compileProgram(
             compileShader(sky_vertex_shader, GL_VERTEX_SHADER),
@@ -904,10 +890,7 @@ class NanoRenderer:
         self._loc_sky_view = glGetUniformLocation(self._sky_shader, "view")
         self._loc_sky_model = glGetUniformLocation(self._sky_shader, "model")
         self._loc_sky_projection = glGetUniformLocation(self._sky_shader, "projection")
-        # glUniformMatrix4fv(self._loc_sky_projection, 1, GL_FALSE, glm.value_ptr(self._projection_matrix))
-        # glUniformMatrix4fv(self._loc_sky_view, 1, GL_FALSE, glm.value_ptr(self._view_matrix))
-        # glUniformMatrix4fv(self._loc_sky_model, 1, GL_FALSE, glm.value_ptr(self._model_matrix))
-
+        
         self._loc_sky_color1 = glGetUniformLocation(self._sky_shader, "color1")
         self._loc_sky_color2 = glGetUniformLocation(self._sky_shader, "color2")
         glUniform3f(self._loc_sky_color1, *background_color)
@@ -1061,8 +1044,6 @@ class NanoRenderer:
         # allocate memory for PBO
         pixels = np.zeros((self.screen_height, self.screen_width, 3), dtype=np.float32)
         glBufferData(GL_PIXEL_PACK_BUFFER, pixels.nbytes, pixels, GL_DYNAMIC_DRAW) # Allocate the buffer
-        # bsize = glGetBufferParameteriv(GL_PIXEL_PACK_BUFFER, GL_BUFFER_SIZE) # Check allocated buffer size
-        # assert bsize == pixels.nbytes
         glBindBuffer(GL_PIXEL_PACK_BUFFER, 0) # Unbind
 
     def clear(self):
@@ -1425,7 +1406,6 @@ class NanoRenderer:
         glUniform3f(self._loc_shape_view_pos, *self._camera_pos)
         glUniformMatrix4fv(self._loc_shape_view, 1, GL_FALSE, glm.value_ptr(self._view_matrix))
         glUniformMatrix4fv(self._loc_shape_projection, 1, GL_FALSE, glm.value_ptr(self._projection_matrix))
-        # glUniformMatrix4fv(self._loc_shape_model, 1, GL_FALSE, glm.value_ptr(self._model_matrix))
 
         if self._tiled_rendering:
             self._render_scene_tiled()
@@ -1438,7 +1418,6 @@ class NanoRenderer:
             glUseProgram(self._frame_shader)
             glViewport(0, 0, self.screen_width, self.screen_height)
 
-            # glClearColor(0.0, 0.0, 0.0, 1.0)
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
             glActiveTexture(GL_TEXTURE0)
             glBindTexture(GL_TEXTURE_2D, self._frame_texture)
@@ -1461,7 +1440,6 @@ class NanoRenderer:
                 
             glUniformMatrix4fv(self._loc_grid_view, 1, GL_FALSE, glm.value_ptr(self._view_matrix))
             glUniformMatrix4fv(self._loc_grid_projection, 1, GL_FALSE, glm.value_ptr(self._projection_matrix))
-            # glUniformMatrix4fv(self._loc_grid_model, 1, GL_FALSE, glm.value_ptr(self._model_matrix))
 
         glBindVertexArray(self._grid_vao)
         glDrawArrays(GL_LINES, 0, self._grid_vertex_count)
@@ -1473,7 +1451,6 @@ class NanoRenderer:
 
             glUniformMatrix4fv(self._loc_sky_view, 1, GL_FALSE, glm.value_ptr(self._view_matrix))
             glUniformMatrix4fv(self._loc_sky_projection, 1, GL_FALSE, glm.value_ptr(self._projection_matrix))
-            # glUniformMatrix4fv(self._loc_sky_model, 1, GL_FALSE, glm.value_ptr(self._model_matrix))
             glUniform3f(self._loc_sky_view_pos, *self._camera_pos)
         
         glBindVertexArray(self._sky_vao)
