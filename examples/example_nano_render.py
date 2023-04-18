@@ -15,8 +15,12 @@ custom_tile_arrangement = True
 renderer = wp.render.NanoRenderer(vsync=False, maximize_window=False)
 instance_ids = []
 
-positions = []
-sizes = []
+if custom_tile_arrangement:
+    positions = []
+    sizes = []
+else:
+    positions = None
+    sizes = None
 
 # set up instances to hide one of the capsules in each tile
 for i in range(num_tiles):
