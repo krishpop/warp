@@ -1844,8 +1844,9 @@ class NanoRenderer:
         ptr, _ = mapped_buffer.device_ptr_and_size()
         screen_size = self.screen_height*self.screen_width
         img = wp.array(dtype=wp.float32, shape=(screen_size*3), device=self._device, ptr=ptr, owner=False)
+        img = img.to(target_image.device)
         if split_up_tiles:
-            positions = wp.array(self._tile_viewports, ndim=2, dtype=wp.int32, device=self._device)
+            positions = wp.array(self._tile_viewports, ndim=2, dtype=wp.int32, device=target_image.device)
             wp.launch(
                 copy_frame_tiles,
                 dim=(self.num_tiles, self._tile_width, self._tile_height),
@@ -1856,7 +1857,8 @@ class NanoRenderer:
                     self.screen_height,
                     self._tile_height
                 ],
-                outputs=[target_image]
+                outputs=[target_image],
+                device=target_image.device
             )
         else:
             wp.launch(
@@ -1867,7 +1869,9 @@ class NanoRenderer:
                     self.screen_width,
                     self.screen_height
                 ],
-                outputs=[target_image])
+                outputs=[target_image],
+                device=target_image.device
+            )
         mapped_buffer.unmap()
 
     def get_tile_pixels(self, tile_id: int, target_image: wp.array):
@@ -1885,6 +1889,7 @@ class NanoRenderer:
         ptr, _ = mapped_buffer.device_ptr_and_size()
         screen_size = self.screen_height*self.screen_width
         img = wp.array(dtype=wp.float32, shape=(screen_size*3), device=self._device, ptr=ptr, owner=False)
+        img = img.to(target_image.device)
         wp.launch(
             copy_frame_tiles,
             dim=(self.num_tiles, self._tile_width, self._tile_height),
@@ -1896,7 +1901,8 @@ class NanoRenderer:
                 self.screen_height,
                 self._tile_height
             ],
-            outputs=[target_image]
+            outputs=[target_image],
+            device=target_image.device
         )
         mapped_buffer.unmap()
 
