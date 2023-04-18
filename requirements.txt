@@ -7,3 +7,5 @@ tqdm==4.*
 usd-core==22.*
 pyglm==2.7.*
 glfw==2.5.*
+imgui==1.4.*
+pycuda==2022.*
