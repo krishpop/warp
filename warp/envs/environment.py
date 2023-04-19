@@ -13,46 +13,6 @@ from typing import Tuple
 wp.init()
 
 
-def compute_env_offsets(num_envs, env_offset=(5.0, 0.0, 5.0), upaxis="y"):
-    # compute positional offsets per environment
-    nonzeros = np.nonzero(env_offset)[0]
-    num_dim = nonzeros.shape[0]
-    if num_dim > 0:
-        side_length = int(np.ceil(num_envs ** (1.0 / num_dim)))
-        env_offsets = []
-    else:
-        env_offsets = np.zeros((num_envs, 3))
-    if num_dim == 1:
-        for i in range(num_envs):
-            env_offsets.append(i * env_offset)
-    elif num_dim == 2:
-        for i in range(num_envs):
-            d0 = i // side_length
-            d1 = i % side_length
-            offset = np.zeros(3)
-            offset[nonzeros[0]] = d0 * env_offset[nonzeros[0]]
-            offset[nonzeros[1]] = d1 * env_offset[nonzeros[1]]
-            env_offsets.append(offset)
-    elif num_dim == 3:
-        for i in range(num_envs):
-            d0 = i // (side_length * side_length)
-            d1 = (i // side_length) % side_length
-            d2 = i % side_length
-            offset = np.zeros(3)
-            offset[0] = d0 * env_offset[0]
-            offset[1] = d1 * env_offset[1]
-            offset[2] = d2 * env_offset[2]
-            env_offsets.append(offset)
-    env_offsets = np.array(env_offsets)
-    min_offsets = np.min(env_offsets, axis=0)
-    correction = min_offsets + (np.max(env_offsets, axis=0) - min_offsets) / 2.0
-    if isinstance(upaxis, str):
-        upaxis = "xyz".index(upaxis.lower())
-    correction[upaxis] = 0.0  # ensure the envs are not shifted below the ground plane
-    env_offsets -= correction
-    return env_offsets
-
-
 class RenderMode(Enum):
     NONE = "none"
     TINY = "tiny"
@@ -181,18 +141,18 @@ class Environment:
         try:
             articulation_builder = wp.sim.ModelBuilder()
             self.create_articulation(articulation_builder)
-            env_offsets = compute_env_offsets(
+            env_offsets = wp.sim.tiny_render.compute_env_offsets(
                 self.num_envs, self.env_offset, self.upaxis
             )
             for i in range(self.num_envs):
                 xform = wp.transform(env_offsets[i], wp.quat_identity())
-                # if self.render_mode == RenderMode.USD:
-                #     quat_rotate = wp.quat(0, 0, 0, 1.0)
-                #     if self.upaxis == "y":
-                #         quat_rotate = wp.quat_from_axis_angle(
-                #             (1.0, 0.0, 0.0), -math.pi * 0.5
-                #         )
-                #     xform = wp.transform(env_offsets[i], quat_rotate)
+                if self.render_mode == RenderMode.USD:
+                    quat_rotate = wp.quat(0, 0, 0, 1.0)
+                    if self.upaxis == "y":
+                        quat_rotate = wp.quat_from_axis_angle(
+                            (1.0, 0.0, 0.0), -math.pi * 0.5
+                        )
+                    xform = wp.transform(env_offsets[i], quat_rotate)
                 # self.builder.add_builder(articulation_builder, xform)
                 self.builder.add_rigid_articulation(
                     articulation_builder,

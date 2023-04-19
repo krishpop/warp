@@ -17,14 +17,17 @@ def clear_grads(obj: Union[State, Model], filter=None):
             v.grad.zero_()
     return obj
 
+
 clear_array_dtypes = {wp.float32, wp.int32, wp.vec3}
+
 
 def clear_arrays(obj: Model, filter=None):
     for k, v in getmembers(obj):
         if filter is not None and not filter(k):
             continue
         if isinstance(v, wp.array) and v.dtype in clear_array_dtypes:
-            v.grad.zero_()
+            if v.grad:
+                v.grad.zero_()
             v.zero_()
     return obj
 
@@ -39,6 +42,7 @@ def count_contact_copy(
 ):
     i = wp.tid()
     contact_count_copy[i] = contact_count[i]
+
 
 @wp.kernel
 def assign_act_kernel(
@@ -138,7 +142,7 @@ def get_compute_graph(func, kwargs={}, tape=None, grads={}, back_grads={}):
 
 def build_assign_grads_map(adj_arrs, params, sim_params, act_params):
     """Builds a map of adjoint input/output variables to their corresponding gradient variables"""
-    if sim_params["ag_return_body"]:
+    if sim_params.get("ag_return_body", False):
         adj_joint_q, adj_joint_qd, adj_body_q, adj_body_qd = adj_arrs
     else:
         adj_joint_q, adj_joint_qd = adj_arrs
@@ -175,7 +179,7 @@ def build_assign_grads_map(adj_arrs, params, sim_params, act_params):
     back_grads[params["adj_bqdp"]] = state_in.body_qd
 
     # if body q is being returned, assign adjoint outputs to temp vars, creating them if they don't exist
-    if sim_params["ag_return_body"]:
+    if sim_params.get("ag_return_body", False):
         if "adj_bq" not in params:
             params["adj_bq"] = wp.from_torch(adj_body_q, dtype=wp.transform)
             params["adj_bqd"] = wp.from_torch(adj_body_qd, dtype=wp.spatial_vector)
@@ -263,7 +267,7 @@ class IntegratorSimulate(torch.autograd.Function):
         ctx.state_in = simulate_params["state_in"]
         ctx.state_out = simulate_params["state_out"]
         ctx.state_list = simulate_params.get("state_list", None)
-        ctx.return_body = simulate_params.get("ag_return_body", True)
+        ctx.return_body = simulate_params.get("ag_return_body", False)
         ctx.act = act_params["act"]
         ctx.joint_act = act_params["joint_act"]
         ctx.act_pt = action
@@ -372,8 +376,8 @@ class IntegratorSimulate(torch.autograd.Function):
             # with tape:  # check if graph capture works for this
             #     forward_simulate(ctx, forward=False, requires_grad=True)
             joint_act_grad = wp.to_torch(ctx.graph_capture_params["adj_a"]).clone()
-            if joint_act_grad.max() > 1.0:
-                __import__("ipdb").set_trace()
+            # if joint_act_grad.max() > 1.0:
+            #     __import__("ipdb").set_trace()
             body_q_grad = wp.to_torch(ctx.graph_capture_params["adj_bqp"]).clone()
             body_qd_grad = wp.to_torch(ctx.graph_capture_params["adj_bqdp"]).clone()
             ctx.tape.zero()
@@ -387,26 +391,24 @@ class IntegratorSimulate(torch.autograd.Function):
             ctx.joint_q_end.grad.zero_()
             ctx.joint_qd_end.grad.zero_()
         else:
-            for bw_temp, adj_output in grads.items():
-                adj_output.assign(bw_temp)
-            # if ctx.return_body:
-            #     adj_joint_q, adj_joint_qd, adj_body_q, adj_body_qd = adj_arrs
-            #     state_out.body_q.grad.assign(
-            #         wp.from_torch(adj_body_q, dtype=wp.transform)
-            #     )
-            #     state_out.body_qd.grad.assign(
-            #         wp.from_torch(adj_body_qd, dtype=wp.spatial_vector)
-            #     )
-            # else:
-            #     adj_joint_q, adj_joint_qd = adj_arrs
-            #     adj_body_q, adj_body_qd = None, None
-            #
-            # ctx.graph_capture_params["joint_q_end"].grad.assign(
-            #     wp.from_torch(adj_joint_q)
-            # )
-            # ctx.graph_capture_params["joint_qd_end"].grad.assign(
-            #     wp.from_torch(adj_joint_qd)
-            # )
+            if ctx.return_body:
+                adj_joint_q, adj_joint_qd, adj_body_q, adj_body_qd = adj_arrs
+                state_out.body_q.grad.assign(
+                    wp.from_torch(adj_body_q, dtype=wp.transform)
+                )
+                state_out.body_qd.grad.assign(
+                    wp.from_torch(adj_body_qd, dtype=wp.spatial_vector)
+                )
+            else:
+                adj_joint_q, adj_joint_qd = adj_arrs
+                adj_body_q, adj_body_qd = None, None
+
+            ctx.graph_capture_params["joint_q_end"].grad.assign(
+                wp.from_torch(adj_joint_q)
+            )
+            ctx.graph_capture_params["joint_qd_end"].grad.assign(
+                wp.from_torch(adj_joint_qd)
+            )
 
             ctx.tape.backward()
             joint_act_grad = wp.to_torch(ctx.tape.gradients[act]).clone()

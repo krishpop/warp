@@ -104,12 +104,7 @@ class CartPoleSwingUpEnv(WarpEnv):
         assign_act(**self.act_params)
 
     def step(self, actions, profiler=None):
-        active, detailed = False, False
-        if profiler is not None:
-            active, detailed = True, True
-        with wp.ScopedTimer(
-            "simulate", active=active, detailed=detailed, dict=profiler
-        ):
+        with wp.ScopedTimer("simulate", active=False, detailed=False, dict=profiler):
             actions = torch.clip(actions, -1.0, 1.0)
             self.actions = actions.view(self.num_envs, -1)
             actions = self.action_strength * actions
@@ -140,14 +135,13 @@ class CartPoleSwingUpEnv(WarpEnv):
                     body_qd,
                 )
                 # swap states so start from correct next state
-                if not self.use_graph_capture:
-                    (
-                        self.simulate_params["state_in"],
-                        self.simulate_params["state_out"],
-                    ) = (
-                        self.state_1,
-                        self.state_0,
-                    )
+                (
+                    self.simulate_params["state_in"],
+                    self.simulate_params["state_out"],
+                ) = (
+                    self.state_1,
+                    self.state_0,
+                )
                 if self.ag_return_body:
                     self.joint_q, self.joint_qd, self.body_q, self.body_qd = ret
                 else:
@@ -157,7 +151,7 @@ class CartPoleSwingUpEnv(WarpEnv):
 
             else:
                 self.assign_actions(self.actions)
-                self.warp_step()
+                self.update()
 
             self.sim_time += self.sim_dt * self.sim_substeps
 
@@ -179,15 +173,11 @@ class CartPoleSwingUpEnv(WarpEnv):
         env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
 
         if len(env_ids) > 0:
-            with wp.ScopedTimer(
-                "reset", active=active, detailed=detailed, dict=profiler
-            ):
+            with wp.ScopedTimer("reset", active=False, detailed=False, dict=profiler):
                 self.reset(env_ids)
 
-        if self.visualize:
-            with wp.ScopedTimer(
-                "render", active=active, detailed=detailed, dict=profiler
-            ):
+        if self.visualize and self.render_mode is not RenderMode.TINY:
+            with wp.ScopedTimer("render", active=False, detailed=False, dict=profiler):
                 self.render()
 
         return self.obs_buf, self.rew_buf, self.reset_buf, self.extras
@@ -233,14 +223,16 @@ class CartPoleSwingUpEnv(WarpEnv):
     def calculateReward(self):
         joint_q = self.joint_q.view(self.num_envs, -1)
         joint_qd = self.joint_qd.view(self.num_envs, -1)
-        body_q = self.body_q.view(self.num_envs, -1, 7)
-        body_qd = self.body_qd.view(self.num_envs, -1, 6)
+        if self.ag_return_body:
+            body_q = self.body_q.view(self.num_envs, -1, 7)
+            body_qd = self.body_qd.view(self.num_envs, -1, 6)
+            x = body_q[:, 0, 0] - body_q[:, 1, 0]  #  joint_q[:, 0]
+            xdot = body_qd[:, 1, 3]  #  joint_qd[:, 0]
+        else:
+            x = joint_q[:, 0]
+            xdot = joint_qd[:, 0]
 
-        x = body_q[:, 0, 0] - body_q[:, 1, 0]  #  joint_q[:, 0]
-        # x = joint_q[:, 0]
         theta = tu.normalize_angle(joint_q[:, 1])
-        xdot = body_qd[:, 1, 3]  #  joint_qd[:, 0]
-        # xdot = joint_qd[:, 0]
         theta_dot = joint_qd[:, 1]
 
         self.rew_buf = (
@@ -269,5 +261,8 @@ class CartPoleSwingUpEnv(WarpEnv):
             # if self.simulate_params["state_in"].body_q.grad is not None:
             #     clear_grads(self.simulate_params["state_in"])
             #     clear_grads(self.simulate_params["state_out"])
+            #     if self.use_graph_capture:
+            #         clear_grads(self.simulate_params["bwd_state_in"])
+            #         clear_grads(self.simulate_params["bwd_state_out"])
             #     for s in self.simulate_params["state_list"]:
             #         clear_grads(s)

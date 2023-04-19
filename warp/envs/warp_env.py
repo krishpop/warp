@@ -5,7 +5,7 @@ import warp as wp
 import warp.sim  # pyright: ignore
 import warp.sim.render
 import random
-from .autograd_utils import get_compute_graph, count_contact_copy
+from .autograd_utils import get_compute_graph, forward_ag
 from .environment import Environment, RenderMode
 
 
@@ -320,6 +320,33 @@ class WarpEnv(Environment):
         self.joint_q = wp.to_torch(self._joint_q).clone()
         self.joint_qd = wp.to_torch(self._joint_qd).clone()
 
+    def record_forward_simulate(self):
+        # does this cut off grad to prev timestep?
+        assert self.model.body_q.requires_grad and self.state_0.body_q.requires_grad
+        # all grads should be from joint_q, not from body_q
+        with torch.no_grad():
+            body_q = self.body_q.clone()
+            body_qd = self.body_qd.clone()
+
+        self.joint_q, self.joint_qd = forward_ag(
+            self.simulate_params,
+            self.graph_capture_params,
+            self.act_params,
+            self.actions.flatten(),
+            body_q,
+            body_qd,
+        )
+        # swap states so start from correct next state
+        (
+            self.simulate_params["state_in"],
+            self.simulate_params["state_out"],
+        ) = (
+            self.state_1,
+            self.state_0,
+        )
+        self.body_q = wp.to_torch(self.simulate_params["state_in"].body_q)
+        self.body_qd = wp.to_torch(self.simulate_params["state_in"].body_qd)
+
     def update(self):
         # simulates with graph capture if selected
         def forward():
@@ -387,7 +414,7 @@ class WarpEnv(Environment):
     def render(self, mode="human"):
         if self.visualize and self.renderer:
             if self.render_mode is RenderMode.USD:
-                self.render_time += self.dt
+                self.render_time += self.frame_dt
                 self.renderer.begin_frame(self.render_time)
                 self.renderer.render(self.state_0)
                 self.renderer.end_frame()
@@ -405,13 +432,18 @@ class WarpEnv(Environment):
         self.update_joints()
         joint_q, joint_qd = self.joint_q.detach(), self.joint_qd.detach()
         body_q, body_qd = self.body_q.detach(), self.body_qd.detach()
+        assert np.all(joint_q.cpu().numpy() == self._joint_q.numpy())
+        assert np.all(joint_qd.cpu().numpy() == self._joint_qd.numpy())
+        assert np.all(body_q.cpu().numpy() == self.state_0.body_q.numpy())
+        assert np.all(body_qd.cpu().numpy() == self.state_0.body_qd.numpy())
         checkpoint["joint_q"] = joint_q.clone()
         checkpoint["joint_qd"] = joint_qd.clone()
         checkpoint["body_q"] = body_q.clone()
         checkpoint["body_qd"] = body_qd.clone()
+        checkpoint["obs_buf"] = self.obs_buf.clone()
         checkpoint["actions"] = self.actions.clone()
         checkpoint["progress_buf"] = self.progress_buf.clone()
-        checkpoint["obs_buf"] = self.obs_buf.clone()
+        checkpoint["reset_buf"] = self.reset_buf.clone()
         if save_path:
             print("saving checkpoint to", save_path)
             torch.save(checkpoint, save_path)
@@ -423,18 +455,23 @@ class WarpEnv(Environment):
             checkpoint_data = torch.load(ckpt_path)
         joint_q = checkpoint_data["joint_q"].clone().view(-1, self.num_joint_q)
         joint_qd = checkpoint_data["joint_qd"].clone().view(-1, self.num_joint_qd)
-        self.joint_q = joint_q[: self.num_envs].flatten()
-        self.joint_qd = joint_qd[: self.num_envs].flatten()
+        self.joint_q[:] = joint_q[: self.num_envs].flatten()
+        self.joint_qd[:] = joint_qd[: self.num_envs].flatten()
         self._joint_q.assign(to_numpy(self.joint_q))
         self._joint_qd.assign(to_numpy(self.joint_qd))
-        self.model.joint_q.assign(self._joint_q)
-        self.model.joint_qd.assign(self._joint_qd)
-        self.body_q = checkpoint_data["body_q"].clone()[: self.state_0.body_q.size]
-        self.body_qd = checkpoint_data["body_qd"].clone()[: self.state_0.body_qd.size]
-        with torch.no_grad():
-            # assumes self.num_envs <= number of actors in checkpoint
-            self.actions[:] = checkpoint_data["actions"].clone()[: self.num_envs]
+        # self.model.joint_q.assign(self._joint_q)
+        # self.model.joint_qd.assign(self._joint_qd)
+        num_bodies_per_env = self.model.body_count / self.num_envs
+        body_q = checkpoint_data["body_q"].clone().view(-1, num_bodies_per_env, 7)
+        body_qd = checkpoint_data["body_qd"].clone(-1, num_bodies_per_env, 6)
+        self.body_q = body_q[: self.num_envs].flatten()
+        self.body_q = body_qd[: self.num_envs].flatten()
+        self.state_0.body_q.assign(to_numpy(self.body_q))
+        self.state_0.body_qd.assign(to_numpy(self.body_qd))
+        # assumes self.num_envs <= number of actors in checkpoint
+        self.actions[:] = checkpoint_data["actions"].clone()[: self.num_envs]
         self.progress_buf = checkpoint_data["progress_buf"].clone()[: self.num_envs]
+        self.reset_buf = checkpoint_data["reset_buf"].clone()[: self.num_envs]
         self.num_frames = self.progress_buf[0].item()
 
     def initialize_trajectory(self):
