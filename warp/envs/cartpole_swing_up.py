@@ -29,6 +29,9 @@ class CartPoleSwingUpEnv(WarpEnv):
         env_name="CartPoleSwingUpEnv",
         ag_return_body=False,
         graph_capture=False,
+        start_pole_angle: float = 0.0,
+        start_pole_vel: float = 0.0,
+        start_cart_vel: float = 0.0,
     ):
         num_obs = 5
         num_act = 1
@@ -53,6 +56,9 @@ class CartPoleSwingUpEnv(WarpEnv):
         self.num_joint_qd = 2
         self.early_termination = early_termination
         self.ag_return_body = ag_return_body
+        self.start_pole_angle = start_pole_angle
+        self.start_pole_vel = start_pole_vel
+        self.start_cart_vel = start_cart_vel
         self.init_sim()
         self.setup_autograd_vars()
 
@@ -94,8 +100,8 @@ class CartPoleSwingUpEnv(WarpEnv):
             limit_kd=1e1,
             enable_self_collisions=False,
         )
-        builder.joint_q[-2:] = [0.0, 0.0]
-        builder.joint_qd[-2:] = [5.0, 0.0]
+        builder.joint_q[-2:] = [0.0, self.start_pole_angle]
+        builder.joint_qd[-2:] = [self.start_cart_vel, self.start_pole_vel]
 
     def assign_actions(self, actions):
         actions = actions.flatten() * self.action_strength
@@ -111,10 +117,7 @@ class CartPoleSwingUpEnv(WarpEnv):
 
             if self.requires_grad:
                 # does this cut off grad to prev timestep?
-                assert (
-                    self.model.body_q.requires_grad
-                    and self.state_0.body_q.requires_grad
-                )
+                assert self.model.body_q.requires_grad and self.state_0.body_q.requires_grad
                 # all grads should be from joint_q, not from body_q
                 # with torch.no_grad():
                 if not self.ag_return_body:
@@ -191,18 +194,12 @@ class CartPoleSwingUpEnv(WarpEnv):
         return super().reset(env_ids)
 
     def get_stochastic_init(self, env_ids, joint_q, joint_qd):
-        rand_init_q = np.pi * (
-            torch.rand(size=(len(env_ids), self.num_joint_q), device=self.device) - 0.5
-        )
-        rand_init_qd = 0.5 * (
-            torch.rand(size=(len(env_ids), self.num_joint_qd), device=self.device) - 0.5
-        )
+        rand_init_q = np.pi * (torch.rand(size=(len(env_ids), self.num_joint_q), device=self.device) - 0.5)
+        rand_init_qd = 0.5 * (torch.rand(size=(len(env_ids), self.num_joint_qd), device=self.device) - 0.5)
         return joint_q[env_ids] + rand_init_q, joint_qd[env_ids] + rand_init_qd
 
     def calculateObservations(self):
-        joint_q, joint_qd = self.joint_q.view(self.num_envs, -1), self.joint_qd.view(
-            self.num_envs, -1
-        )
+        joint_q, joint_qd = self.joint_q.view(self.num_envs, -1), self.joint_qd.view(self.num_envs, -1)
         if self.ag_return_body:
             body_q = self.body_q.view(self.num_envs, -1, 7)
             body_qd = self.body_qd.view(self.num_envs, -1, 6)
@@ -216,9 +213,7 @@ class CartPoleSwingUpEnv(WarpEnv):
         theta_dot = joint_qd[:, 1:2]
 
         # observations: [x, xdot, sin(theta), cos(theta), theta_dot]
-        self.obs_buf = torch.cat(
-            [x, xdot, torch.sin(theta), torch.cos(theta), theta_dot], dim=-1
-        )
+        self.obs_buf = torch.cat([x, xdot, torch.sin(theta), torch.cos(theta), theta_dot], dim=-1)
 
     def calculateReward(self):
         joint_q = self.joint_q.view(self.num_envs, -1)
