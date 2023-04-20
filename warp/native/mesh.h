@@ -48,11 +48,6 @@ CUDA_CALLABLE inline Mesh mesh_get(uint64_t id)
     return *(Mesh*)(id);
 }
 
-CUDA_CALLABLE inline void adj_mesh_get(uint64_t id, uint64_t& adj_id, const Mesh& adj_ret)
-{
-	// no-op
-}
-
 
 CUDA_CALLABLE inline Mesh& operator += (Mesh& a, const Mesh& b) {
 	// dummy operator needed for adj_select involving meshes
@@ -531,7 +526,7 @@ CUDA_CALLABLE inline mesh_query_aabb_t mesh_query_aabb(
 
 //Stub
 CUDA_CALLABLE inline void adj_mesh_query_aabb(uint64_t id, const vec3& lower, const vec3& upper,
-											   uint64_t, vec3&, vec3&, mesh_query_aabb_t&)
+											  uint64_t, vec3&, vec3&)
 {
 
 }
@@ -598,7 +593,7 @@ CUDA_CALLABLE inline mesh_query_aabb_t iter_reverse(const mesh_query_aabb_t& que
 
 
 // stub
-CUDA_CALLABLE inline void adj_mesh_query_aabb_next(mesh_query_aabb_t& query, int& index, mesh_query_aabb_t&, int&, bool&) 
+CUDA_CALLABLE inline void adj_mesh_query_aabb_next(mesh_query_aabb_t& query, int& index, int&, bool&) 
 {
 
 }
@@ -760,7 +755,7 @@ CUDA_CALLABLE inline vec3 mesh_get_velocity(uint64_t id, int index)
 }
 
 CUDA_CALLABLE inline void adj_mesh_get_velocity(uint64_t id, int index,
-										     uint64_t& adj_id, int& adj_index, const vec3& adj_ret)
+										        uint64_t& adj_id, int& adj_index, const vec3& adj_ret)
 {
 	// no-op
 }

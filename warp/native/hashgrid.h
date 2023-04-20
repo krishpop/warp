@@ -195,8 +195,8 @@ CUDA_CALLABLE inline int hash_grid_point_id(uint64_t id, int& index)
     return grid->point_ids[index];
 }
 
-CUDA_CALLABLE inline void adj_hash_grid_query(uint64_t id, wp::vec3 pos, float radius, uint64_t& adj_id, wp::vec3& adj_pos, float& adj_radius, hash_grid_query_t& adj_res) {}
-CUDA_CALLABLE inline void adj_hash_grid_query_next(hash_grid_query_t& query, int& index, hash_grid_query_t& adj_query, int& adj_index, bool& adj_res) {}
+CUDA_CALLABLE inline void adj_hash_grid_query(uint64_t id, wp::vec3 pos, float radius, uint64_t& adj_id, wp::vec3& adj_pos, float& adj_radius) {}
+CUDA_CALLABLE inline void adj_hash_grid_query_next(hash_grid_query_t& query, int& index, int& adj_index, bool& adj_res) {}
 CUDA_CALLABLE inline void adj_hash_grid_point_id(uint64_t id, int& index, uint64_t & adj_id, int& adj_index, int& adj_res) {}
 
 

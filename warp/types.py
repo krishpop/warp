@@ -663,12 +663,14 @@ class shape_t(ctypes.Structure):
 class array_t(ctypes.Structure): 
 
     _fields_ = [("data", ctypes.c_uint64),
+                ("grad", ctypes.c_uint64),
                 ("shape", ctypes.c_int32*ARRAY_MAX_DIMS),
                 ("strides", ctypes.c_int32*ARRAY_MAX_DIMS),
                 ("ndim", ctypes.c_int32)]
     
-    def __init__(self, data=0, ndim=0, shape=(0,), strides=(0,)):
+    def __init__(self, data=0, grad=0, ndim=0, shape=(0,), strides=(0,)):
         self.data = data
+        self.grad = grad
         self.ndim = ndim
         for i in range(ndim):
             self.shape[i] = shape[i]
@@ -846,14 +848,13 @@ def strides_from_shape(shape:Tuple, dtype):
 
     return tuple(strides)
 
-
 class array (Array):
 
     # member attributes available during code-gen (e.g.: d = array.shape[0])
     # (initialized when needed)
     _vars = None
 
-    def __init__(self, data=None, dtype: DType=Any, shape=None, strides=None, length=0, ptr=None, capacity=0, device=None, copy=True, owner=True, ndim=None, requires_grad=False, pinned=False):
+    def __init__(self, data=None, dtype: DType=Any, shape=None, strides=None, length=0, ptr=None, grad_ptr=None, capacity=0, device=None, copy=True, owner=True, ndim=None, requires_grad=False, pinned=False):
         """ Constructs a new Warp array object from existing data.
 
         When the ``data`` argument is a valid list, tuple, or ndarray the array will be constructed from this object's data.
@@ -872,6 +873,7 @@ class array (Array):
             strides (tuple): Number of bytes in each dimension between successive elements of the array
             length (int): Number of elements (rows) of the data type (deprecated, users should use `shape` argument)
             ptr (uint64): Address of an external memory address to alias (data should be None)
+            grad_ptr (uint64): Address of an external memory address to alias for the gradient array
             capacity (int): Maximum size in bytes of the ptr allocation (data should be None)
             device (Devicelike): Device the array lives on
             copy (bool): Whether the incoming data will be copied or aliased, this is only possible when the incoming `data` already lives on the device specified and types match
@@ -972,6 +974,7 @@ class array (Array):
                 # ref numpy memory directly
                 self.shape = shape
                 self.ptr = ptr
+                self.grad_ptr = grad_ptr
                 self.dtype = dtype
                 self.strides = strides
                 self.capacity = arr.size*type_size_in_bytes(dtype)
@@ -1008,6 +1011,7 @@ class array (Array):
             self.capacity = capacity
             self.dtype = dtype
             self.ptr = ptr
+            self.grad_ptr = grad_ptr
             self.device = device
             self.owner = owner
             if device is not None and device.is_cpu:
@@ -1219,7 +1223,8 @@ class array (Array):
 
         if self.ctype is None:
             data = 0 if self.ptr is None else ctypes.c_uint64(self.ptr)
-            self.ctype = array_t(data=data, ndim=self.ndim, shape=self.shape, strides=self.strides)
+            grad = 0 if self.grad_ptr is None else ctypes.c_uint64(self.grad_ptr)
+            self.ctype = array_t(data=data, grad=grad, ndim=self.ndim, shape=self.shape, strides=self.strides)
 
         return self.ctype
 
@@ -1240,7 +1245,15 @@ class array (Array):
 
     def _alloc_grad(self):
 
-        self.grad = warp.zeros(shape=self.shape, dtype=self.dtype, device=self.device, requires_grad=False)
+        if self.grad_ptr is None:
+            num_bytes = self.size*type_size_in_bytes(self.dtype)
+            self.grad_ptr = self.device.allocator.alloc(num_bytes, pinned=self.pinned)
+            if self.grad_ptr is None:
+                raise RuntimeError("Memory allocation failed on device: {} for {} bytes".format(self.device, num_bytes))
+            with warp.ScopedStream(self.device.null_stream):
+                self.device.memset(self.grad_ptr, 0, num_bytes)
+
+        self.grad = array(ptr=self.grad_ptr, shape=self.shape, dtype=self.dtype, device=self.device, requires_grad=False, owner=False)
 
     @property
     def vars(self):
@@ -1360,7 +1373,7 @@ class array (Array):
         if self.device == device:
             return self
         else:
-            dest = warp.empty(shape=self.shape, dtype=self.dtype, device=device)
+            dest = warp.empty(shape=self.shape, dtype=self.dtype, device=device, requires_grad=self.requires_grad)
             # to copy between devices, array must be contiguous
             warp.copy(dest, self.contiguous())
             return dest
@@ -1414,6 +1427,7 @@ class array (Array):
                   shape=shape,
                   strides=None,
                   ptr=self.ptr,
+                  grad_ptr=self.grad_ptr,
                   capacity=self.capacity,
                   device=self.device,
                   copy=False,
@@ -1437,6 +1451,7 @@ class array (Array):
                     shape=self.shape,
                     strides=self.strides,
                     ptr=self.ptr,
+                    grad_ptr=self.grad_ptr,
                     capacity=self.capacity,
                     device=self.device,
                     copy=False,
@@ -1487,6 +1502,7 @@ class array (Array):
                 shape=tuple(shape),
                 strides=tuple(strides),
                 ptr=self.ptr,
+                grad_ptr=self.grad_ptr,
                 capacity=self.capacity,
                 device=self.device,
                 copy=False,
@@ -1836,23 +1852,33 @@ class Mesh:
                 return ctypes.c_void_p(array.ptr)
             else:
                 return ctypes.c_void_p(0)
+            
+        def get_grad_data(array):
+            if (array and array.grad):
+                return ctypes.c_void_p(array.grad.ptr)
+            else:
+                return ctypes.c_void_p(0)
 
         from warp.context import runtime
 
         if self.device.is_cpu:
             self.id = runtime.core.mesh_create_host(
-                get_data(points), 
-                get_data(velocities), 
-                get_data(indices), 
-                int(len(points)), 
+                get_data(points),
+                get_grad_data(points),
+                get_data(velocities),
+                get_grad_data(velocities),
+                get_data(indices),
+                int(len(points)),
                 int(indices.size/3))
         else:
             self.id = runtime.core.mesh_create_device(
                 self.device.context,
-                get_data(points), 
-                get_data(velocities), 
-                get_data(indices), 
-                int(len(points)), 
+                get_data(points),
+                get_grad_data(points),
+                get_data(velocities),
+                get_grad_data(velocities),
+                get_data(indices),
+                int(len(points)),
                 int(indices.size/3))
 
 
@@ -2769,3 +2795,15 @@ def get_signature(arg_types, func_name=None, arg_names=None):
 def is_generic_signature(sig):
 
     return "?" in sig
+
+
+# function arguments of this type do not get a dual variable
+non_adjoint_arg_types = {
+    array, indexedarray,
+    Mesh, Volume, Bvh, HashGrid, MarchingCubes,
+    mesh_query_aabb_t, bvh_query_t, hash_grid_query_t,
+    range_t, shape_t, launch_bounds_t,
+}
+
+def is_non_adjoint_arg_type(arg_type):
+    return isinstance(arg_type, array) or arg_type in non_adjoint_arg_types

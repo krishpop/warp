@@ -129,6 +129,22 @@ class Function:
             else:
                 self.mangled_name = None
 
+        # determine which arguments are non-differentiable
+        def filter_non_adjoint(arg_types):
+            return set(i for i, t in enumerate(arg_types) if warp.types.is_non_adjoint_arg_type(t))
+
+        self.non_adjoint_args = filter_non_adjoint(self.input_types.values())
+        self.non_adjoint_outputs = set()
+        try:
+            value_type = self.value_func(None, None, None)
+            if value_type:
+                if isinstance(value_type, list):
+                    self.non_adjoint_outputs = filter_non_adjoint(value_type)
+                elif warp.types.is_non_adjoint_arg_type(value_type):
+                    self.non_adjoint_outputs = set([0])
+        except:
+            pass
+
         self.add_overload(self)
 
         # add to current module
@@ -1804,10 +1820,10 @@ class Runtime:
         self.core.bvh_refit_device.argtypes = [ctypes.c_uint64]
 
         self.core.mesh_create_host.restype = ctypes.c_uint64
-        self.core.mesh_create_host.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
+        self.core.mesh_create_host.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
 
         self.core.mesh_create_device.restype = ctypes.c_uint64
-        self.core.mesh_create_device.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
+        self.core.mesh_create_device.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
 
         self.core.mesh_destroy_host.argtypes = [ctypes.c_uint64]
         self.core.mesh_destroy_device.argtypes = [ctypes.c_uint64]
@@ -2350,7 +2366,7 @@ def zeros(shape: Tuple=None, dtype=float, device:Devicelike=None, requires_grad:
         A warp.array object representing the allocation                
     """
 
-    # backwards compatability for case where users did wp.zeros(n, dtype=..), or wp.zeros(n=length, dtype=..)
+    # backwards compatibility for case where users did wp.zeros(n, dtype=..), or wp.zeros(n=length, dtype=..)
     if isinstance(shape, int):
         shape = (shape,)
     elif "n" in kwargs:
@@ -2365,6 +2381,9 @@ def zeros(shape: Tuple=None, dtype=float, device:Devicelike=None, requires_grad:
 
     device = get_device(device)
 
+    ptr = None
+    grad_ptr = None
+
     if num_bytes > 0:
 
         if device.is_capturing:
@@ -2378,11 +2397,16 @@ def zeros(shape: Tuple=None, dtype=float, device:Devicelike=None, requires_grad:
         with warp.ScopedStream(device.null_stream):
             device.memset(ptr, 0, num_bytes)
 
-    else:
-        ptr = None
+        if requires_grad:
+            # allocate gradient array
+            grad_ptr = device.allocator.alloc(num_bytes, pinned=pinned)
+            if grad_ptr is None:
+                raise RuntimeError("Memory allocation failed on device: {} for {} bytes".format(device, num_bytes))
+            with warp.ScopedStream(device.null_stream):
+                device.memset(grad_ptr, 0, num_bytes)
 
     # construct array
-    return warp.types.array(dtype=dtype, shape=shape, capacity=num_bytes, ptr=ptr, device=device, owner=True, requires_grad=requires_grad, pinned=pinned)
+    return warp.types.array(dtype=dtype, shape=shape, capacity=num_bytes, ptr=ptr, grad_ptr=grad_ptr, device=device, owner=True, requires_grad=requires_grad, pinned=pinned)
 
 def zeros_like(src: warp.array, requires_grad:bool=None, pinned:bool=None) -> warp.array:
     """Return a zero-initialized array with the same type and dimension of another array
@@ -2931,6 +2955,8 @@ def copy(dest:warp.array, src:warp.array, dest_offset:int=0, src_offset:int=0, c
 
     if count == 0:
         return
+    
+    has_grad = (src.grad_ptr and dest.grad_ptr)
 
     if src.is_contiguous and dest.is_contiguous:
 
@@ -2945,6 +2971,10 @@ def copy(dest:warp.array, src:warp.array, dest_offset:int=0, src_offset:int=0, c
         src_ptr = src.ptr + src_offset_in_bytes
         dst_ptr = dest.ptr + dst_offset_in_bytes
 
+        if has_grad:
+            src_grad_ptr = src.ptr + src_offset_in_bytes
+            dst_grad_ptr = dest.ptr + dst_offset_in_bytes
+
         if src_offset_in_bytes + bytes_to_copy > src_size_in_bytes:
             raise RuntimeError(f"Trying to copy source buffer with size ({bytes_to_copy}) from offset ({src_offset_in_bytes}) is larger than source size ({src_size_in_bytes})")
 
@@ -2953,6 +2983,8 @@ def copy(dest:warp.array, src:warp.array, dest_offset:int=0, src_offset:int=0, c
 
         if src.device.is_cpu and dest.device.is_cpu:
             runtime.core.memcpy_h2h(dst_ptr, src_ptr, bytes_to_copy)
+            if has_grad:
+                runtime.core.memcpy_h2h(dst_grad_ptr, src_grad_ptr, bytes_to_copy)
         else:
             # figure out the CUDA context/stream for the copy
             if stream is not None:
@@ -2966,13 +2998,21 @@ def copy(dest:warp.array, src:warp.array, dest_offset:int=0, src_offset:int=0, c
 
                 if src.device.is_cpu and dest.device.is_cuda:
                     runtime.core.memcpy_h2d(copy_device.context, dst_ptr, src_ptr, bytes_to_copy)
+                    if has_grad:
+                        runtime.core.memcpy_h2d(copy_device.context, dst_grad_ptr, src_grad_ptr, bytes_to_copy)
                 elif src.device.is_cuda and dest.device.is_cpu:
                     runtime.core.memcpy_d2h(copy_device.context, dst_ptr, src_ptr, bytes_to_copy)
+                    if has_grad:
+                        runtime.core.memcpy_d2h(copy_device.context, dst_grad_ptr, src_grad_ptr, bytes_to_copy)
                 elif src.device.is_cuda and dest.device.is_cuda:
                     if src.device == dest.device:
                         runtime.core.memcpy_d2d(copy_device.context, dst_ptr, src_ptr, bytes_to_copy)
+                        if has_grad:
+                            runtime.core.memcpy_d2d(copy_device.context, dst_grad_ptr, src_grad_ptr, bytes_to_copy)
                     else:
                         runtime.core.memcpy_peer(copy_device.context, dst_ptr, src_ptr, bytes_to_copy)
+                        if has_grad:
+                            runtime.core.memcpy_peer(copy_device.context, dst_grad_ptr, src_grad_ptr, bytes_to_copy)
                 else:
                     raise RuntimeError("Unexpected source and destination combination")
 

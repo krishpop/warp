@@ -778,7 +778,7 @@ add_builtin("intersect_tri_tri", input_types={"v0": vec3, "v1": vec3, "v2": vec3
     doc="Tests for intersection between two triangles (v0, v1, v2) and (u0, u1, u2) using Moller's method. Returns > 0 if triangles intersect.")
 
 
-add_builtin("mesh_get", input_types={"id": uint64}, value_type=Mesh, group="Geometry",
+add_builtin("mesh_get", input_types={"id": uint64}, value_type=Mesh, group="Geometry", missing_grad=True,
     doc="""Retrieves the mesh given its index.""")
 
 add_builtin("mesh_eval_face_normal", input_types={"id": uint64, "face": int}, value_type=vec3, group="Geometry",
