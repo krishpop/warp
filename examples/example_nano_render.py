@@ -1,3 +1,18 @@
+# Copyright (c) 2022 NVIDIA CORPORATION.  All rights reserved.
+# NVIDIA CORPORATION and its licensors retain all intellectual property
+# and proprietary rights in and to this software, related documentation
+# and any modifications thereto.  Any use, reproduction, disclosure or
+# distribution of this software and related documentation without an express
+# license agreement from NVIDIA CORPORATION is strictly prohibited.
+
+###########################################################################
+# Nano renderer example
+#
+# Demonstrates how to set up tiled rendering and retrieves the pixels from
+# NanoRenderer as a Warp array while keeping all memory on the GPU.
+#
+###########################################################################
+
 import warp as wp
 import warp.render
 import numpy as np
