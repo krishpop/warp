@@ -40,7 +40,7 @@ def parse_urdf(
     link_index = {}
 
     builder.add_articulation()
-    
+
     start_shape_count = len(builder.shape_geo_type)
 
     def parse_shapes(link, collisions, density):
@@ -176,7 +176,6 @@ def parse_urdf(
 
     # add joints
     for joint in robot.joints:
-
         parent = root
         if joint.parent in link_index:
             parent = link_index[joint.parent]
@@ -186,8 +185,8 @@ def parse_urdf(
         pos = origin[0:3]
         rot = wp.quat_rpy(*origin[3:6])
 
-        lower = -1.e+3
-        upper = 1.e+3
+        lower = -1.0e3
+        upper = 1.0e3
         joint_damping = damping
 
         # limits
@@ -252,13 +251,11 @@ def parse_urdf(
             builder.add_joint_d6(
                 linear_axes=[
                     wp.sim.JointAxis(
-                        plane_vector1,
-                        limit_lower=lower, limit_upper=upper,
-                        limit_ke=limit_ke, limit_kd=limit_kd),
+                        plane_vector1, limit_lower=lower, limit_upper=upper, limit_ke=limit_ke, limit_kd=limit_kd
+                    ),
                     wp.sim.JointAxis(
-                        plane_vector2, 
-                        limit_lower=lower, limit_upper=upper,
-                        limit_ke=limit_ke, limit_kd=limit_kd),
+                        plane_vector2, limit_lower=lower, limit_upper=upper, limit_ke=limit_ke, limit_kd=limit_kd
+                    ),
                 ],
                 **joint_params)
         else:
@@ -268,5 +265,5 @@ def parse_urdf(
 
     if not enable_self_collisions:
         for i in range(start_shape_count, end_shape_count):
-            for j in range(i+1, end_shape_count):
+            for j in range(i + 1, end_shape_count):
                 builder.shape_collision_filter_pairs.add((i, j))
