@@ -16,7 +16,6 @@ import copy
 
 from typing import List, Optional, Tuple, Union
 
-from warp.types import Volume
 Vec3 = List[float]
 Vec4 = List[float]
 Quat = List[float]
@@ -41,13 +40,6 @@ from .inertia import compute_capsule_inertia
 from .inertia import compute_cylinder_inertia
 from .inertia import compute_cone_inertia
 from .inertia import transform_inertia
-
-from warp.types import Volume
-Vec3 = List[float]
-Vec4 = List[float]
-Quat = List[float]
-Mat33 = List[float]
-Transform = Tuple[Vec3, Quat]
 
 # Types of joints linking rigid bodies
 JOINT_PRISMATIC = wp.constant(0)
