@@ -464,13 +464,14 @@ def test_3d_math_grad(test, device):
     # run the tests with 5 different random inputs
     for _ in range(5):
         x = wp.array(np.random.randn(2, 3).astype(np.float32), dtype=wp.vec3, device=device, requires_grad=True)
-        gradcheck(check_cross, f"check_cross_3d", [x], device)
-        gradcheck(check_dot, f"check_dot_3d", [x], device)
-        gradcheck(check_mat33, f"check_mat33_3d", [x], device, eps=2e-2)
-        gradcheck(check_trace_diagonal, f"check_trace_diagonal_3d", [x], device)
-        gradcheck(check_rot_rpy, f"check_rot_rpy_3d", [x], device)
-        gradcheck(check_rot_axis_angle, f"check_rot_axis_angle_3d", [x], device)
-        gradcheck(check_rot_quat_inv, f"check_rot_quat_inv_3d", [x], device)
+        gradcheck(check_cross, "check_cross_3d", [x], device)
+        gradcheck(check_dot, "check_dot_3d", [x], device)
+        gradcheck(check_mat33, "check_mat33_3d", [x], device, eps=2e-2)
+        gradcheck(check_trace_diagonal, "check_trace_diagonal_3d", [x], device)
+        gradcheck(check_rot_rpy, "check_rot_rpy_3d", [x], device)
+        gradcheck(check_rot_axis_angle, "check_rot_axis_angle_3d", [x], device)
+        gradcheck(check_rot_quat_inv, "check_rot_quat_inv_3d", [x], device)
+
 
 def test_mesh_grad(test, device):
     pos = wp.array([
@@ -491,7 +492,7 @@ def test_mesh_grad(test, device):
     @wp.func
     def compute_triangle_area(mesh_id: wp.uint64, tri_id: int):
         mesh = wp.mesh_get(mesh_id)
-        i, j, k = mesh.indices[tri_id,0], mesh.indices[tri_id,1], mesh.indices[tri_id,2]
+        i, j, k = mesh.indices[tri_id, 0], mesh.indices[tri_id, 1], mesh.indices[tri_id, 2]
         a = mesh.points[i]
         b = mesh.points[j]
         c = mesh.points[k]
@@ -553,6 +554,7 @@ def register(parent):
     add_function_test(TestGrad, "test_vector_math_grad", test_vector_math_grad, devices=devices)
     add_function_test(TestGrad, "test_matrix_math_grad", test_matrix_math_grad, devices=devices)
     add_function_test(TestGrad, "test_3d_math_grad", test_3d_math_grad, devices=devices)
+    add_function_test(TestGrad, "test_mesh_grad", test_mesh_grad, devices=devices)
 
     return TestGrad
 

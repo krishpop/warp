@@ -618,7 +618,7 @@ class Adjoint:
             
         func_name = compute_type_str(func.native_func, templates)
 
-        func_name = compute_type_str(func.native_func, templates)
+        use_initializer_list = func.initializer_list_func(args, templates)
 
         # make sure we have variables for all arguments of the reverse call
         # since some variables were ommitted for non-adjoint variable types
@@ -650,7 +650,7 @@ class Adjoint:
             # handle multiple value functions
 
             output = [adj.add_var(v) for v in value_type]
-            forward_call = "{}{}({});".format(func.namespace, func_name, adj.format_forward_call_args(args+output, use_initializer_list))
+            forward_call = "{}{}({});".format(func.namespace, func_name, adj.format_forward_call_args(args + output, use_initializer_list))
             adj.add_forward(forward_call)
 
             if (not func.missing_grad and len(args)):
