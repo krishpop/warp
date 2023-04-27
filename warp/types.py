@@ -840,13 +840,19 @@ class indexedarray_t(ctypes.Structure):
     ]
 
     def __init__(self, data, indices, shape):
-        self.data = data.__ctype__()
-        for i in range(data.ndim):
-            if indices[i] is not None:
-                self.indices[i] = ctypes.c_void_p(indices[i].ptr)
-            else:
+        if data is None:
+            self.data = array().__ctype__()
+            for i in range(ARRAY_MAX_DIMS):
                 self.indices[i] = ctypes.c_void_p(None)
-            self.shape[i] = shape[i]
+                self.shape[i] = 0
+        else:
+            self.data = data.__ctype__()
+            for i in range(data.ndim):
+                if indices[i] is not None:
+                    self.indices[i] = ctypes.c_void_p(indices[i].ptr)
+                else:
+                    self.indices[i] = ctypes.c_void_p(None)
+                self.shape[i] = shape[i]
 
 
 def type_ctype(dtype):
@@ -1735,7 +1741,7 @@ class indexedarray(Generic[T]):
     _vars = None
 
     def __init__(
-        self, data: array = None, indices: Union[array, List[array]] = None, dtype=None, ndim=None, requires_grad=False
+        self, data: array = None, indices: Union[array, List[array]] = None, dtype=None, ndim=None
     ):
         # canonicalize types
         if dtype is not None:
@@ -1798,7 +1804,7 @@ class indexedarray(Generic[T]):
                     shape[0] = len(indices)
 
                 else:
-                    raise ValueError(f"Indices must be a single Warp array or a list of Warp arrays")
+                    raise ValueError("Indices must be a single Warp array or a list of Warp arrays")
 
             self.shape = tuple(shape)
 
@@ -1817,9 +1823,6 @@ class indexedarray(Generic[T]):
 
         self.is_contiguous = False
 
-        self.grad = None
-        self.requires_grad = requires_grad
-
     def __len__(self):
         return self.shape[0]
 
@@ -1829,22 +1832,6 @@ class indexedarray(Generic[T]):
     # construct a C-representation of the array for passing to kernels
     def __ctype__(self):
         return indexedarray_t(self.data, self.indices, self.shape)
-
-    @property
-    def requires_grad(self):
-        return self._requires_grad
-
-    @requires_grad.setter
-    def requires_grad(self, value: bool):
-        if value and self.grad is None and self.data is not None:
-            self._alloc_grad()
-        elif not value:
-            self.grad = None
-
-        self._requires_grad = value
-
-    def _alloc_grad(self):
-        self.grad = warp.zeros(shape=self.shape, dtype=self.dtype, device=self.device, requires_grad=False)
 
     @property
     def vars(self):
