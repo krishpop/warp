@@ -1067,7 +1067,7 @@ class array(Array):
         self.owner = False
 
         # convert shape to Tuple
-        if shape == None:
+        if shape is None:
             shape = tuple(length for _ in range(ndim or 1))
         elif isinstance(shape, int):
             shape = (shape,)
@@ -1216,7 +1216,7 @@ class array(Array):
             self.__name__ = "array<" + type.__name__ + ">"
 
         # update ndim
-        if ndim == None:
+        if ndim is None:
             self.ndim = len(self.shape)
         else:
             self.ndim = ndim
@@ -1226,7 +1226,7 @@ class array(Array):
         for d in self.shape:
             self.size *= d
 
-        self.grad = None
+        self._grad = None
 
         # set up array interface access so we can treat this object as a numpy array
         if self.ptr:
@@ -1296,7 +1296,7 @@ class array(Array):
         return self.shape[0]
 
     def __str__(self):
-        if self.device == None:
+        if self.device is None:
             # for 'empty' arrays we just return the type information, these are used in kernel function signatures
             return f"array{self.dtype}"
         else:
@@ -1386,6 +1386,7 @@ class array(Array):
             shape=tuple(new_shape),
             strides=tuple(new_strides),
             ptr=self.ptr + ptr_offset,
+            grad_ptr=self.grad_ptr + ptr_offset,
             capacity=self.capacity,
             device=self.device,
             owner=False,
@@ -1414,20 +1415,36 @@ class array(Array):
         return self.ctype
 
     @property
+    def grad(self):
+        return self._grad
+
+    @grad.setter
+    def grad(self, value):
+        if value is None:
+            self.grad_ptr = None
+            self._grad = None
+            return
+        if self._grad is None:
+            self.grad_ptr = value.ptr
+            self._alloc_grad()
+            self._grad = value
+        else:
+            self._grad.assign(value)
+
+    @property
     def requires_grad(self):
         return self._requires_grad
 
     @requires_grad.setter
     def requires_grad(self, value: bool):
-        if value and self.grad is None:
+        if value and self._grad is None:
             self._alloc_grad()
         elif not value:
-            self.grad = None
+            self._grad = None
 
         self._requires_grad = value
 
     def _alloc_grad(self):
-
         if self.grad_ptr is None:
             num_bytes = self.size * type_size_in_bytes(self.dtype)
             self.grad_ptr = self.device.allocator.alloc(num_bytes, pinned=self.pinned)
@@ -1436,7 +1453,7 @@ class array(Array):
             with warp.ScopedStream(self.device.null_stream):
                 self.device.memset(self.grad_ptr, 0, num_bytes)
 
-        self.grad = array(ptr=self.grad_ptr, shape=self.shape, dtype=self.dtype, device=self.device, requires_grad=False, owner=False)
+        self._grad = array(ptr=self.grad_ptr, shape=self.shape, dtype=self.dtype, device=self.device, requires_grad=False, owner=False)
 
     @property
     def vars(self):
