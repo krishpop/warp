@@ -133,22 +133,6 @@ class Function:
             else:
                 self.mangled_name = None
 
-        # determine which arguments are non-differentiable
-        def filter_non_adjoint(arg_types):
-            return set(i for i, t in enumerate(arg_types) if warp.types.is_non_adjoint_arg_type(t))
-
-        self.non_adjoint_args = filter_non_adjoint(self.input_types.values())
-        self.non_adjoint_outputs = set()
-        try:
-            value_type = self.value_func(None, None, None)
-            if value_type:
-                if isinstance(value_type, list):
-                    self.non_adjoint_outputs = filter_non_adjoint(value_type)
-                elif warp.types.is_non_adjoint_arg_type(value_type):
-                    self.non_adjoint_outputs = set([0])
-        except:
-            pass
-
         self.add_overload(self)
 
         # add to current module

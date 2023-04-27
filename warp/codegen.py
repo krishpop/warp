@@ -229,7 +229,7 @@ class Struct:
 
 
 def compute_type_str(base_name, template_params):
-    if template_params == None or len(template_params) == 0:
+    if template_params is None or len(template_params) == 0:
         return base_name
     else:
 
@@ -242,7 +242,7 @@ def compute_type_str(base_name, template_params):
 
 
 class Var:
-    def __init__(self, label, type, requires_grad=False, constant=None, reverse_only=False):
+    def __init__(self, label, type, requires_grad=False, constant=None):
 
         # convert built-in types to wp types
         if type == float:
@@ -254,7 +254,6 @@ class Var:
         self.type = type
         self.requires_grad = requires_grad
         self.constant = constant
-        self.reverse_only = reverse_only
 
     def __str__(self):
         return self.label
@@ -363,21 +362,9 @@ class Adjoint:
         # used to generate new label indices
         adj.label_count = 0
 
-        # argument names that will not have a corresponding adjoint argument
-        # because the type does not support adjoint operations
-        adj.non_adjoint_args = set()
-        
-        # keep track of arguments that will not appear as adjoint variable arguments
-        # since we might need to create variables for them when certain function calls
-        # require them in the reverse pass
-        adj.ommitted_adj_vars = set()
-
         # update symbol map for each argument
         for a in adj.args:
             adj.symbols[a.label] = a
-            if warp.types.is_non_adjoint_arg_type(a.type):
-                adj.ommitted_adj_vars.add(a.label)
-                adj.non_adjoint_args.add(a.label)
 
         # recursively evaluate function body
         try:
@@ -417,19 +404,12 @@ class Adjoint:
                 else:
                     arg_strs.append(prefix + a.key)
 
-            elif type(a) == Var:
-
-                if prefix in {"adj_", "&adj_"} and (isinstance(a.type, array)):
-                    continue
-
-                arg_strs.append(prefix + str(a))
-
             else:
 
                 arg_strs.append(prefix + str(a))
 
         return arg_strs
-    
+
     # generates argument string for a forward function call
     def format_forward_call_args(adj, args, use_initializer_list):
         arg_str = ", ".join(adj.format_args("var_", args))
@@ -449,7 +429,7 @@ class Adjoint:
         if len(formatted_var_adj) == 0 and len(formatted_out_adj) == 0:
             # there are no adjoint arguments, so we don't need to call the reverse function
             return None
-        
+
         if use_initializer_list:
             var_str = "{{{}}}".format(", ".join(formatted_var))
             adj_str = "{{{}}}".format(", ".join(formatted_var_adj))
@@ -478,13 +458,13 @@ class Adjoint:
     def end_block(adj):
         return adj.blocks.pop()
 
-    def add_var(adj, type=None, constant=None, name=None, reverse_only=False):
+    def add_var(adj, type=None, constant=None, name=None):
         if name is None:
             index = len(adj.variables)
             name = str(index)
 
         # allocate new variable
-        v = Var(name, type=type, constant=constant, reverse_only=reverse_only)
+        v = Var(name, type=type, constant=constant)
 
         adj.variables.append(v)
 
@@ -496,7 +476,7 @@ class Adjoint:
     def add_forward(adj, statement, replay=None, skip_replay=False):
         adj.blocks[-1].body_forward.append(adj.prefix + statement)
 
-        if skip_replay == False:
+        if not skip_replay:
             if replay:
                 # if custom replay specified then output it
                 adj.blocks[-1].body_replay.append(adj.prefix + replay)
@@ -573,7 +553,7 @@ class Adjoint:
                         if len(value_type) != min_outputs:
                             match = False
                             continue
-                    except Exception as e:
+                    except Exception:
                         # value func may fail if the user has given
                         # incorrect args, so we need to catch this
                         match = False
@@ -588,7 +568,7 @@ class Adjoint:
             arg_types = [a.type for a in args]
             resolved_func = func.get_overload(arg_types)
 
-        if resolved_func == None:
+        if resolved_func is None:
             arg_types = []
 
             for x in args:
@@ -615,21 +595,12 @@ class Adjoint:
 
         # evaluate the function type based on inputs
         value_type = func.value_func(args, kwds, templates)
-            
+
         func_name = compute_type_str(func.native_func, templates)
 
         use_initializer_list = func.initializer_list_func(args, templates)
 
-        # make sure we have variables for all arguments of the reverse call
-        # since some variables were ommitted for non-adjoint variable types
-        if (not func.missing_grad and len(args)):
-            for arg in args:
-                if arg.label not in func.non_adjoint_args and arg.label in adj.ommitted_adj_vars:
-                    # we are missing an adjoint variable, so add it
-                    adj.add_var(arg.type, name=arg.label, reverse_only=True)
-                    adj.ommitted_adj_vars.remove(arg.label)
-
-        if value_type == None:
+        if value_type is None:
             # handles expression (zero output) functions, e.g.: void do_something();
 
             forward_call = "{}{}({});".format(func.namespace, func_name, adj.format_forward_call_args(args, use_initializer_list))
@@ -639,7 +610,7 @@ class Adjoint:
                 adj.add_forward(forward_call)
 
             if (not func.missing_grad and len(args)):
-                arg_str = adj.format_reverse_call_args(args, [], func.non_adjoint_args, func.non_adjoint_outputs, use_initializer_list)
+                arg_str = adj.format_reverse_call_args(args, [], {}, {}, use_initializer_list)
                 if (arg_str is not None):
                     reverse_call = "{}adj_{}({});".format(func.namespace, func.native_func, arg_str)
                     adj.add_reverse(reverse_call)
@@ -654,7 +625,7 @@ class Adjoint:
             adj.add_forward(forward_call)
 
             if (not func.missing_grad and len(args)):
-                arg_str = adj.format_reverse_call_args(args, output, func.non_adjoint_args, func.non_adjoint_outputs, use_initializer_list)
+                arg_str = adj.format_reverse_call_args(args, output, {}, {}, use_initializer_list)
                 if (arg_str is not None):
                     reverse_call = "{}adj_{}({});".format(func.namespace, func.native_func, arg_str)
                     adj.add_reverse(reverse_call)
@@ -675,7 +646,7 @@ class Adjoint:
                 adj.add_forward(forward_call)
             
             if (not func.missing_grad and len(args)):
-                arg_str = adj.format_reverse_call_args(args, [output], func.non_adjoint_args, func.non_adjoint_outputs, use_initializer_list)
+                arg_str = adj.format_reverse_call_args(args, [output], {}, {}, use_initializer_list)
                 if (arg_str is not None):
                     reverse_call = "{}adj_{}({});".format(func.namespace, func.native_func, arg_str)
                     adj.add_reverse(reverse_call)
@@ -1048,7 +1019,7 @@ class Adjoint:
             return adj.add_constant(True)
         elif node.value == False:
             return adj.add_constant(False)
-        elif node.value == None:
+        elif node.value is None:
             raise TypeError("None type unsupported")
 
     def emit_Constant(adj, node):
@@ -1268,12 +1239,12 @@ class Adjoint:
                 func = warp.context.builtin_functions[attr]
 
             # vector class type e.g.: wp.vec3f constructor
-            if func == None and hasattr(caller, "_wp_generic_type_str_"):
+            if func is None and hasattr(caller, "_wp_generic_type_str_"):
                 templates = caller._wp_type_params_
                 func = warp.context.builtin_functions.get(caller._wp_constructor_)
 
             # scalar class type e.g.: wp.int8 constructor
-            if func == None and hasattr(caller, "__name__") and caller.__name__ in warp.context.builtin_functions:
+            if func is None and hasattr(caller, "__name__") and caller.__name__ in warp.context.builtin_functions:
                 func = warp.context.builtin_functions.get(caller.__name__)
 
             # struct constructor
@@ -1942,9 +1913,7 @@ def codegen_func_forward(adj, func_type="kernel", device="cpu"):
     s += "    // primal vars\n"
 
     for var in adj.variables:
-        if var.reverse_only:
-            continue
-        if var.constant == None:
+        if var.constant is None:
             s += "    " + var.ctype() + " var_" + str(var.label) + ";\n"
         else:
             s += "    const " + var.ctype() + " var_" + str(var.label) + " = " + constant_str(var.constant) + ";\n"
@@ -1996,9 +1965,7 @@ def codegen_func_reverse(adj, func_type="kernel", device="cpu"):
     s += "    // primal vars\n"
 
     for var in adj.variables:
-        if var.reverse_only:
-            continue
-        if var.constant == None:
+        if var.constant is None:
             s += "    " + var.ctype() + " var_" + str(var.label) + ";\n"
         else:
             s += "    const " + var.ctype() + " var_" + str(var.label) + " = " + constant_str(var.constant) + ";\n"
@@ -2042,12 +2009,14 @@ def codegen_func(adj, device="cpu"):
 
     # reverse args
     for arg in adj.args:
-        if warp.types.is_non_adjoint_arg_type(arg.type):
-            continue
+        # indexed array gradients are regular arrays
+        if isinstance(arg.type, indexedarray):
+            _arg = Var(arg.label, array(dtype=arg.type.dtype, ndim=arg.type.ndim))
+            reverse_args.append(_arg.ctype() + " & adj_" + arg.label)
+        else:
+            reverse_args.append(arg.ctype() + " & adj_" + arg.label)
 
-        reverse_args.append(arg.ctype() + " & adj_" + arg.label)
-    
-    if return_type != 'void' and not warp.types.is_non_adjoint_arg_type(adj.return_var.type):
+    if return_type != 'void':
         reverse_args.append(return_type + " & adj_ret")
 
     # codegen body
@@ -2092,10 +2061,12 @@ def codegen_kernel(kernel, device, options):
 
     # reverse args
     for arg in adj.args:
-        if warp.types.is_non_adjoint_arg_type(arg.type):
-            continue
-        
-        reverse_args.append(arg.ctype() + " adj_" + arg.label)
+        # indexed array gradients are regular arrays
+        if isinstance(arg.type, indexedarray):
+            _arg = Var(arg.label, array(dtype=arg.type.dtype, ndim=arg.type.ndim))
+            reverse_args.append(_arg.ctype() + " adj_" + arg.label)
+        else:
+            reverse_args.append(arg.ctype() + " adj_" + arg.label)
 
     # codegen body
     forward_body = codegen_func_forward(adj, func_type="kernel", device=device)
@@ -2144,10 +2115,12 @@ def codegen_module(kernel, device="cpu"):
     reverse_params = [*forward_params]
 
     for arg in adj.args:
-        if warp.types.is_non_adjoint_arg_type(arg.type):
-            continue
-        
-        if hasattr(arg.type, "_wp_generic_type_str_"):
+        if isinstance(arg.type, indexedarray):
+            # indexed array gradients are regular arrays
+            _arg = Var(arg.label, array(dtype=arg.type.dtype, ndim=arg.type.ndim))
+            reverse_args.append(f"const {_arg.ctype()} adj_{arg.label}")
+            reverse_params.append(f"adj_{_arg.label}")
+        elif hasattr(arg.type, "_wp_generic_type_str_"):
             # vectors and matrices are passed from Python by pointer
             reverse_args.append(f"const {arg.ctype()}* adj_{arg.label}")
             reverse_params.append(f"*adj_{arg.label}")

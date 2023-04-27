@@ -526,7 +526,7 @@ CUDA_CALLABLE inline mesh_query_aabb_t mesh_query_aabb(
 
 //Stub
 CUDA_CALLABLE inline void adj_mesh_query_aabb(uint64_t id, const vec3& lower, const vec3& upper,
-											  uint64_t, vec3&, vec3&)
+											  uint64_t, vec3&, vec3&, mesh_query_aabb_t&)
 {
 
 }
@@ -593,7 +593,7 @@ CUDA_CALLABLE inline mesh_query_aabb_t iter_reverse(const mesh_query_aabb_t& que
 
 
 // stub
-CUDA_CALLABLE inline void adj_mesh_query_aabb_next(mesh_query_aabb_t& query, int& index, int&, bool&) 
+CUDA_CALLABLE inline void adj_mesh_query_aabb_next(mesh_query_aabb_t& query, int& index, mesh_query_aabb_t&, int&, bool&) 
 {
 
 }

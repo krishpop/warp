@@ -3117,16 +3117,3 @@ def get_signature(arg_types, func_name=None, arg_names=None):
 
 def is_generic_signature(sig):
     return "?" in sig
-
-
-# function arguments of this type do not get a dual variable
-non_adjoint_arg_types = {
-    array, indexedarray,
-    Mesh, Volume, Bvh, HashGrid, MarchingCubes,
-    mesh_query_aabb_t, bvh_query_t, hash_grid_query_t,
-    range_t, shape_t, launch_bounds_t,
-}
-
-
-def is_non_adjoint_arg_type(arg_type):
-    return isinstance(arg_type, array) or arg_type in non_adjoint_arg_types
