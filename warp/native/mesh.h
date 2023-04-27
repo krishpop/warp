@@ -40,7 +40,19 @@ struct Mesh
 		num_points = 0;
 		num_tris = 0;
 		context = nullptr;
-	}    
+	}
+
+	inline CUDA_CALLABLE Mesh(
+		array_t<vec3> points,
+		array_t<vec3> velocities,
+		array_t<int> indices,
+		int num_points,
+		int num_tris,
+		void* context = nullptr
+	) : points(points), velocities(velocities), indices(indices), num_points(num_points), num_tris(num_tris), context(context)
+	{
+		bounds = nullptr;
+	}
 };
 
 CUDA_CALLABLE inline Mesh mesh_get(uint64_t id)

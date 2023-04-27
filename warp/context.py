@@ -1846,10 +1846,10 @@ class Runtime:
         self.core.bvh_refit_device.argtypes = [ctypes.c_uint64]
 
         self.core.mesh_create_host.restype = ctypes.c_uint64
-        self.core.mesh_create_host.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
+        self.core.mesh_create_host.argtypes = [warp.types.array_t, warp.types.array_t, warp.types.array_t, ctypes.c_int, ctypes.c_int]
 
         self.core.mesh_create_device.restype = ctypes.c_uint64
-        self.core.mesh_create_device.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
+        self.core.mesh_create_device.argtypes = [ctypes.c_void_p, warp.types.array_t, warp.types.array_t, warp.types.array_t, ctypes.c_int, ctypes.c_int]
 
         self.core.mesh_destroy_host.argtypes = [ctypes.c_uint64]
         self.core.mesh_destroy_device.argtypes = [ctypes.c_uint64]

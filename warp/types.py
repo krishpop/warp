@@ -2036,21 +2036,17 @@ class Mesh:
 
         if self.device.is_cpu:
             self.id = runtime.core.mesh_create_host(
-                get_data(points),
-                get_grad_data(points),
-                get_data(velocities),
-                get_grad_data(velocities),
-                get_data(indices),
+                points.__ctype__(),
+                velocities.__ctype__() if velocities else array().__ctype__(),
+                indices.__ctype__(),
                 int(len(points)),
                 int(indices.size / 3))
         else:
             self.id = runtime.core.mesh_create_device(
                 self.device.context,
-                get_data(points),
-                get_grad_data(points),
-                get_data(velocities),
-                get_grad_data(velocities),
-                get_data(indices),
+                points.__ctype__(),
+                velocities.__ctype__() if velocities else array().__ctype__(),
+                indices.__ctype__(),
                 int(len(points)),
                 int(indices.size / 3))
 
