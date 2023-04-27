@@ -1386,7 +1386,7 @@ class array(Array):
             shape=tuple(new_shape),
             strides=tuple(new_strides),
             ptr=self.ptr + ptr_offset,
-            grad_ptr=self.grad_ptr + ptr_offset,
+            grad_ptr=(self.grad_ptr + ptr_offset if self.grad_ptr is not None else None),
             capacity=self.capacity,
             device=self.device,
             owner=False,
