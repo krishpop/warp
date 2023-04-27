@@ -1426,7 +1426,6 @@ class array(Array):
             return
         if self._grad is None:
             self.grad_ptr = value.ptr
-            self._alloc_grad()
             self._grad = value
         else:
             self._grad.assign(value)
