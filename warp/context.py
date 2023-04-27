@@ -2541,7 +2541,10 @@ def zeros_like(src: warp.array, requires_grad: bool = None, pinned: bool = None)
     """
 
     if requires_grad is None:
-        requires_grad = src.requires_grad
+        if hasattr(src, "requires_grad"):
+            requires_grad = src.requires_grad
+        else:
+            requires_grad = False
 
     if pinned is None:
         pinned = src.pinned
@@ -2563,7 +2566,10 @@ def clone(src: warp.array, requires_grad: bool = None, pinned: bool = None) -> w
     """
 
     if requires_grad is None:
-        requires_grad = src.requires_grad
+        if hasattr(src, "requires_grad"):
+            requires_grad = src.requires_grad
+        else:
+            requires_grad = False
 
     if pinned is None:
         pinned = src.pinned
@@ -2612,7 +2618,10 @@ def empty_like(src: warp.array, requires_grad: bool = None, pinned: bool = None)
     """
 
     if requires_grad is None:
-        requires_grad = src.requires_grad
+        if hasattr(src, "requires_grad"):
+            requires_grad = src.requires_grad
+        else:
+            requires_grad = False
 
     if pinned is None:
         pinned = src.pinned
@@ -3102,8 +3111,8 @@ def copy(
 
     if count == 0:
         return
-    
-    has_grad = (src.grad_ptr and dest.grad_ptr)
+
+    has_grad = (hasattr(src, "grad_ptr") and hasattr(dest, "grad_ptr") and src.grad_ptr and dest.grad_ptr)
 
     if src.is_contiguous and dest.is_contiguous:
         bytes_to_copy = count * warp.types.type_size_in_bytes(src.dtype)
@@ -3118,8 +3127,8 @@ def copy(
         dst_ptr = dest.ptr + dst_offset_in_bytes
 
         if has_grad:
-            src_grad_ptr = src.ptr + src_offset_in_bytes
-            dst_grad_ptr = dest.ptr + dst_offset_in_bytes
+            src_grad_ptr = src.grad_ptr + src_offset_in_bytes
+            dst_grad_ptr = dest.grad_ptr + dst_offset_in_bytes
 
         if src_offset_in_bytes + bytes_to_copy > src_size_in_bytes:
             raise RuntimeError(
