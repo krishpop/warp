@@ -2020,18 +2020,6 @@ class Mesh:
         self.velocities = velocities
         self.indices = indices
 
-        def get_data(array):
-            if array:
-                return ctypes.c_void_p(array.ptr)
-            else:
-                return ctypes.c_void_p(0)
-
-        def get_grad_data(array):
-            if (array and array.grad):
-                return ctypes.c_void_p(array.grad.ptr)
-            else:
-                return ctypes.c_void_p(0)
-
         from warp.context import runtime
 
         if self.device.is_cpu:
