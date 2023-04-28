@@ -1420,6 +1420,8 @@ class array(Array):
 
     @grad.setter
     def grad(self, value):
+        # trigger re-creation of C-representation
+        self.ctype = None
         if value is None:
             self.grad_ptr = None
             self._grad = None
@@ -1453,6 +1455,8 @@ class array(Array):
                 self.device.memset(self.grad_ptr, 0, num_bytes)
 
         self._grad = array(ptr=self.grad_ptr, shape=self.shape, dtype=self.dtype, device=self.device, requires_grad=False, owner=False)
+        # trigger re-creation of C-representation
+        self.ctype = None
 
     @property
     def vars(self):
