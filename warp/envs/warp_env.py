@@ -35,6 +35,7 @@ class WarpEnv(Environment):
         rigid_contact_con_weighting=True,
     )
     activate_ground_plane: bool = True
+    ag_return_body: bool = True
 
     def __init__(
         self,
@@ -160,6 +161,7 @@ class WarpEnv(Environment):
             "substeps": self.sim_substeps,
             "state_in": self.state_0,
             "state_out": self.state_1,
+            "ag_return_body": self.ag_return_body,
         }
         self.act_params = {
             "q_offset": 0,
@@ -220,7 +222,7 @@ class WarpEnv(Environment):
             self.state_1.body_f.requires_grad = True
             self._joint_q.requires_grad = True
             self._joint_qd.requires_grad = True
-        self.body_q, self.body_qd = wp.to_torch(self.state_0.body_qd), wp.to_torch(self.state_0.body_qd)
+        self.body_q, self.body_qd = wp.to_torch(self.state_0.body_q), wp.to_torch(self.state_0.body_qd)
 
         start_joint_q = wp.to_torch(self.model.joint_q)
         start_joint_qd = wp.to_torch(self.model.joint_qd)
@@ -302,7 +304,7 @@ class WarpEnv(Environment):
             body_q = self.body_q.clone()
             body_qd = self.body_qd.clone()
 
-        self.joint_q, self.joint_qd = forward_ag(
+        ret = forward_ag(
             self.simulate_params,
             self.graph_capture_params,
             self.act_params,
@@ -318,8 +320,12 @@ class WarpEnv(Environment):
             self.state_1,
             self.state_0,
         )
-        self.body_q = wp.to_torch(self.simulate_params["state_in"].body_q)
-        self.body_qd = wp.to_torch(self.simulate_params["state_in"].body_qd)
+        if not self.simulate_params["ag_return_body"]:
+            self.joint_q, self.joint_qd = ret
+            self.body_q = wp.to_torch(self.simulate_params["state_in"].body_q)
+            self.body_qd = wp.to_torch(self.simulate_params["state_in"].body_qd)
+        else:
+            self.joint_q, self.joint_qd, self.body_q, self.body_qd = ret
 
     def update(self):
         # simulates with graph capture if selected
@@ -352,13 +358,15 @@ class WarpEnv(Environment):
         cut off the gradient from the current state to previous states
         """
         if checkpoint is None:
-            checkpoint = self.get_checkpoint()
+            with torch.no_grad():
+                checkpoint = self.get_checkpoint()
         with torch.no_grad():
             self.actions = self.actions.clone()
             if self.actions.grad is not None:
                 self.actions.grad.zero()
             self.load_checkpoint(checkpoint)
             current_joint_act = wp.to_torch(self.model.joint_act).detach().clone()
+            self.act_params["act"].grad.zero_()
             # grads will not be assigned since variables are detached
             self.model.joint_act.assign(wp.from_torch(current_joint_act))
             if self.model.joint_q.grad is not None:
@@ -408,8 +416,8 @@ class WarpEnv(Environment):
         body_q, body_qd = self.body_q.detach(), self.body_qd.detach()
         assert np.all(joint_q.cpu().numpy() == self._joint_q.numpy())
         assert np.all(joint_qd.cpu().numpy() == self._joint_qd.numpy())
-        assert np.all(body_q.cpu().numpy() == self.state_0.body_q.numpy())
-        assert np.all(body_qd.cpu().numpy() == self.state_0.body_qd.numpy())
+        assert np.all(body_q.cpu().numpy() == self.simulate_params["state_in"].body_q.numpy())
+        assert np.all(body_qd.cpu().numpy() == self.simulate_params["state_in"].body_qd.numpy())
         checkpoint["joint_q"] = joint_q.clone()
         checkpoint["joint_qd"] = joint_qd.clone()
         checkpoint["body_q"] = body_q.clone()
