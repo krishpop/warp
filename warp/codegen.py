@@ -1483,20 +1483,20 @@ class Adjoint:
             ast.Str: Adjoint.emit_String,  # Deprecated in 3.8; use Constant
             ast.Num: Adjoint.emit_Num,  # Deprecated in 3.8; use Constant
             ast.NameConstant: Adjoint.emit_NameConstant,  # Deprecated in 3.8; use Constant
-            ast.Constant:     Adjoint.emit_Constant,
-            ast.BinOp:        Adjoint.emit_BinOp,
-            ast.UnaryOp:      Adjoint.emit_UnaryOp,
-            ast.While:        Adjoint.emit_While,
-            ast.For:          Adjoint.emit_For,
-            ast.Break:        Adjoint.emit_Break,
-            ast.Expr:         Adjoint.emit_Expr,
-            ast.Call:         Adjoint.emit_Call,
-            ast.Index:        Adjoint.emit_Index,  # Deprecated in 3.8; Use the index value directly instead.
-            ast.Subscript:    Adjoint.emit_Subscript,
-            ast.Assign:       Adjoint.emit_Assign,
-            ast.Return:       Adjoint.emit_Return,
-            ast.AugAssign:    Adjoint.emit_AugAssign,
-            ast.Tuple:        Adjoint.emit_Tuple,
+            ast.Constant: Adjoint.emit_Constant,
+            ast.BinOp: Adjoint.emit_BinOp,
+            ast.UnaryOp: Adjoint.emit_UnaryOp,
+            ast.While: Adjoint.emit_While,
+            ast.For: Adjoint.emit_For,
+            ast.Break: Adjoint.emit_Break,
+            ast.Expr: Adjoint.emit_Expr,
+            ast.Call: Adjoint.emit_Call,
+            ast.Index: Adjoint.emit_Index,  # Deprecated in 3.8; Use the index value directly instead.
+            ast.Subscript: Adjoint.emit_Subscript,
+            ast.Assign: Adjoint.emit_Assign,
+            ast.Return: Adjoint.emit_Return,
+            ast.AugAssign: Adjoint.emit_AugAssign,
+            ast.Tuple: Adjoint.emit_Tuple,
         }
 
         emit_node = node_visitors.get(type(node))
@@ -2016,7 +2016,7 @@ def codegen_func(adj, device="cpu"):
         else:
             reverse_args.append(arg.ctype() + " & adj_" + arg.label)
 
-    if return_type != 'void':
+    if return_type != "void":
         reverse_args.append(return_type + " & adj_ret")
 
     # codegen body
