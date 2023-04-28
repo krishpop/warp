@@ -1601,10 +1601,10 @@ class array(Array):
 
     def reshape(self, shape):
         if not self.is_contiguous:
-            raise RuntimeError(f"Reshaping non-contiguous arrays is unsupported.")
+            raise RuntimeError("Reshaping non-contiguous arrays is unsupported.")
 
         # convert shape to tuple
-        if shape == None:
+        if shape is None:
             raise RuntimeError("shape parameter is required.")
         if isinstance(shape, int):
             shape = (shape,)
@@ -1679,7 +1679,7 @@ class array(Array):
         if len(self.shape) == 1:
             return self
 
-        if axes == None:
+        if axes is None:
             # reverse the order of the axes
             axes = range(self.ndim)[::-1]
 

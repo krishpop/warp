@@ -727,7 +727,7 @@ def matrix_identity_value_func(args, kwds, templates):
 
     n, dtype = [kwds["n"], kwds["dtype"]]
 
-    if n == None:
+    if n is None:
         raise RuntimeError("'n' must be a constant when calling identity() function")
 
     templates.append(n)

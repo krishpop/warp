@@ -92,7 +92,7 @@ class Function:
         self.generic = generic
 
         # allow registering builtin functions with a different name in Python from the native code
-        if native_func == None:
+        if native_func is None:
             self.native_func = key
         else:
             self.native_func = native_func
@@ -266,7 +266,7 @@ class Function:
             )
 
     def is_builtin(self):
-        return self.func == None
+        return self.func is None
 
     def is_simple(self):
         if self.variadic:
@@ -658,12 +658,12 @@ def add_builtin(
     native_func=None,
 ):
     # wrap simple single-type functions with a value_func()
-    if value_func == None:
+    if value_func is None:
 
         def value_func(args, kwds, templates):
             return value_type
 
-    if initializer_list_func == None:
+    if initializer_list_func is None:
 
         def initializer_list_func(args, templates):
             return False
@@ -2294,7 +2294,7 @@ def assert_initialized():
 def is_cpu_available():
     # initialize host build env (do this lazily) since
     # it takes 5secs to run all the batch files to locate MSVC
-    if warp.config.host_compiler == None:
+    if warp.config.host_compiler is None:
         warp.config.host_compiler = warp.build.find_host_compiler()
 
     return warp.config.host_compiler != ""
@@ -3060,7 +3060,7 @@ def capture_end(device: Devicelike = None, stream=None) -> Graph:
 
     device.is_capturing = False
 
-    if graph == None:
+    if graph is None:
         raise RuntimeError(
             "Error occurred during CUDA graph capture. This could be due to an unintended allocation or CPU/GPU synchronization event."
         )
@@ -3212,7 +3212,7 @@ def copy(
 
 
 def type_str(t):
-    if t == None:
+    if t is None:
         return "None"
     elif t == Any:
         return "Any"
@@ -3501,5 +3501,5 @@ def init():
     """Initialize the Warp runtime. This function must be called before any other API call. If an error occurs an exception will be raised."""
     global runtime
 
-    if runtime == None:
+    if runtime is None:
         runtime = Runtime()
