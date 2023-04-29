@@ -14,35 +14,42 @@
 ###########################################################################
 
 
+from tqdm import trange
+from warp.tests.grad_utils import *
+import warp.sim.render
+import warp.sim
 import os
 
 import numpy as np
 
 import warp as wp
 wp.config.mode = "debug"
-import warp.sim
-import warp.sim.render
-from warp.tests.grad_utils import *
+wp.config.verify_cuda = True
 
-from tqdm import trange
+
 
 # wp.config.verify_fp = True
 wp.init()
+# wp.set_device("cpu")
+
 
 @wp.kernel
 def inplace_assign(a: wp.array(dtype=wp.float32), b: wp.array(dtype=wp.float32)):
     tid = wp.tid()
     b[tid] = a[tid]
 
+
 @wp.kernel
 def inplace_assign_transform(a: wp.array(dtype=wp.transform), b: wp.array(dtype=wp.transform)):
     tid = wp.tid()
     b[tid] = a[tid]
 
+
 @wp.kernel
 def inplace_assign_spatial_vector(a: wp.array(dtype=wp.spatial_vector), b: wp.array(dtype=wp.spatial_vector)):
     tid = wp.tid()
     b[tid] = a[tid]
+
 
 class RigidBodySimulator:
     """
@@ -51,15 +58,15 @@ class RigidBodySimulator:
     joint torques tau. The system state is updated by calling the warp_step() function.
     """
 
-    frame_dt = 1.0/60.0
+    frame_dt = 1.0 / 60.0
 
     episode_duration = 1.5      # seconds
-    episode_frames = int(episode_duration/frame_dt)
+    episode_frames = int(episode_duration / frame_dt)
 
     sim_substeps = 30
     sim_dt = frame_dt / sim_substeps
     sim_steps = int(episode_duration / sim_dt)
-   
+
     sim_time = 0.0
     render_time = 0.0
 
@@ -81,8 +88,8 @@ class RigidBodySimulator:
                     builder,
                     xform=wp.transform(
                         np.array((0.0, 1.0, 0.0)),
-                        wp.quat_from_axis_angle((1.0, 0.0, 0.0), -np.pi*0.5)),
-                    floating=False, 
+                        wp.quat_from_axis_angle((1.0, 0.0, 0.0), -np.pi * 0.5)),
+                    floating=False,
                     density=0,
                     armature=0.1,
                     stiffness=0.0,
@@ -101,9 +108,9 @@ class RigidBodySimulator:
                     os.path.join(os.path.dirname(__file__), "assets/cartpole.urdf"),
                     builder,
                     xform=wp.transform(
-                        np.array((i*2.0, 4.0, 0.0)),
-                        wp.quat_from_axis_angle((1.0, 0.0, 0.0), -np.pi*0.5)),
-                    floating=False, 
+                        np.array((i * 2.0, 4.0, 0.0)),
+                        wp.quat_from_axis_angle((1.0, 0.0, 0.0), -np.pi * 0.5)),
+                    floating=False,
                     density=0,
                     armature=0.1,
                     stiffness=0.0,
@@ -124,11 +131,11 @@ class RigidBodySimulator:
                 self.chain_types = [
                     wp.sim.JOINT_REVOLUTE,
                     # wp.sim.JOINT_FREE,
-                    # wp.sim.JOINT_FIXED, 
+                    # wp.sim.JOINT_FIXED,
                     # wp.sim.JOINT_BALL,
                     # wp.sim.JOINT_UNIVERSAL,
                     # wp.sim.JOINT_COMPOUND
-                    ]
+                ]
 
                 builder = wp.sim.ModelBuilder()
 
@@ -141,62 +148,62 @@ class RigidBodySimulator:
 
                         if i == 0:
                             parent = -1
-                            parent_joint_xform = wp.transform([0.0, 0.0, c*1.0], wp.quat_identity())           
+                            parent_joint_xform = wp.transform([0.0, 0.0, c * 1.0], wp.quat_identity())
                         else:
-                            parent = builder.joint_count-1
+                            parent = builder.joint_count - 1
                             parent_joint_xform = wp.transform([self.chain_width, 0.0, 0.0], wp.quat_identity())
 
                         joint_type = t
 
                         if joint_type == wp.sim.JOINT_REVOLUTE:
 
-                            joint_axis=(0.0, 0.0, 1.0)
-                            joint_limit_lower=-np.deg2rad(60.0)
-                            joint_limit_upper=np.deg2rad(60.0)
+                            joint_axis = (0.0, 0.0, 1.0)
+                            joint_limit_lower = -np.deg2rad(60.0)
+                            joint_limit_upper = np.deg2rad(60.0)
 
                         elif joint_type == wp.sim.JOINT_UNIVERSAL:
-                            joint_axis=(1.0, 0.0, 0.0)
-                            joint_limit_lower=-np.deg2rad(60.0),
-                            joint_limit_upper=np.deg2rad(60.0),
+                            joint_axis = (1.0, 0.0, 0.0)
+                            joint_limit_lower = -np.deg2rad(60.0),
+                            joint_limit_upper = np.deg2rad(60.0),
 
                         elif joint_type == wp.sim.JOINT_BALL:
-                            joint_axis=(0.0, 0.0, 0.0)
+                            joint_axis = (0.0, 0.0, 0.0)
                             joint_limit_lower = 100.0
                             joint_limit_upper = -100.0
 
                         elif joint_type == wp.sim.JOINT_FIXED:
-                            joint_axis=(0.0, 0.0, 0.0)
+                            joint_axis = (0.0, 0.0, 0.0)
                             joint_limit_lower = 0.0
                             joint_limit_upper = 0.0
-                    
+
                         elif joint_type == wp.sim.JOINT_COMPOUND:
-                            joint_limit_lower=-np.deg2rad(60.0)
-                            joint_limit_upper=np.deg2rad(60.0)
+                            joint_limit_lower = -np.deg2rad(60.0)
+                            joint_limit_upper = np.deg2rad(60.0)
 
                         # create body
                         b = builder.add_body(
-                                parent=parent,
-                                origin=wp.transform([i, 0.0, c*1.0], wp.quat_identity()),
-                                joint_xform=parent_joint_xform,
-                                joint_axis=joint_axis,
-                                joint_type=joint_type,
-                                joint_limit_lower=joint_limit_lower,
-                                joint_limit_upper=joint_limit_upper,
-                                joint_target_ke=0.0,
-                                joint_target_kd=0.0,
-                                joint_limit_ke=30.0,
-                                joint_limit_kd=30.0,
-                                joint_armature=0.1)
+                            parent=parent,
+                            origin=wp.transform([i, 0.0, c * 1.0], wp.quat_identity()),
+                            joint_xform=parent_joint_xform,
+                            joint_axis=joint_axis,
+                            joint_type=joint_type,
+                            joint_limit_lower=joint_limit_lower,
+                            joint_limit_upper=joint_limit_upper,
+                            joint_target_ke=0.0,
+                            joint_target_kd=0.0,
+                            joint_limit_ke=30.0,
+                            joint_limit_kd=30.0,
+                            joint_armature=0.1)
 
                         # create shape
-                        s = builder.add_shape_box( 
-                                pos=(self.chain_width*0.5, 0.0, 0.0),
-                                hx=self.chain_width*0.5,
-                                hy=0.1,
-                                hz=0.1,
-                                density=10.0,
-                                body=b)
-        
+                        s = builder.add_shape_box(
+                            pos=(self.chain_width * 0.5, 0.0, 0.0),
+                            hx=self.chain_width * 0.5,
+                            hy=0.1,
+                            hz=0.1,
+                            density=10.0,
+                            body=b)
+
         # create quaternions away from singularities so that finite differences can be used directly
         # axis = np.array([1.0, 2.0, 3.0])
         # axis /= np.linalg.norm(axis)
@@ -220,11 +227,9 @@ class RigidBodySimulator:
             self.model.joint_attach_ke = 1600.0
             self.model.joint_attach_kd = 20.0
 
-
         self.dof_q = self.model.joint_coord_count
         self.dof_qd = self.model.joint_dof_count
         self.num_bodies = self.model.body_count
-
 
         # XXX apply initial transforms to the model
         # (subsequent state constructions via `model.state()` will
@@ -243,7 +248,7 @@ class RigidBodySimulator:
         # self.integrator = wp.sim.XPBDIntegrator(solve_iterations, rigid_contact_con_weighting=True)
         self.integrator = wp.sim.SemiImplicitIntegrator()
 
-        #-----------------------
+        # -----------------------
         # set up Usd renderer
         if (self.render):
             self.renderer = wp.sim.render.SimRenderer(
@@ -285,20 +290,24 @@ class RigidBodySimulator:
 
         start_state = self.model.state(requires_grad=requires_grad)
 
-        # assign maximal state coordinates        
-        wp.launch(inplace_assign_transform, dim=self.num_bodies, inputs=[body_q], outputs=[start_state.body_q], device=self.device)
-        wp.launch(inplace_assign_spatial_vector, dim=self.num_bodies, inputs=[body_qd], outputs=[start_state.body_qd], device=self.device)
+        # assign maximal state coordinates
+        wp.launch(inplace_assign_transform, dim=self.num_bodies, inputs=[
+                  body_q], outputs=[start_state.body_q], device=self.device)
+        wp.launch(inplace_assign_spatial_vector, dim=self.num_bodies, inputs=[
+                  body_qd], outputs=[start_state.body_qd], device=self.device)
 
         # assign input controls as joint torques
         wp.launch(inplace_assign, dim=self.dof_qd, inputs=[tau], outputs=[self.model.joint_act], device=self.device)
-        
+
         end_state = self.simulate(start_state, requires_grad=requires_grad)
 
         if joint_q_next is not None and joint_qd_next is not None:
             wp.sim.eval_ik(self.model, end_state, joint_q_next, joint_qd_next)
-            
-        wp.launch(inplace_assign_transform, dim=self.num_bodies, inputs=[end_state.body_q], outputs=[body_q_next], device=self.device)
-        wp.launch(inplace_assign_spatial_vector, dim=self.num_bodies, inputs=[end_state.body_qd], outputs=[body_qd_next], device=self.device)
+
+        wp.launch(inplace_assign_transform, dim=self.num_bodies, inputs=[
+                  end_state.body_q], outputs=[body_q_next], device=self.device)
+        wp.launch(inplace_assign_spatial_vector, dim=self.num_bodies, inputs=[
+                  end_state.body_qd], outputs=[body_qd_next], device=self.device)
 
         if check_diffs:
             assert requires_grad, "check_diffs requires requires_grad=True because the state gets overwritten otherwise"
@@ -337,7 +346,7 @@ class RigidBodySimulator:
 
         # assign input controls as joint torques
         wp.launch(inplace_assign, dim=self.dof_qd, inputs=[tau], outputs=[self.model.joint_act], device=self.device)
-        
+
         end_state = self.simulate(start_state, requires_grad=requires_grad)
 
         wp.sim.eval_ik(self.model, end_state, q_next, qd_next)
@@ -386,10 +395,10 @@ class RigidBodySimulator:
         for i in range(num_in):
             x[i] += eps
             f1 = f(x)
-            x[i] -= 2*eps
+            x[i] -= 2 * eps
             f2 = f(x)
             x[i] += eps
-            jac[:, i] = (f1 - f2) / (2*eps)
+            jac[:, i] = (f1 - f2) / (2 * eps)
         return jac
 
     @staticmethod
@@ -402,8 +411,8 @@ class RigidBodySimulator:
         # build a vector function that accepts the concatenation of (q, qd, tau) and
         # returns the concatenation of (q_next, qd_next, joint_q_next, joint_qd_next)
         def f(q_qd_tau):
-            body_q = q_qd_tau[:self.num_bodies*7].reshape((self.num_bodies, 7))
-            body_qd = q_qd_tau[self.num_bodies*7:self.num_bodies*(7+6)].reshape((self.num_bodies, 6))
+            body_q = q_qd_tau[:self.num_bodies * 7].reshape((self.num_bodies, 7))
+            body_qd = q_qd_tau[self.num_bodies * 7:self.num_bodies * (7 + 6)].reshape((self.num_bodies, 6))
             q = wp.array(body_q, dtype=wp.transform, device=self.device)
             qd = wp.array(body_qd, dtype=wp.spatial_vector, device=self.device)
             tau = wp.array(q_qd_tau[-self.dof_qd:], dtype=wp.float32, device=self.device)
@@ -429,7 +438,7 @@ class RigidBodySimulator:
         # returns the concatenation of (q_next, qd_next)
         def f(q_qd_tau):
             q = wp.array(q_qd_tau[:self.dof_q], dtype=wp.float32, device=self.device)
-            qd = wp.array(q_qd_tau[self.dof_q:self.dof_q+self.dof_qd], dtype=wp.float32, device=self.device)
+            qd = wp.array(q_qd_tau[self.dof_q:self.dof_q + self.dof_qd], dtype=wp.float32, device=self.device)
             tau = wp.array(q_qd_tau[-self.dof_qd:], dtype=wp.float32, device=self.device)
             q_next = wp.zeros_like(q)
             qd_next = wp.zeros_like(qd)
@@ -451,29 +460,31 @@ class RigidBodySimulator:
         tape = wp.Tape()
         with tape:
             self.warp_step_maximal(q, qd, tau, q_next, qd_next, joint_q, joint_qd, requires_grad=True)
-        
-        num_in = self.num_bodies*(7+6) + self.dof_qd
-        num_out = self.num_bodies*(7+6) + self.dof_q + self.dof_qd
+
+        num_in = self.num_bodies * (7 + 6) + self.dof_qd
+        num_out = self.num_bodies * (7 + 6) + self.dof_q + self.dof_qd
         jac = np.zeros((num_out, num_in), dtype=np.float32) + np.nan
         for i in range(num_out):
             # select which row of the Jacobian we want to compute
-            if i < self.num_bodies*7:
-                q_next.grad = wp.array(self.onehot(self.num_bodies*7, i).reshape((-1, 7)), dtype=wp.transform, device=self.device)
-            elif i < self.num_bodies*(7+6):
-                j = i - self.num_bodies*7
-                qd_next.grad = wp.array(self.onehot(self.num_bodies*6, j).reshape((-1, 6)), dtype=wp.spatial_vector, device=self.device)
-            elif i < self.num_bodies*(7+6) + self.dof_q:
-                j = i - self.num_bodies*(7+6)
+            if i < self.num_bodies * 7:
+                q_next.grad = wp.array(self.onehot(self.num_bodies * 7, i).reshape((-1, 7)),
+                                       dtype=wp.transform, device=self.device)
+            elif i < self.num_bodies * (7 + 6):
+                j = i - self.num_bodies * 7
+                qd_next.grad = wp.array(self.onehot(self.num_bodies * 6, j).reshape((-1, 6)),
+                                        dtype=wp.spatial_vector, device=self.device)
+            elif i < self.num_bodies * (7 + 6) + self.dof_q:
+                j = i - self.num_bodies * (7 + 6)
                 joint_q.grad = wp.array(self.onehot(self.dof_q, j), dtype=wp.float32, device=self.device)
             else:
-                j = i - self.num_bodies*(7+6) - self.dof_q
+                j = i - self.num_bodies * (7 + 6) - self.dof_q
                 joint_qd.grad = wp.array(self.onehot(self.dof_qd, j), dtype=wp.float32, device=self.device)
 
             tape.backward()
-            jac[i, :self.num_bodies*7] = tape.gradients[q].numpy().flatten()
-            jac[i, self.num_bodies*7:self.num_bodies*(7+6)] = tape.gradients[qd].numpy().flatten()
+            jac[i, :self.num_bodies * 7] = tape.gradients[q].numpy().flatten()
+            jac[i, self.num_bodies * 7:self.num_bodies * (7 + 6)] = tape.gradients[qd].numpy().flatten()
             jac[i, -self.dof_qd:] = tape.gradients[tau].numpy()
-            tape.zero() 
+            tape.zero()
         return jac
 
     def ad_jacobian_generalized(self, q, qd, tau):
@@ -486,7 +497,7 @@ class RigidBodySimulator:
         tape = wp.Tape()
         with tape:
             self.warp_step_generalized(q, qd, tau, q_next, qd_next, requires_grad=True)
-        
+
         num_in = self.dof_q + 2 * self.dof_qd
         num_out = self.dof_q + self.dof_qd
         jac = np.zeros((num_out, num_in), dtype=np.float32) + np.nan
@@ -500,10 +511,11 @@ class RigidBodySimulator:
                 qd_next.grad = wp.array(self.onehot(self.dof_qd, i - self.dof_q), dtype=wp.float32, device=self.device)
             tape.backward()
             jac[i, :self.dof_q] = tape.gradients[q].numpy()
-            jac[i, self.dof_q:self.dof_q+self.dof_qd] = tape.gradients[qd].numpy()
+            jac[i, self.dof_q:self.dof_q + self.dof_qd] = tape.gradients[qd].numpy()
             jac[i, -self.dof_qd:] = tape.gradients[tau].numpy()
-            tape.zero() 
+            tape.zero()
         return jac
+
 
 np.set_printoptions(precision=16, linewidth=2000, suppress=True)
 
@@ -570,7 +582,6 @@ if True:
         print("FD Jacobian:")
         print(jac_fd)
 
-
     print("Jacobian difference:")
     print((jac_ad - jac_fd))
 
@@ -623,18 +634,18 @@ if True:
 
     joint_id = 0
     joint_names = {
-        wp.sim.JOINT_BALL.val: "ball", 
-        wp.sim.JOINT_REVOLUTE.val: "hinge", 
-        wp.sim.JOINT_PRISMATIC.val: "slide", 
-        wp.sim.JOINT_UNIVERSAL.val: "universal",
-        wp.sim.JOINT_COMPOUND.val: "compound",
-        wp.sim.JOINT_FREE.val: "free", 
-        wp.sim.JOINT_FIXED.val: "fixed"
+        wp.sim.JOINT_BALL: "ball",
+        wp.sim.JOINT_REVOLUTE: "hinge",
+        wp.sim.JOINT_PRISMATIC: "slide",
+        wp.sim.JOINT_UNIVERSAL: "universal",
+        wp.sim.JOINT_COMPOUND: "compound",
+        wp.sim.JOINT_FREE: "free",
+        wp.sim.JOINT_FIXED: "fixed"
     }
     joint_lower = sim.model.joint_limit_lower.numpy()
     joint_upper = sim.model.joint_limit_upper.numpy()
     joint_type = sim.model.joint_type.numpy()
-    while joint_id < len(joint_type)-1 and joint_type[joint_id] == wp.sim.JOINT_FIXED.val:
+    while joint_id < len(joint_type) - 1 and joint_type[joint_id] == wp.sim.JOINT_FIXED:
         # skip fixed joints
         joint_id += 1
     q_start = sim.model.joint_q_start.numpy()
@@ -647,19 +658,19 @@ if True:
             continue
         ax.grid()
         ax.plot(joint_q_history[:, dim])
-        if joint_type[joint_id] != wp.sim.JOINT_FREE.val:
+        if joint_type[joint_id] != wp.sim.JOINT_FREE:
             lower = joint_lower[qd_i]
-            if abs(lower) < 2*np.pi:
+            if abs(lower) < 2 * np.pi:
                 ax.axhline(lower, color="red")
             upper = joint_upper[qd_i]
-            if abs(upper) < 2*np.pi:
+            if abs(upper) < 2 * np.pi:
                 ax.axhline(upper, color="red")
         joint_name = joint_names[joint_type[joint_id]]
         ax.set_title(f"$\\mathbf{{q_{{{dim}}}}}$ ({sim.model.joint_name[joint_id]} / {joint_name} {joint_id})")
-        if joint_id < sim.model.joint_count-1 and q_start[joint_id+1] == dim+1:
+        if joint_id < sim.model.joint_count - 1 and q_start[joint_id + 1] == dim + 1:
             joint_id += 1
             qd_i = qd_start[joint_id]
-        elif qd_i < len(joint_upper)-1:
+        elif qd_i < len(joint_upper) - 1:
             qd_i += 1
         else:
             break
