@@ -442,20 +442,20 @@ class Environment:
 
             joint_id = 0
             joint_type_names = {
-                wp.sim.JOINT_BALL.val: "ball",
-                wp.sim.JOINT_REVOLUTE.val: "hinge",
-                wp.sim.JOINT_PRISMATIC.val: "slide",
-                wp.sim.JOINT_UNIVERSAL.val: "universal",
-                wp.sim.JOINT_COMPOUND.val: "compound",
-                wp.sim.JOINT_FREE.val: "free",
-                wp.sim.JOINT_FIXED.val: "fixed",
-                wp.sim.JOINT_DISTANCE.val: "distance",
-                wp.sim.JOINT_D6.val: "D6",
+                wp.sim.JOINT_BALL: "ball",
+                wp.sim.JOINT_REVOLUTE: "hinge",
+                wp.sim.JOINT_PRISMATIC: "slide",
+                wp.sim.JOINT_UNIVERSAL: "universal",
+                wp.sim.JOINT_COMPOUND: "compound",
+                wp.sim.JOINT_FREE: "free",
+                wp.sim.JOINT_FIXED: "fixed",
+                wp.sim.JOINT_DISTANCE: "distance",
+                wp.sim.JOINT_D6: "D6",
             }
             joint_lower = self.model.joint_limit_lower.numpy()
             joint_upper = self.model.joint_limit_upper.numpy()
             joint_type = self.model.joint_type.numpy()
-            while joint_id < len(joint_type) - 1 and joint_type[joint_id] == wp.sim.JOINT_FIXED.val:
+            while joint_id < len(joint_type) - 1 and joint_type[joint_id] == wp.sim.JOINT_FIXED:
                 # skip fixed joints
                 joint_id += 1
             q_start = self.model.joint_q_start.numpy()
@@ -468,7 +468,7 @@ class Environment:
                     continue
                 ax.grid()
                 ax.plot(joint_q_history[:, dim])
-                if joint_type[joint_id] != wp.sim.JOINT_FREE.val:
+                if joint_type[joint_id] != wp.sim.JOINT_FREE:
                     lower = joint_lower[qd_i]
                     if abs(lower) < 2 * np.pi:
                         ax.axhline(lower, color="red")
