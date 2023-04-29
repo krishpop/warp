@@ -157,7 +157,7 @@ def quote(path):
 
 
 def build_dll(
-    dll_path, cpp_paths, cu_path, libs=[], mode="release", verify_fp=False, fast_math=False, use_cache=True, quick=False
+    dll_path, cpp_paths, cu_path, libs=[], mode="release", verify_fp=False, fast_math=False, quick=False
 ):
     cuda_home = warp.config.cuda_path
     cuda_cmd = None
@@ -180,34 +180,6 @@ def build_dll(
     warp_home_path = pathlib.Path(__file__).parent
     warp_home = warp_home_path.resolve()
     nanovdb_home = warp_home_path.parent / "_build/host-deps/nanovdb/include"
-
-    if use_cache:
-        if os.path.exists(dll_path) == True:
-            dll_time = os.path.getmtime(dll_path)
-            cache_valid = True
-
-            # check if output exists and is newer than source
-            if cu_path:
-                cu_time = os.path.getmtime(cu_path)
-                if cu_time > dll_time:
-                    if warp.config.verbose:
-                        print(f"cu_time: {cu_time} > dll_time: {dll_time} invaliding cache for {cu_path}")
-
-                    cache_valid = False
-
-            for cpp_path in cpp_paths:
-                cpp_time = os.path.getmtime(cpp_path)
-                if cpp_time > dll_time:
-                    if warp.config.verbose:
-                        print(f"cpp_time: {cpp_time} > dll_time: {dll_time} invaliding cache for {cpp_path}")
-
-                    cache_valid = False
-
-            if cache_valid:
-                if warp.config.verbose:
-                    print(f"Skipping build of {dll_path} since outputs newer than inputs")
-
-                return True
 
     # ensure that dll is not loaded in the process
     force_unload_dll(dll_path)
@@ -276,11 +248,11 @@ def build_dll(
     cuda_enabled = "WP_ENABLE_CUDA=1" if (cu_path is not None) else "WP_ENABLE_CUDA=0"
 
     if os.name == "nt":
-        # try loading clang.dll, except when we're building clang.dll or warp.dll
+        # try loading warp-clang.dll, except when we're building warp-clang.dll or warp.dll
         clang = None
-        if os.path.basename(dll_path) != "clang.dll" and os.path.basename(dll_path) != "warp.dll":
+        if os.path.basename(dll_path) != "warp-clang.dll" and os.path.basename(dll_path) != "warp.dll":
             try:
-                clang = warp.build.load_dll(f"{warp_home_path}/bin/clang.dll")
+                clang = warp.build.load_dll(f"{warp_home_path}/bin/warp-clang.dll")
             except RuntimeError as e:
                 clang = None
 
@@ -362,13 +334,13 @@ def build_dll(
         clang = None
         try:
             if sys.platform == "darwin":
-                # try loading libclang.dylib, except when we're building libclang.dylib or libwarp.dylib
-                if os.path.basename(dll_path) != "libclang.dylib" and os.path.basename(dll_path) != "libwarp.dylib":
-                    clang = warp.build.load_dll(f"{warp_home_path}/bin/libclang.dylib")
+                # try loading libwarp-clang.dylib, except when we're building libwarp-clang.dylib or libwarp.dylib
+                if os.path.basename(dll_path) != "libwarp-clang.dylib" and os.path.basename(dll_path) != "libwarp.dylib":
+                    clang = warp.build.load_dll(f"{warp_home_path}/bin/libwarp-clang.dylib")
             else:  # Linux
-                # try loading clang.so, except when we're building clang.so or warp.so
-                if os.path.basename(dll_path) != "clang.so" and os.path.basename(dll_path) != "warp.so":
-                    clang = warp.build.load_dll(f"{warp_home_path}/bin/clang.so")
+                # try loading warp-clang.so, except when we're building warp-clang.so or warp.so
+                if os.path.basename(dll_path) != "warp-clang.so" and os.path.basename(dll_path) != "warp.so":
+                    clang = warp.build.load_dll(f"{warp_home_path}/bin/warp-clang.so")
         except RuntimeError as e:
             clang = None
 

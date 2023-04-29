@@ -24,8 +24,8 @@ from environment import Environment, run_env
 
 class CartpoleEnvironment(Environment):
     sim_name = "env_cartpole"
-    env_offset=(2.0, 0.0, 2.0)
-    nano_render_settings = dict(scaling=3.0)
+    env_offset = (2.0, 0.0, 2.0)
+    opengl_render_settings = dict(scaling=3.0)
     usd_render_settings = dict(scaling=100.0)
 
     sim_substeps_euler = 32

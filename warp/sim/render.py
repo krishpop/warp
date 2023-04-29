@@ -62,15 +62,15 @@ def CreateSimRenderer(renderer):
             path,
             scaling=1.0,
             fps=60,
-            upaxis="y",
+            up_axis="y",
             show_rigid_contact_points=False,
             contact_points_radius=1e-3,
             **render_kwargs,
         ):
             # create USD stage
-            super().__init__(path, scaling=scaling, fps=fps, upaxis=upaxis, **render_kwargs)
+            super().__init__(path, scaling=scaling, fps=fps, up_axis=up_axis, **render_kwargs)
             self.scaling = scaling
-            self.cam_axis = "xyz".index(upaxis.lower())
+            self.cam_axis = "xyz".index(up_axis.lower())
             self.show_rigid_contact_points = show_rigid_contact_points
             self.contact_points_radius = contact_points_radius
             self.populate(model)
@@ -315,5 +315,5 @@ def CreateSimRenderer(renderer):
 
 
 SimRendererUsd = CreateSimRenderer(wp.render.UsdRenderer)
-SimRendererNano = CreateSimRenderer(wp.render.NanoRenderer)
+SimRendererOpenGL = CreateSimRenderer(wp.render.OpenGLRenderer)
 SimRenderer = SimRendererUsd

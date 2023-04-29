@@ -1,4 +1,5 @@
 import os
+import sys
 import subprocess
 
 import warp as wp
@@ -19,6 +20,7 @@ try:
     if os.name == 'nt':
         subprocess.check_output("make.bat html", cwd="docs", shell=True)
     else:
+        subprocess.run("make clean", cwd="docs", shell=True)
         subprocess.check_output("make html", cwd="docs", shell=True)
 except subprocess.CalledProcessError as e:
     print(e.output.decode())
@@ -29,5 +31,8 @@ except subprocess.CalledProcessError as e:
 stub_file = open("warp/stubs.py","w")
 wp.export_stubs(stub_file)
 stub_file.close()
+
+# code formatting
+subprocess.run([sys.executable, "-m", "black", "warp/stubs.py"])
 
 print("Finished")

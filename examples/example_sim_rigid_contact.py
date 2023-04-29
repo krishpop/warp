@@ -146,8 +146,7 @@ class Example:
         # -----------------------
         # set up Usd renderer
         if (self.enable_rendering):
-            self.renderer = wp.sim.render.SimRendererNano(self.model, stage)
-            # self.renderer = wp.sim.render.SimRendererUsd(self.model, stage)
+            self.renderer = wp.sim.render.SimRendererOpenGL(self.model, stage, scaling=0.5)
 
     def load_mesh(self, filename, path):
         asset_stage = Usd.Stage.Open(filename)

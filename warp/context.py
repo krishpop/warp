@@ -516,7 +516,6 @@ class Kernel:
 
 # ----------------------
 
-
 # decorator to register function, @func
 def func(f):
     name = warp.codegen.make_full_qualified_name(f)
@@ -1233,15 +1232,22 @@ class Module:
 
             module_name = "wp_" + self.name
             module_path = os.path.join(build_path, module_name)
+            obj_path = os.path.join(gen_path, module_name)
             module_hash = self.hash_module()
 
             builder = ModuleBuilder(self, self.options)
 
             if device.is_cpu:
-                if os.name == "nt":
-                    dll_path = module_path + ".dll"
+                if runtime.llvm:
+                    if os.name == "nt":
+                        dll_path = obj_path + ".cpp.obj"
+                    else:
+                        dll_path = obj_path + ".cpp.o"
                 else:
-                    dll_path = module_path + ".so"
+                    if os.name == "nt":
+                        dll_path = module_path + ".dll"
+                    else:
+                        dll_path = module_path + ".so"
 
                 cpu_hash_path = module_path + ".cpu.hash"
 
@@ -1251,9 +1257,14 @@ class Module:
                         cache_hash = f.read()
 
                     if cache_hash == module_hash:
-                        self.dll = warp.build.load_dll(dll_path)
-                        if self.dll is not None:
+                        if runtime.llvm:
+                            runtime.llvm.load_obj(dll_path.encode("utf-8"), module_name.encode("utf-8"))
+                            self.cpu_module = module_name
                             return True
+                        else:
+                            self.dll = warp.build.load_dll(dll_path)
+                            if self.dll is not None:
+                                return True
 
                 # build
                 try:
@@ -1744,21 +1755,21 @@ class Runtime:
                 os.environ["PATH"] = bin_path + os.pathsep + os.environ["PATH"]
 
             warp_lib = os.path.join(bin_path, "warp.dll")
-            llvm_lib = os.path.join(bin_path, "clang.dll")
+            llvm_lib = os.path.join(bin_path, "warp-clang.dll")
 
         elif sys.platform == "darwin":
             warp_lib = os.path.join(bin_path, "libwarp.dylib")
-            llvm_lib = os.path.join(bin_path, "libclang.dylib")
+            llvm_lib = os.path.join(bin_path, "libwarp-clang.dylib")
 
         else:
             warp_lib = os.path.join(bin_path, "warp.so")
-            llvm_lib = os.path.join(bin_path, "clang.so")
+            llvm_lib = os.path.join(bin_path, "warp-clang.so")
 
         self.core = warp.build.load_dll(warp_lib)
 
         if llvm_lib and os.path.exists(llvm_lib):
             self.llvm = warp.build.load_dll(llvm_lib)
-            # setup c-types for clang.dll
+            # setup c-types for warp-clang.dll
             self.llvm.lookup.restype = ctypes.c_uint64
         else:
             self.llvm = None
@@ -2090,6 +2101,22 @@ class Runtime:
             ctypes.POINTER(ctypes.c_void_p),
         ]
         self.core.cuda_launch_kernel.restype = ctypes.c_size_t
+
+        self.core.cuda_graphics_map.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        self.core.cuda_graphics_map.restype = None
+        self.core.cuda_graphics_unmap.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        self.core.cuda_graphics_unmap.restype = None
+        self.core.cuda_graphics_device_ptr_and_size.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.POINTER(ctypes.c_uint64),
+            ctypes.POINTER(ctypes.c_size_t),
+        ]
+        self.core.cuda_graphics_device_ptr_and_size.restype = None
+        self.core.cuda_graphics_register_gl_buffer.argtypes = [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_uint]
+        self.core.cuda_graphics_register_gl_buffer.restype = ctypes.c_void_p
+        self.core.cuda_graphics_unregister_resource.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        self.core.cuda_graphics_unregister_resource.restype = None
 
         self.core.init.restype = ctypes.c_int
 
@@ -2466,6 +2493,64 @@ def wait_stream(stream: Stream, event: Event = None):
     """
 
     get_stream().wait_stream(stream, event=event)
+
+
+class RegisteredGLBuffer:
+    """
+    Helper object to register a GL buffer with CUDA so that it can be mapped to a Warp array.
+    """
+
+    # Specifies no hints about how this resource will be used.
+    # It is therefore assumed that this resource will be
+    # read from and written to by CUDA. This is the default value.
+    NONE = 0x00
+
+    # Specifies that CUDA will not write to this resource.
+    READ_ONLY = 0x01
+
+    # Specifies that CUDA will not read from this resource and will write over the
+    # entire contents of the resource, so none of the data previously
+    # stored in the resource will be preserved.
+    WRITE_DISCARD = 0x02
+
+    def __init__(self, gl_buffer_id: int, device: Devicelike = None, flags: int = NONE):
+        """Create a new RegisteredGLBuffer object.
+
+        Args:
+            gl_buffer_id: The OpenGL buffer id (GLuint).
+            device: The device to register the buffer with.  If None, the current device will be used.
+            flags: A combination of the flags constants.
+        """
+        self.gl_buffer_id = gl_buffer_id
+        self.device = get_device(device)
+        self.context = self.device.context
+        self.resource = runtime.core.cuda_graphics_register_gl_buffer(self.context, gl_buffer_id, flags)
+
+    def __del__(self):
+        runtime.core.cuda_graphics_unregister_resource(self.context, self.resource)
+
+    def map(self, dtype, shape) -> warp.array:
+        """Map the OpenGL buffer to a Warp array.
+
+        Args:
+            dtype: The type of each element in the array.
+            shape: The shape of the array.
+
+        Returns:
+            A Warp array object representing the mapped OpenGL buffer.
+        """
+        runtime.core.cuda_graphics_map(self.context, self.resource)
+        ctypes.POINTER(ctypes.c_uint64), ctypes.POINTER(ctypes.c_size_t)
+        ptr = ctypes.c_uint64(0)
+        size = ctypes.c_size_t(0)
+        runtime.core.cuda_graphics_device_ptr_and_size(
+            self.context, self.resource, ctypes.byref(ptr), ctypes.byref(size)
+        )
+        return warp.array(ptr=ptr.value, dtype=dtype, shape=shape, device=self.device, owner=False)
+
+    def unmap(self):
+        """Unmap the OpenGL buffer."""
+        runtime.core.cuda_graphics_unmap(self.context, self.resource)
 
 
 def zeros(
@@ -3366,6 +3451,7 @@ def export_stubs(file):
     print("from typing import TypeVar", file=file)
     print("from typing import Generic", file=file)
     print("from typing import overload as over", file=file)
+    print(file=file)
 
     # type hints, these need to be mirrored into the stubs file
     print('Length = TypeVar("Length", bound=int)', file=file)
@@ -3389,7 +3475,7 @@ def export_stubs(file):
         header = "".join(lines)
 
     print(header, file=file)
-    print("\n", file=file)
+    print(file=file)
 
     for k, g in builtin_functions.items():
         for f in g.overloads:
@@ -3412,10 +3498,10 @@ def export_stubs(file):
 
             print("@over", file=file)
             print(f"def {f.key}({args}){return_str}:", file=file)
-            print(f'   """', file=file)
-            print(textwrap.indent(text=f.doc, prefix="   "), file=file)
-            print(f'   """', file=file)
-            print(f"   ...\n", file=file)
+            print(f'    """', file=file)
+            print(textwrap.indent(text=f.doc, prefix="    "), file=file)
+            print(f'    """', file=file)
+            print(f"    ...\n\n", file=file)
 
 
 def export_builtins(file):

@@ -20,7 +20,7 @@ wp.init()
 
 class RenderMode(Enum):
     NONE = "none"
-    NANO = "nano"
+    OPENGL = "opengl"
     USD = "usd"
 
     def __str__(self):
@@ -35,7 +35,7 @@ class IntegratorType(Enum):
         return self.value
 
 
-def compute_env_offsets(num_envs, env_offset=(5.0, 0.0, 5.0), upaxis="y"):
+def compute_env_offsets(num_envs, env_offset=(5.0, 0.0, 5.0), up_axis="y"):
     # compute positional offsets per environment
     env_offset = np.array(env_offset)
     nonzeros = np.nonzero(env_offset)[0]
@@ -69,9 +69,9 @@ def compute_env_offsets(num_envs, env_offset=(5.0, 0.0, 5.0), upaxis="y"):
     env_offsets = np.array(env_offsets)
     min_offsets = np.min(env_offsets, axis=0)
     correction = min_offsets + (np.max(env_offsets, axis=0) - min_offsets) / 2.0
-    if isinstance(upaxis, str):
-        upaxis = "xyz".index(upaxis.lower())
-    correction[upaxis] = 0.0  # ensure the envs are not shifted below the ground plane
+    if isinstance(up_axis, str):
+        up_axis = "xyz".index(up_axis.lower())
+    correction[up_axis] = 0.0  # ensure the envs are not shifted below the ground plane
     env_offsets -= correction
     return env_offsets
 
@@ -83,8 +83,8 @@ class Environment:
 
     episode_duration = 5.0      # seconds
 
-    # whether to play the simulation indefinitely when using the nano renderer
-    continuous_nano_render: bool = True
+    # whether to play the simulation indefinitely when using the OpenGL renderer
+    continuous_opengl_render: bool = True
 
     sim_substeps_euler: int = 16
     sim_substeps_xpbd: int = 5
@@ -92,11 +92,11 @@ class Environment:
     euler_settings = dict()
     xpbd_settings = dict()
 
-    render_mode: RenderMode = RenderMode.NANO
-    nano_render_settings = dict()
+    render_mode: RenderMode = RenderMode.OPENGL
+    opengl_render_settings = dict()
     usd_render_settings = dict(scaling=10.0)
     show_rigid_contact_points = False
-    # whether NanoRenderer should render each environment in a separate tile
+    # whether OpenGLRenderer should render each environment in a separate tile
     use_tiled_rendering = False
 
     # whether to apply model.joint_q, joint_qd to bodies before simulating
@@ -170,7 +170,7 @@ class Environment:
         self.sim_dt = self.frame_dt / self.sim_substeps
         self.sim_steps = int(self.episode_duration / self.sim_dt)
 
-        if self.use_tiled_rendering and self.render_mode == RenderMode.NANO:
+        if self.use_tiled_rendering and self.render_mode == RenderMode.OPENGL:
             # no environment offset when using tiled rendering
             self.env_offset = (0.0, 0.0, 0.0)
 
@@ -211,30 +211,30 @@ class Environment:
         self.renderer = None
         if self.profile:
             self.render_mode = RenderMode.NONE
-        if self.render_mode == RenderMode.NANO:
-            self.renderer = wp.sim.render.SimRendererNano(
+        if self.render_mode == RenderMode.OPENGL:
+            self.renderer = wp.sim.render.SimRendererOpenGL(
                 self.model,
                 self.sim_name,
-                upaxis=self.up_axis,
+                up_axis=self.up_axis,
                 show_rigid_contact_points=self.show_rigid_contact_points,
-                **self.nano_render_settings)
+                **self.opengl_render_settings)
             if self.use_tiled_rendering and self.num_envs > 1:
-                floor_id = self.model.shape_count-1
+                floor_id = self.model.shape_count - 1
                 # all shapes except the floor
-                instance_ids = np.arange((self.model.shape_count-1), dtype=np.int32).tolist()
-                shapes_per_env = (self.model.shape_count-1) // self.num_envs
+                instance_ids = np.arange(floor_id, dtype=np.int32).tolist()
+                shapes_per_env = floor_id // self.num_envs
                 additional_instances = []
                 if self.activate_ground_plane:
                     additional_instances.append(floor_id)
                 self.renderer.setup_tiled_rendering(instances=[
-                    instance_ids[i*shapes_per_env:(i+1)*shapes_per_env]+additional_instances
+                    instance_ids[i * shapes_per_env:(i + 1) * shapes_per_env] + additional_instances
                     for i in range(self.num_envs)])
         elif self.render_mode == RenderMode.USD:
             filename = os.path.join(os.path.dirname(__file__), "..", "outputs", self.sim_name + ".usd")
             self.renderer = wp.sim.render.SimRendererUsd(
                 self.model,
                 filename,
-                upaxis=self.up_axis,
+                up_axis=self.up_axis,
                 show_rigid_contact_points=self.show_rigid_contact_points,
                 **self.usd_render_settings)
 
@@ -295,7 +295,7 @@ class Environment:
         if self.renderer is not None:
             self.render()
 
-            if self.render_mode == RenderMode.NANO:
+            if self.render_mode == RenderMode.OPENGL:
                 self.renderer.paused = True
 
         profiler = {}
@@ -329,7 +329,8 @@ class Environment:
                 with wp.ScopedTimer("render", False):
                     self.render()
 
-            while True:
+            running = True
+            while running:
                 for f in range(self.episode_frames):
                     if self.use_graph_capture:
                         wp.capture_launch(graph)
@@ -358,8 +359,11 @@ class Environment:
                                     joint_q_history.append(joint_q.numpy().copy())
 
                     self.render()
+                    if self.render_mode == RenderMode.OPENGL and self.renderer.has_exit:
+                        running = False
+                        break
 
-                if not self.continuous_nano_render or self.render_mode != RenderMode.NANO:
+                if not self.continuous_opengl_render or self.render_mode != RenderMode.OPENGL:
                     break
 
             wp.synchronize()

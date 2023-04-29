@@ -7,4 +7,4 @@
 
 from .utils import bourke_color_map
 from .render_usd import UsdRenderer
-from .render_nano import NanoRenderer
+from .render_opengl import OpenGLRenderer
