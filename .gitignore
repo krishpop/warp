@@ -28,3 +28,4 @@ examples/assets
 **outputs/
 **.ipynb_checkpoints/
 tags
+**.ipynb

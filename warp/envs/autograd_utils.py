@@ -106,9 +106,7 @@ def assign_act(
     dof_count,
     q_offset,
 ):
-    assert (
-        np.prod(act.shape) == num_envs * num_acts
-    ), f"act shape {act.shape} is not {num_envs} x {num_acts}"
+    assert np.prod(act.shape) == num_envs * num_acts, f"act shape {act.shape} is not {num_envs} x {num_acts}"
     act_count = num_acts
     wp.launch(
         kernel=assign_act_kernel,
@@ -185,9 +183,7 @@ def build_assign_grads_map(adj_arrs, params, sim_params, act_params):
             params["adj_bqd"] = wp.from_torch(adj_body_qd, dtype=wp.spatial_vector)
         else:
             params["adj_bq"].assign(wp.from_torch(adj_body_q, dtype=wp.transform))
-            params["adj_bqd"].assign(
-                wp.from_torch(adj_body_qd, dtype=wp.spatial_vector)
-            )
+            params["adj_bqd"].assign(wp.from_torch(adj_body_qd, dtype=wp.spatial_vector))
         grads[params["adj_bq"]] = state_out.body_q.grad
         grads[params["adj_bqd"]] = state_out.body_qd.grad
 
@@ -224,13 +220,6 @@ def forward_simulate(ctx, forward=False, requires_grad=False):
     for step in range(ctx.substeps):
         state_in = state_temp
         state_in.clear_forces()
-        # if step < ctx.substeps - 1:
-        #     # create new states to preserve gradients
-        #     if not ctx.capture_graph:
-        #         state_temp = model.state(requires_grad=requires_grad)
-        #     else:
-        #         state_temp = ctx.state_out
-        # else:
         if forward or step == ctx.substeps - 1:
             state_temp = state_out
         else:
@@ -271,7 +260,7 @@ class IntegratorSimulate(torch.autograd.Function):
         ctx.act = act_params["act"]
         ctx.joint_act = act_params["joint_act"]
         ctx.act_pt = action
-        ctx.act.assign(wp.from_torch(ctx.act_pt.detach()))
+        ctx.act.assign(wp.from_torch(ctx.act_pt))
         ctx.body_q_pt = body_q.clone()
         ctx.body_qd_pt = body_qd.clone()
         ctx.joint_q_end = graph_capture_params["joint_q_end"]
@@ -285,9 +274,7 @@ class IntegratorSimulate(torch.autograd.Function):
         # if using graph capture, need to assign states as in/out buffers cannot be swapped
         if ctx.capture_graph:
             ctx.state_in.body_q.assign(wp.from_torch(ctx.body_q_pt, dtype=wp.transform))
-            ctx.state_in.body_qd.assign(
-                wp.from_torch(ctx.body_qd_pt, dtype=wp.spatial_vector)
-            )
+            ctx.state_in.body_qd.assign(wp.from_torch(ctx.body_qd_pt, dtype=wp.spatial_vector))
 
         # record gradients for act, joint_q, and joint_qd
         ctx.act.requires_grad = True
@@ -339,9 +326,7 @@ class IntegratorSimulate(torch.autograd.Function):
             state_in = ctx.bwd_state_in
             state_out = ctx.bwd_state_out
             state_in.body_q.assign(wp.from_torch(ctx.body_q_pt, dtype=wp.transform))
-            state_in.body_qd.assign(
-                wp.from_torch(ctx.body_qd_pt, dtype=wp.spatial_vector)
-            )
+            state_in.body_qd.assign(wp.from_torch(ctx.body_qd_pt, dtype=wp.spatial_vector))
             act.zero_()
             act.grad.zero_()
             act.assign(wp.from_torch(ctx.act_pt.detach()))
@@ -393,22 +378,14 @@ class IntegratorSimulate(torch.autograd.Function):
         else:
             if ctx.return_body:
                 adj_joint_q, adj_joint_qd, adj_body_q, adj_body_qd = adj_arrs
-                state_out.body_q.grad.assign(
-                    wp.from_torch(adj_body_q, dtype=wp.transform)
-                )
-                state_out.body_qd.grad.assign(
-                    wp.from_torch(adj_body_qd, dtype=wp.spatial_vector)
-                )
+                state_out.body_q.grad.assign(wp.from_torch(adj_body_q, dtype=wp.transform))
+                state_out.body_qd.grad.assign(wp.from_torch(adj_body_qd, dtype=wp.spatial_vector))
             else:
                 adj_joint_q, adj_joint_qd = adj_arrs
                 adj_body_q, adj_body_qd = None, None
 
-            ctx.graph_capture_params["joint_q_end"].grad.assign(
-                wp.from_torch(adj_joint_q)
-            )
-            ctx.graph_capture_params["joint_qd_end"].grad.assign(
-                wp.from_torch(adj_joint_qd)
-            )
+            ctx.graph_capture_params["joint_q_end"].grad.assign(wp.from_torch(adj_joint_q))
+            ctx.graph_capture_params["joint_qd_end"].grad.assign(wp.from_torch(adj_joint_qd))
 
             ctx.tape.backward()
             joint_act_grad = wp.to_torch(ctx.tape.gradients[act]).clone()

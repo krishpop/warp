@@ -40,7 +40,7 @@ class HumanoidEnv(WarpEnv):
         no_grad=True,
         stochastic_init=False,
         stage_path=None,
-        env_name="HumanoidEnv"
+        env_name="HumanoidEnv",
     ):
         num_obs = 76
         num_act = 21
@@ -57,7 +57,7 @@ class HumanoidEnv(WarpEnv):
             device,
             env_name=env_name,
             render_mode=self.render_mode,
-            stage_path=stage_path
+            stage_path=stage_path,
         )
         self.num_joint_q, self.num_joint_qd = 28, 27
         self.init_sim()
@@ -180,7 +180,9 @@ class HumanoidEnv(WarpEnv):
         actions = actions.view((self.num_envs, self.num_actions))
         actions = torch.clip(actions, -1.0, 1.0)
         acts_per_env = int(self.model.joint_act.shape[0] / self.num_envs)
-        joint_act = torch.zeros((self.num_envs*acts_per_env), dtype=torch.float32, device=self.device)
+        joint_act = torch.zeros(
+            (self.num_envs * acts_per_env), dtype=torch.float32, device=self.device
+        )
         act_types = {1: [True], 3: [], 4: [False] * 6, 5: [True] * 3, 6: [True] * 2}
         joint_types = self.model.joint_type.numpy()
         act_idx = np.concatenate([act_types[i] for i in joint_types])
@@ -192,7 +194,7 @@ class HumanoidEnv(WarpEnv):
         self.assign_actions(actions)
 
         with wp.ScopedTimer("simulate", active=False, detailed=False):
-            self.warp_step()  # iterates num_frames
+            self.update()  # iterates num_frames
             self.sim_time += self.sim_dt
         self.sim_time += self.sim_dt
 
@@ -331,29 +333,20 @@ class HumanoidEnv(WarpEnv):
         nan_masks = torch.logical_or(
             torch.isnan(self.obs_buf).sum(-1) > 0,
             torch.logical_or(
-                torch.isnan(self.joint_q.view(self.num_environments, -1)).sum(-1)
-                > 0,
-                torch.isnan(self.joint_qd.view(self.num_environments, -1)).sum(-1)
-                > 0,
+                torch.isnan(self.joint_q.view(self.num_environments, -1)).sum(-1) > 0,
+                torch.isnan(self.joint_qd.view(self.num_environments, -1)).sum(-1) > 0,
             ),
         )
         inf_masks = torch.logical_or(
             torch.isinf(self.obs_buf).sum(-1) > 0,
             torch.logical_or(
-                torch.isinf(self.joint_q.view(self.num_environments, -1)).sum(-1)
-                > 0,
-                torch.isinf(self.joint_qd.view(self.num_environments, -1)).sum(-1)
-                > 0,
+                torch.isinf(self.joint_q.view(self.num_environments, -1)).sum(-1) > 0,
+                torch.isinf(self.joint_qd.view(self.num_environments, -1)).sum(-1) > 0,
             ),
         )
         invalid_value_masks = torch.logical_or(
-            (torch.abs(self.joint_q.view(self.num_environments, -1)) > 1e6).sum(
-                -1
-            )
-            > 0,
-            (torch.abs(self.joint_qd.view(self.num_environments, -1)) > 1e6).sum(
-                -1
-            )
+            (torch.abs(self.joint_q.view(self.num_environments, -1)) > 1e6).sum(-1) > 0,
+            (torch.abs(self.joint_qd.view(self.num_environments, -1)) > 1e6).sum(-1)
             > 0,
         )
         invalid_masks = torch.logical_or(

@@ -125,6 +125,31 @@ class Environment:
         self.profile = args.profile
         self.stage_path = f"{self.env_name}_{self.num_envs}"
 
+    def init_sim(self):
+        self.init()
+        self.state_0 = self.model.state()
+        self.state_1 = self.model.state()
+        self._joint_q = wp.zeros_like(self.model.joint_q)
+        self._joint_qd = wp.zeros_like(self.model.joint_qd)
+        if self.requires_grad:
+            self.state_0.body_q.requires_grad = True
+            self.state_1.body_q.requires_grad = True
+            self.state_0.body_qd.requires_grad = True
+            self.state_1.body_qd.requires_grad = True
+            self.state_0.body_f.requires_grad = True
+            self.state_1.body_f.requires_grad = True
+            self._joint_q.requires_grad = True
+            self._joint_qd.requires_grad = True
+        self.body_q, self.body_qd = wp.to_torch(self.state_0.body_qd), wp.to_torch(self.state_0.body_qd)
+
+        start_joint_q = wp.to_torch(self.model.joint_q)
+        start_joint_qd = wp.to_torch(self.model.joint_qd)
+        self.joint_q = None
+
+        # Buffers copying initial state, with env batch dimension
+        self.start_joint_q = start_joint_q.clone().view(self.num_envs, -1)
+        self.start_joint_qd = start_joint_qd.clone().view(self.num_envs, -1)
+
     def init(self):
         if self.integrator_type == IntegratorType.EULER:
             self.sim_substeps = self.sim_substeps_euler
@@ -141,17 +166,13 @@ class Environment:
         try:
             articulation_builder = wp.sim.ModelBuilder()
             self.create_articulation(articulation_builder)
-            env_offsets = wp.sim.tiny_render.compute_env_offsets(
-                self.num_envs, self.env_offset, self.upaxis
-            )
+            env_offsets = wp.sim.tiny_render.compute_env_offsets(self.num_envs, self.env_offset, self.upaxis)
             for i in range(self.num_envs):
                 xform = wp.transform(env_offsets[i], wp.quat_identity())
                 if self.render_mode == RenderMode.USD:
                     quat_rotate = wp.quat(0, 0, 0, 1.0)
                     if self.upaxis == "y":
-                        quat_rotate = wp.quat_from_axis_angle(
-                            (1.0, 0.0, 0.0), -math.pi * 0.5
-                        )
+                        quat_rotate = wp.quat_from_axis_angle((1.0, 0.0, 0.0), -math.pi * 0.5)
                     xform = wp.transform(env_offsets[i], quat_rotate)
                 # self.builder.add_builder(articulation_builder, xform)
                 self.builder.add_rigid_articulation(
@@ -251,9 +272,7 @@ class Environment:
             self.state_0.clear_forces()
             self.custom_update()
             wp.sim.collide(self.model, self.state_0)
-            self.state_1 = self.integrator.simulate(
-                self.model, self.state_0, self.state_1, self.sim_dt
-            )
+            self.state_1 = self.integrator.simulate(self.model, self.state_0, self.state_1, self.sim_dt)
             self.state_0, self.state_1 = self.state_1, self.state_0
 
     def run(self):
@@ -266,9 +285,7 @@ class Environment:
         self.state_1 = self.model.state()
 
         if self.eval_fk:
-            wp.sim.eval_fk(
-                self.model, self.model.joint_q, self.model.joint_qd, None, self.state_0
-            )
+            wp.sim.eval_fk(self.model, self.model.joint_q, self.model.joint_qd, None, self.state_0)
 
         self.before_simulate()
 
@@ -298,18 +315,14 @@ class Environment:
                 delta_history = []
                 delta_history.append(self.state_0.body_deltas.numpy().copy())
                 num_con_history = []
-                num_con_history.append(
-                    self.model.rigid_contact_inv_weight.numpy().copy()
-                )
+                num_con_history.append(self.model.rigid_contact_inv_weight.numpy().copy())
             if self.plot_joint_coords:
                 joint_q_history = []
                 joint_q = wp.zeros_like(self.model.joint_q)
                 joint_qd = wp.zeros_like(self.model.joint_qd)
 
         # simulate
-        with wp.ScopedTimer(
-            "simulate", detailed=False, print=False, active=True, dict=profiler
-        ):
+        with wp.ScopedTimer("simulate", detailed=False, print=False, active=True, dict=profiler):
             if self.renderer is not None:
                 with wp.ScopedTimer("render", False):
                     self.render_time += self.frame_dt
@@ -357,10 +370,7 @@ class Environment:
 
                             self.renderer.end_frame()
 
-                if (
-                    not self.continuous_tiny_render
-                    or self.render_mode != RenderMode.TINY
-                ):
+                if not self.continuous_tiny_render or self.render_mode != RenderMode.TINY:
                     break
 
             wp.synchronize()
@@ -368,9 +378,7 @@ class Environment:
         avg_time = np.array(profiler["simulate"]).mean() / self.episode_frames
         avg_steps_second = 1000.0 * float(self.num_envs) / avg_time
 
-        print(
-            f"envs: {self.num_envs} steps/second {avg_steps_second} avg_time {avg_time}"
-        )
+        print(f"envs: {self.num_envs} steps/second {avg_steps_second} avg_time {avg_time}")
 
         if self.renderer is not None:
             self.renderer.save()
@@ -386,9 +394,7 @@ class Environment:
 
             body_indices = [9]
 
-            fig, ax = plt.subplots(
-                len(body_indices), 7, figsize=(10, 10), squeeze=False
-            )
+            fig, ax = plt.subplots(len(body_indices), 7, figsize=(10, 10), squeeze=False)
             fig.subplots_adjust(hspace=0.2, wspace=0.2)
             for i, j in enumerate(body_indices):
                 ax[i, 0].set_title(f"Body {j} Position")
@@ -452,10 +458,7 @@ class Environment:
             joint_lower = self.model.joint_limit_lower.numpy()
             joint_upper = self.model.joint_limit_upper.numpy()
             joint_type = self.model.joint_type.numpy()
-            while (
-                joint_id < len(joint_type) - 1
-                and joint_type[joint_id] == wp.sim.JOINT_FIXED.val
-            ):
+            while joint_id < len(joint_type) - 1 and joint_type[joint_id] == wp.sim.JOINT_FIXED.val:
                 # skip fixed joints
                 joint_id += 1
             q_start = self.model.joint_q_start.numpy()
@@ -476,13 +479,8 @@ class Environment:
                     if abs(upper) < 2 * np.pi:
                         ax.axhline(upper, color="red")
                 joint_name = joint_names[joint_type[joint_id]]
-                ax.set_title(
-                    f"$\\mathbf{{q_{{{dim}}}}}$ ({self.model.joint_name[joint_id]} / {joint_name} {joint_id})"
-                )
-                if (
-                    joint_id < self.model.joint_count - 1
-                    and q_start[joint_id + 1] == dim + 1
-                ):
+                ax.set_title(f"$\\mathbf{{q_{{{dim}}}}}$ ({self.model.joint_name[joint_id]} / {joint_name} {joint_id})")
+                if joint_id < self.model.joint_count - 1 and q_start[joint_id + 1] == dim + 1:
                     joint_id += 1
                     qd_i = qd_start[joint_id]
                 else:

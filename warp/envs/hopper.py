@@ -10,7 +10,7 @@ import numpy as np
 
 np.set_printoptions(precision=5, linewidth=256, suppress=True)
 from . import torch_utils as tu
-from .autograd_utils import assign_act, clear_arrays
+from .autograd_utils import assign_act, forward_ag, clear_arrays
 
 
 class HopperEnv(WarpEnv):
@@ -19,6 +19,11 @@ class HopperEnv(WarpEnv):
     tiny_render_settings = dict(scaling=30.0, mode="rgb")
     activate_ground_plane: bool = True
     use_graph_capture: bool = False
+    joint_attach_ke: float = 32000.0
+    joint_attach_kd: float = 100.0
+    start_height = 5.0
+    start_x_vel = 5.0
+    start_y_vel = 1.0
 
     def __init__(
         self,
@@ -31,7 +36,10 @@ class HopperEnv(WarpEnv):
         stochastic_init=False,
         stage_path=None,
         env_name="HopperEnv",
+        graph_capture=False,
     ):
+        self.use_graph_capture = graph_capture
+        self.ag_return_body = False
         num_obs = 11
         num_act = 3
 
@@ -58,9 +66,13 @@ class HopperEnv(WarpEnv):
         self.contact_count_changed = torch.zeros_like(self.reset_buf)
         self.contact_count = wp.clone(self.model.rigid_contact_count)
 
-        self.start_joint_q[:, :3] *= 0.0
-        self.start_pos = self.start_joint_q[:, :2]
-        self.start_rotation = self.start_joint_q[:, 2:3]
+        # self.start_joint_q[:, :3] *= 0.0
+        self.start_pos = self.start_joint_q[:, :3]
+        self.start_pos[:, 2] += self.start_height
+        self.start_vel = self.start_joint_qd[:, :3]
+        self.start_vel[:, 0] += self.start_x_vel
+        self.start_vel[:, 1] += self.start_y_vel
+        # self.start_rotation = self.start_joint_q[:, 2:3]
         # other parameters
         self.termination_height = -0.45
         self.termination_angle = np.pi / 6.0
@@ -70,15 +82,15 @@ class HopperEnv(WarpEnv):
         self.action_strength = 200.0
         self.action_penalty = -1e-1
 
-        self.x_unit_tensor = tu.to_torch(
-            [1, 0, 0], dtype=torch.float, device=self.device, requires_grad=False
-        ).repeat((self.num_envs, 1))
-        self.y_unit_tensor = tu.to_torch(
-            [0, 1, 0], dtype=torch.float, device=self.device, requires_grad=False
-        ).repeat((self.num_envs, 1))
-        self.z_unit_tensor = tu.to_torch(
-            [0, 0, 1], dtype=torch.float, device=self.device, requires_grad=False
-        ).repeat((self.num_envs, 1))
+        self.x_unit_tensor = tu.to_torch([1, 0, 0], dtype=torch.float, device=self.device, requires_grad=False).repeat(
+            (self.num_envs, 1)
+        )
+        self.y_unit_tensor = tu.to_torch([0, 1, 0], dtype=torch.float, device=self.device, requires_grad=False).repeat(
+            (self.num_envs, 1)
+        )
+        self.z_unit_tensor = tu.to_torch([0, 0, 1], dtype=torch.float, device=self.device, requires_grad=False).repeat(
+            (self.num_envs, 1)
+        )
         # initialize some data used later on
         # todo - switch to z-up
         self.up_vec = self.y_unit_tensor.clone()
@@ -105,22 +117,17 @@ class HopperEnv(WarpEnv):
             enable_self_collisions=False,
         )  # TODO: add enable_self_collisions?
 
+        # set initial joint positions, targets unnecessary
+        builder.joint_q[3:6] = [0.0, 0.0, np.pi / 2]
+
         # set joint targets to rest pose in mjcf
-        builder.joint_q[self.num_joint_q + 3 : self.num_joint_q + 6] = [0.0, 0.0, 0.0]
-        builder.joint_target[self.num_joint_q + 3 : self.num_joint_q + 6] = [
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-        ]
+        # builder.joint_q[3 : self.num_joint_q + 6] = [0] * 3
 
     def assign_actions(self, actions):
         actions = actions.view((self.num_envs, self.num_actions)) * self.action_strength
         actions = torch.clip(actions, -1.0, 1.0)
         acts_per_env = int(self.model.joint_act.shape[0] / self.num_envs)
-        joint_act = torch.zeros(
-            (self.num_envs * acts_per_env), dtype=torch.float32, device=self.device
-        )
+        joint_act = torch.zeros((self.num_envs * acts_per_env), dtype=torch.float32, device=self.device)
         act_types = {
             1: [True],
             3: [],
@@ -132,18 +139,11 @@ class HopperEnv(WarpEnv):
         joint_types = self.model.joint_type.numpy()
         act_idx = np.concatenate([act_types[i] for i in joint_types])
         joint_act[act_idx] = actions.flatten()
-        self.model.joint_act.assign(joint_act.detach().cpu().numpy())
+        if not self.requires_grad:
+            self.model.joint_act.assign(joint_act.detach().cpu().numpy())
         self.actions = actions.clone()
 
-    def step(self, actions):
-        self.assign_actions(actions)
-
-        with wp.ScopedTimer("simulate", active=False, detailed=False):
-            self.update()  # iterates num_frames
-        self.sim_time += self.sim_dt * self.sim_substeps
-
-        self.reset_buf = torch.zeros_like(self.reset_buf)
-
+    def check_contact_count(self):
         contact_count = np.zeros(self.num_envs, dtype=int)
         shape0 = self.model.rigid_contact_shape0.numpy()
         for i in range(self.model.rigid_contact_count.numpy().item()):
@@ -151,12 +151,56 @@ class HopperEnv(WarpEnv):
                 continue
             env_idx = self.model.shape_collision_group[shape0[i]] - 1
             contact_count[env_idx] += 1
-        self.contact_count_changed[:] = torch.as_tensor(
-            contact_count != self.prev_contact_count
-        )
+        self.contact_count_changed[:] = torch.as_tensor(contact_count != self.prev_contact_count)
         self.prev_contact_count = contact_count
         self.extras["contact_count_changed"] = self.contact_count_changed
 
+    def forward_simulate(self, actions):
+        # does this cut off grad to prev timestep?
+        # assert self.model.body_q.requires_grad and self.state_0.body_q.requires_grad
+        # all grads should be from joint_q, not from body_q
+        # with torch.no_grad():
+        body_q, body_qd = (
+            self.body_q.detach().clone(),
+            self.body_qd.detach().clone(),
+        )
+
+        ret = forward_ag(
+            self.simulate_params,
+            self.graph_capture_params,
+            self.act_params,
+            actions.flatten(),
+            body_q,
+            body_qd,
+        )
+        # swap states so start from correct next state
+        (
+            self.simulate_params["state_in"],
+            self.simulate_params["state_out"],
+        ) = (
+            self.state_1,
+            self.state_0,
+        )
+        self.joint_q, self.joint_qd = ret
+        self.body_q = wp.to_torch(self.simulate_params["state_in"].body_q)
+        self.body_qd = wp.to_torch(self.simulate_params["state_in"].body_qd)
+
+    def step(self, actions):
+        """Simulate the environment for one timestep."""
+        self.assign_actions(actions)
+
+        with wp.ScopedTimer("simulate", active=False, detailed=False):
+            if self.requires_grad:
+                self.forward_simulate(actions)
+            else:
+                # simulates without recording on tape
+                self.update()
+
+        self.sim_time += self.sim_dt * self.sim_substeps
+
+        self.reset_buf = torch.zeros_like(self.reset_buf)
+
+        self.check_contact_count()
         self.progress_buf += 1
         self.num_frames += 1
 
@@ -169,10 +213,12 @@ class HopperEnv(WarpEnv):
 
         if self.requires_grad:
             self.obs_buf_before_reset = self.obs_buf.clone()
-            self.extras = {
-                "obs_before_reset": self.obs_buf_before_reset,
-                "episode_end": self.termination_buf,
-            }
+            self.extras.update(
+                {
+                    "obs_before_reset": self.obs_buf_before_reset,
+                    "episode_end": self.termination_buf,
+                }
+            )
 
         if len(env_ids) > 0:
             self.reset(env_ids)
@@ -181,30 +227,15 @@ class HopperEnv(WarpEnv):
 
     def get_stochastic_init(self, env_ids, joint_q, joint_qd):
         joint_q[env_ids, 0:2] = (
-            joint_q[env_ids, 0:2]
-            + 0.05
-            * (torch.rand(size=(len(env_ids), 2), device=self.device) - 0.5)
-            * 2.0
+            joint_q[env_ids, 0:2] + 0.05 * (torch.rand(size=(len(env_ids), 2), device=self.device) - 0.5) * 2.0
         )
         joint_q[env_ids, 2] = (torch.rand(len(env_ids), device=self.device) - 0.5) * 0.1
         joint_q[env_ids, 3:] = (
             joint_q[env_ids, 3:]
-            + 0.05
-            * (
-                torch.rand(
-                    size=(len(env_ids), self.num_joint_q - 3), device=self.device
-                )
-                - 0.5
-            )
-            * 2.0
+            + 0.05 * (torch.rand(size=(len(env_ids), self.num_joint_q - 3), device=self.device) - 0.5) * 2.0
         )
         joint_qd[env_ids, :] = (
-            0.05
-            * (
-                torch.rand(size=(len(env_ids), self.num_joint_qd), device=self.device)
-                - 0.5
-            )
-            * 2.0
+            0.05 * (torch.rand(size=(len(env_ids), self.num_joint_qd), device=self.device) - 0.5) * 2.0
         )
         return joint_q[env_ids, :], joint_qd[env_ids, :]
 
@@ -214,7 +245,10 @@ class HopperEnv(WarpEnv):
         if self.requires_grad and not self.use_graph_capture:
             self.model.allocate_rigid_contacts(requires_grad=self.requires_grad)
         elif self.use_graph_capture:
-            clear_arrays(self.model, lambda k: k.starts_with("rigid"))
+            # zero rigid contact arrays allocated in model finalize
+            clear_arrays(self.model, lambda k: k.startswith("rigid"))
+        self.prev_contact_count = np.zeros(self.num_envs, dtype=int)
+        self.contact_count_changed.fill_(0)
         wp.sim.collide(self.model, self.state_0)
         return self.obs_buf
 
@@ -228,28 +262,17 @@ class HopperEnv(WarpEnv):
         )
 
     def calculateReward(self):
-        height_diff = self.obs_buf[:, 0] - (
-            self.termination_height + self.termination_height_tolerance
-        )
+        height_diff = self.obs_buf[:, 0] - (self.termination_height + self.termination_height_tolerance)
         height_reward = torch.clip(height_diff, -1.0, 0.3)
-        height_reward = torch.where(
-            height_reward < 0.0, -200.0 * height_reward * height_reward, height_reward
-        )
-        height_reward = torch.where(
-            height_reward > 0.0, self.height_rew_scale * height_reward, height_reward
-        )
+        height_reward = torch.where(height_reward < 0.0, -200.0 * height_reward * height_reward, height_reward)
+        height_reward = torch.where(height_reward > 0.0, self.height_rew_scale * height_reward, height_reward)
 
-        angle_reward = 1.0 * (
-            -self.obs_buf[:, 1] ** 2 / (self.termination_angle**2) + 1.0
-        )
+        angle_reward = 1.0 * (-self.obs_buf[:, 1] ** 2 / (self.termination_angle**2) + 1.0)
 
         progress_reward = self.obs_buf[:, 5]
 
         self.rew_buf = (
-            progress_reward
-            + height_reward
-            + angle_reward
-            + torch.sum(self.actions**2, dim=-1) * self.action_penalty
+            progress_reward + height_reward + angle_reward + torch.sum(self.actions**2, dim=-1) * self.action_penalty
         )
 
         # reset agents

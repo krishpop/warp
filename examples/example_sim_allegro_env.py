@@ -17,26 +17,28 @@
 import os
 
 import numpy as np
-import warp as wp
-import warp.sim
+
+# from sim_demo import run_demo
 import torch
+import warp as wp
+from tqdm import trange
+from warp.envs import Environment, IntegratorType, RenderMode, WarpEnv
+from warp.envs.autograd_utils import assign_act, forward_ag
+import warp.sim
 
-from sim_demo import run_demo
-from warp.envs import IntegratorType, WarpEnv, Environment, RenderMode
-from warp.envs.autograd_utils import forward_ag, assign_act
 
-
-class AllegroSim(Environment):
-    env_name = "example_sim_allegro"
+class AllegroHandEnv(WarpEnv):
+    integrator_type: IntegratorType = IntegratorType.XPBD
+    activate_ground_plane: bool = False
+    use_graph_capture: bool = False
     env_offset = (6.0, 0.0, 6.0)
     tiny_render_settings = dict(scaling=15.0)
     usd_render_settings = dict(scaling=10.0)
 
     sim_substeps_euler = 64
     sim_substeps_xpbd = 5
-    render_mode: RenderMode = RenderMode.NONE
+    render_mode: RenderMode = RenderMode.USD
 
-    num_envs = 1
     target_pos = np.array((0.0, 0.4, 0.4))
 
     xpbd_settings = dict(
@@ -48,15 +50,75 @@ class AllegroSim(Environment):
         enable_restitution=True,
     )
 
-    use_graph_capture = True
-
     rigid_contact_margin = 0.005
     rigid_mesh_contact_max = 100
     # contact thickness to apply around mesh shapes
     contact_thickness = 0.0
+    action_strength = 0.05
+
+    def __init__(
+        self,
+        render=False,
+        device="cuda",
+        num_envs=256,
+        seed=0,
+        episode_length=240,
+        no_grad=True,
+        stochastic_init=False,
+        early_termination=False,
+        stage_path=None,
+        env_name="AllegroHandEnv",
+        floating_base=False,
+        graph_capture=False,
+    ):
+        num_obs = 16 * 2
+        num_act = 16
+        self.use_graph_capture = graph_capture
+        self.floating_base = floating_base
+        if floating_base:
+            num_obs += 7 * 2 + 6 * 2
+            num_act += 6
+
+        super().__init__(
+            num_envs,
+            num_obs,
+            num_act,
+            episode_length,
+            seed,
+            no_grad,
+            render,
+            stochastic_init,
+            device,
+            env_name=env_name,
+            render_mode=self.render_mode,
+            stage_path=stage_path,
+        )
+        self.num_joint_q = 16
+        self.num_joint_qd = 16
+        self.early_termination = early_termination
+        self.init_sim()
+
+        # create mappings for joint and body indices
+        self.body_name_to_idx, self.joint_name_to_idx = {}, {}
+        for i, body_name in enumerate(self.model.body_name):
+            body_ind = self.body_name_to_idx.get(body_name, [])
+            body_ind.append(i)
+            self.body_name_to_idx[body_name] = body_ind
+
+        for i, joint_name in enumerate(self.model.joint_name):
+            joint_ind = self.joint_name_to_idx.get(joint_name, [])
+            joint_ind.append(i)
+            self.joint_name_to_idx[joint_name] = joint_ind
+
+        self.body_name_to_idx = {k: np.array(v) for k, v in self.body_name_to_idx.items()}
+        self.joint_name_to_idx = {k: np.array(v) for k, v in self.joint_name_to_idx.items()}
+
+        self.setup_autograd_vars()
+        self.prev_contact_count = np.zeros(self.num_envs, dtype=int)
+        self.contact_count_changed = torch.zeros_like(self.reset_buf)
+        self.contact_count = wp.clone(self.model.rigid_contact_count)
 
     def create_articulation(self, builder):
-        floating_base = False
         xform = wp.transform(
             np.array((0.0, 0.3, 0.0)),
             wp.quat_rpy(-np.pi / 2, np.pi * 0.75, np.pi / 2),
@@ -68,7 +130,7 @@ class AllegroSim(Environment):
             ),
             builder,
             xform=xform,
-            floating=floating_base,
+            floating=self.floating_base,
             density=1e3,
             armature=0.01,
             stiffness=1000.0,
@@ -84,8 +146,8 @@ class AllegroSim(Environment):
         )
 
         # ensure all joint positions are within limits
-        q_offset = 7 if floating_base else 0
-        qd_offset = 6 if floating_base else 0
+        q_offset = 7 if self.floating_base else 0
+        qd_offset = 6 if self.floating_base else 0
         for i in range(16):
             builder.joint_q[i + q_offset] = 0.5 * (
                 builder.joint_limit_lower[i + qd_offset] + builder.joint_limit_upper[i + qd_offset]
@@ -94,92 +156,11 @@ class AllegroSim(Environment):
             builder.joint_target_ke[i] = 50000.0
             builder.joint_target_kd[i] = 10.0
 
-        wp.sim.parse_urdf(
-            os.path.join(
-                os.path.dirname(__file__),
-                "assets/isaacgymenvs/objects/cube_multicolor_allegro.urdf",
-            ),
-            builder,
-            xform=wp.transform(np.array((-0.1, 0.5, 0.0)), wp.quat_identity()),
-            floating=True,
-            density=1e2,  # use inertia settings from URDF
-            armature=0.0,
-            stiffness=0.0,
-            damping=0.0,
-            shape_ke=1.0e3,
-            shape_kd=1.0e2,
-            shape_kf=1.0e2,
-            shape_mu=0.5,
-            shape_thickness=self.contact_thickness,
-            limit_ke=1.0e4,
-            limit_kd=1.0e1,
-            parse_visuals_as_colliders=False,
-        )
-
-        wp.sim.parse_urdf(
-            os.path.join(
-                os.path.dirname(__file__),
-                "assets/isaacgymenvs/objects/cube_multicolor_allegro.urdf",
-            ),
-            builder,
-            xform=wp.transform(np.array((0.0, 0.05, 0.05)), wp.quat_identity()),
-            floating=True,
-            density=1e2,  # use inertia settings from URDF
-            armature=0.0,
-            stiffness=0.0,
-            damping=0.0,
-            shape_ke=1.0e3,
-            shape_kd=1.0e2,
-            shape_kf=1.0e2,
-            shape_mu=0.5,
-            shape_thickness=self.contact_thickness,
-            limit_ke=1.0e4,
-            limit_kd=1.0e1,
-            parse_visuals_as_colliders=False,
-        )
-
-        wp.sim.parse_urdf(
-            os.path.join(
-                os.path.dirname(__file__),
-                "assets/isaacgymenvs/objects/cube_multicolor_allegro.urdf",
-            ),
-            builder,
-            xform=wp.transform(np.array((0.01, 0.15, 0.03)), wp.quat_identity()),
-            floating=True,
-            density=1e2,  # use inertia settings from URDF
-            armature=0.0,
-            stiffness=0.0,
-            damping=0.0,
-            shape_ke=1.0e3,
-            shape_kd=1.0e2,
-            shape_kf=1.0e2,
-            shape_mu=0.5,
-            shape_thickness=self.contact_thickness,
-            limit_ke=1.0e4,
-            limit_kd=1.0e1,
-            parse_visuals_as_colliders=False,
-        )
-        wp.sim.parse_urdf(
-            os.path.join(
-                os.path.dirname(__file__),
-                "assets/isaacgymenvs/objects/cube_multicolor_allegro.urdf",
-            ),
-            builder,
-            xform=wp.transform(np.array((0.01, 0.05, 0.13)), wp.quat_identity()),
-            floating=True,
-            density=1e2,  # use inertia settings from URDF
-            armature=0.0,
-            stiffness=0.0,
-            damping=0.0,
-            shape_ke=1.0e3,
-            shape_kd=1.0e2,
-            shape_kf=1.0e2,
-            shape_mu=0.5,
-            shape_thickness=self.contact_thickness,
-            limit_ke=1.0e4,
-            limit_kd=1.0e1,
-            parse_visuals_as_colliders=False,
-        )
+    def assign_actions(self, actions):
+        actions = actions.flatten() * self.action_strength
+        # actions = torch.clip(actions, -1.0, 1.0)
+        self.act_params["act"].assign(wp.from_torch(actions))
+        assign_act(**self.act_params)
 
     def step(self, actions, profiler=None):
         active, detailed = False, False
@@ -195,11 +176,8 @@ class AllegroSim(Environment):
                 # does this cut off grad to prev timestep?
                 assert self.model.body_q.requires_grad and self.state_0.body_q.requires_grad
                 # all grads should be from joint_q, not from body_q
-                # with torch.no_grad():
-                body_q, body_qd = (
-                    self.body_q.detach().clone(),
-                    self.body_qd.detach().clone(),
-                )
+                body_q = self.body_q.clone()
+                body_qd = self.body_qd.clone()
 
                 ret = forward_ag(
                     self.simulate_params,
@@ -215,8 +193,8 @@ class AllegroSim(Environment):
                         self.simulate_params["state_in"],
                         self.simulate_params["state_out"],
                     ) = (
-                        self.state_1,
-                        self.state_0,
+                        self.simulate_params["state_out"],
+                        self.simulate_params["state_in"],
                     )
                 self.joint_q, self.joint_qd, self.body_q, self.body_qd = ret
 
@@ -251,46 +229,47 @@ class AllegroSim(Environment):
             with wp.ScopedTimer("render", active=active, detailed=detailed, dict=profiler):
                 self.render()
 
-        return self.obs_buf, self.rew_buf, self.reset_buf, self.extra
+        return self.obs_buf, self.rew_buf, self.reset_buf, self.extras
 
     def calculateObservations(self):
+        """Computes observations from current state"""
         joint_q, joint_qd = self.joint_q.view(self.num_envs, -1), self.joint_qd.view(self.num_envs, -1)
-        body_q = self.body_q.view(self.num_envs, -1, 7)
-        body_qd = self.body_qd.view(self.num_envs, -1, 6)
-        x = body_q[:, 0:1, 0] - body_q[:, 1:2, 0]  # joint_q[:, 0:1]
-        xdot = body_qd[:, 1, 3:4]  # joint_qd[:, 0:1]
+        body_q = self.body_q.view(self.num_envs, -1, 7)[:, 0, :3]  # pos
+        body_qd = self.body_qd.view(self.num_envs, -1, 6)[..., 0, 4:5]  # ang vel
 
-        theta = joint_q[:, 1:2]
-        theta_dot = joint_qd[:, 1:2]
-
-        # observations: [x, xdot, sin(theta), cos(theta), theta_dot]
-        self.obs_buf = torch.cat([x, xdot, torch.sin(theta), torch.cos(theta), theta_dot], dim=-1)
+        self.obs_buf = torch.cat([body_q, body_qd, joint_q, joint_qd], dim=-1)
 
     def calculateReward(self):
         """Computes distance from hand to target and sets reward accordingly"""
         # reward is negative distance to target
-        body_q = self.body_q.view(self.num_envs, -1, 7)
-        x = body_q[:, 0, :3] - torch.as_tensor(self.target_pos, dtype=torch.float32, device=self.device)
+        body_q = self.body_q.view(-1, 7)[self.body_name_to_idx["index_link_1"], :3].view(self.num_envs, -1)
+        x = body_q - torch.as_tensor(self.target_pos, dtype=torch.float32, device=self.device).view(1, -1)
         self.rew_buf = -torch.norm(x, dim=-1)
 
 
 if __name__ == "__main__":
-    run_demo(AllegroSim)
-    # import argparse
-    # parser.add_argument(
-    #         "--num_envs",
-    #         help="Number of environments to simulate",
-    #         type=int,
-    #     )
-    # args = parser.parse_args()
-    # num_envs = args.num_envs
-    # env = AllegroSim(num_envs=num_envs, requires_grad=True)
-    # parser = argparse.ArgumentParser()
-    #
-    #     parser.add_argument(
-    #         "--profile", help="Enable profiling", type=bool, default=profile
-    #     )
-    # return env.run()
-    # env.reset()
-    # for _ in range(100):
-    #     obs, rew, done, info = env.step(torch.rand(1, 7))
+    # run_demo(AllegroSim)
+    import time
+
+    requires_grad = True
+    env = AllegroHandEnv(num_envs=256, no_grad=(not requires_grad), render=True)
+    next_act = torch.randn(
+        env.act_params["act"].shape,
+        dtype=torch.float32,
+        device=env.device,
+        requires_grad=requires_grad,
+    )
+    env.reset()
+    start_time = time.perf_counter()
+    for i in trange(env.episode_length):
+        act = next_act
+        obs, rew, done, info = env.step(act)
+        next_act = torch.randn(
+            env.act_params["act"].shape, dtype=torch.float32, device=env.device, requires_grad=requires_grad
+        )
+        if env.requires_grad:
+            rew.sum().backward()
+            act = act + act.grad * 0
+    end_time = time.perf_counter()
+    time_lapse = end_time - start_time
+    print("steps/sec:", env.num_envs * env.episode_length / time_lapse)

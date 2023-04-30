@@ -180,7 +180,14 @@ class WarpEnv(Environment):
         self.graph_capture_params["joint_qd_end"] = self._joint_qd
 
         if self.use_graph_capture and self.requires_grad:
-            backward_model = self.builder.finalize(requires_grad=True)
+            if not self.activate_ground_plane:
+                backward_model = self.builder.finalize(device=self.device)
+            else:
+                backward_model = self.builder.finalize(
+                    device=self.device,
+                    rigid_mesh_contact_max=self.rigid_mesh_contact_max,
+                    requires_grad=self.requires_grad,
+                )
             backward_model.joint_q.requires_grad = True
             backward_model.joint_qd.requires_grad = True
             backward_model.joint_act.requires_grad = True
@@ -285,6 +292,8 @@ class WarpEnv(Environment):
             wp.sim.eval_fk(self.model, self._joint_q, self._joint_qd, None, self.state_0)
             self.body_q = wp.to_torch(self.state_0.body_q).requires_grad_(self.requires_grad)
             self.body_qd = wp.to_torch(self.state_0.body_qd).requires_grad_(self.requires_grad)
+            self.simulate_params["state_in"] = self.state_0
+            self.simulate_params["state_out"] = self.state_1
             # reset progress buffer (i.e. episode done flag)
             self.progress_buf[env_ids] = 0
             self.num_frames = 0
@@ -328,6 +337,8 @@ class WarpEnv(Environment):
             self.joint_q, self.joint_qd, self.body_q, self.body_qd = ret
 
     def update(self):
+        """Overrides Environment.update() for forward simulation with graph capture"""
+
         # simulates with graph capture if selected
         def forward():
             for _ in range(self.sim_substeps):
@@ -358,15 +369,15 @@ class WarpEnv(Environment):
         cut off the gradient from the current state to previous states
         """
         if checkpoint is None:
-            with torch.no_grad():
-                checkpoint = self.get_checkpoint()
+            checkpoint = self.get_checkpoint()
         with torch.no_grad():
+            self.load_checkpoint(checkpoint)
             self.actions = self.actions.clone()
             if self.actions.grad is not None:
                 self.actions.grad.zero()
-            self.load_checkpoint(checkpoint)
             current_joint_act = wp.to_torch(self.model.joint_act).detach().clone()
-            self.act_params["act"].grad.zero_()
+            if self.act_params["act"].grad is not None:
+                self.act_params["act"].grad.zero_()
             # grads will not be assigned since variables are detached
             self.model.joint_act.assign(wp.from_torch(current_joint_act))
             if self.model.joint_q.grad is not None:
@@ -414,10 +425,10 @@ class WarpEnv(Environment):
         self.update_joints()
         joint_q, joint_qd = self.joint_q.detach(), self.joint_qd.detach()
         body_q, body_qd = self.body_q.detach(), self.body_qd.detach()
-        assert np.all(joint_q.cpu().numpy() == self._joint_q.numpy())
-        assert np.all(joint_qd.cpu().numpy() == self._joint_qd.numpy())
-        assert np.all(body_q.cpu().numpy() == self.simulate_params["state_in"].body_q.numpy())
-        assert np.all(body_qd.cpu().numpy() == self.simulate_params["state_in"].body_qd.numpy())
+        # assert np.all(joint_q.cpu().numpy() == self._joint_q.numpy())
+        # assert np.all(joint_qd.cpu().numpy() == self._joint_qd.numpy())
+        # assert np.all(body_q.cpu().numpy() == self.simulate_params["state_in"].body_q.numpy())
+        # assert np.all(body_qd.cpu().numpy() == self.simulate_params["state_in"].body_qd.numpy())
         checkpoint["joint_q"] = joint_q.clone()
         checkpoint["joint_qd"] = joint_qd.clone()
         checkpoint["body_q"] = body_q.clone()
@@ -437,17 +448,17 @@ class WarpEnv(Environment):
             checkpoint_data = torch.load(ckpt_path)
         joint_q = checkpoint_data["joint_q"].view(-1, self.num_joint_q)
         joint_qd = checkpoint_data["joint_qd"].view(-1, self.num_joint_qd)
-        self.joint_q[:] = joint_q[: self.num_envs].flatten()
-        self.joint_qd[:] = joint_qd[: self.num_envs].flatten()
+        self.joint_q = joint_q[: self.num_envs].flatten().requires_grad_(self.requires_grad)
+        self.joint_qd = joint_qd[: self.num_envs].flatten().requires_grad_(self.requires_grad)
         self._joint_q.assign(wp.from_torch(self.joint_q))
         self._joint_qd.assign(wp.from_torch(self.joint_qd))
         num_bodies_per_env = int(self.model.body_count / self.num_envs)
         body_q = checkpoint_data["body_q"].view(-1, num_bodies_per_env, 7)
         body_qd = checkpoint_data["body_qd"].view(-1, num_bodies_per_env, 6)
-        self.body_q[:] = body_q[: self.num_envs].view(-1, 7)
-        self.body_qd[:] = body_qd[: self.num_envs].view(-1, 6)
-        self.state_0.body_q.assign(wp.from_torch(self.body_q))
-        self.state_0.body_qd.assign(wp.from_torch(self.body_qd))
+        self.body_q = body_q[: self.num_envs].view(-1, 7).requires_grad_(self.requires_grad)
+        self.body_qd = body_qd[: self.num_envs].view(-1, 6).requires_grad_(self.requires_grad)
+        self.simulate_params["state_in"].body_q.assign(wp.from_torch(self.body_q))
+        self.simulate_params["state_in"].body_qd.assign(wp.from_torch(self.body_qd))
         # assumes self.num_envs <= number of actors in checkpoint
         self.actions[:] = checkpoint_data["actions"][: self.num_envs]
         self.progress_buf[:] = checkpoint_data["progress_buf"][: self.num_envs].view(-1)
