@@ -321,6 +321,38 @@ add_builtin(
     group="Vector Math",
 )
 
+add_builtin(
+    "min",
+    input_types={"v": vector(length=Any, dtype=Scalar)},
+    value_func=sametype_scalar_value_func,
+    doc="Return the minimum element of a vector.",
+    group="Vector Math",
+)
+add_builtin(
+    "max",
+    input_types={"v": vector(length=Any, dtype=Scalar)},
+    value_func=sametype_scalar_value_func,
+    doc="Return the maximum element of a vector.",
+    group="Vector Math",
+)
+
+add_builtin(
+    "argmin",
+    input_types={"v": vector(length=Any, dtype=Scalar)},
+    value_func=lambda args, kwds, _: warp.uint32,
+    doc="Return the index of the minimum element of a vector.",
+    group="Vector Math",
+    missing_grad=True,
+)
+add_builtin(
+    "argmax",
+    input_types={"v": vector(length=Any, dtype=Scalar)},
+    value_func=lambda args, kwds, _: warp.uint32,
+    doc="Return the index of the maximum element of a vector.",
+    group="Vector Math",
+    missing_grad=True,
+)
+
 
 def value_func_outer(args, kwds, _):
     if args is None:
