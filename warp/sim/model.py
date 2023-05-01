@@ -8,15 +8,21 @@
 """A module for building simulation models and state.
 """
 
+from .inertia import transform_inertia
+from .inertia import compute_cone_inertia
+from .inertia import compute_cylinder_inertia
+from .inertia import compute_capsule_inertia
+from .inertia import compute_box_inertia
+from .inertia import compute_sphere_inertia
+from .inertia import compute_mesh_inertia
+
 import warp as wp
 import numpy as np
 
 import math
 import copy
 
-from typing import List, Optional, Tuple, Union
-
-from warp.types import Volume
+from typing import List, Optional, Tuple
 
 Vec3 = List[float]
 Vec4 = List[float]
@@ -34,22 +40,6 @@ GEO_MESH = wp.constant(5)
 GEO_SDF = wp.constant(6)
 GEO_PLANE = wp.constant(7)
 GEO_NONE = wp.constant(8)
-
-from .inertia import compute_mesh_inertia
-from .inertia import compute_sphere_inertia
-from .inertia import compute_box_inertia
-from .inertia import compute_capsule_inertia
-from .inertia import compute_cylinder_inertia
-from .inertia import compute_cone_inertia
-from .inertia import transform_inertia
-
-from warp.types import Volume
-
-Vec3 = List[float]
-Vec4 = List[float]
-Quat = List[float]
-Mat33 = List[float]
-Transform = Tuple[Vec3, Quat]
 
 # Types of joints linking rigid bodies
 JOINT_PRISMATIC = wp.constant(0)
@@ -142,13 +132,14 @@ class Mesh:
         Args:
             vertices: List of vertices in the mesh
             indices: List of triangle indices, 3 per-element
-            compute_inertia: If True, the inertia tensor and center of mass will be computed assuming density of 1.0
+            compute_inertia: If True, the mass, inertia tensor and center of mass will be computed assuming density of 1.0
             is_solid: If True, the mesh is assumed to be a solid during inertia computation, otherwise it is assumed to be a hollow surface
         """
 
         self.vertices = vertices
         self.indices = indices
         self.is_solid = is_solid
+        self.has_inertia = compute_inertia
 
         if compute_inertia:
             self.mass, self.com, self.I, _ = compute_mesh_inertia(1.0, vertices, indices, is_solid=is_solid)
@@ -261,10 +252,32 @@ def compute_shape_mass(type, scale, src, density, is_solid, thickness):
         else:
             hollow = compute_cone_inertia(density, r - thickness, h - 2.0 * thickness)
             return solid[0] - hollow[0], solid[1], solid[2] - hollow[2]
-    elif type == GEO_MESH:
-        if src.mass > 0.0 and src.is_solid == is_solid:
-            s = scale[0]
-            return (density * src.mass * s * s * s, src.com, density * src.I * s * s * s * s * s)
+    elif (type == GEO_MESH):
+        if src.has_inertia and src.mass > 0.0 and src.is_solid == is_solid:
+            m, c, I = src.mass, src.com, src.I
+
+            s = np.array(scale[:3])
+            sx, sy, sz = s
+
+            mass_ratio = sx * sy * sz * density
+            m_new = m * mass_ratio
+
+            c_new = c * s
+
+            Ixx = I[0, 0] * (sy**2 + sz**2) / 2 * mass_ratio
+            Iyy = I[1, 1] * (sx**2 + sz**2) / 2 * mass_ratio
+            Izz = I[2, 2] * (sx**2 + sy**2) / 2 * mass_ratio
+            Ixy = I[0, 1] * sx * sy * mass_ratio
+            Ixz = I[0, 2] * sx * sz * mass_ratio
+            Iyz = I[1, 2] * sy * sz * mass_ratio
+
+            I_new = np.array([
+                [Ixx, Ixy, Ixz],
+                [Ixy, Iyy, Iyz],
+                [Ixz, Iyz, Izz]
+            ])
+
+            return m_new, c_new, I_new
         else:
             # fall back to computing inertia from mesh geometry
             vertices = np.array(src.vertices) * np.array(scale[:3])
@@ -599,7 +612,8 @@ class Model:
 
     def find_shape_contact_pairs(self):
         # find potential contact pairs based on collision groups and collision mask (pairwise filtering)
-        import itertools, copy
+        import itertools
+        import copy
 
         filters = copy.copy(self.shape_collision_filter_pairs)
         for a, b in self.shape_collision_filter_pairs:
@@ -1830,6 +1844,7 @@ class ModelBuilder:
         mu: float = default_shape_mu,
         restitution: float = default_shape_restitution,
         thickness: float = 0.0,
+        has_ground_collision: bool = False,
     ):
         """
         Adds a plane collision shape.
@@ -1849,6 +1864,7 @@ class ModelBuilder:
             mu: The coefficient of friction
             restitution: The coefficient of restitution
             thickness: The thickness of the plane (0 by default) for collision handling
+            has_ground_collision: If True, the mesh will collide with the ground plane if `Model.ground` is True
 
         """
         if pos is None or rot is None:
@@ -1865,7 +1881,11 @@ class ModelBuilder:
                 axis = c / np.linalg.norm(c)
                 rot = wp.quat_from_axis_angle(axis, angle)
         scale = (width, length, 0.0)
-        return self._add_shape(body, pos, rot, GEO_PLANE, scale, None, 0.0, ke, kd, kf, mu, restitution, thickness)
+
+        return self._add_shape(
+            body, pos, rot, GEO_PLANE, scale,
+            None, 0.0, ke, kd, kf, mu, restitution, thickness,
+            has_ground_collision=has_ground_collision)
 
     def add_shape_sphere(
         self,
@@ -1881,6 +1901,7 @@ class ModelBuilder:
         restitution: float = default_shape_restitution,
         is_solid: bool = True,
         thickness: float = default_geo_thickness,
+        has_ground_collision: bool = True,
     ):
         """Adds a sphere collision shape to a body.
 
@@ -1897,25 +1918,14 @@ class ModelBuilder:
             restitution: The coefficient of restitution
             is_solid: Whether the sphere is solid or hollow
             thickness: Thickness to use for computing inertia of a hollow sphere, and for collision handling
+            has_ground_collision: If True, the mesh will collide with the ground plane if `Model.ground` is True
 
         """
 
         return self._add_shape(
-            body,
-            pos,
-            rot,
-            GEO_SPHERE,
-            (radius, 0.0, 0.0, 0.0),
-            None,
-            density,
-            ke,
-            kd,
-            kf,
-            mu,
-            restitution,
-            thickness + radius,
-            is_solid,
-        )
+            body, pos, rot, GEO_SPHERE, (radius, 0.0, 0.0, 0.0),
+            None, density, ke, kd, kf, mu, restitution, thickness + radius, is_solid,
+            has_ground_collision=has_ground_collision)
 
     def add_shape_box(
         self,
@@ -1933,6 +1943,7 @@ class ModelBuilder:
         restitution: float = default_shape_restitution,
         is_solid: bool = True,
         thickness: float = default_geo_thickness,
+        has_ground_collision: bool = True,
     ):
         """Adds a box collision shape to a body.
 
@@ -1951,12 +1962,14 @@ class ModelBuilder:
             restitution: The coefficient of restitution
             is_solid: Whether the box is solid or hollow
             thickness: Thickness to use for computing inertia of a hollow box, and for collision handling
+            has_ground_collision: If True, the mesh will collide with the ground plane if `Model.ground` is True
 
         """
 
         return self._add_shape(
-            body, pos, rot, GEO_BOX, (hx, hy, hz, 0.0), None, density, ke, kd, kf, mu, restitution, thickness, is_solid
-        )
+            body, pos, rot, GEO_BOX, (hx, hy, hz, 0.0),
+            None, density, ke, kd, kf, mu, restitution, thickness, is_solid,
+            has_ground_collision=has_ground_collision)
 
     def add_shape_capsule(
         self,
@@ -1974,6 +1987,7 @@ class ModelBuilder:
         restitution: float = default_shape_restitution,
         is_solid: bool = True,
         thickness: float = default_geo_thickness,
+        has_ground_collision: bool = True,
     ):
         """Adds a capsule collision shape to a body.
 
@@ -1992,6 +2006,7 @@ class ModelBuilder:
             restitution: The coefficient of restitution
             is_solid: Whether the capsule is solid or hollow
             thickness: Thickness to use for computing inertia of a hollow capsule, and for collision handling
+            has_ground_collision: If True, the mesh will collide with the ground plane if `Model.ground` is True
 
         """
 
@@ -2001,22 +2016,11 @@ class ModelBuilder:
             q = wp.mul(rot, wp.quat(0.0, 0.0, -sqh, sqh))
         elif up_axis == 2:
             q = wp.mul(rot, wp.quat(sqh, 0.0, 0.0, sqh))
+
         return self._add_shape(
-            body,
-            pos,
-            q,
-            GEO_CAPSULE,
-            (radius, half_height, 0.0, 0.0),
-            None,
-            density,
-            ke,
-            kd,
-            kf,
-            mu,
-            restitution,
-            thickness + radius,
-            is_solid,
-        )
+            body, pos, q, GEO_CAPSULE, (radius, half_height, 0.0, 0.0),
+            None, density, ke, kd, kf, mu, restitution, thickness + radius, is_solid,
+            has_ground_collision=has_ground_collision)
 
     def add_shape_cylinder(
         self,
@@ -2034,6 +2038,7 @@ class ModelBuilder:
         restitution: float = default_shape_restitution,
         is_solid: bool = True,
         thickness: float = default_geo_thickness,
+        has_ground_collision: bool = True,
     ):
         """Adds a cylinder collision shape to a body.
 
@@ -2052,6 +2057,7 @@ class ModelBuilder:
             restitution: The coefficient of restitution
             is_solid: Whether the cylinder is solid or hollow
             thickness: Thickness to use for computing inertia of a hollow cylinder, and for collision handling
+            has_ground_collision: If True, the mesh will collide with the ground plane if `Model.ground` is True
 
         """
 
@@ -2061,22 +2067,11 @@ class ModelBuilder:
             q = wp.mul(rot, wp.quat(0.0, 0.0, -sqh, sqh))
         elif up_axis == 2:
             q = wp.mul(rot, wp.quat(sqh, 0.0, 0.0, sqh))
+
         return self._add_shape(
-            body,
-            pos,
-            q,
-            GEO_CYLINDER,
-            (radius, half_height, 0.0, 0.0),
-            None,
-            density,
-            ke,
-            kd,
-            kf,
-            mu,
-            restitution,
-            thickness,
-            is_solid,
-        )
+            body, pos, q, GEO_CYLINDER, (radius, half_height, 0.0, 0.0),
+            None, density, ke, kd, kf, mu, restitution, thickness, is_solid,
+            has_ground_collision=has_ground_collision)
 
     def add_shape_cone(
         self,
@@ -2094,6 +2089,7 @@ class ModelBuilder:
         restitution: float = default_shape_restitution,
         is_solid: bool = True,
         thickness: float = default_geo_thickness,
+        has_ground_collision: bool = True,
     ):
         """Adds a cone collision shape to a body.
 
@@ -2112,6 +2108,7 @@ class ModelBuilder:
             restitution: The coefficient of restitution
             is_solid: Whether the cone is solid or hollow
             thickness: Thickness to use for computing inertia of a hollow cone, and for collision handling
+            has_ground_collision: If True, the mesh will collide with the ground plane if `Model.ground` is True
 
         """
 
@@ -2121,22 +2118,11 @@ class ModelBuilder:
             q = wp.mul(rot, wp.quat(0.0, 0.0, -sqh, sqh))
         elif up_axis == 2:
             q = wp.mul(rot, wp.quat(sqh, 0.0, 0.0, sqh))
+
         return self._add_shape(
-            body,
-            pos,
-            q,
-            GEO_CONE,
-            (radius, half_height, 0.0, 0.0),
-            None,
-            density,
-            ke,
-            kd,
-            kf,
-            mu,
-            restitution,
-            thickness,
-            is_solid,
-        )
+            body, pos, q, GEO_CONE, (radius, half_height, 0.0, 0.0),
+            None, density, ke, kd, kf, mu, restitution, thickness, is_solid,
+            has_ground_collision=has_ground_collision)
 
     def add_shape_mesh(
         self,
@@ -2153,6 +2139,7 @@ class ModelBuilder:
         restitution: float = default_shape_restitution,
         is_solid: bool = True,
         thickness: float = default_geo_thickness,
+        has_ground_collision: bool = True,
     ):
         """Adds a triangle mesh collision shape to a body.
 
@@ -2170,25 +2157,15 @@ class ModelBuilder:
             restitution: The coefficient of restitution
             is_solid: If True, the mesh is solid, otherwise it is a hollow surface with the given wall thickness
             thickness: Thickness to use for computing inertia of a hollow mesh, and for collision handling
+            has_ground_collision: If True, the mesh will collide with the ground plane if `Model.ground` is True
 
         """
 
         return self._add_shape(
-            body,
-            pos,
-            rot,
-            GEO_MESH,
-            (scale[0], scale[1], scale[2], 0.0),
-            mesh,
-            density,
-            ke,
-            kd,
-            kf,
-            mu,
-            restitution,
-            thickness,
-            is_solid,
-        )
+            body, pos, rot, GEO_MESH, (scale[0], scale[1], scale[2], 0.0),
+            mesh, density, ke, kd, kf, mu,
+            restitution, thickness, is_solid,
+            has_ground_collision=has_ground_collision)
 
     def _shape_radius(self, type, scale, src):
         """
@@ -2201,7 +2178,7 @@ class ModelBuilder:
         elif type == GEO_CAPSULE or type == GEO_CYLINDER or type == GEO_CONE:
             return scale[0] + scale[1]
         elif type == GEO_MESH:
-            vmax = np.max(np.abs(src.vertices), axis=0) * scale[0]
+            vmax = np.max(np.abs(src.vertices), axis=0) * np.max(scale)
             return np.linalg.norm(vmax)
         elif type == GEO_PLANE:
             if scale[0] > 0.0 and scale[1] > 0.0:
@@ -2554,7 +2531,7 @@ class ModelBuilder:
 
         """
         # compute rest angle
-        if rest == None:
+        if rest is None:
             x1 = np.array(self.particle_q[i])
             x2 = np.array(self.particle_q[j])
             x3 = np.array(self.particle_q[k])
