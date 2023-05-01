@@ -10,7 +10,7 @@ import math
 import timeit
 import cProfile
 import numpy as np
-from typing import Union
+from typing import Union, Tuple
 
 import warp as wp
 
@@ -233,10 +233,39 @@ def transform_expand_list(xforms):
 
 
 def transform_inertia(m, I, p, q):
+    """
+    Transforms the inertia tensor described by the given mass and 3x3 inertia
+    matrix to a new frame described by the given position and orientation.
+    """
     R = quat_to_matrix(q)
 
     # Steiner's theorem
     return R @ I @ R.T + m * (np.dot(p, p) * np.eye(3) - np.outer(p, p))
+
+
+def transform_decompose_mat44(mat: wp.mat44) -> Tuple[wp.vec3, wp.quat, wp.vec3]:
+    """ Decomposes 4x4 matrix into translation, rotation, scale. """
+    r0 = mat.get_row(0)
+    r1 = mat.get_row(1)
+    r2 = mat.get_row(2)
+    p0 = r0[3]
+    p1 = r1[3]
+    p2 = r2[3]
+    translation = wp.vec3(p0, p1, p2)
+
+    s0 = wp.length(wp.vec3(r0[0], r1[0], r2[0]))
+    s1 = wp.length(wp.vec3(r0[1], r1[1], r2[1]))
+    s2 = wp.length(wp.vec3(r0[2], r1[2], r2[2]))
+    scale = wp.vec3(s0, s1, s2)
+
+    inner = wp.mat33(
+        r0[0] / s0, r0[1] / s1, r0[2] / s2,
+        r1[0] / s0, r1[1] / s1, r1[2] / s2,
+        r2[0] / s0, r2[1] / s1, r2[2] / s2,
+    )
+    rotation = wp.quat_from_matrix(inner)
+
+    return (translation, rotation, scale)
 
 
 # spatial operators
