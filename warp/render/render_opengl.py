@@ -2198,6 +2198,7 @@ Instances: {len(self._instances)}"""
         half_height: float,
         parent_body: str = None,
         is_template: bool = False,
+        up_axis: int = 1,
     ):
         """Add a capsule for visualization
 
@@ -2206,6 +2207,7 @@ Instances: {len(self._instances)}"""
             radius: The radius of the capsule
             half_height: The half height of the capsule
             name: A name for the USD prim on the stage
+            up_axis: The axis of the capsule that points up (0: x, 1: y, 2: z)
         """
         geo_hash = hash(("capsule", radius, half_height))
         if geo_hash in self._shape_geo_hash:
@@ -2213,7 +2215,7 @@ Instances: {len(self._instances)}"""
             if self.update_shape_instance(name, pos, rot):
                 return shape
         else:
-            vertices, indices = self._create_capsule_mesh(radius, half_height)
+            vertices, indices = self._create_capsule_mesh(radius, half_height, up_axis=up_axis)
             shape = self.register_shape(geo_hash, vertices, indices)
         if not is_template:
             body = self._resolve_body_id(parent_body)
@@ -2229,6 +2231,7 @@ Instances: {len(self._instances)}"""
         half_height: float,
         parent_body: str = None,
         is_template: bool = False,
+        up_axis: int = 1,
     ):
         """Add a cylinder for visualization
 
@@ -2237,6 +2240,7 @@ Instances: {len(self._instances)}"""
             radius: The radius of the cylinder
             half_height: The half height of the cylinder
             name: A name for the USD prim on the stage
+            up_axis: The axis of the cylinder that points up (0: x, 1: y, 2: z)
         """
         geo_hash = hash(("cylinder", radius, half_height))
         if geo_hash in self._shape_geo_hash:
@@ -2244,7 +2248,7 @@ Instances: {len(self._instances)}"""
             if self.update_shape_instance(name, pos, rot):
                 return shape
         else:
-            vertices, indices = self._create_cylinder_mesh(radius, half_height)
+            vertices, indices = self._create_cylinder_mesh(radius, half_height, up_axis=up_axis)
             shape = self.register_shape(geo_hash, vertices, indices)
         if not is_template:
             body = self._resolve_body_id(parent_body)
@@ -2260,6 +2264,7 @@ Instances: {len(self._instances)}"""
         half_height: float,
         parent_body: str = None,
         is_template: bool = False,
+        up_axis: int = 1,
     ):
         """Add a cone for visualization
 
@@ -2268,6 +2273,7 @@ Instances: {len(self._instances)}"""
             radius: The radius of the cone
             half_height: The half height of the cone
             name: A name for the USD prim on the stage
+            up_axis: The axis of the cone that points up (0: x, 1: y, 2: z)
         """
         geo_hash = hash(("cone", radius, half_height))
         if geo_hash in self._shape_geo_hash:
@@ -2275,7 +2281,7 @@ Instances: {len(self._instances)}"""
             if self.update_shape_instance(name, pos, rot):
                 return shape
         else:
-            vertices, indices = self._create_cone_mesh(radius, half_height)
+            vertices, indices = self._create_cone_mesh(radius, half_height, up_axis=up_axis)
             shape = self.register_shape(geo_hash, vertices, indices)
         if not is_template:
             body = self._resolve_body_id(parent_body)
@@ -2381,6 +2387,44 @@ Instances: {len(self._instances)}"""
         if not is_template:
             body = self._resolve_body_id(parent_body)
             self.add_shape_instance(name, shape, body, pos, rot)
+        return shape
+
+    def render_arrow(
+        self,
+        name: str,
+        pos: tuple,
+        rot: tuple,
+        base_radius: float,
+        base_height: float,
+        cap_radius: float = None,
+        cap_height: float = None,
+        parent_body: str = None,
+        is_template: bool = False,
+        up_axis: int = 1,
+        color: Tuple[float, float, float] = None,
+    ):
+        """Add a arrow for visualization
+
+        Args:
+            pos: The position of the arrow
+            base_radius: The radius of the cylindrical base of the arrow
+            base_height: The height of the cylindrical base of the arrow
+            cap_radius: The radius of the conical cap of the arrow
+            cap_height: The height of the conical cap of the arrow
+            name: A name for the USD prim on the stage
+            up_axis: The axis of the arrow that points up (0: x, 1: y, 2: z)
+        """
+        geo_hash = hash(("arrow", base_radius, base_height, cap_radius, cap_height))
+        if geo_hash in self._shape_geo_hash:
+            shape = self._shape_geo_hash[geo_hash]
+            if self.update_shape_instance(name, pos, rot):
+                return shape
+        else:
+            vertices, indices = self._create_arrow_mesh(base_radius, base_height, cap_radius, cap_height, up_axis=up_axis)
+            shape = self.register_shape(geo_hash, vertices, indices)
+        if not is_template:
+            body = self._resolve_body_id(parent_body)
+            self.add_shape_instance(name, shape, body, pos, rot, color1=color, color2=color)
         return shape
 
     def render_ref(self, name: str, path: str, pos: tuple, rot: tuple, scale: tuple):
