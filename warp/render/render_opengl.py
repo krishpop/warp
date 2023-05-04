@@ -1920,7 +1920,7 @@ Instances: {len(self._instances)}"""
                 body_q = body_tf.to(self._device)
 
         vbo_transforms = self._instance_transform_cuda_buffer.map(dtype=wp.mat44, shape=(self._instance_count,))
-        
+
         wp.launch(
             update_vbo_transforms,
             dim=self._instance_count,
@@ -1989,8 +1989,14 @@ Instances: {len(self._instances)}"""
 
         gl.glBindBuffer(gl.GL_PIXEL_PACK_BUFFER, self._frame_pbo)
         gl.glBindTexture(gl.GL_TEXTURE_2D, self._frame_texture)
-        # read screen texture into PBO
-        gl.glGetTexImage(gl.GL_TEXTURE_2D, 0, gl.GL_RGB, gl.GL_UNSIGNED_BYTE, ctypes.c_void_p(0))
+        try:
+            # read screen texture into PBO
+            gl.glGetTexImage(gl.GL_TEXTURE_2D, 0, gl.GL_RGB, gl.GL_UNSIGNED_BYTE, ctypes.c_void_p(0))
+        except gl.GLException:
+            # this can happen if the window is closed/being moved to a different display
+            gl.glBindTexture(gl.GL_TEXTURE_2D, 0)
+            gl.glBindBuffer(gl.GL_PIXEL_PACK_BUFFER, 0)
+            return False
         gl.glBindTexture(gl.GL_TEXTURE_2D, 0)
         gl.glBindBuffer(gl.GL_PIXEL_PACK_BUFFER, 0)
 
@@ -2018,6 +2024,7 @@ Instances: {len(self._instances)}"""
                 device=target_image.device,
             )
         pbo_buffer.unmap()
+        return True
 
     def get_tile_pixels(self, tile_id: int, target_image: wp.array):
         viewport = self._tile_viewports[tile_id]
@@ -2028,8 +2035,14 @@ Instances: {len(self._instances)}"""
         ), f"Shape of `target_image` array does not match {viewport[3]} x {viewport[2]} x 3"
         gl.glBindBuffer(gl.GL_PIXEL_PACK_BUFFER, self._frame_pbo)
         gl.glBindTexture(gl.GL_TEXTURE_2D, self._frame_texture)
-        # read screen texture into PBO
-        gl.glGetTexImage(gl.GL_TEXTURE_2D, 0, gl.GL_RGB, gl.GL_FLOAT, ctypes.c_void_p(0))
+        try:
+            # read screen texture into PBO
+            gl.glGetTexImage(gl.GL_TEXTURE_2D, 0, gl.GL_RGB, gl.GL_UNSIGNED_BYTE, ctypes.c_void_p(0))
+        except gl.GLException:
+            # this can happen if the window is closed/being moved to a different display
+            gl.glBindTexture(gl.GL_TEXTURE_2D, 0)
+            gl.glBindBuffer(gl.GL_PIXEL_PACK_BUFFER, 0)
+            return False
         gl.glBindTexture(gl.GL_TEXTURE_2D, 0)
         gl.glBindBuffer(gl.GL_PIXEL_PACK_BUFFER, 0)
 
@@ -2047,6 +2060,7 @@ Instances: {len(self._instances)}"""
             device=target_image.device,
         )
         pbo_buffer.unmap()
+        return True
 
     # def create_image_texture(self, file_path):
     #     from PIL import Image
