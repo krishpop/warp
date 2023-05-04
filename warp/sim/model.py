@@ -8,13 +8,21 @@
 """A module for building simulation models and state.
 """
 
+from .inertia import transform_inertia
+from .inertia import compute_cone_inertia
+from .inertia import compute_cylinder_inertia
+from .inertia import compute_capsule_inertia
+from .inertia import compute_box_inertia
+from .inertia import compute_sphere_inertia
+from .inertia import compute_mesh_inertia
+
 import warp as wp
 import numpy as np
 
 import math
 import copy
 
-from typing import List, Optional, Tuple, Union
+from typing import List, Optional, Tuple
 
 Vec3 = List[float]
 Vec4 = List[float]
@@ -32,14 +40,6 @@ GEO_MESH = wp.constant(5)
 GEO_SDF = wp.constant(6)
 GEO_PLANE = wp.constant(7)
 GEO_NONE = wp.constant(8)
-
-from .inertia import compute_mesh_inertia
-from .inertia import compute_sphere_inertia
-from .inertia import compute_box_inertia
-from .inertia import compute_capsule_inertia
-from .inertia import compute_cylinder_inertia
-from .inertia import compute_cone_inertia
-from .inertia import transform_inertia
 
 # Types of joints linking rigid bodies
 JOINT_PRISMATIC = wp.constant(0)
@@ -252,7 +252,7 @@ def compute_shape_mass(type, scale, src, density, is_solid, thickness):
         else:
             hollow = compute_cone_inertia(density, r - thickness, h - 2.0 * thickness)
             return solid[0] - hollow[0], solid[1], solid[2] - hollow[2]
-    elif (type == GEO_MESH):            
+    elif (type == GEO_MESH):
         if src.has_inertia and src.mass > 0.0 and src.is_solid == is_solid:
             m, c, I = src.mass, src.com, src.I
 
@@ -264,12 +264,12 @@ def compute_shape_mass(type, scale, src, density, is_solid, thickness):
 
             c_new = c * s
 
-            Ixx = I[0,0] * (sy**2 + sz**2)/2 * mass_ratio
-            Iyy = I[1,1] * (sx**2 + sz**2)/2 * mass_ratio
-            Izz = I[2,2] * (sx**2 + sy**2)/2 * mass_ratio
-            Ixy = I[0,1] * sx * sy * mass_ratio
-            Ixz = I[0,2] * sx * sz * mass_ratio
-            Iyz = I[1,2] * sy * sz * mass_ratio
+            Ixx = I[0, 0] * (sy**2 + sz**2) / 2 * mass_ratio
+            Iyy = I[1, 1] * (sx**2 + sz**2) / 2 * mass_ratio
+            Izz = I[2, 2] * (sx**2 + sy**2) / 2 * mass_ratio
+            Ixy = I[0, 1] * sx * sy * mass_ratio
+            Ixz = I[0, 2] * sx * sz * mass_ratio
+            Iyz = I[1, 2] * sy * sz * mass_ratio
 
             I_new = np.array([
                 [Ixx, Ixy, Ixz],
@@ -622,7 +622,8 @@ class Model:
 
     def find_shape_contact_pairs(self):
         # find potential contact pairs based on collision groups and collision mask (pairwise filtering)
-        import itertools, copy
+        import itertools
+        import copy
 
         filters = copy.copy(self.shape_collision_filter_pairs)
         for a, b in self.shape_collision_filter_pairs:
@@ -1839,20 +1840,22 @@ class ModelBuilder:
         return len(self.muscle_start) - 1
 
     # shapes
-    def add_shape_plane(self,
-                        plane: Vec4=(0.0, 1.0, 0.0, 0.0),
-                        pos: Vec3=None,
-                        rot: Quat=None,
-                        width: float=10.0,
-                        length: float=10.0,
-                        body: int = -1,
-                        ke: float=default_shape_ke,
-                        kd: float=default_shape_kd,
-                        kf: float=default_shape_kf,
-                        mu: float=default_shape_mu,
-                        restitution: float=default_shape_restitution,
-                        thickness: float=0.0,
-                        has_ground_collision: bool=False):
+    def add_shape_plane(
+        self,
+        plane: Vec4 = (0.0, 1.0, 0.0, 0.0),
+        pos: Vec3 = None,
+        rot: Quat = None,
+        width: float = 10.0,
+        length: float = 10.0,
+        body: int = -1,
+        ke: float = default_shape_ke,
+        kd: float = default_shape_kd,
+        kf: float = default_shape_kf,
+        mu: float = default_shape_mu,
+        restitution: float = default_shape_restitution,
+        thickness: float = 0.0,
+        has_ground_collision: bool = False,
+    ):
         """
         Adds a plane collision shape.
         If pos and rot are defined, the plane is assumed to have its normal as (0, 1, 0).
@@ -1894,20 +1897,22 @@ class ModelBuilder:
             None, 0.0, ke, kd, kf, mu, restitution, thickness,
             has_ground_collision=has_ground_collision)
 
-    def add_shape_sphere(self,
-                         body,
-                         pos: Vec3=(0.0, 0.0, 0.0),
-                         rot: Quat=(0.0, 0.0, 0.0, 1.0),
-                         radius: float=1.0,
-                         density: float=default_shape_density,
-                         ke: float=default_shape_ke,
-                         kd: float=default_shape_kd,
-                         kf: float=default_shape_kf,
-                         mu: float=default_shape_mu,
-                         restitution: float=default_shape_restitution,
-                         is_solid: bool=True,
-                         thickness: float=default_geo_thickness,
-                         has_ground_collision: bool=True):
+    def add_shape_sphere(
+        self,
+        body,
+        pos: Vec3 = (0.0, 0.0, 0.0),
+        rot: Quat = (0.0, 0.0, 0.0, 1.0),
+        radius: float = 1.0,
+        density: float = default_shape_density,
+        ke: float = default_shape_ke,
+        kd: float = default_shape_kd,
+        kf: float = default_shape_kf,
+        mu: float = default_shape_mu,
+        restitution: float = default_shape_restitution,
+        is_solid: bool = True,
+        thickness: float = default_geo_thickness,
+        has_ground_collision: bool = True,
+    ):
         """Adds a sphere collision shape to a body.
 
         Args:
@@ -1932,22 +1937,24 @@ class ModelBuilder:
             None, density, ke, kd, kf, mu, restitution, thickness + radius, is_solid,
             has_ground_collision=has_ground_collision)
 
-    def add_shape_box(self,
-                      body: int,
-                      pos: Vec3=(0.0, 0.0, 0.0),
-                      rot: Quat=(0.0, 0.0, 0.0, 1.0),
-                      hx: float=0.5,
-                      hy: float=0.5,
-                      hz: float=0.5,
-                      density: float=default_shape_density,
-                      ke: float=default_shape_ke,
-                      kd: float=default_shape_kd,
-                      kf: float=default_shape_kf,
-                      mu: float=default_shape_mu,
-                      restitution: float=default_shape_restitution,
-                      is_solid: bool=True,
-                      thickness: float=default_geo_thickness,
-                      has_ground_collision: bool=True):
+    def add_shape_box(
+        self,
+        body: int,
+        pos: Vec3 = (0.0, 0.0, 0.0),
+        rot: Quat = (0.0, 0.0, 0.0, 1.0),
+        hx: float = 0.5,
+        hy: float = 0.5,
+        hz: float = 0.5,
+        density: float = default_shape_density,
+        ke: float = default_shape_ke,
+        kd: float = default_shape_kd,
+        kf: float = default_shape_kf,
+        mu: float = default_shape_mu,
+        restitution: float = default_shape_restitution,
+        is_solid: bool = True,
+        thickness: float = default_geo_thickness,
+        has_ground_collision: bool = True,
+    ):
         """Adds a box collision shape to a body.
 
         Args:
@@ -1974,22 +1981,24 @@ class ModelBuilder:
             None, density, ke, kd, kf, mu, restitution, thickness, is_solid,
             has_ground_collision=has_ground_collision)
 
-    def add_shape_capsule(self,
-                          body: int,
-                          pos: Vec3=(0.0, 0.0, 0.0),
-                          rot: Quat=(0.0, 0.0, 0.0, 1.0),
-                          radius: float=1.0,
-                          half_height: float=0.5,
-                          up_axis: int=1,
-                          density: float=default_shape_density,
-                          ke: float=default_shape_ke,
-                          kd: float=default_shape_kd,
-                          kf: float=default_shape_kf,
-                          mu: float=default_shape_mu,
-                          restitution: float=default_shape_restitution,
-                          is_solid: bool=True,
-                          thickness: float=default_geo_thickness,
-                          has_ground_collision: bool=True):
+    def add_shape_capsule(
+        self,
+        body: int,
+        pos: Vec3 = (0.0, 0.0, 0.0),
+        rot: Quat = (0.0, 0.0, 0.0, 1.0),
+        radius: float = 1.0,
+        half_height: float = 0.5,
+        up_axis: int = 1,
+        density: float = default_shape_density,
+        ke: float = default_shape_ke,
+        kd: float = default_shape_kd,
+        kf: float = default_shape_kf,
+        mu: float = default_shape_mu,
+        restitution: float = default_shape_restitution,
+        is_solid: bool = True,
+        thickness: float = default_geo_thickness,
+        has_ground_collision: bool = True,
+    ):
         """Adds a capsule collision shape to a body.
 
         Args:
@@ -2022,23 +2031,25 @@ class ModelBuilder:
             body, pos, q, GEO_CAPSULE, (radius, half_height, 0.0, 0.0),
             None, density, ke, kd, kf, mu, restitution, thickness + radius, is_solid,
             has_ground_collision=has_ground_collision)
-    
-    def add_shape_cylinder(self,
-                           body: int,
-                           pos: Vec3=(0.0, 0.0, 0.0),
-                           rot: Quat=(0.0, 0.0, 0.0, 1.0),
-                           radius: float=1.0,
-                           half_height: float=0.5,
-                           up_axis: int=1,
-                           density: float=default_shape_density,
-                           ke: float=default_shape_ke,
-                           kd: float=default_shape_kd,
-                           kf: float=default_shape_kf,
-                           mu: float=default_shape_mu,
-                           restitution: float=default_shape_restitution,
-                           is_solid: bool=True,
-                           thickness: float=default_geo_thickness,
-                           has_ground_collision: bool=True):
+
+    def add_shape_cylinder(
+        self,
+        body: int,
+        pos: Vec3 = (0.0, 0.0, 0.0),
+        rot: Quat = (0.0, 0.0, 0.0, 1.0),
+        radius: float = 1.0,
+        half_height: float = 0.5,
+        up_axis: int = 1,
+        density: float = default_shape_density,
+        ke: float = default_shape_ke,
+        kd: float = default_shape_kd,
+        kf: float = default_shape_kf,
+        mu: float = default_shape_mu,
+        restitution: float = default_shape_restitution,
+        is_solid: bool = True,
+        thickness: float = default_geo_thickness,
+        has_ground_collision: bool = True,
+    ):
         """Adds a cylinder collision shape to a body.
 
         Args:
@@ -2071,23 +2082,25 @@ class ModelBuilder:
             body, pos, q, GEO_CYLINDER, (radius, half_height, 0.0, 0.0),
             None, density, ke, kd, kf, mu, restitution, thickness, is_solid,
             has_ground_collision=has_ground_collision)
-    
-    def add_shape_cone(self,
-                           body: int,
-                           pos: Vec3=(0.0, 0.0, 0.0),
-                           rot: Quat=(0.0, 0.0, 0.0, 1.0),
-                           radius: float=1.0,
-                           half_height: float=0.5,
-                           up_axis: int=1,
-                           density: float=default_shape_density,
-                           ke: float=default_shape_ke,
-                           kd: float=default_shape_kd,
-                           kf: float=default_shape_kf,
-                           mu: float=default_shape_mu,
-                           restitution: float=default_shape_restitution,
-                           is_solid: bool=True,
-                           thickness: float=default_geo_thickness,
-                           has_ground_collision: bool=True):
+
+    def add_shape_cone(
+        self,
+        body: int,
+        pos: Vec3 = (0.0, 0.0, 0.0),
+        rot: Quat = (0.0, 0.0, 0.0, 1.0),
+        radius: float = 1.0,
+        half_height: float = 0.5,
+        up_axis: int = 1,
+        density: float = default_shape_density,
+        ke: float = default_shape_ke,
+        kd: float = default_shape_kd,
+        kf: float = default_shape_kf,
+        mu: float = default_shape_mu,
+        restitution: float = default_shape_restitution,
+        is_solid: bool = True,
+        thickness: float = default_geo_thickness,
+        has_ground_collision: bool = True,
+    ):
         """Adds a cone collision shape to a body.
 
         Args:
@@ -2121,21 +2134,23 @@ class ModelBuilder:
             None, density, ke, kd, kf, mu, restitution, thickness, is_solid,
             has_ground_collision=has_ground_collision)
 
-    def add_shape_mesh(self,
-                       body: int,
-                       pos: Vec3=(0.0, 0.0, 0.0),
-                       rot: Quat=(0.0, 0.0, 0.0, 1.0),
-                       mesh: Mesh=None,
-                       scale: Vec3=(1.0, 1.0, 1.0),
-                       density: float=default_shape_density,
-                       ke: float=default_shape_ke,
-                       kd: float=default_shape_kd,
-                       kf: float=default_shape_kf,
-                       mu: float=default_shape_mu,
-                       restitution: float=default_shape_restitution,
-                       is_solid: bool=True,
-                       thickness: float=default_geo_thickness,
-                       has_ground_collision: bool=True):
+    def add_shape_mesh(
+        self,
+        body: int,
+        pos: Vec3 = (0.0, 0.0, 0.0),
+        rot: Quat = (0.0, 0.0, 0.0, 1.0),
+        mesh: Mesh = None,
+        scale: Vec3 = (1.0, 1.0, 1.0),
+        density: float = default_shape_density,
+        ke: float = default_shape_ke,
+        kd: float = default_shape_kd,
+        kf: float = default_shape_kf,
+        mu: float = default_shape_mu,
+        restitution: float = default_shape_restitution,
+        is_solid: bool = True,
+        thickness: float = default_geo_thickness,
+        has_ground_collision: bool = True,
+    ):
         """Adds a triangle mesh collision shape to a body.
 
         Args:
