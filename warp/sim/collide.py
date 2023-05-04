@@ -453,9 +453,30 @@ def closest_edge_coordinate_mesh(mesh: wp.uint64, edge_a: wp.vec3, edge_b: wp.ve
     return 0.5 * (c + b)
 
 
+@wp.func
+def volume_grad(volume: wp.uint64, p: wp.vec3):
+    eps = 0.05  # TODO make this a parameter
+    q = wp.volume_world_to_index(volume, p)
+
+    # compute gradient of the SDF using finite differences
+    dx = wp.volume_sample_f(volume, q + wp.vec3(eps, 0.0, 0.0), wp.Volume.LINEAR) - wp.volume_sample_f(
+        volume, q - wp.vec3(eps, 0.0, 0.0), wp.Volume.LINEAR
+    )
+    dy = wp.volume_sample_f(volume, q + wp.vec3(0.0, eps, 0.0), wp.Volume.LINEAR) - wp.volume_sample_f(
+        volume, q - wp.vec3(0.0, eps, 0.0), wp.Volume.LINEAR
+    )
+    dz = wp.volume_sample_f(volume, q + wp.vec3(0.0, 0.0, eps), wp.Volume.LINEAR) - wp.volume_sample_f(
+        volume, q - wp.vec3(0.0, 0.0, eps), wp.Volume.LINEAR
+    )
+
+    return wp.normalize(wp.vec3(dx, dy, dz))
+
+
 @wp.kernel
 def create_soft_contacts(
     particle_x: wp.array(dtype=wp.vec3),
+    particle_radius: wp.array(dtype=float),
+    particle_enabled: wp.array(dtype=wp.uint8),
     body_X_wb: wp.array(dtype=wp.transform),
     shape_X_bs: wp.array(dtype=wp.transform),
     shape_body: wp.array(dtype=int),
@@ -471,9 +492,13 @@ def create_soft_contacts(
     soft_contact_normal: wp.array(dtype=wp.vec3),
 ):
     particle_index, shape_index = wp.tid()
+    if particle_enabled[particle_index] == 0:
+        return
+
     rigid_index = shape_body[shape_index]
 
     px = particle_x[particle_index]
+    radius = particle_radius[particle_index]
 
     X_wb = wp.transform_identity()
     if rigid_index >= 0:
@@ -540,7 +565,7 @@ def create_soft_contacts(
         d = plane_sdf(geo_scale[0], geo_scale[1], x_local)
         n = wp.vec3(0.0, 1.0, 0.0)
 
-    if d < margin:
+    if d < margin + radius:
         index = wp.atomic_add(soft_contact_count, 0, 1)
 
         if index < soft_contact_max:
@@ -555,25 +580,6 @@ def create_soft_contacts(
             soft_contact_body_vel[index] = body_vel
             soft_contact_particle[index] = particle_index
             soft_contact_normal[index] = world_normal
-
-
-@wp.func
-def volume_grad(volume: wp.uint64, p: wp.vec3):
-    eps = 0.05  # TODO make this a parameter
-    q = wp.volume_world_to_index(volume, p)
-
-    # compute gradient of the SDF using finite differences
-    dx = wp.volume_sample_f(volume, q + wp.vec3(eps, 0.0, 0.0), wp.Volume.LINEAR) - wp.volume_sample_f(
-        volume, q - wp.vec3(eps, 0.0, 0.0), wp.Volume.LINEAR
-    )
-    dy = wp.volume_sample_f(volume, q + wp.vec3(0.0, eps, 0.0), wp.Volume.LINEAR) - wp.volume_sample_f(
-        volume, q - wp.vec3(0.0, eps, 0.0), wp.Volume.LINEAR
-    )
-    dz = wp.volume_sample_f(volume, q + wp.vec3(0.0, 0.0, eps), wp.Volume.LINEAR) - wp.volume_sample_f(
-        volume, q - wp.vec3(0.0, 0.0, eps), wp.Volume.LINEAR
-    )
-
-    return wp.normalize(wp.vec3(dx, dy, dz))
 
 
 @wp.kernel
@@ -890,7 +896,7 @@ def handle_contact_pairs(
     geo_scale_a = geo.scale[shape_a]
     min_scale_a = min(geo_scale_a)
     thickness_a = geo.thickness[shape_a]
-    is_solid_a = geo.is_solid[shape_a]
+    # is_solid_a = geo.is_solid[shape_a]
 
     rigid_b = shape_body[shape_b]
     X_wb_b = wp.transform_identity()
@@ -904,7 +910,7 @@ def handle_contact_pairs(
     geo_scale_b = geo.scale[shape_b]
     min_scale_b = min(geo_scale_b)
     thickness_b = geo.thickness[shape_b]
-    is_solid_b = geo.is_solid[shape_b]
+    # is_solid_b = geo.is_solid[shape_b]
 
     # fill in contact rigid body ids
     contact_body0[tid] = rigid_a
@@ -1314,6 +1320,8 @@ def collide(model, state, edge_sdf_iter: int = 10):
             dim=(model.particle_count, model.shape_count - 1),
             inputs=[
                 state.particle_q,
+                model.particle_radius,
+                model.particle_enabled,
                 state.body_q,
                 model.shape_transform,
                 model.shape_body,
