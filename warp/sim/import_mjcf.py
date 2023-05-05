@@ -20,6 +20,7 @@ from warp.sim.model import Mesh
 def parse_mjcf(
     filename,
     builder,
+    xform=wp.transform(),
     density=1000.0,
     stiffness=0.0,
     damping=0.0,
@@ -34,17 +35,26 @@ def parse_mjcf(
     armature_scale=1.0,
     parse_meshes=False,
     enable_self_collisions=True,
+    up_axis="z",
 ):
     file = ET.parse(filename)
     root = file.getroot()
 
-    type_map = {
-        "ball": wp.sim.JOINT_BALL,
-        "hinge": wp.sim.JOINT_REVOLUTE,
-        "slide": wp.sim.JOINT_PRISMATIC,
-        "free": wp.sim.JOINT_FREE,
-        "fixed": wp.sim.JOINT_FIXED,
-    }
+    if isinstance(up_axis, str):
+        up_axis = "xyz".index(up_axis.lower())
+    sqh = np.sqrt(0.5)
+    if up_axis == 0:
+        xform = wp.transform(xform.p, wp.quat(0.0, 0.0, -sqh, sqh) * xform.q)
+    elif up_axis == 2:
+        xform = wp.transform(xform.p, wp.quat(sqh, 0.0, 0.0, -sqh) * xform.q)
+
+    use_degrees = True  # angles are in degrees by default
+    euler_seq = [1, 2, 3]  # XYZ by default
+
+    compiler = root.find("compiler")
+    if compiler is not None:
+        use_degrees = compiler.attrib.get("angle", "degree").lower() == "degree"
+        euler_seq = ["xyz".index(c) + 1 for c in compiler.attrib.get("eulerseq", "xyz").lower()]
 
     def parse_float(node, key, default):
         if key in node.attrib:
@@ -88,11 +98,14 @@ def parse_mjcf(
         body_pos = parse_vec(body, "pos", (0.0, 0.0, 0.0))
         body_ori_euler = parse_vec(body, "euler", (0.0, 0.0, 0.0))
         if len(np.nonzero(body_ori_euler)[0]) > 0:
-            body_axis = tuple(np.sign(body_ori_euler))
-            body_angle = body_ori_euler[np.nonzero(body_ori_euler)[0].item()] / 180 * np.pi
-            body_ori = wp.utils.quat_from_axis_angle(body_axis, body_angle)
+            if use_degrees:
+                body_ori_euler *= np.pi / 180
+            body_ori = wp.quat_from_euler(body_ori_euler, *euler_seq)
         else:
             body_ori = wp.quat_identity()
+        if parent == -1:
+            body_pos = wp.transform_point(xform, body_pos)
+            body_ori = xform.q * body_ori
 
         joint_armature = []
         joint_name = []
@@ -121,10 +134,11 @@ def parse_mjcf(
             mode = wp.sim.JOINT_MODE_LIMIT
             if stiffness > 0.0 or "stiffness" in joint.attrib:
                 mode = wp.sim.JOINT_MODE_TARGET_POSITION
+            axis_vec = parse_vec(joint, "axis", (0.0, 0.0, 0.0))
             ax = wp.sim.model.JointAxis(
-                axis=parse_vec(joint, "axis", (0.0, 0.0, 0.0)),
-                limit_lower=(np.deg2rad(joint_range[0]) if is_angular else joint_range[0]),
-                limit_upper=(np.deg2rad(joint_range[1]) if is_angular else joint_range[1]),
+                axis=axis_vec,
+                limit_lower=(np.deg2rad(joint_range[0]) if is_angular and use_degrees else joint_range[0]),
+                limit_upper=(np.deg2rad(joint_range[1]) if is_angular and use_degrees else joint_range[1]),
                 target_ke=parse_float(joint, "stiffness", stiffness),
                 target_kd=parse_float(joint, "damping", damping),
                 limit_ke=limit_ke,
@@ -137,7 +151,7 @@ def parse_mjcf(
                 linear_axes.append(ax)
 
         link = builder.add_body(
-            origin=wp.transform_identity(),  # will be evaluated in fk()
+            origin=wp.transform(body_pos, body_ori),  # will be evaluated in fk()
             armature=joint_armature[0],
             name=body_name,
         )
@@ -164,8 +178,8 @@ def parse_mjcf(
             linear_axes,
             angular_axes,
             name="_".join(joint_name),
-            parent_xform=wp.transform(body_pos, body_ori),
-            # child_xform=wp.transform(joint_pos[0], wp.quat_identity()),
+            parent_xform=wp.transform(body_pos + joint_pos[0], body_ori),
+            child_xform=wp.transform(joint_pos[0], wp.quat_identity()),
         )
 
         # -----------------
@@ -177,7 +191,7 @@ def parse_mjcf(
 
             geom_size = parse_vec(geom, "size", [1.0])
             geom_pos = parse_vec(geom, "pos", (0.0, 0.0, 0.0))
-            geom_rot = parse_vec(geom, "quat", (0.0, 0.0, 0.0, 1.0))
+            geom_rot = wp.quat(*parse_vec(geom, "quat", (0.0, 0.0, 0.0, 1.0)))
             geom_density = parse_float(geom, "density", density)
 
             if geom_type == "sphere":
@@ -228,16 +242,12 @@ def parse_mjcf(
 
                     geom_radius = geom_size[0]
                     geom_height = np.linalg.norm(end - start) * 0.5
+                    geom_up_axis = 1
 
                 else:
                     geom_radius = geom_size[0]
                     geom_height = geom_size[1]
-                    geom_pos = parse_vec(geom, "pos", (0.0, 0.0, 0.0))
-                    # orientation along the z axis by default
-                    axis = np.array((0.0, 0.0, 1.0))
-                    angle = math.acos(np.dot(axis, (0.0, 1.0, 0.0)))
-                    axis = wp.normalize(np.cross(axis, (0.0, 1.0, 0.0)))
-                    geom_rot = wp.quat_from_axis_angle(axis, -angle)
+                    geom_up_axis = up_axis
 
                 if geom_type == "cylinder":
                     builder.add_shape_cylinder(
@@ -252,6 +262,7 @@ def parse_mjcf(
                         kf=contact_kf,
                         mu=contact_mu,
                         restitution=contact_restitution,
+                        up_axis=geom_up_axis,
                     )
                 else:
                     builder.add_shape_capsule(
@@ -266,6 +277,7 @@ def parse_mjcf(
                         kf=contact_kf,
                         mu=contact_mu,
                         restitution=contact_restitution,
+                        up_axis=geom_up_axis,
                     )
 
             else:
