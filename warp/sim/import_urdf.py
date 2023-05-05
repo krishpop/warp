@@ -30,7 +30,7 @@ def parse_urdf(
         limit_kd=10.0,
         parse_visuals_as_colliders=False,
         enable_self_collisions=True,
-        ignore_inertial_definitions=False):
+        ignore_inertial_definitions=True):
 
     import urdfpy
     # silence trimesh logging
