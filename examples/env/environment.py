@@ -96,6 +96,7 @@ class Environment:
     opengl_render_settings = dict()
     usd_render_settings = dict(scaling=10.0)
     show_rigid_contact_points = False
+    show_joints = False
     # whether OpenGLRenderer should render each environment in a separate tile
     use_tiled_rendering = False
 
@@ -132,6 +133,9 @@ class Environment:
 
     requires_grad: bool = False
 
+    # control-related definitions, to be updated by derived classes
+    control_dim: int = 0
+
     def __init__(self):
         self.parser = argparse.ArgumentParser()
         self.parser.add_argument(
@@ -166,7 +170,7 @@ class Environment:
         elif self.integrator_type == IntegratorType.XPBD:
             self.sim_substeps = self.sim_substeps_xpbd
 
-        self.episode_frames = int(self.episode_duration/self.frame_dt)
+        self.episode_frames = int(self.episode_duration / self.frame_dt)
         self.sim_dt = self.frame_dt / self.sim_substeps
         self.sim_steps = int(self.episode_duration / self.sim_dt)
 
@@ -217,6 +221,7 @@ class Environment:
                 self.sim_name,
                 up_axis=self.up_axis,
                 show_rigid_contact_points=self.show_rigid_contact_points,
+                show_joints=self.show_joints,
                 **self.opengl_render_settings)
             if self.use_tiled_rendering and self.num_envs > 1:
                 floor_id = self.model.shape_count - 1
@@ -269,13 +274,13 @@ class Environment:
             self.integrator.simulate(self.model, self.state_0, self.state_1, self.sim_dt)
             self.state_0, self.state_1 = self.state_1, self.state_0
 
-    def render(self, is_live=False):
+    def render(self, state=None):
         if self.renderer is not None:
             with wp.ScopedTimer("render", False):
                 self.render_time += self.frame_dt
                 self.renderer.begin_frame(self.render_time)
                 # render state 1 (swapped with state 0 just before)
-                self.renderer.render(self.state_1)
+                self.renderer.render(state or self.state_1)
                 self.renderer.end_frame()
 
     def run(self):
@@ -293,7 +298,7 @@ class Environment:
         self.before_simulate()
 
         if self.renderer is not None:
-            self.render()
+            self.render(self.state_0)
 
             if self.render_mode == RenderMode.OPENGL:
                 self.renderer.paused = True
@@ -325,10 +330,6 @@ class Environment:
 
         # simulate
         with wp.ScopedTimer("simulate", detailed=False, print=False, active=True, dict=profiler):
-            if self.renderer is not None:
-                with wp.ScopedTimer("render", False):
-                    self.render()
-
             running = True
             while running:
                 for f in range(self.episode_frames):
@@ -336,27 +337,19 @@ class Environment:
                         wp.capture_launch(graph)
                         self.sim_time += self.frame_dt
                     else:
-                        for i in range(0, self.sim_substeps):
-                            self.state_0.clear_forces()
-                            self.custom_update()
-                            wp.sim.collide(self.model, self.state_0)
-                            self.integrator.simulate(
-                                self.model, self.state_0, self.state_1, self.sim_dt, requires_grad=self.requires_grad
-                            )
-                            self.state_0, self.state_1 = self.state_1, self.state_0
+                        self.update()
+                        self.sim_time += self.frame_dt
 
-                            self.sim_time += self.sim_dt
+                        if not self.profile:
+                            if self.plot_body_coords:
+                                q_history.append(self.state_0.body_q.numpy().copy())
+                                qd_history.append(self.state_0.body_qd.numpy().copy())
+                                delta_history.append(self.state_0.body_deltas.numpy().copy())
+                                num_con_history.append(self.model.rigid_contact_inv_weight.numpy().copy())
 
-                            if not self.profile:
-                                if self.plot_body_coords:
-                                    q_history.append(self.state_0.body_q.numpy().copy())
-                                    qd_history.append(self.state_0.body_qd.numpy().copy())
-                                    delta_history.append(self.state_0.body_deltas.numpy().copy())
-                                    num_con_history.append(self.model.rigid_contact_inv_weight.numpy().copy())
-
-                                if self.plot_joint_coords:
-                                    wp.sim.eval_ik(self.model, self.state_0, joint_q, joint_qd)
-                                    joint_q_history.append(joint_q.numpy().copy())
+                            if self.plot_joint_coords:
+                                wp.sim.eval_ik(self.model, self.state_0, joint_q, joint_qd)
+                                joint_q_history.append(joint_q.numpy().copy())
 
                     self.render()
                     if self.render_mode == RenderMode.OPENGL and self.renderer.has_exit:
