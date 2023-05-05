@@ -14,7 +14,7 @@ from warp.sim.model import Mesh
 def parse_urdf(
         filename,
         builder,
-        xform,
+        xform=wp.transform(),
         floating=False,
         density=1000.0,
         stiffness=100.0,
@@ -31,9 +31,12 @@ def parse_urdf(
         parse_visuals_as_colliders=False,
         enable_self_collisions=True,
         ignore_inertial_definitions=False):
-    
+
     import urdfpy
-    
+    # silence trimesh logging
+    import logging
+    logging.getLogger('trimesh').disabled = True
+
     robot = urdfpy.URDF.load(filename)
 
     # maps from link name -> link index
@@ -60,9 +63,9 @@ def parse_urdf(
                     body=link,
                     pos=pos,
                     rot=rot,
-                    hx=geo.box.size[0]*0.5,
-                    hy=geo.box.size[1]*0.5,
-                    hz=geo.box.size[2]*0.5,
+                    hx=geo.box.size[0] * 0.5,
+                    hy=geo.box.size[1] * 0.5,
+                    hz=geo.box.size[2] * 0.5,
                     density=density,
                     ke=shape_ke,
                     kd=shape_kd,
@@ -92,7 +95,7 @@ def parse_urdf(
                     pos=pos,
                     rot=rot,
                     radius=geo.cylinder.radius,
-                    half_height=geo.cylinder.length*0.5,
+                    half_height=geo.cylinder.length * 0.5,
                     density=density,
                     ke=shape_ke,
                     kd=shape_kd,
@@ -122,7 +125,7 @@ def parse_urdf(
                         mu=shape_mu,
                         restitution=shape_restitution,
                         thickness=shape_thickness)
-    
+
     # add links
     for urdf_link in robot.links:
 
@@ -130,7 +133,7 @@ def parse_urdf(
             origin=wp.transform_identity(),
             armature=armature,
             name=urdf_link.name)
-        
+
         if parse_visuals_as_colliders:
             colliders = urdf_link.visuals
         else:
@@ -140,13 +143,13 @@ def parse_urdf(
         actual_density = 1.0 if m > 0.0 and density == 0.0 else density
         parse_shapes(link, colliders, density=actual_density)
 
-        if not ignore_inertial_definitions:
+        if not ignore_inertial_definitions and m > 0.0:
             # overwrite inertial parameters if defined
             com = urdfpy.matrix_to_xyz_rpy(urdf_link.inertial.origin)[0:3]
             I_m = urdf_link.inertial.inertia
-            
+
             builder.body_mass[link] = m
-            builder.body_inv_mass[link] = 1.0/m
+            builder.body_inv_mass[link] = 1.0 / m
             builder.body_com[link] = com
             builder.body_inertia[link] = I_m
             builder.body_inv_inertia[link] = np.linalg.inv(I_m)
@@ -174,11 +177,42 @@ def parse_urdf(
     else:
         builder.add_joint_fixed(-1, root, parent_xform=xform, name="fixed_base")
 
-    # add joints
+    # add joints, in topological order starting from root body
+
+    # find joints per body
+    body_children = {link.name: [] for link in robot.links}
+    # mapping from parent, child link names to joint
+    parent_child_joint = {}
+
     for joint in robot.joints:
-        parent = root
-        if joint.parent in link_index:
-            parent = link_index[joint.parent]
+        body_children[joint.parent].append(joint.child)
+        parent_child_joint[(joint.parent, joint.child)] = joint
+
+    # topological sorting of joints because the FK solver will resolve body transforms
+    # in joint order and needs the parent link transform to be resolved before the child
+    visited = {link.name: False for link in robot.links}
+    sorted_joints = []
+
+    # depth-first search
+    def dfs(joint):
+        link = joint.child
+        if visited[link]:
+            return
+        visited[link] = True
+
+        for child in body_children[link]:
+            if not visited[child]:
+                dfs(parent_child_joint[(link, child)])
+
+        sorted_joints.insert(0, joint)
+
+    # start DFS from each unvisited joint
+    for joint in robot.joints:
+        if not visited[joint.parent]:
+            dfs(joint)
+
+    for joint in sorted_joints:
+        parent = link_index[joint.parent]
         child = link_index[joint.child]
 
         origin = urdfpy.matrix_to_xyz_rpy(joint.origin)
@@ -191,9 +225,9 @@ def parse_urdf(
 
         # limits
         if joint.limit:
-            if joint.limit.lower != None:
+            if joint.limit.lower is not None:
                 lower = joint.limit.lower
-            if joint.limit.upper != None:
+            if joint.limit.upper is not None:
                 upper = joint.limit.upper
 
         # overwrite damping if defined in URDF
@@ -240,27 +274,29 @@ def parse_urdf(
             # find plane vectors perpendicular to axis
             axis = np.array(joint.axis)
             axis /= np.linalg.norm(axis)
-            if abs(axis[0]) > 0.1:
-                orthogonal_vector = np.array([1, 0, 0])
-            elif abs(axis[1]) > 0.1:
-                orthogonal_vector = np.array([0, 1, 0])
-            else:
-                orthogonal_vector = np.array([0, 0, 1])
-            plane_vector1 = np.cross(axis, orthogonal_vector)
-            plane_vector2 = np.cross(axis, plane_vector1)
+
+            # create helper vector that is not parallel to the axis
+            helper = np.array([1, 0, 0]) if np.allclose(axis, [0, 1, 0]) else np.array([0, 1, 0])
+
+            u = np.cross(helper, axis)
+            u /= np.linalg.norm(u)
+
+            v = np.cross(axis, u)
+            v /= np.linalg.norm(v)
+
             builder.add_joint_d6(
                 linear_axes=[
                     wp.sim.JointAxis(
-                        plane_vector1, limit_lower=lower, limit_upper=upper, limit_ke=limit_ke, limit_kd=limit_kd
+                        u, limit_lower=lower, limit_upper=upper, limit_ke=limit_ke, limit_kd=limit_kd
                     ),
                     wp.sim.JointAxis(
-                        plane_vector2, limit_lower=lower, limit_upper=upper, limit_ke=limit_ke, limit_kd=limit_kd
+                        v, limit_lower=lower, limit_upper=upper, limit_ke=limit_ke, limit_kd=limit_kd
                     ),
                 ],
                 **joint_params)
         else:
             raise Exception("Unsupported joint type: " + joint.joint_type)
-    
+
     end_shape_count = len(builder.shape_geo_type)
 
     if not enable_self_collisions:
