@@ -781,24 +781,29 @@ def eval_tetrahedra(
 
 
 @wp.kernel
-def eval_contacts(
+def eval_particle_ground_contacts(
     particle_x: wp.array(dtype=wp.vec3),
     particle_v: wp.array(dtype=wp.vec3),
+    particle_radius: wp.array(dtype=float),
+    particle_enabled: wp.array(dtype=wp.uint8),
     ke: float,
     kd: float,
     kf: float,
     mu: float,
-    offset: float,
     ground: wp.array(dtype=float),
+    # outputs
     f: wp.array(dtype=wp.vec3),
 ):
-    tid = wp.tid()
+    tid = wp.tid()    
+    if particle_enabled[tid] == 0:
+        return
 
     x = particle_x[tid]
     v = particle_v[tid]
+    radius = particle_radius[tid]
 
     n = wp.vec3(ground[0], ground[1], ground[2])
-    c = wp.min(wp.dot(n, x) + ground[3] - offset, 0.0)
+    c = wp.min(wp.dot(n, x) + ground[3] - radius, 0.0)
 
     vn = wp.dot(n, v)
     jn = c * ke
@@ -826,7 +831,7 @@ def eval_contacts(
 
 
 @wp.kernel
-def eval_soft_contacts(
+def eval_particle_contacts(
     particle_x: wp.array(dtype=wp.vec3),
     particle_v: wp.array(dtype=wp.vec3),
     body_q: wp.array(dtype=wp.transform),
@@ -1552,16 +1557,17 @@ def compute_forces(model, state, particle_f, body_f, requires_grad):
     # particle ground contact
     if model.ground and model.particle_count:
         wp.launch(
-            kernel=eval_contacts,
+            kernel=eval_particle_ground_contacts,
             dim=model.particle_count,
             inputs=[
                 state.particle_q,
                 state.particle_qd,
+                model.particle_radius,
+                model.particle_enabled,
                 model.soft_contact_ke,
                 model.soft_contact_kd,
                 model.soft_contact_kf,
                 model.soft_contact_mu,
-                model.soft_contact_distance,
                 model.ground_plane,
             ],
             outputs=[particle_f],
@@ -1647,7 +1653,7 @@ def compute_forces(model, state, particle_f, body_f, requires_grad):
     # particle shape contact
     if model.particle_count and model.shape_count > 1:
         wp.launch(
-            kernel=eval_soft_contacts,
+            kernel=eval_particle_contacts,
             dim=model.soft_contact_max,
             inputs=[
                 state.particle_q,

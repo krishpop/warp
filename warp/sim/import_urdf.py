@@ -335,7 +335,6 @@ def parse_urdf(
                 **joint_params)
         else:
             raise Exception("Unsupported joint type: " + joint.joint_type)
-
     end_shape_count = len(builder.shape_geo_type)
 
     if not enable_self_collisions:
