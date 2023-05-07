@@ -10,12 +10,15 @@ import numpy as np
 import warp as wp
 from warp.sim.model import Mesh
 
+from typing import Union
+
 
 def parse_urdf(
         filename,
         builder,
         xform=wp.transform(),
         floating=False,
+        fixed_base_joint: Union[dict, str] = None,
         density=1000.0,
         stiffness=100.0,
         damping=10.0,
@@ -89,7 +92,6 @@ def parse_urdf(
                     thickness=shape_thickness)
 
             if geo.cylinder:
-
                 builder.add_shape_capsule(
                     body=link,
                     pos=pos,
@@ -106,7 +108,6 @@ def parse_urdf(
                     thickness=shape_thickness)
 
             if geo.mesh:
-
                 for m in geo.mesh.meshes:
                     faces = list(np.array(m.faces).astype('int').flatten())
                     vertices = np.array(m.vertices, dtype=np.float32).reshape((-1, 3))
@@ -139,10 +140,13 @@ def parse_urdf(
         else:
             colliders = urdf_link.collisions
 
-        m = urdf_link.inertial.mass
-        actual_density = 1.0 if m > 0.0 and density == 0.0 else density
+        if ignore_inertial_definitions:
+            actual_density = density
+        else:
+            m = urdf_link.inertial.mass
+            actual_density = 1.0 if m > 0.0 and density == 0.0 else density
         parse_shapes(link, colliders, density=actual_density)
-
+        m = builder.body_mass[link]
         if not ignore_inertial_definitions and m > 0.0:
             # overwrite inertial parameters if defined
             com = urdfpy.matrix_to_xyz_rpy(urdf_link.inertial.origin)[0:3]
@@ -153,13 +157,49 @@ def parse_urdf(
             builder.body_com[link] = com
             builder.body_inertia[link] = I_m
             builder.body_inv_inertia[link] = np.linalg.inv(I_m)
+        elif m == 0.0:
+            # set the mass to something nonzero to ensure the body is dynamic
+            m = 0.1
+            # cube with side length 0.5
+            I_m = np.eye(3) * 0.5 * m / 12.0
+            builder.body_mass[link] = m
+            builder.body_inv_mass[link] = 1.0 / m
+            builder.body_inertia[link] = I_m
+            builder.body_inv_inertia[link] = np.linalg.inv(I_m)
 
         # add ourselves to the index
         link_index[urdf_link.name] = link
 
     # add base joint
     root = link_index[robot.base_link.name]
-    if floating:
+    if fixed_base_joint is not None:
+        if isinstance(fixed_base_joint, str):
+            axes = fixed_base_joint.lower().split(",")
+            axes = [ax.strip() for ax in axes]
+            linear_axes = [ax[-1] for ax in axes if ax[0] in {"l", "p"}]
+            angular_axes = [ax[-1] for ax in axes if ax[0] in {"a", "r"}]
+            axes = {
+                "x": [1.0, 0.0, 0.0],
+                "y": [0.0, 1.0, 0.0],
+                "z": [0.0, 0.0, 1.0],
+            }
+            builder.add_joint_d6(
+                linear_axes=[wp.sim.JointAxis(axes[a]) for a in linear_axes],
+                angular_axes=[wp.sim.JointAxis(axes[a]) for a in angular_axes],
+                parent_xform=xform,
+                parent=-1,
+                child=root,
+                name="fixed_base")
+        elif isinstance(fixed_base_joint, dict):
+            fixed_base_joint["parent"] = -1
+            fixed_base_joint["child"] = root
+            fixed_base_joint["parent_xform"] = xform
+            fixed_base_joint["name"] = "fixed_base"
+            builder.add_joint(**fixed_base_joint)
+        else:
+            raise ValueError(
+                "fixed_base_joint must be a comma-separated string of joint axes or a dict with joint parameters")
+    elif floating:
         builder.add_joint_free(root, name="floating_base")
 
         # set dofs to transform
@@ -173,7 +213,6 @@ def parse_urdf(
         builder.joint_q[start + 4] = xform.q[1]
         builder.joint_q[start + 5] = xform.q[2]
         builder.joint_q[start + 6] = xform.q[3]
-
     else:
         builder.add_joint_fixed(-1, root, parent_xform=xform, name="fixed_base")
 
