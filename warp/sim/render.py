@@ -64,6 +64,7 @@ def CreateSimRenderer(renderer):
             fps=60,
             up_axis="y",
             show_rigid_contact_points=False,
+            show_joints=False,
             contact_points_radius=1e-3,
             **render_kwargs,
         ):
@@ -72,6 +73,7 @@ def CreateSimRenderer(renderer):
             self.scaling = scaling
             self.cam_axis = "xyz".index(up_axis.lower())
             self.show_rigid_contact_points = show_rigid_contact_points
+            self.show_joints = show_joints
             self.contact_points_radius = contact_points_radius
             self.populate(model)
 
@@ -210,6 +212,53 @@ def CreateSimRenderer(renderer):
 
                     self.add_shape_instance(name, shape, body, X_bs.p, X_bs.q, scale)
                     self.instance_count += 1
+
+                if self.show_joints and model.joint_count:
+                    joint_type = model.joint_type.numpy()
+                    joint_axis = model.joint_axis.numpy()
+                    joint_axis_start = model.joint_axis_start.numpy()
+                    joint_axis_dim = model.joint_axis_dim.numpy()
+                    joint_parent = model.joint_parent.numpy()
+                    joint_tf = model.joint_X_p.numpy()
+                    y_axis = wp.vec3(0., 1., 0.)
+                    scale = (1., 1., 1.)
+                    color = (1., 0., 1.)
+
+                    shape = self.render_arrow(
+                        "joint_arrow", None, None,
+                        base_radius=0.01, base_height=0.4,
+                        cap_radius=0.02, cap_height=0.1,
+                        parent_body=None, is_template=True,
+                        color=color
+                    )
+                    for i, t in enumerate(joint_type):
+                        if t not in {
+                            warp.sim.JOINT_REVOLUTE,
+                            # warp.sim.JOINT_PRISMATIC,
+                            warp.sim.JOINT_UNIVERSAL,
+                            warp.sim.JOINT_COMPOUND,
+                            warp.sim.JOINT_D6,
+                        }:
+                            continue
+                        tf = joint_tf[i]
+                        body = int(joint_parent[i])
+                        if body == -1:
+                            continue
+                        num_linear_axes = int(joint_axis_dim[i][0])
+                        num_angular_axes = int(joint_axis_dim[i][1])
+                        for a in range(num_linear_axes, num_linear_axes + num_angular_axes):
+                            index = joint_axis_start[i] + a
+                            axis = joint_axis[index]
+                            if np.linalg.norm(axis) < 1e-6:
+                                continue
+                            p = wp.vec3(tf[:3])
+                            q = wp.quat(tf[3:])
+                            # compute rotation between axis and y
+                            axis = axis / np.linalg.norm(axis)
+                            q = q * wp.sim.quat_between_vectors(axis, y_axis)
+                            name = f"joint_{i}_{a}"
+                            self.add_shape_instance(name, shape, body, p, q, scale, color1=color, color2=color)
+                            self.instance_count += 1
 
             if model.ground:
                 self.render_ground()
