@@ -1,4 +1,5 @@
 import warp as wp
+import numpy as np
 
 PI = wp.constant(3.14159265359)
 PI_2 = wp.constant(1.57079632679)
@@ -63,7 +64,7 @@ def quat_decompose(q: wp.quat):
 @wp.func
 def quat_to_rpy(q: wp.quat):
     """
-    Convert a quaternion into euler angles (roll, pitch, yaw)
+    Convert a quaternion into Euler angles (roll, pitch, yaw)
     roll is rotation around x in radians (counterclockwise)
     pitch is rotation around y in radians (counterclockwise)
     yaw is rotation around z in radians (counterclockwise)
@@ -90,7 +91,7 @@ def quat_to_rpy(q: wp.quat):
 @wp.func
 def quat_to_euler(q: wp.quat, i: int, j: int, k: int) -> wp.vec3:
     """
-    Convert a quaternion into euler angles
+    Convert a quaternion into Euler angles
     i, j, k are the indices in [1,2,3] of the axes to use
     (i != j, j != k)
     """
@@ -125,6 +126,50 @@ def quat_to_euler(q: wp.quat, i: int, j: int, k: int) -> wp.vec3:
         t2 -= PI_2
         t3 *= e
     return wp.vec3(t1, t2, t3)
+
+
+@wp.func
+def quat_from_euler(e: wp.vec3, i: int, j: int, k: int) -> wp.quat:
+    """
+    Convert Euler angles into a quaternion
+    i, j, k are the indices in [1,2,3] of the axes to use
+    (i != j, j != k)
+    """
+    qx = wp.quat(1.0, 0.0, 0.0, e[0])
+    qy = wp.quat(0.0, 1.0, 0.0, e[1])
+    qz = wp.quat(0.0, 0.0, 1.0, e[2])
+    if i == 1:
+        qi = qx
+    elif i == 2:
+        qi = qy
+    else:
+        qi = qz
+    if j == 1:
+        qj = qx
+    elif j == 2:
+        qj = qy
+    else:
+        qj = qz
+    if k == 1:
+        qk = qx
+    elif k == 2:
+        qk = qy
+    else:
+        qk = qz
+    return qi * qj * qk
+
+
+@wp.func
+def quat_between_vectors(a: wp.vec3, b: wp.vec3) -> wp.quat:
+    """
+    Compute the quaternion that rotates vector a to vector b
+    """
+    a = wp.normalize(a)
+    b = wp.normalize(b)
+    c = wp.cross(a, b)
+    d = wp.dot(a, b)
+    q = wp.quat(c[0], c[1], c[2], 1.0 + d)
+    return wp.normalize(q)
 
 
 @wp.func
@@ -194,3 +239,104 @@ def vec_max(a: wp.vec3, b: wp.vec3):
 @wp.func
 def vec_abs(a: wp.vec3):
     return wp.vec3(wp.abs(a[0]), wp.abs(a[1]), wp.abs(a[2]))
+
+
+def load_mesh(filename, use_meshio=False):
+    """
+    Loads a 3D triangular surface mesh from a file.
+
+    Args:
+        filename: The path to the 3D model file (obj, and other formats supported by meshio/openmesh) to load.
+        use_meshio: If True, use meshio to load the mesh. Otherwise, use openmesh.
+    """
+    if use_meshio:
+        import meshio
+        m = meshio.read(filename)
+        mesh_points = np.array(m.points)
+        mesh_indices = np.array(m.cells[0].data, dtype=np.int32)
+    else:
+        import openmesh
+        m = openmesh.read_trimesh(filename)
+        mesh_points = np.array(m.points())
+        mesh_indices = np.array(m.face_vertex_indices(), dtype=np.int32)
+    return mesh_points, mesh_indices
+
+
+def remesh(vertices, faces, stop_quality=10, max_its=50, edge_length_r=0.1, epsilon=0.01, visualize=False):
+    """
+    Remeshes a 3D triangular surface mesh using wildmeshing. This is useful for
+    improving the quality of the mesh, and for ensuring that the mesh is
+    watertight. This function first tetrahedralizes the mesh, and then
+    extracts the surface mesh from the tetrahedralization. The resulting mesh
+    is guaranteed to be watertight, but may have a different topology than the
+    input mesh.
+
+    This function requires that wildmeshing is installed, see
+    https://wildmeshing.github.io/python/ for installation instructions.
+
+    Args:
+        vertices: A numpy array of shape (N, 3) containing the vertex positions.
+        faces: A numpy array of shape (M, 3) containing the vertex indices of the faces.
+        stop_quality: The maximum AMIPS energy for stopping mesh optimization.
+        max_its: The maximum number of mesh optimization iterations.
+        edge_length_r: The relative target edge length as a fraction of the bounding box diagonal.
+        epsilon: The relative envelope size as a fraction of the bounding box diagonal.
+        visualize: If True, visualize the input mesh next to the remeshed result using matplotlib.
+    """
+    import wildmeshing as wm
+    from collections import defaultdict
+
+    tetra = wm.Tetrahedralizer(
+        stop_quality=stop_quality, max_its=max_its, edge_length_r=edge_length_r, epsilon=epsilon)
+    tetra.set_mesh(vertices, np.array(faces).reshape(-1, 3))
+    tetra.tetrahedralize()
+    tet_vertices, tet_indices, _ = tetra.get_tet_mesh()
+
+    def face_indices(tet):
+        face1 = (tet[0], tet[2], tet[1])
+        face2 = (tet[1], tet[2], tet[3])
+        face3 = (tet[0], tet[1], tet[3])
+        face4 = (tet[0], tet[3], tet[2])
+        return (
+            (face1, tuple(sorted(face1))),
+            (face2, tuple(sorted(face2))),
+            (face3, tuple(sorted(face3))),
+            (face4, tuple(sorted(face4))))
+
+    # determine surface faces
+    elements_per_face = defaultdict(set)
+    unique_faces = {}
+    for e, tet in enumerate(tet_indices):
+        for face, key in face_indices(tet):
+            elements_per_face[key].add(e)
+            unique_faces[key] = face
+    surface_faces = [face for key, face in unique_faces.items() if len(elements_per_face[key]) == 1]
+
+    new_vertices = np.array(tet_vertices)
+    new_faces = np.array(surface_faces, dtype=np.int32)
+
+    if visualize:
+        # render meshes side by side with matplotlib
+        import matplotlib.pyplot as plt
+        from mpl_toolkits.mplot3d import Axes3D
+        # scale axes equally
+        max_range = np.array([vertices[:, i].max() - vertices[:, i].min() for i in range(3)]).max() / 2.0
+        mid_x = (vertices[:, 0].max() + vertices[:, 0].min()) * 0.5
+        mid_y = (vertices[:, 1].max() + vertices[:, 1].min()) * 0.5
+        mid_z = (vertices[:, 2].max() + vertices[:, 2].min()) * 0.5
+        fig = plt.figure(figsize=(12, 6))
+        ax = fig.add_subplot(121, projection='3d')
+        ax.set_title(f"Original ({len(faces)} faces)")
+        ax.plot_trisurf(vertices[:, 0], vertices[:, 1], vertices[:, 2], triangles=faces, edgecolor='k')
+        ax.set_xlim(mid_x - max_range, mid_x + max_range)
+        ax.set_ylim(mid_y - max_range, mid_y + max_range)
+        ax.set_zlim(mid_z - max_range, mid_z + max_range)
+        ax = fig.add_subplot(122, projection='3d')
+        ax.set_title(f"Remeshed ({len(new_faces)} faces)")
+        ax.plot_trisurf(new_vertices[:, 0], new_vertices[:, 1], new_vertices[:, 2], triangles=new_faces, edgecolor='k')
+        ax.set_xlim(mid_x - max_range, mid_x + max_range)
+        ax.set_ylim(mid_y - max_range, mid_y + max_range)
+        ax.set_zlim(mid_z - max_range, mid_z + max_range)
+        plt.show()
+
+    return new_vertices, new_faces
