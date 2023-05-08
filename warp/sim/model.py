@@ -136,8 +136,8 @@ class Mesh:
             is_solid: If True, the mesh is assumed to be a solid during inertia computation, otherwise it is assumed to be a hollow surface
         """
 
-        self.vertices = vertices
-        self.indices = indices
+        self.vertices = np.array(vertices).reshape(-1, 3)
+        self.indices = np.array(indices, dtype=np.int32).flatten()
         self.is_solid = is_solid
         self.has_inertia = compute_inertia
 
@@ -147,6 +147,12 @@ class Mesh:
             self.I = np.eye(3, dtype=np.float32)
             self.mass = 1.0
             self.com = np.array((0.0, 0.0, 0.0))
+
+    def remesh(self, recompute_inertia=True, **remeshing_kwargs):
+        self.vertices, self.indices = wp.sim.remesh(self.vertices, self.indices.reshape(-1, 3), **remeshing_kwargs)
+        self.indices = self.indices.flatten()
+        if recompute_inertia:
+            self.mass, self.com, self.I, _ = compute_mesh_inertia(1.0, self.vertices, self.indices, is_solid=self.is_solid)
 
     # construct simulation ready buffers from points
     def finalize(self, device=None):
@@ -1295,26 +1301,29 @@ class ModelBuilder:
         self.joint_angular_compliance.append(angular_compliance)
         self.joint_enabled.append(enabled)
 
+        def add_axis_dim(dim):
+            self.joint_axis.append(dim.axis)
+            self.joint_axis_mode.append(dim.mode)
+            self.joint_target.append(dim.target)
+            self.joint_target_ke.append(dim.target_ke)
+            self.joint_target_kd.append(dim.target_kd)
+            self.joint_limit_ke.append(dim.limit_ke)
+            self.joint_limit_kd.append(dim.limit_kd)
+            if np.isfinite(dim.limit_lower):
+                self.joint_limit_lower.append(dim.limit_lower)
+            else:
+                self.joint_limit_lower.append(-1e6)
+            if np.isfinite(dim.limit_upper):
+                self.joint_limit_upper.append(dim.limit_upper)
+            else:
+                self.joint_limit_upper.append(1e6)
+            # self.joint_limit_lower.append(dim.limit_lower)
+            # self.joint_limit_upper.append(dim.limit_upper)
+
         for dim in linear_axes:
-            self.joint_axis.append(dim.axis)
-            self.joint_axis_mode.append(dim.mode)
-            self.joint_target.append(dim.target)
-            self.joint_target_ke.append(dim.target_ke)
-            self.joint_target_kd.append(dim.target_kd)
-            self.joint_limit_ke.append(dim.limit_ke)
-            self.joint_limit_kd.append(dim.limit_kd)
-            self.joint_limit_lower.append(dim.limit_lower)
-            self.joint_limit_upper.append(dim.limit_upper)
+            add_axis_dim(dim)
         for dim in angular_axes:
-            self.joint_axis.append(dim.axis)
-            self.joint_axis_mode.append(dim.mode)
-            self.joint_target.append(dim.target)
-            self.joint_target_ke.append(dim.target_ke)
-            self.joint_target_kd.append(dim.target_kd)
-            self.joint_limit_ke.append(dim.limit_ke)
-            self.joint_limit_kd.append(dim.limit_kd)
-            self.joint_limit_lower.append(dim.limit_lower)
-            self.joint_limit_upper.append(dim.limit_upper)
+            add_axis_dim(dim)
 
         if joint_type == JOINT_PRISMATIC:
             dof_count = 1
