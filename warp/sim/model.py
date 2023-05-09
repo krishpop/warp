@@ -3186,6 +3186,11 @@ class ModelBuilder:
             m.particle_enabled = wp.array(self.particle_enabled, dtype=wp.uint8)
             m.particle_max_radius = np.max(self.particle_radius) if len(self.particle_radius) > 0 else 0.0
 
+            # hash-grid for particle interactions
+            m.particle_grid = wp.HashGrid(128, 128, 128)
+            if len(self.particle_q) > 0:
+                m.particle_grid.build(m.particle_q, 2.0 * m.particle_max_radius)
+
             # ---------------------
             # collision geometry
 
@@ -3364,9 +3369,6 @@ class ModelBuilder:
 
             m.joint_dof_count = self.joint_dof_count
             m.joint_coord_count = self.joint_coord_count
-
-            # hash-grid for particle interactions
-            m.particle_grid = wp.HashGrid(128, 128, 128)
 
             # store refs to geometry
             m.geo_meshes = self.geo_meshes
