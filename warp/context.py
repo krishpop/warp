@@ -261,9 +261,10 @@ class Function:
                 raise RuntimeError(f"Error calling function '{f.key}'.")
 
         else:
-            raise RuntimeError(
-                f"Error, functions decorated with @wp.func can only be called from within Warp kernels (trying to call {self.key}())"
-            )
+            # raise RuntimeError(
+            #     f"Error, functions decorated with @wp.func can only be called from within Warp kernels (trying to call {self.key}())"
+            # )
+            return self.func(*args, **kwargs)
 
     def is_builtin(self):
         return self.func is None
