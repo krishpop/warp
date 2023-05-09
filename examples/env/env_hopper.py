@@ -15,7 +15,6 @@
 ###########################################################################
 
 import os
-import math
 
 import warp as wp
 import warp.sim
@@ -31,6 +30,8 @@ class HopperEnvironment(Environment):
 
     sim_substeps_euler = 32
     sim_substeps_xpbd = 5
+
+    xpbd_settings = dict(iterations=10)
 
     joint_attach_ke: float = 100000.0
     joint_attach_kd: float = 10.0
