@@ -807,7 +807,7 @@ def solve_body_joints(
     rel_p = wp.transform_get_translation(rel_pose)
 
     # joint connection points
-    x_p = wp.transform_get_translation(X_wp)
+    # x_p = wp.transform_get_translation(X_wp)
     x_c = wp.transform_get_translation(X_wc)
 
     linear_compliance = joint_linear_compliance[tid]
@@ -978,8 +978,9 @@ def solve_body_joints(
                 compliance = linear_compliance
                 damping = 0.0
             else:
-                target = wp.clamp(axis_target[dim], lower, upper)
+                target = axis_target[dim]
                 if mode == JOINT_MODE_TARGET_POSITION:
+                    target = wp.clamp(target, lower, upper)
                     if axis_stiffness[dim] > 0.0:
                         err = e - target
                         compliance = 1.0 / axis_stiffness[dim]
@@ -1145,6 +1146,14 @@ def solve_body_joints(
         axis_limits_lower = wp.spatial_top(axis_limits)
         axis_limits_upper = wp.spatial_bottom(axis_limits)
 
+        # if type == wp.sim.JOINT_D6:
+        #     wp.printf("axis_target: %f %f %f\t axis_stiffness: %f %f %f\t axis_damping: %f %f %f\t axis_limits_lower: %f %f %f \t axis_limits_upper: %f %f %f\n",
+        #               axis_target[0], axis_target[1], axis_target[2],
+        #               axis_stiffness[0], axis_stiffness[1], axis_stiffness[2],
+        #               axis_damping[0], axis_damping[1], axis_damping[2],
+        #               axis_limits_lower[0], axis_limits_lower[1], axis_limits_lower[2],
+        #               axis_limits_upper[0], axis_limits_upper[1], axis_limits_upper[2])
+
         for dim in range(3):
             e = errs[dim]
             mode = axis_mode[dim]
@@ -1174,8 +1183,9 @@ def solve_body_joints(
                 compliance = angular_compliance
                 damping = 0.0
             else:
-                target = wp.clamp(axis_target[dim], lower, upper)
+                target = axis_target[dim]
                 if mode == JOINT_MODE_TARGET_POSITION:
+                    target = wp.clamp(target, lower, upper)
                     if axis_stiffness[dim] > 0.0:
                         err = e - target
                         compliance = 1.0 / axis_stiffness[dim]
