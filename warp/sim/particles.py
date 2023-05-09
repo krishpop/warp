@@ -47,11 +47,9 @@ def eval_particle_forces_kernel(
     particle_f: wp.array(dtype=wp.vec3),
 ):
     tid = wp.tid()
-    print(tid)
 
     # order threads by cell
     i = wp.hash_grid_point_id(grid, tid)
-    print(i)
     if particle_enabled[i] == 0:
         return
 
@@ -87,6 +85,7 @@ def eval_particle_forces_kernel(
 
 def eval_particle_forces(model, state, forces):
     if model.particle_max_radius > 0.0:
+        assert model.particle_grid.reserved, "Particle grid must be reserved"
         wp.launch(
             kernel=eval_particle_forces_kernel,
             dim=model.particle_count,
