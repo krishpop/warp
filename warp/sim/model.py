@@ -780,6 +780,28 @@ class Model:
         """Maximum number of soft contacts that can be registered"""
         return len(self.soft_contact_particle)
 
+    @property
+    def soft_contact_distance(self):
+        import warnings
+        warnings.warn(
+            "Model.soft_contact_distance is deprecated and will be removed in a future Warp version. "
+            "Particles now have individual radii, returning `Model.particle_max_radius`.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.particle_max_radius
+
+    @soft_contact_distance.setter
+    def soft_contact_distance(self, value):
+        import warnings
+        warnings.warn(
+            "Model.soft_contact_distance is deprecated and will be removed in a future Warp version. "
+            "Particles now have individual radii, setting `Model.particle_radius` array to given value.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        self.particle_radius.fill_(value)
+
 
 class ModelBuilder:
     """A helper class for building simulation models at runtime.
