@@ -43,6 +43,7 @@ builtin_operators = {}
 builtin_operators[ast.Add] = "add"
 builtin_operators[ast.Sub] = "sub"
 builtin_operators[ast.Mult] = "mul"
+builtin_operators[ast.MatMult] = "mul"
 builtin_operators[ast.Div] = "div"
 builtin_operators[ast.FloorDiv] = "floordiv"
 builtin_operators[ast.Pow] = "pow"
@@ -1163,7 +1164,8 @@ class Adjoint:
                 else:
                     # unroll
                     for i in range(start, end, step):
-                        var_iter = adj.add_constant(i)
+                        const_iter = adj.add_constant(i)
+                        var_iter = adj.add_call(warp.context.builtin_functions["int"], [const_iter])
                         adj.symbols[node.target.id] = var_iter
 
                         # eval body
@@ -1671,7 +1673,7 @@ extern "C" __global__ void {name}_cuda_kernel_forward(
     {forward_args})
 {{
     size_t _idx = grid_index();
-    if (_idx >= dim.size) 
+    if (_idx >= dim.size)
         return;
 
     set_launch_bounds(dim);
@@ -1683,7 +1685,7 @@ extern "C" __global__ void {name}_cuda_kernel_backward(
     {reverse_args})
 {{
     size_t _idx = grid_index();
-    if (_idx >= dim.size) 
+    if (_idx >= dim.size)
         return;
 
     set_launch_bounds(dim);

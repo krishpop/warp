@@ -538,6 +538,39 @@ def test_mesh_grad(test, device):
 
     assert np.allclose(ad_grad, fd_grad, atol=1e-3)
 
+    # compute analytical gradient
+    tape = wp.Tape()
+    output = wp.zeros(1, dtype=wp.float32, device=device, requires_grad=True)
+    with tape:
+        wp.launch(kernel, dim=len(indices), inputs=[mesh.id], outputs=[output], device=device)
+
+    tape.backward(loss=output)
+
+    ad_grad = mesh.points.grad.numpy()
+
+    # compute finite differences
+    eps = 1e-3
+    pos_np = pos.numpy()
+    fd_grad = np.zeros_like(ad_grad)
+    for i in range(len(pos)):
+        for j in range(3):
+            pos_np[i, j] += eps
+            pos = wp.array(pos_np, dtype=wp.vec3, device=device)
+            mesh = wp.Mesh(points=pos, indices=indices)
+            output.zero_()
+            wp.launch(kernel, dim=len(indices), inputs=[mesh.id], outputs=[output], device=device)
+            f1 = output.numpy()[0]
+            pos_np[i, j] -= 2 * eps
+            pos = wp.array(pos_np, dtype=wp.vec3, device=device)
+            mesh = wp.Mesh(points=pos, indices=indices)
+            output.zero_()
+            wp.launch(kernel, dim=len(indices), inputs=[mesh.id], outputs=[output], device=device)
+            f2 = output.numpy()[0]
+            pos_np[i, j] += eps
+            fd_grad[i, j] = (f1 - f2) / (2 * eps)
+
+    assert np.allclose(ad_grad, fd_grad, atol=1e-3)
+
 @wp.kernel
 def spurious_assignment(xs: wp.array(dtype=wp.vec3), output: wp.array(dtype=wp.vec3)):
     x = xs[0]
@@ -566,19 +599,6 @@ def register(parent):
     add_function_test(TestGrad, "test_matrix_math_grad", test_matrix_math_grad, devices=devices)
     add_function_test(TestGrad, "test_3d_math_grad", test_3d_math_grad, devices=devices)
     add_function_test(TestGrad, "test_mesh_grad", test_mesh_grad, devices=devices)
-
-    # from grad_utils import check_kernel_jacobian
-    # check_kernel_jacobian(
-    #     spurious_assignment, 1,
-    #     inputs=[wp.array([1, 2, 3], dtype=wp.vec3, device=wp.get_device())],
-    #     outputs=[wp.array([0, 0, 0], dtype=wp.vec3, device=wp.get_device())],
-    #     plot_jac_on_fail=True, atol=0.1)
-    # check_kernel_jacobian(
-    #     no_spurious_assignment, 1,
-    #     inputs=[wp.array([1, 2, 3], dtype=wp.vec3, device=wp.get_device())],
-    #     outputs=[wp.array([0, 0, 0], dtype=wp.vec3, device=wp.get_device())],
-    #     plot_jac_on_fail=True, atol=-0.1)
-
 
     return TestGrad
 
