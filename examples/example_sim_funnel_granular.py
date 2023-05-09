@@ -22,10 +22,11 @@ import warp.sim
 
 from env.environment import Environment, run_env, IntegratorType
 
+
 class Demo(Environment):
     sim_name = "example_sim_funnel_granular"
-    env_offset=(20, 0.0, 20)
-    nano_render_settings = dict(scaling=0.25)
+    env_offset = (20, 0.0, 20)
+    opengl_render_settings = dict(scaling=0.25)
     usd_render_settings = dict(scaling=5.0)
 
     num_envs = 4
@@ -59,12 +60,12 @@ class Demo(Environment):
         self.ke = 1.e+5
         self.kd = 250.0
         self.kf = 500.0
-        self.mu  = 1.0
+        self.mu = 1.0
         self.restitution = 0.9
 
         builder.set_ground_plane(
-            ke=self.ke, 
-            kd=self.kd, 
+            ke=self.ke,
+            kd=self.kd,
             kf=self.kf,
             mu=self.mu,
             restitution=self.restitution,
@@ -74,15 +75,15 @@ class Demo(Environment):
         funnel_mesh = self.load_mesh(os.path.join(os.path.dirname(__file__), f"assets/funnel2.obj"))
 
         funnel = builder.add_body(
-            origin=wp.transform((0.0, 12.0, 0.0), (wp.sin(math.pi/4), 0.0,  0.0, wp.sin(math.pi/4)))
+            origin=wp.transform((0.0, 12.0, 0.0), (wp.sin(math.pi / 4), 0.0, 0.0, wp.sin(math.pi / 4)))
         )
         builder.add_shape_mesh(
             body=funnel,
             mesh=funnel_mesh,
             pos=(0.0, 0.0, 0.0),
             scale=(0.1, 0.1, 0.1),
-            ke=self.ke, 
-            kd=self.kd, 
+            ke=self.ke,
+            kd=self.kd,
             kf=self.kf,
             mu=self.mu,
             restitution=self.restitution,
@@ -100,9 +101,9 @@ class Demo(Environment):
             for j in range(width):
                 for k in range(depth):
                     pos = np.array((
-                        (k - (width-1)/2.0)*(spacing+radius),
-                        i * (spacing+radius)+22.0,
-                        (j - (depth-1)/2.0)*(spacing+radius)))
+                        (k - (width - 1) / 2.0) * (spacing + radius),
+                        i * (spacing + radius) + 22.0,
+                        (j - (depth - 1) / 2.0) * (spacing + radius)))
                     # add jitter
                     pos += np.random.uniform(-spacing, spacing, size=3) * 0.5
                     b = builder.add_body(origin=wp.transform(pos, wp.quat_identity()))

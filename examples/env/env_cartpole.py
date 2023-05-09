@@ -32,6 +32,7 @@ class CartpoleEnvironment(Environment):
     sim_substeps_xpbd = 5
 
     activate_ground_plane = False
+    show_joints = True
 
     def create_articulation(self, builder):
         wp.sim.parse_urdf(
@@ -39,7 +40,7 @@ class CartpoleEnvironment(Environment):
             builder,
             xform=wp.transform((0.0, 0.0, 0.0), wp.quat_from_axis_angle((1.0, 0.0, 0.0), -math.pi * 0.5)),
             floating=False,
-            density=0,
+            density=1000.0,
             armature=0.1,
             stiffness=0.0,
             damping=0.0,

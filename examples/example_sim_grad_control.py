@@ -90,7 +90,7 @@ class RigidBodySimulator:
                         np.array((0.0, 1.0, 0.0)),
                         wp.quat_from_axis_angle((1.0, 0.0, 0.0), -np.pi * 0.5)),
                     floating=False,
-                    density=0,
+                    density=1000.0,
                     armature=0.1,
                     stiffness=0.0,
                     damping=0.0,
