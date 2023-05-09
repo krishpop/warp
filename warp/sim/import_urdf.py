@@ -33,7 +33,8 @@ def parse_urdf(
         limit_kd=10.0,
         parse_visuals_as_colliders=False,
         enable_self_collisions=True,
-        ignore_inertial_definitions=True):
+        ignore_inertial_definitions=True,
+        collapse_fixed_joints=True):
 
     import urdfpy
     # silence trimesh logging
@@ -49,7 +50,7 @@ def parse_urdf(
 
     start_shape_count = len(builder.shape_geo_type)
 
-    def parse_shapes(link, collisions, density):
+    def parse_shapes(link, collisions, density, incoming_xform=None):
 
         # add geometry
         for collision in collisions:
@@ -58,6 +59,10 @@ def parse_urdf(
 
             pos = origin[0:3]
             rot = wp.quatf(*wp.quat_rpy(*origin[3:6]))
+            if incoming_xform is not None:
+                tf = incoming_xform * wp.transform(pos, rot)
+                pos = tf.p
+                rot = tf.q
 
             geo = collision.geometry
 
@@ -186,14 +191,14 @@ def parse_urdf(
             builder.add_joint_d6(
                 linear_axes=[wp.sim.JointAxis(axes[a]) for a in linear_axes],
                 angular_axes=[wp.sim.JointAxis(axes[a]) for a in angular_axes],
-                parent_xform=xform,
+                child_xform=wp.transform_inverse(xform),
                 parent=-1,
                 child=root,
                 name="fixed_base")
         elif isinstance(fixed_base_joint, dict):
             fixed_base_joint["parent"] = -1
             fixed_base_joint["child"] = root
-            fixed_base_joint["parent_xform"] = xform
+            fixed_base_joint["child_xform"] = wp.transform_inverse(xform)
             fixed_base_joint["name"] = "fixed_base"
             builder.add_joint(**fixed_base_joint)
         else:
@@ -214,7 +219,7 @@ def parse_urdf(
         builder.joint_q[start + 5] = xform.q[2]
         builder.joint_q[start + 6] = xform.q[3]
     else:
-        builder.add_joint_fixed(-1, root, parent_xform=xform, name="fixed_base")
+        builder.add_joint_fixed(-1, root, child_xform=wp.transform_inverse(xform), name="fixed_base")
 
     # add joints, in topological order starting from root body
 
