@@ -96,6 +96,7 @@ class Environment:
     opengl_render_settings = dict()
     usd_render_settings = dict(scaling=10.0)
     show_rigid_contact_points = False
+    contact_points_radius = 1e-3
     show_joints = False
     # whether OpenGLRenderer should render each environment in a separate tile
     use_tiled_rendering = False
@@ -179,6 +180,7 @@ class Environment:
             self.env_offset = (0.0, 0.0, 0.0)
 
         builder = wp.sim.ModelBuilder()
+        builder.rigid_contact_margin = self.rigid_contact_margin
         try:
             articulation_builder = wp.sim.ModelBuilder()
             self.create_articulation(articulation_builder)
@@ -221,6 +223,7 @@ class Environment:
                 self.sim_name,
                 up_axis=self.up_axis,
                 show_rigid_contact_points=self.show_rigid_contact_points,
+                contact_points_radius=self.contact_points_radius,
                 show_joints=self.show_joints,
                 **self.opengl_render_settings)
             if self.use_tiled_rendering and self.num_envs > 1:
