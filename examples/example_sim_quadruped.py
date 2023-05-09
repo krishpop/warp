@@ -84,7 +84,7 @@ class Example:
         # set up Usd renderer
         self.renderer = None
         if render:
-            self.renderer = wp.sim.render.SimRenderer(self.model, stage)
+            self.renderer = wp.sim.render.SimRendererOpenGL(self.model, stage)
 
     def update(self):
         for _ in range(self.sim_substeps):
