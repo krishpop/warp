@@ -64,8 +64,8 @@ def CreateSimRenderer(renderer):
             fps=60,
             up_axis="y",
             show_rigid_contact_points=False,
-            show_joints=False,
             contact_points_radius=1e-3,
+            show_joints=False,
             **render_kwargs,
         ):
             # create USD stage
