@@ -2425,7 +2425,7 @@ Instances: {len(self._instances)}"""
             else:
                 color = colors[0]
             instancer.register_shape(vertices, indices, color, color)
-            scalings = None if radius_is_scalar else np.array(radius, dtype=np.float32)
+            scalings = None if radius_is_scalar else np.tile(radius, (3, 1)).T
             instancer.allocate_instances(np.array(points), colors1=colors, colors2=colors, scalings=scalings)
             self._shape_instancers[name] = instancer
         else:
