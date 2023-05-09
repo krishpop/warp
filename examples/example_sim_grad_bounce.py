@@ -239,8 +239,10 @@ class Bounce:
                 x = self.states[0].particle_qd
                 wp.launch(self.step_kernel, dim=len(x), inputs=[x, x.grad, self.train_rate], device=self.device)
 
+                x_grad = tape.gradients[self.states[0].particle_qd]
+
                 print(f"Iter: {i} Loss: {self.loss}")
-                print(tape.gradients[self.states[0].particle_qd])
+                print(f"   x: {x} g: {x_grad}")
 
                 # clear grads for next iteration
                 tape.zero()
