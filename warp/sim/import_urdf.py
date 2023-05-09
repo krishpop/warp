@@ -177,6 +177,10 @@ def parse_urdf(
 
     # add base joint
     root = link_index[robot.base_link.name]
+    # in case of the fixed joint, the position is applied first, the rotation only
+    # after the fixed joint itself to not rotate its axis
+    fixed_parent_xform = wp.transform(xform.p, wp.quat_identity())
+    fixed_child_xform = wp.transform((0.0, 0.0, 0.0), wp.quat_inverse(xform.q))
     if fixed_base_joint is not None:
         if isinstance(fixed_base_joint, str):
             axes = fixed_base_joint.lower().split(",")
@@ -191,14 +195,16 @@ def parse_urdf(
             builder.add_joint_d6(
                 linear_axes=[wp.sim.JointAxis(axes[a]) for a in linear_axes],
                 angular_axes=[wp.sim.JointAxis(axes[a]) for a in angular_axes],
-                child_xform=wp.transform_inverse(xform),
+                parent_xform=fixed_parent_xform,
+                child_xform=fixed_child_xform,
                 parent=-1,
                 child=root,
                 name="fixed_base")
         elif isinstance(fixed_base_joint, dict):
             fixed_base_joint["parent"] = -1
             fixed_base_joint["child"] = root
-            fixed_base_joint["child_xform"] = wp.transform_inverse(xform)
+            fixed_base_joint["parent_xform"] = fixed_parent_xform
+            fixed_base_joint["child_xform"] = fixed_child_xform
             fixed_base_joint["name"] = "fixed_base"
             builder.add_joint(**fixed_base_joint)
         else:
@@ -219,7 +225,7 @@ def parse_urdf(
         builder.joint_q[start + 5] = xform.q[2]
         builder.joint_q[start + 6] = xform.q[3]
     else:
-        builder.add_joint_fixed(-1, root, child_xform=wp.transform_inverse(xform), name="fixed_base")
+        builder.add_joint_fixed(-1, root, parent_xform=fixed_parent_xform, child_xform=fixed_child_xform, name="fixed_base")
 
     # add joints, in topological order starting from root body
 
