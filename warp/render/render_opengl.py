@@ -2529,7 +2529,7 @@ Instances: {len(self._instances)}"""
             wp.launch(
                 update_points_positions,
                 dim=len(points),
-                inputs=[wp_points, None],
+                inputs=[wp_points, instancer.instance_scalings],
                 outputs=[instancer.vbo_transforms],
                 device=self._device,
             )
