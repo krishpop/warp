@@ -55,8 +55,7 @@ def parse_urdf(
         # add geometry
         for collision in collisions:
 
-import warp as wp
-from warp.sim.model import Mesh
+            origin = urdfpy.matrix_to_xyz_rpy(collision.origin)
 
             pos = origin[0:3]
             rot = wp.quatf(*wp.quat_rpy(*origin[3:6]))
@@ -65,72 +64,10 @@ from warp.sim.model import Mesh
                 pos = tf.p
                 rot = tf.q
 
-def urdf_add_collision(builder, link, collisions, density, shape_ke, shape_kd, shape_kf, shape_mu, shape_restitution):
-    # add geometry
-    for collision in collisions:
-        origin = urdfpy.matrix_to_xyz_rpy(collision.origin)
+            geo = collision.geometry
 
-        pos = origin[0:3]
-        rot = wp.quatf(*wp.quat_rpy(*origin[3:6]))
-
-        geo = collision.geometry
-
-        if geo.box:
-            builder.add_shape_box(
-                body=link,
-                pos=pos,
-                rot=rot,
-                hx=geo.box.size[0] * 0.5,
-                hy=geo.box.size[1] * 0.5,
-                hz=geo.box.size[2] * 0.5,
-                density=density,
-                ke=shape_ke,
-                kd=shape_kd,
-                kf=shape_kf,
-                mu=shape_mu,
-                restitution=shape_restitution,
-            )
-
-        if geo.sphere:
-            builder.add_shape_sphere(
-                body=link,
-                pos=pos,
-                rot=rot,
-                radius=geo.sphere.radius,
-                density=density,
-                ke=shape_ke,
-                kd=shape_kd,
-                kf=shape_kf,
-                mu=shape_mu,
-                restitution=shape_restitution,
-            )
-
-        if geo.cylinder:
-            # cylinders in URDF are aligned with z-axis, while Warp uses y-axis
-            r = wp.quat_from_axis_angle((1.0, 0.0, 0.0), math.pi * 0.5)
-
-            builder.add_shape_capsule(
-                body=link,
-                pos=pos,
-                rot=wp.mul(rot, r),
-                radius=geo.cylinder.radius,
-                half_height=geo.cylinder.length * 0.5,
-                density=density,
-                ke=shape_ke,
-                kd=shape_kd,
-                kf=shape_kf,
-                mu=shape_mu,
-                restitution=shape_restitution,
-            )
-
-        if geo.mesh:
-            for m in geo.mesh.meshes:
-                faces = list(np.array(m.faces).astype("int").flatten())
-                vertices = np.array(m.vertices, dtype=np.float32).reshape((-1, 3))
-                if geo.mesh.scale is not None:
-                    vertices *= geo.mesh.scale
-                mesh = Mesh(vertices, faces)
-                builder.add_shape_mesh(
+            if geo.box:
+                builder.add_shape_box(
                     body=link,
                     pos=pos,
                     rot=rot,
@@ -143,8 +80,21 @@ def urdf_add_collision(builder, link, collisions, density, shape_ke, shape_kd, s
                     kf=shape_kf,
                     mu=shape_mu,
                     restitution=shape_restitution,
-                )
+                    thickness=shape_thickness)
 
+            if geo.sphere:
+                builder.add_shape_sphere(
+                    body=link,
+                    pos=pos,
+                    rot=rot,
+                    radius=geo.sphere.radius,
+                    density=density,
+                    ke=shape_ke,
+                    kd=shape_kd,
+                    kf=shape_kf,
+                    mu=shape_mu,
+                    restitution=shape_restitution,
+                    thickness=shape_thickness)
 
             if geo.cylinder:
                 builder.add_shape_capsule(
@@ -222,15 +172,8 @@ def urdf_add_collision(builder, link, collisions, density, shape_ke, shape_kd, s
             builder.body_inertia[link] = I_m
             builder.body_inv_inertia[link] = np.linalg.inv(I_m)
 
-    # import inertial properties from URDF if density is zero
-    if density == 0.0:
-        com = urdfpy.matrix_to_xyz_rpy(robot.base_link.inertial.origin)[0:3]
-        I_m = robot.base_link.inertial.inertia
-        m = robot.base_link.inertial.mass
-    else:
-        com = np.zeros(3)
-        I_m = np.zeros((3, 3))
-        m = 0.0
+        # add ourselves to the index
+        link_index[urdf_link.name] = link
 
     # add base joint
     root = link_index[robot.base_link.name]
@@ -342,20 +285,6 @@ def urdf_add_collision(builder, link, collisions, density, shape_ke, shape_kd, s
             if joint.dynamics.damping:
                 joint_damping = joint.dynamics.damping
 
-        if density == 0.0:
-            com = urdfpy.matrix_to_xyz_rpy(robot.link_map[joint.child].inertial.origin)[0:3]
-            I_m = robot.link_map[joint.child].inertial.inertia
-            m = robot.link_map[joint.child].inertial.mass
-        else:
-            com = np.zeros(3)
-            I_m = np.zeros((3, 3))
-            m = 0.0
-
-        # add link
-        link = builder.add_body(
-            origin=wp.transform_identity(), armature=armature, com=com, I_m=I_m, m=m, name=joint.parent
-        )
-
         parent_xform = wp.transform(pos, rot)
         child_xform = wp.transform_identity()
 
@@ -363,42 +292,34 @@ def urdf_add_collision(builder, link, collisions, density, shape_ke, shape_kd, s
         if stiffness > 0.0:
             joint_mode = wp.sim.JOINT_MODE_TARGET_POSITION
 
+        joint_params = dict(
+            parent=parent,
+            child=child,
+            parent_xform=parent_xform,
+            child_xform=child_xform,
+            name=joint.name,
+        )
+
         if joint.joint_type == "revolute" or joint.joint_type == "continuous":
             builder.add_joint_revolute(
-                parent,
-                link,
-                parent_xform,
-                child_xform,
-                joint.axis,
-                target_ke=stiffness,
-                target_kd=joint_damping,
-                limit_lower=lower,
-                limit_upper=upper,
-                limit_ke=limit_ke,
-                limit_kd=limit_kd,
-                name=joint.name,
+                axis=joint.axis,
+                target_ke=stiffness, target_kd=joint_damping,
+                limit_lower=lower, limit_upper=upper,
+                limit_ke=limit_ke, limit_kd=limit_kd,
                 mode=joint_mode,
-            )
+                **joint_params)
         elif joint.joint_type == "prismatic":
             builder.add_joint_prismatic(
-                parent,
-                link,
-                parent_xform,
-                child_xform,
-                joint.axis,
-                target_ke=stiffness,
-                target_kd=joint_damping,
-                limit_lower=lower,
-                limit_upper=upper,
-                limit_ke=limit_ke,
-                limit_kd=limit_kd,
-                name=joint.name,
+                axis=joint.axis,
+                target_ke=stiffness, target_kd=joint_damping,
+                limit_lower=lower, limit_upper=upper,
+                limit_ke=limit_ke, limit_kd=limit_kd,
                 mode=joint_mode,
-            )
+                **joint_params)
         elif joint.joint_type == "fixed":
-            builder.add_joint_fixed(parent, link, parent_xform, child_xform, name=joint.name)
+            builder.add_joint_fixed(**joint_params)
         elif joint.joint_type == "floating":
-            builder.add_joint_free(parent, link, parent_xform, child_xform, name=joint.name)
+            builder.add_joint_free(**joint_params)
         elif joint.joint_type == "planar":
             # find plane vectors perpendicular to axis
             axis = np.array(joint.axis)
@@ -414,8 +335,6 @@ def urdf_add_collision(builder, link, collisions, density, shape_ke, shape_kd, s
             v /= np.linalg.norm(v)
 
             builder.add_joint_d6(
-                parent,
-                link,
                 linear_axes=[
                     wp.sim.JointAxis(
                         u, limit_lower=lower, limit_upper=upper, limit_ke=limit_ke, limit_kd=limit_kd
@@ -424,10 +343,7 @@ def urdf_add_collision(builder, link, collisions, density, shape_ke, shape_kd, s
                         v, limit_lower=lower, limit_upper=upper, limit_ke=limit_ke, limit_kd=limit_kd
                     ),
                 ],
-                parent_xform=parent_xform,
-                child_xform=child_xform,
-                name=joint.name,
-            )
+                **joint_params)
         else:
             raise Exception("Unsupported joint type: " + joint.joint_type)
     end_shape_count = len(builder.shape_geo_type)
