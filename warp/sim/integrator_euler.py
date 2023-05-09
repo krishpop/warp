@@ -1674,7 +1674,7 @@ def compute_forces(model, state, particle_f, body_f, requires_grad):
                 model.soft_contact_body_pos,
                 model.soft_contact_body_vel,
                 model.soft_contact_normal,
-                model.soft_contact_distance,
+                model.particle_max_radius,
                 model.soft_contact_max,
             ],
             # outputs
