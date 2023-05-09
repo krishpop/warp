@@ -2458,7 +2458,7 @@ Instances: {len(self._instances)}"""
 
         Args:
             points: The points to render
-            radius: The radius of the points
+            radius: The radius of the points (scalar or list)
             colors: The colors of the points
             name: A name for the USD prim on the stage
         """
@@ -2473,13 +2473,18 @@ Instances: {len(self._instances)}"""
 
         if name not in self._shape_instancers:
             instancer = ShapeInstancer(self._shape_shader, self._device)
-            vertices, indices = self._create_sphere_mesh(radius)
+            radius_is_scalar = np.isscalar(radius)
+            if radius_is_scalar:
+                vertices, indices = self._create_sphere_mesh(radius)
+            else:
+                vertices, indices = self._create_sphere_mesh(1.0)
             if colors is None:
                 color = tab10_color_map(len(self._shape_geo_hash))
             else:
                 color = colors[0]
             instancer.register_shape(vertices, indices, color, color)
-            instancer.allocate_instances(np.array(points), colors1=colors, colors2=colors)
+            scalings = None if radius_is_scalar else np.tile(radius, (3, 1)).T
+            instancer.allocate_instances(np.array(points), colors1=colors, colors2=colors, scalings=scalings)
             self._shape_instancers[name] = instancer
         else:
             instancer = self._shape_instancers[name]
