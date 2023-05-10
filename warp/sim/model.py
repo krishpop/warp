@@ -393,10 +393,11 @@ class Model:
         soft_contact_kd (float): Damping of soft contacts (used by SemiImplicitIntegrator)
         soft_contact_kf (float): Stiffness of friction force in soft contacts (used by SemiImplicitIntegrator)
         soft_contact_mu (float): Friction coefficient of soft contacts
+        soft_contact_restitution (float): Restitution coefficient of soft contacts (used by XPBDIntegrator)
 
         rigid_contact_margin (float): Contact margin for generation of rigid body contacts
-        rigid_contact_torsional_friction (float): Torsional friction coefficient for rigid body contacts
-        rigid_contact_rolling_friction (float): Rolling friction coefficient for rigid body contacts
+        rigid_contact_torsional_friction (float): Torsional friction coefficient for rigid body contacts (used by XPBDIntegrator)
+        rigid_contact_rolling_friction (float): Rolling friction coefficient for rigid body contacts (used by XPBDIntegrator)
 
         ground (bool): Whether the ground plane and ground contacts are enabled
         ground_plane (wp.array): Ground plane 3D normal and offset, shape [4], float
@@ -526,6 +527,7 @@ class Model:
         self.soft_contact_kd = 10.0
         self.soft_contact_kf = 1.0e3
         self.soft_contact_mu = 0.5
+        self.soft_contact_restitution = 0.0
 
         self.rigid_contact_margin = None
         self.rigid_contact_torsional_friction = None
