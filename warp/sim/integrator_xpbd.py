@@ -16,17 +16,21 @@ def solve_particle_ground_contacts(
     particle_x: wp.array(dtype=wp.vec3),
     particle_v: wp.array(dtype=wp.vec3),
     invmass: wp.array(dtype=float),
+    particle_radius: wp.array(dtype=float),
+    particle_enabled: wp.array(dtype=wp.uint8),
     ke: float,
     kd: float,
     kf: float,
     mu: float,
-    offset: float,
     ground: wp.array(dtype=float),
     dt: float,
     relaxation: float,
     delta: wp.array(dtype=wp.vec3),
 ):
     tid = wp.tid()
+    if particle_enabled[tid] == 0:
+        return
+
     wi = invmass[tid]
     if wi == 0.0:
         return
@@ -35,7 +39,7 @@ def solve_particle_ground_contacts(
     v = particle_v[tid]
 
     n = wp.vec3(ground[0], ground[1], ground[2])
-    c = wp.min(wp.dot(n, x) + ground[3] - offset, 0.0)
+    c = wp.min(wp.dot(n, x) + ground[3] - particle_radius[tid], 0.0)
 
     if c > 0.0:
         return
@@ -125,6 +129,8 @@ def solve_soft_contacts(
     body_delta: wp.array(dtype=wp.spatial_vector),
 ):
     tid = wp.tid()
+    if particle_enabled[tid] == 0:
+        return
 
     count = min(contact_max, contact_count[0])
     if tid >= count:
@@ -133,8 +139,6 @@ def solve_soft_contacts(
     shape_index = contact_shape[tid]
     body_index = shape_body[shape_index]
     particle_index = contact_particle[tid]
-    if particle_enabled[particle_index] == 0:
-        return
 
     px = particle_x[particle_index]
     pv = particle_v[particle_index]
@@ -151,7 +155,7 @@ def solve_soft_contacts(
     r = bx - wp.transform_point(X_wb, X_com)
 
     n = contact_normal[tid]
-    c = wp.dot(n, px - bx) - particle_radius[particle_index]
+    c = wp.dot(n, px - bx) - particle_radius[tid]
 
     if c > particle_ka:
         return
@@ -412,15 +416,18 @@ def solve_tetrahedra(
 
 
 @wp.kernel
-def apply_deltas(
+def apply_particle_deltas(
     x_orig: wp.array(dtype=wp.vec3),
     x_pred: wp.array(dtype=wp.vec3),
+    particle_enabled: wp.array(dtype=wp.uint8),
     delta: wp.array(dtype=wp.vec3),
     dt: float,
     x_out: wp.array(dtype=wp.vec3),
     v_out: wp.array(dtype=wp.vec3),
 ):
     tid = wp.tid()
+    if particle_enabled[tid] == 0:
+        return
 
     x0 = x_orig[tid]
     xp = x_pred[tid]
@@ -1881,12 +1888,12 @@ class XPBDIntegrator:
                                 particle_q,
                                 particle_qd,
                                 model.particle_inv_mass,
+                                model.particle_radius,
                                 model.particle_enabled,
                                 model.soft_contact_ke,
                                 model.soft_contact_kd,
                                 model.soft_contact_kf,
                                 model.soft_contact_mu,
-                                model.soft_contact_distance,
                                 model.ground_plane,
                                 dt,
                                 self.soft_contact_relaxation,
@@ -1904,6 +1911,8 @@ class XPBDIntegrator:
                                 particle_q,
                                 particle_qd,
                                 model.particle_inv_mass,
+                                model.particle_radius,
+                                model.particle_enabled,
                                 out_body_q,
                                 out_body_qd,
                                 model.body_com,
@@ -1919,7 +1928,6 @@ class XPBDIntegrator:
                                 model.soft_contact_body_pos,
                                 model.soft_contact_body_vel,
                                 model.soft_contact_normal,
-                                model.soft_contact_distance,
                                 model.soft_contact_max,
                                 dt,
                                 self.soft_contact_relaxation,
@@ -1977,9 +1985,15 @@ class XPBDIntegrator:
                         new_particle_qd = particle_qd
 
                     wp.launch(
-                        kernel=apply_deltas,
+                        kernel=apply_particle_deltas,
                         dim=model.particle_count,
-                        inputs=[state_in.particle_q, particle_q, deltas, dt],
+                        inputs=[
+                            state_in.particle_q,
+                            particle_q,
+                            model.particle_enabled,
+                            deltas,
+                            dt,
+                        ],
                         outputs=[new_particle_q, new_particle_qd],
                         device=model.device,
                     )
@@ -2211,8 +2225,9 @@ class XPBDIntegrator:
                             state_in.particle_q,
                             state_in.particle_qd,
                             model.particle_inv_mass,
+                            model.particle_radius,
+                            model.particle_enabled,
                             model.soft_contact_restitution,
-                            model.soft_contact_distance,
                             model.ground_plane,
                             dt,
                             self.soft_contact_relaxation,
