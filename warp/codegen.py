@@ -59,6 +59,13 @@ builtin_operators[ast.LtE] = "<="
 builtin_operators[ast.Eq] = "=="
 builtin_operators[ast.NotEq] = "!="
 
+builtin_operators[ast.BitAnd] = "and"
+builtin_operators[ast.BitOr] = "or"
+builtin_operators[ast.BitXor] = "xor"
+builtin_operators[ast.Invert] = "invert"
+builtin_operators[ast.LShift] = "lshift"
+builtin_operators[ast.RShift] = "rshift"
+
 
 def get_annotations(obj: Any) -> Mapping[str, Any]:
     """Alternative to `inspect.get_annotations()` for Python 3.9 and older."""
