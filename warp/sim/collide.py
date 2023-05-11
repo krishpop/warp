@@ -918,6 +918,7 @@ def handle_contact_pairs(
 
     distance = 1.0e6
     u = float(0.0)
+    thickness = thickness_a + thickness_b
 
     if geo_type_a == wp.sim.GEO_SPHERE:
         p_a_world = wp.transform_get_translation(X_ws_a)
@@ -941,7 +942,7 @@ def handle_contact_pairs(
             face_u = float(0.0)
             face_v = float(0.0)
             sign = float(0.0)
-            max_dist = (thickness_a + thickness_b + rigid_contact_margin) / min_scale_b
+            max_dist = (thickness + rigid_contact_margin) / min_scale_b
             res = wp.mesh_query_point(mesh_b, wp.cw_div(query_b_local, geo_scale_b), max_dist, sign, face_index, face_u, face_v)
             if (res):
                 shape_p = wp.mesh_eval_position(mesh_b, face_index, face_u, face_v)
@@ -1097,7 +1098,7 @@ def handle_contact_pairs(
         edge0_b = wp.transform_point(X_sw_b, edge0_world)
         edge1_b = wp.transform_point(X_sw_b, edge1_world)
         max_iter = edge_sdf_iter
-        max_dist = (rigid_contact_margin + thickness_a + thickness_b) / min_scale_b
+        max_dist = (rigid_contact_margin + thickness) / min_scale_b
         mesh_b = geo.source[shape_b]
         u = closest_edge_coordinate_mesh(mesh_b, wp.cw_div(edge0_b, geo_scale_b), wp.cw_div(edge1_b, geo_scale_b), max_iter, max_dist)
         p_a_world = (1.0 - u) * edge0_world + u * edge1_world
@@ -1200,7 +1201,7 @@ def handle_contact_pairs(
         p_a_world = wp.transform_point(X_ws_a, query_a)
         query_b_local = wp.transform_point(X_sw_b, p_a_world)
         mesh_b = geo.source[shape_b]
-        max_dist = (rigid_contact_margin + thickness_a + thickness_b) / min_scale_b
+        max_dist = (rigid_contact_margin + thickness) / min_scale_b
         face_index = int(0)
         face_u = float(0.0)
         face_v = float(0.0)
@@ -1234,7 +1235,7 @@ def handle_contact_pairs(
         face_v = float(0.0)
         sign = float(0.0)
         min_scale = min(min_scale_a, min_scale_b)
-        max_dist = (rigid_contact_margin + thickness_a + thickness_b) / min_scale
+        max_dist = (rigid_contact_margin + thickness) / min_scale
 
         res = wp.mesh_query_point(mesh_b, wp.cw_div(query_b_local, geo_scale_b), max_dist, sign, face_index, face_u, face_v)
 
@@ -1284,7 +1285,6 @@ def handle_contact_pairs(
         print("Unsupported geometry pair in collision handling")
         return
 
-    thickness = thickness_a + thickness_b
     d = distance - thickness
     if d < rigid_contact_margin:
         # transform from world into body frame (so the contact point includes the shape transform)
