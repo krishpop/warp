@@ -30,6 +30,9 @@ Quat = List[float]
 Mat33 = List[float]
 Transform = Tuple[Vec3, Quat]
 
+# Particle flags
+PARTICLE_FLAG_ACTIVE = wp.constant(wp.uint32(1 << 0))
+
 # Shape geometry types
 GEO_SPHERE = wp.constant(0)
 GEO_BOX = wp.constant(1)
@@ -56,6 +59,13 @@ JOINT_D6 = wp.constant(8)
 JOINT_MODE_LIMIT = wp.constant(0)
 JOINT_MODE_TARGET_POSITION = wp.constant(1)
 JOINT_MODE_TARGET_VELOCITY = wp.constant(2)
+
+
+def flag_to_int(flag):
+    """Converts a flag to an integer."""
+    if type(flag) in wp.types.int_types:
+        return flag.value
+    return int(flag)
 
 
 # Material properties pertaining to rigid shape contact dynamics
@@ -309,7 +319,7 @@ class Model:
         particle_cohesion (wp.array): Particle cohesion strength, shape [particle_count], float
         particle_adhesion (wp.array): Particle adhesion strength, shape [particle_count], float
         particle_grid (HashGrid): HashGrid instance used for accelerated simulation of particle interactions
-        particle_enabled (wp.array): Particle enabled state, shape [particle_count], bool
+        particle_flags (wp.array): Particle enabled state, shape [particle_count], bool
 
         shape_transform (wp.array): Rigid shape transforms, shape [shape_count, 7], float
         shape_body (wp.array): Rigid shape body index, shape [shape_count], int
@@ -444,7 +454,7 @@ class Model:
         self.particle_cohesion = 0.0
         self.particle_adhesion = 0.0
         self.particle_grid = None
-        self.particle_enabled = None
+        self.particle_flags = None
 
         self.shape_transform = None
         self.shape_body = None
@@ -886,7 +896,7 @@ class ModelBuilder:
         self.particle_qd = []
         self.particle_mass = []
         self.particle_radius = []
-        self.particle_enabled = []
+        self.particle_flags = []
 
         # shapes (each shape has an entry in these arrays)
         # transform from shape to body
@@ -2282,14 +2292,14 @@ class ModelBuilder:
         return shape
 
     # particles
-    def add_particle(self, pos: Vec3, vel: Vec3, mass: float, radius: float = None, enabled: bool = True) -> int:
+    def add_particle(self, pos: Vec3, vel: Vec3, mass: float, radius: float = None, flags: wp.uint32 = PARTICLE_FLAG_ACTIVE) -> int:
         """Adds a single particle to the model
 
         Args:
             pos: The initial position of the particle
             vel: The initial velocity of the particle
             mass: The mass of the particle
-            enabled: If True, the particle participates in dynamics simulation and collision handling, otherwise it is disabled
+            flags: The flags that control the dynamical behavior of the particle, see PARTICLE_FLAG_* constants
             radius: The radius of the particle used in collision handling. If None, the radius is set to the default value (default_particle_radius).
 
         Note:
@@ -2304,7 +2314,7 @@ class ModelBuilder:
         if radius is None:
             radius = self.default_particle_radius
         self.particle_radius.append(radius)
-        self.particle_enabled.append(enabled)
+        self.particle_flags.append(flags)
 
         return len(self.particle_q) - 1
 
@@ -3207,7 +3217,7 @@ class ModelBuilder:
             m.particle_mass = wp.array(self.particle_mass, dtype=wp.float32, requires_grad=requires_grad)
             m.particle_inv_mass = wp.array(particle_inv_mass, dtype=wp.float32, requires_grad=requires_grad)
             m.particle_radius = wp.array(self.particle_radius, dtype=wp.float32, requires_grad=requires_grad)
-            m.particle_enabled = wp.array(self.particle_enabled, dtype=wp.uint8)
+            m.particle_flags = wp.array([flag_to_int(f) for f in self.particle_flags], dtype=wp.uint32)
             m.particle_max_radius = np.max(self.particle_radius) if len(self.particle_radius) > 0 else 0.0
 
             # hash-grid for particle interactions
