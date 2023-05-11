@@ -375,6 +375,10 @@ class Function:
             # failed  to find overload
             return None
 
+    def __repr__(self):
+        inputs_str = ", ".join([f"{k}: {v.__name__}" for k, v in self.input_types.items()])
+        return f"<Function {self.key}({inputs_str})>"
+
 
 class KernelHooks:
     def __init__(self, forward, backward):
@@ -669,12 +673,13 @@ def add_builtin(
 
     def is_generic(t):
         ret = False
-        if t in [warp.types.Scalar, warp.types.Float]:
+        if t in [warp.types.Scalar, warp.types.Float, warp.types.Int]:
             ret = True
         if hasattr(t, "_wp_type_params_"):
             ret = (
                 warp.types.Scalar in t._wp_type_params_
                 or warp.types.Float in t._wp_type_params_
+                or warp.types.Int in t._wp_type_params_
                 or warp.types.Any in t._wp_type_params_
             )
 
@@ -700,7 +705,7 @@ def add_builtin(
             for t in l:
                 if hasattr(t, "_wp_generic_type_str_"):
                     yield t._wp_generic_type_str_
-                elif t in [warp.types.Float, warp.types.Scalar]:
+                elif t in [warp.types.Float, warp.types.Scalar, warp.types.Int]:
                     yield t.__name__
 
         genericset = set(generic_names(input_types.values()))
@@ -712,6 +717,8 @@ def add_builtin(
                 return warp.types.float_types
             elif name == "Scalar":
                 return warp.types.scalar_types
+            elif name == "Int":
+                return warp.types.int_types
             return [x for x in generic_vtypes if x._wp_generic_type_str_ == name]
 
         gtypes = {k: derived(k) for k in genericset}
@@ -738,7 +745,7 @@ def add_builtin(
             consistenttypes = {k: [x for x in v if scalar_type(x) == stype] for k, v in gtypes.items()}
 
             def typelist(param):
-                if param in [warp.types.Scalar, warp.types.Float]:
+                if param in [warp.types.Scalar, warp.types.Float, warp.types.Int]:
                     return [stype]
                 if hasattr(param, "_wp_generic_type_str_"):
                     l = consistenttypes[param._wp_generic_type_str_]
