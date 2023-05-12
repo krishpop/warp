@@ -341,9 +341,9 @@ inline CUDA_CALLABLE T clamp(T x, T a, T b) { return min(max(a, x), b); } \
 inline CUDA_CALLABLE T floordiv(T a, T b) { return a/b; } \
 inline CUDA_CALLABLE T nonzero(T x) { return x == T(0) ? T(0) : T(1); } \
 inline CUDA_CALLABLE T sqrt(T x) { return 0; } \
-inline CUDA_CALLABLE T and(T a, T b) { return a&b; } \
-inline CUDA_CALLABLE T or(T a, T b) { return a|b; } \
-inline CUDA_CALLABLE T xor(T a, T b) { return a^b; } \
+inline CUDA_CALLABLE T logical_and(T a, T b) { return a&b; } \
+inline CUDA_CALLABLE T logical_or(T a, T b) { return a|b; } \
+inline CUDA_CALLABLE T logical_xor(T a, T b) { return a^b; } \
 inline CUDA_CALLABLE T lshift(T a, T b) { return a<<b; } \
 inline CUDA_CALLABLE T rshift(T a, T b) { return a>>b; } \
 inline CUDA_CALLABLE T invert(T x) { return ~x; } \
@@ -362,9 +362,9 @@ inline CUDA_CALLABLE void adj_floordiv(T a, T b, T& adj_a, T& adj_b, T adj_ret) 
 inline CUDA_CALLABLE void adj_step(T x, T& adj_x, T adj_ret) { } \
 inline CUDA_CALLABLE void adj_nonzero(T x, T& adj_x, T adj_ret) { } \
 inline CUDA_CALLABLE void adj_sqrt(T x, T adj_x, T& adj_ret) { } \
-inline CUDA_CALLABLE void adj_and(T a, T b, T& adj_a, T& adj_b, T adj_ret) { } \
-inline CUDA_CALLABLE void adj_or(T a, T b, T& adj_a, T& adj_b, T adj_ret) { } \
-inline CUDA_CALLABLE void adj_xor(T a, T b, T& adj_a, T& adj_b, T adj_ret) { } \
+inline CUDA_CALLABLE void adj_logical_and(T a, T b, T& adj_a, T& adj_b, T adj_ret) { } \
+inline CUDA_CALLABLE void adj_logical_or(T a, T b, T& adj_a, T& adj_b, T adj_ret) { } \
+inline CUDA_CALLABLE void adj_logical_xor(T a, T b, T& adj_a, T& adj_b, T adj_ret) { } \
 inline CUDA_CALLABLE void adj_lshift(T a, T b, T& adj_a, T& adj_b, T adj_ret) { } \
 inline CUDA_CALLABLE void adj_rshift(T a, T b, T& adj_a, T& adj_b, T adj_ret) { } \
 inline CUDA_CALLABLE void adj_invert(T x, T adj_x, T& adj_ret) { }

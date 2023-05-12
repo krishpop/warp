@@ -2521,13 +2521,13 @@ add_builtin(
 
 # bitwise operators
 add_builtin(
-    "and", input_types={"x": Int, "y": Int}, value_func=sametype_value_func(Int), doc="", group="Operators"
+    "logical_and", input_types={"x": Int, "y": Int}, value_func=sametype_value_func(Int), doc="", group="Operators"
 )
 add_builtin(
-    "or", input_types={"x": Int, "y": Int}, value_func=sametype_value_func(Int), doc="", group="Operators"
+    "logical_or", input_types={"x": Int, "y": Int}, value_func=sametype_value_func(Int), doc="", group="Operators"
 )
 add_builtin(
-    "xor", input_types={"x": Int, "y": Int}, value_func=sametype_value_func(Int), doc="", group="Operators"
+    "logical_xor", input_types={"x": Int, "y": Int}, value_func=sametype_value_func(Int), doc="", group="Operators"
 )
 add_builtin(
     "lshift", input_types={"x": Int, "y": Int}, value_func=sametype_value_func(Int), doc="", group="Operators"
