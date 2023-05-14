@@ -71,6 +71,7 @@ class Bounce:
         self.model.soft_contact_kd = self.kd
         self.model.soft_contact_mu = self.mu
         self.model.soft_contact_margin = 10.0
+        self.model.soft_contact_restitution = 1.0
 
         self.integrator = wp.sim.SemiImplicitIntegrator()
 
@@ -215,7 +216,8 @@ class Bounce:
 
             tape.zero()
 
-        self.stage.save()
+        if self.stage is not None:
+            self.stage.save()
 
     def train_graph(self):
         # capture forward/backward passes
@@ -250,7 +252,8 @@ class Bounce:
             with wp.ScopedTimer("Render", active=self.profile):
                 self.render(i)
 
-        self.stage.save()
+        if self.stage is not None:
+            self.stage.save()
 
 
 bounce = Bounce(profile=False, render=True)

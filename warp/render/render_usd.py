@@ -649,7 +649,7 @@ class UsdRenderer:
                     instancer_sphere.GetRadiusAttr().Set(radius)
                 else:
                     instancer_sphere.GetRadiusAttr().Set(1.0)
-                    instancer.GetScalesAttr().Set(np.tile(radius, (3, 1)))
+                    instancer.GetScalesAttr().Set(np.tile(radius, (3, 1)).T)
 
                 instancer.CreatePrototypesRel().SetTargets([instancer_sphere.GetPath()])
                 instancer.CreateProtoIndicesAttr().Set([0] * len(points))
