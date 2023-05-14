@@ -6,7 +6,7 @@
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
 import warp as wp
-from .model import ModelShapeMaterials, JOINT_MODE_TARGET_POSITION, JOINT_MODE_TARGET_VELOCITY, JOINT_MODE_LIMIT
+from .model import PARTICLE_FLAG_ACTIVE, ModelShapeMaterials, JOINT_MODE_TARGET_POSITION, JOINT_MODE_TARGET_VELOCITY, JOINT_MODE_LIMIT
 from .utils import velocity_at_point, vec_min, vec_max, vec_abs
 from .integrator_euler import integrate_bodies, integrate_particles
 
@@ -16,17 +16,21 @@ def solve_particle_ground_contacts(
     particle_x: wp.array(dtype=wp.vec3),
     particle_v: wp.array(dtype=wp.vec3),
     invmass: wp.array(dtype=float),
+    particle_radius: wp.array(dtype=float),
+    particle_flags: wp.array(dtype=wp.uint32),
     ke: float,
     kd: float,
     kf: float,
     mu: float,
-    offset: float,
     ground: wp.array(dtype=float),
     dt: float,
     relaxation: float,
     delta: wp.array(dtype=wp.vec3),
 ):
     tid = wp.tid()
+    if (particle_flags[tid] & PARTICLE_FLAG_ACTIVE) == 0:
+        return
+
     wi = invmass[tid]
     if wi == 0.0:
         return
@@ -35,7 +39,7 @@ def solve_particle_ground_contacts(
     v = particle_v[tid]
 
     n = wp.vec3(ground[0], ground[1], ground[2])
-    c = wp.min(wp.dot(n, x) + ground[3] - offset, 0.0)
+    c = wp.min(wp.dot(n, x) + ground[3] - particle_radius[tid], 0.0)
 
     if c > 0.0:
         return
@@ -61,25 +65,29 @@ def apply_soft_restitution_ground(
     particle_x_old: wp.array(dtype=wp.vec3),
     particle_v_old: wp.array(dtype=wp.vec3),
     invmass: wp.array(dtype=float),
+    particle_radius: wp.array(dtype=float),
+    particle_flags: wp.array(dtype=wp.uint32),
     restitution: float,
-    offset: float,
     ground: wp.array(dtype=float),
     dt: float,
     relaxation: float,
     particle_v_out: wp.array(dtype=wp.vec3),
 ):
     tid = wp.tid()
+    if (particle_flags[tid] & PARTICLE_FLAG_ACTIVE) == 0:
+        return
+
     wi = invmass[tid]
     if wi == 0.0:
         return
 
-    x_new = particle_x_new[tid]
+    # x_new = particle_x_new[tid]
     v_new = particle_v_new[tid]
     x_old = particle_x_old[tid]
     v_old = particle_v_old[tid]
 
     n = wp.vec3(ground[0], ground[1], ground[2])
-    c = wp.dot(n, x_old) + ground[3] - offset
+    c = wp.dot(n, x_old) + ground[3] - particle_radius[tid]
 
     if c > 0.0:
         return
@@ -96,6 +104,8 @@ def solve_soft_contacts(
     particle_x: wp.array(dtype=wp.vec3),
     particle_v: wp.array(dtype=wp.vec3),
     particle_invmass: wp.array(dtype=float),
+    particle_radius: wp.array(dtype=float),
+    particle_flags: wp.array(dtype=wp.uint32),
     body_q: wp.array(dtype=wp.transform),
     body_qd: wp.array(dtype=wp.spatial_vector),
     body_com: wp.array(dtype=wp.vec3),
@@ -111,7 +121,6 @@ def solve_soft_contacts(
     contact_body_pos: wp.array(dtype=wp.vec3),
     contact_body_vel: wp.array(dtype=wp.vec3),
     contact_normal: wp.array(dtype=wp.vec3),
-    contact_distance: float,
     contact_max: int,
     dt: float,
     relaxation: float,
@@ -120,6 +129,8 @@ def solve_soft_contacts(
     body_delta: wp.array(dtype=wp.spatial_vector),
 ):
     tid = wp.tid()
+    if (particle_flags[tid] & PARTICLE_FLAG_ACTIVE) == 0:
+        return
 
     count = min(contact_max, contact_count[0])
     if tid >= count:
@@ -144,7 +155,7 @@ def solve_soft_contacts(
     r = bx - wp.transform_point(X_wb, X_com)
 
     n = contact_normal[tid]
-    c = wp.dot(n, px - bx) - contact_distance
+    c = wp.dot(n, px - bx) - particle_radius[tid]
 
     if c > particle_ka:
         return
@@ -405,15 +416,18 @@ def solve_tetrahedra(
 
 
 @wp.kernel
-def apply_deltas(
+def apply_particle_deltas(
     x_orig: wp.array(dtype=wp.vec3),
     x_pred: wp.array(dtype=wp.vec3),
+    particle_flags: wp.array(dtype=wp.uint32),
     delta: wp.array(dtype=wp.vec3),
     dt: float,
     x_out: wp.array(dtype=wp.vec3),
     v_out: wp.array(dtype=wp.vec3),
 ):
     tid = wp.tid()
+    if (particle_flags[tid] & PARTICLE_FLAG_ACTIVE) == 0:
+        return
 
     x0 = x_orig[tid]
     xp = x_pred[tid]
@@ -1787,6 +1801,7 @@ class XPBDIntegrator:
                         state_in.particle_qd,
                         state_out.particle_f,
                         model.particle_inv_mass,
+                        model.particle_flags,
                         model.gravity,
                         dt,
                     ],
@@ -1872,11 +1887,12 @@ class XPBDIntegrator:
                                 particle_q,
                                 particle_qd,
                                 model.particle_inv_mass,
+                                model.particle_radius,
+                                model.particle_flags,
                                 model.soft_contact_ke,
                                 model.soft_contact_kd,
                                 model.soft_contact_kf,
                                 model.soft_contact_mu,
-                                model.soft_contact_distance,
                                 model.ground_plane,
                                 dt,
                                 self.soft_contact_relaxation,
@@ -1894,6 +1910,8 @@ class XPBDIntegrator:
                                 particle_q,
                                 particle_qd,
                                 model.particle_inv_mass,
+                                model.particle_radius,
+                                model.particle_flags,
                                 out_body_q,
                                 out_body_qd,
                                 model.body_com,
@@ -1909,7 +1927,6 @@ class XPBDIntegrator:
                                 model.soft_contact_body_pos,
                                 model.soft_contact_body_vel,
                                 model.soft_contact_normal,
-                                model.soft_contact_distance,
                                 model.soft_contact_max,
                                 dt,
                                 self.soft_contact_relaxation,
@@ -1967,9 +1984,15 @@ class XPBDIntegrator:
                         new_particle_qd = particle_qd
 
                     wp.launch(
-                        kernel=apply_deltas,
+                        kernel=apply_particle_deltas,
                         dim=model.particle_count,
-                        inputs=[state_in.particle_q, particle_q, deltas, dt],
+                        inputs=[
+                            state_in.particle_q,
+                            particle_q,
+                            model.particle_flags,
+                            deltas,
+                            dt,
+                        ],
                         outputs=[new_particle_q, new_particle_qd],
                         device=model.device,
                     )
@@ -2201,8 +2224,9 @@ class XPBDIntegrator:
                             state_in.particle_q,
                             state_in.particle_qd,
                             model.particle_inv_mass,
+                            model.particle_radius,
+                            model.particle_flags,
                             model.soft_contact_restitution,
-                            model.soft_contact_distance,
                             model.ground_plane,
                             dt,
                             self.soft_contact_relaxation,

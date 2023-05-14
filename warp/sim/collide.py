@@ -10,7 +10,7 @@ Collision handling functions and kernels.
 """
 
 import warp as wp
-from .model import ModelShapeGeometry
+from .model import PARTICLE_FLAG_ACTIVE, ModelShapeGeometry
 
 
 @wp.func
@@ -476,7 +476,7 @@ def volume_grad(volume: wp.uint64, p: wp.vec3):
 def create_soft_contacts(
     particle_x: wp.array(dtype=wp.vec3),
     particle_radius: wp.array(dtype=float),
-    particle_enabled: wp.array(dtype=wp.uint8),
+    particle_flags: wp.array(dtype=wp.uint32),
     body_X_wb: wp.array(dtype=wp.transform),
     shape_X_bs: wp.array(dtype=wp.transform),
     shape_body: wp.array(dtype=int),
@@ -492,7 +492,7 @@ def create_soft_contacts(
     soft_contact_normal: wp.array(dtype=wp.vec3),
 ):
     particle_index, shape_index = wp.tid()
-    if particle_enabled[particle_index] == 0:
+    if (particle_flags[particle_index] & PARTICLE_FLAG_ACTIVE) == 0:
         return
 
     rigid_index = shape_body[shape_index]
@@ -1321,7 +1321,7 @@ def collide(model, state, edge_sdf_iter: int = 10):
             inputs=[
                 state.particle_q,
                 model.particle_radius,
-                model.particle_enabled,
+                model.particle_flags,
                 state.body_q,
                 model.shape_transform,
                 model.shape_body,
