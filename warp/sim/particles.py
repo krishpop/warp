@@ -6,6 +6,7 @@
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
 import warp as wp
+from .model import PARTICLE_FLAG_ACTIVE
 
 
 @wp.func
@@ -50,7 +51,7 @@ def eval_particle_forces_kernel(
 
     # order threads by cell
     i = wp.hash_grid_point_id(grid, tid)
-    if particle_flags[i] == 0:
+    if (particle_flags[i] & PARTICLE_FLAG_ACTIVE) == 0:
         return
 
     x = particle_x[i]
