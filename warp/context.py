@@ -868,7 +868,7 @@ def get_module(name):
             old_module.kernels = {}
             old_module.functions = {}
             old_module.constants = []
-            old_module.structs = []
+            old_module.structs = {}
             old_module.loader = parent_loader
 
         return user_modules[name]
@@ -938,10 +938,12 @@ class ModuleBuilder:
 
                 def wrap(adj):
                     def value_type(args, kwds, templates):
-                        if adj.return_var:
-                            return adj.return_var.type
-                        else:
+                        if adj.return_var is None or len(adj.return_var) == 0:
                             return None
+                        if len(adj.return_var) == 1:
+                            return adj.return_var[0].type
+                        else:
+                            return [v.type for v in adj.return_var]
 
                     return value_type
 
@@ -1016,7 +1018,7 @@ class Module:
         self.kernels = {}
         self.functions = {}
         self.constants = []
-        self.structs = []
+        self.structs = {}
 
         self.dll = None
         self.cpu_module = None
@@ -1063,7 +1065,7 @@ class Module:
         self.content_hash = None
 
     def register_struct(self, struct):
-        self.structs.append(struct)
+        self.structs[struct.key] = struct
 
         # for a reload of module on next launch
         self.unload()
@@ -1153,7 +1155,7 @@ class Module:
                 ch = hashlib.sha256()
 
                 # struct source
-                for struct in module.structs:
+                for struct in module.structs.values():
                     s = ",".join(
                         "{}: {}".format(name, type_hint) for name, type_hint in get_annotations(struct.cls).items()
                     )
@@ -1515,7 +1517,12 @@ class Stream:
     def __init__(self, device=None, **kwargs):
         self.owner = False
 
-        device = runtime.get_device(device)
+        # we can't use get_device() if called during init, but we can use an explicit Device arg
+        if runtime is not None:
+            device = runtime.get_device(device)
+        elif not isinstance(device, Device):
+            raise RuntimeError("A device object is required when creating a stream before or during Warp initialization")
+
         if not device.is_cuda:
             raise RuntimeError(f"Device {device} is not a CUDA device")
 
@@ -1568,7 +1575,7 @@ class Event:
     def __init__(self, device=None, cuda_event=None, enable_timing=False):
         self.owner = False
 
-        device = runtime.get_device(device)
+        device = get_device(device)
         if not device.is_cuda:
             raise RuntimeError(f"Device {device} is not a CUDA device")
 
@@ -1692,7 +1699,7 @@ class Device:
             if s.device != self:
                 raise RuntimeError(f"Stream from device {s.device} cannot be used on device {self}")
             self._stream = s
-            runtime.core.cuda_context_set_stream(self.context, s.cuda_stream)
+            self.runtime.core.cuda_context_set_stream(self.context, s.cuda_stream)
         else:
             raise RuntimeError(f"Device {self} is not a CUDA device")
 
@@ -2327,6 +2334,9 @@ def assert_initialized():
 
 # global entry points
 def is_cpu_available():
+    if runtime.llvm:
+        return True
+
     # initialize host build env (do this lazily) since
     # it takes 5secs to run all the batch files to locate MSVC
     if warp.config.host_compiler is None:
