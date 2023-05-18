@@ -315,6 +315,11 @@ def remesh(vertices, faces, stop_quality=10, max_its=50, edge_length_r=0.1, epsi
     new_vertices = np.array(tet_vertices)
     new_faces = np.array(surface_faces, dtype=np.int32)
 
+    if len(new_vertices) == 0 or len(new_faces) == 0:
+        import warnings
+        warnings.warn("Remeshing failed, the optimized mesh has no vertices or faces; return previous mesh.")
+        return vertices, faces
+
     if visualize:
         # render meshes side by side with matplotlib
         import matplotlib.pyplot as plt
