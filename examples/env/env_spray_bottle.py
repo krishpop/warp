@@ -31,9 +31,13 @@ class SprayBottleEnvironment(Environment):
     activate_ground_plane = True
     use_graph_capture = False
 
+    show_rigid_contact_points = True
+
     num_envs = 100
 
     show_joints = False
+
+    rigid_contact_margin = 0.001
 
     def create_articulation(self, builder):
         wp.sim.parse_urdf(
@@ -55,6 +59,12 @@ class SprayBottleEnvironment(Environment):
             parse_visuals_as_colliders=False)
 
         # builder.joint_act[5] = 0.15
+
+        print("builder.body_mass", builder.body_mass)
+        
+        # for mesh in builder.shape_geo_src:
+        #     if isinstance(mesh, wp.sim.Mesh):
+        #         mesh.remesh(visualize=False)
 
 
 if __name__ == "__main__":
