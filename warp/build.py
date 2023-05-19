@@ -390,7 +390,7 @@ def build_dll(
 
                 ld_inputs.append(quote(cu_out))
                 ld_inputs.append(
-                    f'-L"{cuda_home}/lib64" -lcudart_static -lnvrtc_static -lnvrtc-builtins_static -lnvptxcompiler_static -lpthread -ldl -lrt'
+                    f'-L"{cuda_home}/lib64" -L"{cuda_home}/lib" -lcudart_static -lnvrtc_static -lnvrtc-builtins_static -lnvptxcompiler_static -lpthread -ldl -lrt'
                 )
 
         if sys.platform == "darwin":
