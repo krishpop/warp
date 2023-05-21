@@ -33,7 +33,7 @@ def triangle_inertia(
 
     Dm = wp.mat33(pcom[0], qcom[0], rcom[0], pcom[1], qcom[1], rcom[1], pcom[2], qcom[2], rcom[2])
 
-    volume = wp.determinant(Dm) / 6.0
+    volume = wp.abs(wp.determinant(Dm) / 6.0)
 
     # accumulate mass
     wp.atomic_add(mass, 0, 4.0 * density * volume)
@@ -261,6 +261,7 @@ def compute_mesh_inertia(
     com = np.mean(vertices, 0)
     com_warp = wp.vec3(com[0], com[1], com[2])
 
+    indices = np.array(indices).flatten()
     num_tris = len(indices) // 3
 
     # compute signed inertia for each tetrahedron
