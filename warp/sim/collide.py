@@ -1261,8 +1261,6 @@ def handle_contact_pairs(
         p_b_body = closest_point_plane(geo_scale_b[0], geo_scale_b[1], query_b)
         p_b_world = wp.transform_point(X_ws_b, p_b_body)
         diff = p_a_world - p_b_world
-        normal = wp.transform_vector(X_ws_b, wp.vec3(0.0, 1.0, 0.0))
-        distance = wp.length(diff)
 
         # if the plane is infinite or the point is within the plane we fix the normal to prevent intersections
         if (
@@ -1272,14 +1270,15 @@ def handle_contact_pairs(
             and wp.abs(query_b[2]) < geo_scale_b[1]
         ):
             normal = wp.transform_vector(X_ws_b, wp.vec3(0.0, 1.0, 0.0))
+            distance = wp.dot(diff, normal)
         else:
             normal = wp.normalize(diff)
-        distance = wp.dot(diff, normal)
-        # ignore extreme penetrations (e.g. when mesh is below the plane)
-        if distance < -rigid_contact_margin:
-            contact_shape0[tid] = -1
-            contact_shape1[tid] = -1
-            return
+            distance = wp.dot(diff, normal)
+            # ignore extreme penetrations (e.g. when mesh is below the plane)
+            if distance < -rigid_contact_margin:
+                contact_shape0[tid] = -1
+                contact_shape1[tid] = -1
+                return
 
     else:
         print("Unsupported geometry pair in collision handling")
@@ -1294,7 +1293,7 @@ def handle_contact_pairs(
         contact_offset1[tid] = wp.transform_vector(X_bw_b, thickness_b * normal)
         contact_normal[tid] = normal
         contact_thickness[tid] = thickness
-        # wp.printf("distance: %f\tnormal: %.3f %.3f %.3f\tp_a_world: %.3f %.3f %.3f\tp_b_world: %.3f %.3f %.3f\n", distance, normal[0], normal[1], normal[2], p_a_world[0], p_a_world[1], p_a_world[2], p_b_world[0], p_b_world[1], p_b_world[2])
+        # wp.printf("%d distance: %f\tnormal: %.3f %.3f %.3f\tp_a_world: %.3f %.3f %.3f\tp_b_world: %.3f %.3f %.3f\n", point_id, distance, normal[0], normal[1], normal[2], p_a_world[0], p_a_world[1], p_a_world[2], p_b_world[0], p_b_world[1], p_b_world[2])
     else:
         contact_shape0[tid] = -1
         contact_shape1[tid] = -1
