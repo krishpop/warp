@@ -34,6 +34,8 @@ def parse_urdf(
         parse_visuals_as_colliders=False,
         enable_self_collisions=True,
         ignore_inertial_definitions=True,
+        ensure_nonstatic_links=True,
+        static_link_mass=1e-2,
         collapse_fixed_joints=True):
 
     import urdfpy
@@ -135,15 +137,15 @@ def parse_urdf(
     # add links
     for urdf_link in robot.links:
 
-        link = builder.add_body(
-            origin=wp.transform_identity(),
-            armature=armature,
-            name=urdf_link.name)
-
         if parse_visuals_as_colliders:
             colliders = urdf_link.visuals
         else:
             colliders = urdf_link.collisions
+
+        link = builder.add_body(
+            origin=wp.transform_identity(),
+            armature=armature,
+            name=urdf_link.name)
 
         if ignore_inertial_definitions:
             actual_density = density
@@ -162,18 +164,20 @@ def parse_urdf(
             builder.body_com[link] = com
             builder.body_inertia[link] = I_m
             builder.body_inv_inertia[link] = np.linalg.inv(I_m)
-        elif m == 0.0:
-            # set the mass to something nonzero to ensure the body is dynamic
-            m = 0.1
-            # cube with side length 0.5
-            I_m = np.eye(3) * 0.5 * m / 12.0
-            builder.body_mass[link] = m
-            builder.body_inv_mass[link] = 1.0 / m
-            builder.body_inertia[link] = I_m
-            builder.body_inv_inertia[link] = np.linalg.inv(I_m)
-
+        # elif m == 0.0 and ensure_nonstatic_links:
+        #     # set the mass to something nonzero to ensure the body is dynamic
+        #     m = static_link_mass
+        #     # cube with side length 0.5
+        #     I_m = np.eye(3) * 0.5 * m / 12.0
+        #     builder.body_mass[link] = m
+        #     builder.body_inv_mass[link] = 1.0 / m
+        #     builder.body_inertia[link] = I_m
+        #     builder.body_inv_inertia[link] = np.linalg.inv(I_m)
+        
         # add ourselves to the index
         link_index[urdf_link.name] = link
+    
+    end_shape_count = len(builder.shape_geo_type)
 
     # add base joint
     root = link_index[robot.base_link.name]
@@ -264,6 +268,9 @@ def parse_urdf(
     for joint in sorted_joints:
         parent = link_index[joint.parent]
         child = link_index[joint.child]
+        if child == -1:
+            # we skipped the insertion of the child body
+            continue
 
         origin = urdfpy.matrix_to_xyz_rpy(joint.origin)
         pos = origin[0:3]
@@ -346,7 +353,6 @@ def parse_urdf(
                 **joint_params)
         else:
             raise Exception("Unsupported joint type: " + joint.joint_type)
-    end_shape_count = len(builder.shape_geo_type)
 
     if not enable_self_collisions:
         for i in range(start_shape_count, end_shape_count):
