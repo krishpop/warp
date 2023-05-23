@@ -27,7 +27,7 @@ from . import torch_utils as tu
 
 
 class HumanoidEnv(WarpEnv):
-    render_mode: RenderMode = RenderMode.TINY
+    render_mode: RenderMode = RenderMode.OPENGL
     integrator_type: IntegratorType = IntegratorType.XPBD
 
     def __init__(
@@ -81,9 +81,9 @@ class HumanoidEnv(WarpEnv):
 
         self.basis_vec0 = self.heading_vec.clone()
         self.basis_vec1 = self.up_vec.clone()
-        self.targets = tu.to_torch(
-            [200.0, 0.0, 0.0], device=self.device, requires_grad=False
-        ).repeat((self.num_envs, 1))
+        self.targets = tu.to_torch([200.0, 0.0, 0.0], device=self.device, requires_grad=False).repeat(
+            (self.num_envs, 1)
+        )
 
         # other parameters
         self.termination_height = 0.74
@@ -180,9 +180,7 @@ class HumanoidEnv(WarpEnv):
         actions = actions.view((self.num_envs, self.num_actions))
         actions = torch.clip(actions, -1.0, 1.0)
         acts_per_env = int(self.model.joint_act.shape[0] / self.num_envs)
-        joint_act = torch.zeros(
-            (self.num_envs * acts_per_env), dtype=torch.float32, device=self.device
-        )
+        joint_act = torch.zeros((self.num_envs * acts_per_env), dtype=torch.float32, device=self.device)
         act_types = {1: [True], 3: [], 4: [False] * 6, 5: [True] * 3, 6: [True] * 2}
         joint_types = self.model.joint_type.numpy()
         act_idx = np.concatenate([act_types[i] for i in joint_types])
@@ -232,30 +230,15 @@ class HumanoidEnv(WarpEnv):
         return self.obs_buf
 
     def get_stochastic_init(self, env_ids, joint_q, joint_qd):
-        joint_q[env_ids, 0:3] += (
-            0.1 * (torch.rand(size=(len(env_ids), 3), device=self.device) - 0.5) * 2.0
-        )
+        joint_q[env_ids, 0:3] += 0.1 * (torch.rand(size=(len(env_ids), 3), device=self.device) - 0.5) * 2.0
         angle = (torch.rand(len(env_ids), device=self.device) - 0.5) * np.pi / 12.0
-        axis = torch.nn.functional.normalize(
-            torch.rand((len(env_ids), 3), device=self.device) - 0.5
-        )
-        joint_q[env_ids, 3:7] = tu.quat_mul(
-            joint_q[env_ids, 3:7], tu.quat_from_angle_axis(angle, axis)
-        )
+        axis = torch.nn.functional.normalize(torch.rand((len(env_ids), 3), device=self.device) - 0.5)
+        joint_q[env_ids, 3:7] = tu.quat_mul(joint_q[env_ids, 3:7], tu.quat_from_angle_axis(angle, axis))
         joint_q[env_ids, 7:] = (
             self.joint_q.view(self.num_envs, -1)[env_ids, 7:]
-            + 0.2
-            * (
-                torch.rand(
-                    size=(len(env_ids), self.num_joint_q - 7), device=self.device
-                )
-                - 0.5
-            )
-            * 2.0
+            + 0.2 * (torch.rand(size=(len(env_ids), self.num_joint_q - 7), device=self.device) - 0.5) * 2.0
         )
-        joint_qd[env_ids, :] = 0.5 * (
-            torch.rand(size=(len(env_ids), self.num_joint_qd), device=self.device) - 0.5
-        )
+        joint_qd[env_ids, :] = 0.5 * (torch.rand(size=(len(env_ids), self.num_joint_qd), device=self.device) - 0.5)
         return joint_q, joint_qd
 
     def calculateObservations(self):
@@ -283,8 +266,7 @@ class HumanoidEnv(WarpEnv):
                 lin_vel,  # 5:8
                 ang_vel,  # 8:11
                 self.joint_q.view(self.num_envs, -1)[:, 7:],  # 11:32
-                self.joint_vel_obs_scaling
-                * self.joint_qd.view(self.num_envs, -1)[:, 6:],  # 32:53
+                self.joint_vel_obs_scaling * self.joint_qd.view(self.num_envs, -1)[:, 6:],  # 32:53
                 up_vec[:, 1:2],  # 53:54
                 (heading_vec * target_dirs).sum(dim=-1).unsqueeze(-1),  # 54:55
                 self.actions.clone(),
@@ -296,16 +278,10 @@ class HumanoidEnv(WarpEnv):
         up_reward = 0.1 * self.obs_buf[:, 53]
         heading_reward = self.obs_buf[:, 54]
 
-        height_diff = self.obs_buf[:, 0] - (
-            self.termination_height + self.termination_tolerance
-        )
+        height_diff = self.obs_buf[:, 0] - (self.termination_height + self.termination_tolerance)
         height_reward = torch.clip(height_diff, -1.0, self.termination_tolerance)
-        height_reward = torch.where(
-            height_reward < 0.0, -200.0 * height_reward * height_reward, height_reward
-        )
-        height_reward = torch.where(
-            height_reward > 0.0, self.height_rew_scale * height_reward, height_reward
-        )
+        height_reward = torch.where(height_reward < 0.0, -200.0 * height_reward * height_reward, height_reward)
+        height_reward = torch.where(height_reward > 0.0, self.height_rew_scale * height_reward, height_reward)
 
         progress_reward = self.obs_buf[:, 5]
 
@@ -346,15 +322,10 @@ class HumanoidEnv(WarpEnv):
         )
         invalid_value_masks = torch.logical_or(
             (torch.abs(self.joint_q.view(self.num_environments, -1)) > 1e6).sum(-1) > 0,
-            (torch.abs(self.joint_qd.view(self.num_environments, -1)) > 1e6).sum(-1)
-            > 0,
+            (torch.abs(self.joint_qd.view(self.num_environments, -1)) > 1e6).sum(-1) > 0,
         )
-        invalid_masks = torch.logical_or(
-            invalid_value_masks, torch.logical_or(nan_masks, inf_masks)
-        )
+        invalid_masks = torch.logical_or(invalid_value_masks, torch.logical_or(nan_masks, inf_masks))
 
-        self.reset_buf = torch.where(
-            invalid_masks, torch.ones_like(self.reset_buf), self.reset_buf
-        )
+        self.reset_buf = torch.where(invalid_masks, torch.ones_like(self.reset_buf), self.reset_buf)
 
         self.rew_buf[invalid_masks] = 0.0

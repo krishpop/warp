@@ -48,9 +48,7 @@ def gen_unique_filename(name, max_id=10):
     fn = lambda: f"{pref}-{id}{ext}"
     while osp.exists(fn()) and id < max_id:
         id += 1
-    assert (
-        id <= max_id
-    ), "Too many files with same name, attempted to save as {}".format(fn())
+    assert id <= max_id, "Too many files with same name, attempted to save as {}".format(fn())
     return fn()
 
 
@@ -154,6 +152,10 @@ class ObjectType(Enum):
     CUBE = 7
     OCTPRISM = 8
     TCDM_STAPLER = 9
+    SPRAY_BOTTLE = 10
+    PILL_BOTTLE = 11
+    PLIER = 12
+    SCISSORS = 13
 
 
 OBJ_PATHS = {

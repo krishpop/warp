@@ -1,4 +1,5 @@
 import os.path as osp
+import os
 import warp as wp
 import math
 import numpy as np
@@ -72,7 +73,7 @@ def add_object(
     contact_kd=1e2,
     xform=None,
     scale=2,
-    model_path=None
+    model_path=None,
 ):
     if object_type in OBJ_PATHS:
         add_mesh(builder, link, OBJ_PATHS[object_type], contact_ke=contact_ke, contact_kd=contact_kd, density=density)
@@ -386,6 +387,51 @@ class ObjectModel:
             )
 
 
+class OperableObjectModel(ObjectModel):
+    def __init__(
+        self,
+        object_type,
+        base_pos=(0.0, 0.075, 0.0),
+        base_ori=(np.pi / 2, 0.0, 0.0),
+        contact_ke=1.0e3,
+        contact_kd=100.0,
+        scale=0.4,
+        damping=0.5,
+        model_path: str = "",
+    ):
+        super().__init__(
+            object_type,
+            base_pos=base_pos,
+            base_ori=base_ori,
+            contact_ke=contact_ke,
+            contact_kd=contact_kd,
+            scale=scale,
+            damping=damping,
+        )
+        assert model_path and os.path.splitext(model_path)[1] == ".urdf"
+        self.model_path = model_path
+
+    def create_articulation(self, builder):
+        wp.sim.parse_urdf(
+            os.path.join(os.path.dirname(__file__), "assets", self.model_path),
+            builder,
+            xform=wp.transform(self.base_pos),
+            floating=True,
+            density=1000.0,
+            armature=0.1,
+            stiffness=0.0,
+            damping=0.0,
+            shape_ke=1.0e4,
+            shape_kd=1.0e2,
+            shape_kf=1.0e2,
+            shape_mu=1.0,
+            limit_ke=1.0e4,
+            limit_kd=1.0e1,
+            enable_self_collisions=False,
+            parse_visuals_as_colliders=False,
+        )
+
+
 def object_generator(object_type, **kwargs):
     class __DexObj__(ObjectModel):
         def __init__(self):
@@ -394,9 +440,26 @@ def object_generator(object_type, **kwargs):
     return __DexObj__
 
 
+def operable_object_generator(object_type, **kwargs):
+    class __OpDexObj__(OperableObjectModel):
+        def __init__(self):
+            super().__init__(object_type=object_type, **kwargs)
+
+    return __OpDexObj__
+
+
 StaplerObject = object_generator(ObjectType.TCDM_STAPLER, base_pos=(0.0, 0.01756801, 0.0), scale=1.3)
 OctprismObject = object_generator(ObjectType.OCTPRISM, scale=1.0)
+SprayBottleObject = operable_object_generator(
+    ObjectType.SPRAY_BOTTLE, base_pos=(0.0, 0.22, 0.0), model_path="spray_bottle/mobility.urdf"
+)
+PillBottleObject = operable_object_generator(
+    ObjectType.PILL_BOTTLE,
+    base_pos=(0.0, 0.01756801, 0.0),
+)
 
 OBJ_MODELS = {}
 OBJ_MODELS[ObjectType.TCDM_STAPLER] = StaplerObject
 OBJ_MODELS[ObjectType.OCTPRISM] = OctprismObject
+OBJ_MODELS[ObjectType.SPRAY_BOTTLE] = SprayBottleObject
+OBJ_MODELS[ObjectType.PILL_BOTTLE] = PillBottleObject

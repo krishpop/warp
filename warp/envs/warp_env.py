@@ -49,7 +49,7 @@ class WarpEnv(Environment):
         stochastic_init=False,
         device="cuda",
         env_name="warp_env",
-        render_mode=RenderMode.USD,
+        render_mode=RenderMode.OPENGL,
         stage_path=None,
     ):
         self.seed = seed
@@ -413,12 +413,12 @@ class WarpEnv(Environment):
                 self.renderer.end_frame()
                 if self.num_frames % self.render_freq == 0:
                     self.renderer.save()
-            elif self.render_mode is RenderMode.TINY:
+            elif self.render_mode is RenderMode.OPENGL:
                 self.renderer.begin_frame(self.render_time)
                 self.renderer.render(self.state_0)
                 self.renderer.end_frame()
-                if mode == "rgb_array":
-                    return self.renderer.get_pixel_buffer()
+                # if mode == "rgb_array":
+                #     return self.renderer.get_pixel_buffer()
 
     def get_checkpoint(self, save_path=None):
         checkpoint = {}

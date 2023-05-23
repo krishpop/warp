@@ -137,7 +137,7 @@ class Environment:
     # control-related definitions, to be updated by derived classes
     control_dim: int = 0
 
-    def __init__(self):
+    def init_parser(self):
         self.parser = argparse.ArgumentParser()
         self.parser.add_argument(
             "--integrator",
@@ -159,6 +159,7 @@ class Environment:
         self.parser.add_argument("--profile", help="Enable profiling", type=bool, default=self.profile)
 
     def parse_args(self):
+        self.init_parser()
         args = self.parser.parse_args()
         self.integrator_type = args.integrator
         self.render_mode = args.visualizer
@@ -496,7 +497,7 @@ class Environment:
 
 def run_env(Demo):
     demo = Demo()
-    demo.parse_args()
+    # demo.parse_args()
     if demo.profile:
         import matplotlib.pyplot as plt
 
