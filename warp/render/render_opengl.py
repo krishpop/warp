@@ -782,7 +782,7 @@ class OpenGLRenderer:
         draw_axis=True,
         show_info=True,
         axis_scale=1.0,
-        vsync=True,
+        vsync=False,
         headless=False,
     ):
 
@@ -901,6 +901,7 @@ class OpenGLRenderer:
 
         gl.glClearColor(*self.background_color, 1)
         gl.glEnable(gl.GL_DEPTH_TEST)
+        gl.glEnable(gl.GL_CULL_FACE)
 
         self._shape_shader = ShaderProgram(
             Shader(shape_vertex_shader, "vertex"), Shader(shape_fragment_shader, "fragment")
@@ -980,7 +981,7 @@ class OpenGLRenderer:
         gl.glGenVertexArrays(1, self._sky_vao)
         gl.glBindVertexArray(self._sky_vao)
 
-        vertices, indices = self._create_sphere_mesh(self.camera_far_plane * 0.9, 32, 32)
+        vertices, indices = self._create_sphere_mesh(self.camera_far_plane * 0.9, 32, 32, reverse_winding=True)
         self._sky_tri_count = len(indices)
 
         self._sky_vbo = gl.GLuint()
@@ -2611,7 +2612,7 @@ Instances: {len(self._instances)}"""
         cuda_buffer.unmap()
 
     @staticmethod
-    def _create_sphere_mesh(radius=1.0, num_latitudes=default_num_segments, num_longitudes=default_num_segments):
+    def _create_sphere_mesh(radius=1.0, num_latitudes=default_num_segments, num_longitudes=default_num_segments, reverse_winding=False):
         vertices = []
         indices = []
 
@@ -2639,7 +2640,10 @@ Instances: {len(self._instances)}"""
                 first = i * (num_longitudes + 1) + j
                 second = first + num_longitudes + 1
 
-                indices.extend([first, second, first + 1, second, second + 1, first + 1])
+                if reverse_winding:
+                    indices.extend([first, second, first + 1, second, second + 1, first + 1])
+                else:    
+                    indices.extend([first, first + 1, second, second, first + 1, second + 1])
 
         return np.array(vertices, dtype=np.float32), np.array(indices, dtype=np.uint32)
 
@@ -2832,16 +2836,16 @@ Instances: {len(self._instances)}"""
         indices = [
             0, 1, 2,
             0, 2, 3,
-            4, 5, 6,
-            4, 6, 7,
-            8, 9, 10,
-            8, 10, 11,
+            4, 6, 5,
+            4, 7, 6,
+            8, 10, 9,
+            8, 11, 10,
             12, 13, 14,
             12, 14, 15,
             16, 17, 18,
             16, 18, 19,
-            20, 21, 22,
-            20, 22, 23,
+            20, 22, 21,
+            20, 23, 22,
         ]
         # fmt: on
         return np.array(vertices, dtype=np.float32), np.array(indices, dtype=np.uint32)

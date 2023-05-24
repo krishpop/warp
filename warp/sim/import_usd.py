@@ -672,7 +672,7 @@ def parse_usd(
                 face_id = 0
                 for count in counts:
                     if count == 3:
-                        faces.append(indices[face_id : face_id + 3])
+                        faces.append(indices[face_id : face_id + 3][::-1])
                     elif count == 4:
                         faces.append(indices[face_id : face_id + 3])
                         faces.append(indices[[face_id, face_id + 2, face_id + 3]])
