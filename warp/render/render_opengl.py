@@ -17,16 +17,7 @@ from typing import List, Tuple, Union, Optional
 import numpy as np
 import ctypes
 
-try:
-    import pyglet
-    from pyglet import gl
-    from pyglet.math import Mat4 as PyMat4
-    from pyglet.math import Vec3 as PyVec3
-    from pyglet.graphics.shader import Shader, ShaderProgram
-except ImportError:
-    raise Exception("OpenGLRenderer requires pyglet (version >= 2.0) to be installed.")
-
-Mat44 = Union[List[float], List[List[float]], np.ndarray, PyMat4]
+Mat44 = Union[List[float], List[List[float]], np.ndarray]
 
 wp.set_module_options({"enable_backward": False})
 
@@ -513,6 +504,7 @@ def copy_frame_tile(
 
 
 def check_gl_error():
+    from pyglet import gl
     error = gl.glGetError()
     if error != gl.GL_NO_ERROR:
         print(f"OpenGL error: {error}")
@@ -541,6 +533,7 @@ class ShapeInstancer:
         self._instance_transform_cuda_buffer = None
 
     def __del__(self):
+        from pyglet import gl
         if self.instance_transform_gl_buffer is not None:
             try:
                 gl.glDeleteBuffers(1, self.instance_transform_gl_buffer)
@@ -557,6 +550,7 @@ class ShapeInstancer:
                 pass
 
     def register_shape(self, vertices, indices, color1=(1.0, 1.0, 1.0), color2=(0.0, 0.0, 0.0)):
+        from pyglet import gl
         if color1 is not None and color2 is None:
             color2 = np.clip(np.array(color1) + 0.25, 0.0, 1.0)
         self.color1 = color1
@@ -596,6 +590,8 @@ class ShapeInstancer:
         self.face_count = len(indices)
 
     def allocate_instances(self, positions, rotations=None, colors1=None, colors2=None, scalings=None):
+        from pyglet import gl
+
         gl.glBindVertexArray(self.vao)
 
         self.num_instances = len(positions)
@@ -697,6 +693,8 @@ class ShapeInstancer:
         gl.glBindVertexArray(0)
 
     def update_instances(self, transforms: wp.array = None, scalings: wp.array = None, colors1=None, colors2=None):
+        from pyglet import gl
+
         if transforms is not None:
             if transforms.device.is_cuda:
                 wp_transforms = transforms
@@ -733,6 +731,7 @@ class ShapeInstancer:
             self._instance_transform_cuda_buffer.unmap()
 
     def render(self):
+        from pyglet import gl
         gl.glUseProgram(self.shape_shader.id)
 
         gl.glBindVertexArray(self.vao)
@@ -741,6 +740,7 @@ class ShapeInstancer:
 
     # scope exposes VBO transforms to be set directly by a warp kernel
     def __enter__(self):
+        from pyglet import gl
         gl.glBindVertexArray(self.vao)
         self.vbo_transforms = self._instance_transform_cuda_buffer.map(dtype=wp.mat44, shape=(self.num_instances,))
         return self
@@ -782,9 +782,18 @@ class OpenGLRenderer:
         draw_axis=True,
         show_info=True,
         axis_scale=1.0,
-        vsync=True,
+        vsync=False,
         headless=False,
     ):
+
+        try:
+            import pyglet
+            from pyglet import gl
+            from pyglet.math import Vec3 as PyVec3
+            from pyglet.graphics.shader import Shader, ShaderProgram
+        except ImportError:
+            raise Exception("OpenGLRenderer requires pyglet (version >= 2.0) to be installed.")
+
         self.camera_near_plane = near_plane
         self.camera_far_plane = far_plane
         self.camera_fov = camera_fov
@@ -892,6 +901,7 @@ class OpenGLRenderer:
 
         gl.glClearColor(*self.background_color, 1)
         gl.glEnable(gl.GL_DEPTH_TEST)
+        gl.glEnable(gl.GL_CULL_FACE)
 
         self._shape_shader = ShaderProgram(
             Shader(shape_vertex_shader, "vertex"), Shader(shape_fragment_shader, "fragment")
@@ -971,7 +981,7 @@ class OpenGLRenderer:
         gl.glGenVertexArrays(1, self._sky_vao)
         gl.glBindVertexArray(self._sky_vao)
 
-        vertices, indices = self._create_sphere_mesh(self.camera_far_plane * 0.9, 32, 32)
+        vertices, indices = self._create_sphere_mesh(self.camera_far_plane * 0.9, 32, 32, reverse_winding=True)
         self._sky_tri_count = len(indices)
 
         self._sky_vbo = gl.GLuint()
@@ -1119,6 +1129,7 @@ class OpenGLRenderer:
         return self.app.event_loop.has_exit
 
     def clear(self):
+        from pyglet import gl
         self.app.event_loop.dispatch_event("on_exit")
         self.app.platform_event_loop.stop()
 
@@ -1303,6 +1314,8 @@ class OpenGLRenderer:
         self._tile_viewports[tile_id] = (x, y, w, h)
 
     def _setup_framebuffer(self):
+        from pyglet import gl
+
         if self._frame_texture is None:
             self._frame_texture = gl.GLuint()
             gl.glGenTextures(1, self._frame_texture)
@@ -1390,6 +1403,7 @@ class OpenGLRenderer:
         :return: A projection matrix.
         """
 
+        from pyglet.math import Mat4 as PyMat4
         return np.array(PyMat4.perspective_projection(aspect_ratio, near_plane, far_plane, fov))
 
     def update_projection_matrix(self):
@@ -1401,10 +1415,12 @@ class OpenGLRenderer:
         )
 
     def update_view_matrix(self):
+        from pyglet.math import Mat4 as PyMat4
         cam_pos = self._camera_pos
         self._view_matrix = np.array(PyMat4.look_at(cam_pos, cam_pos + self._camera_front, self._camera_up))
 
     def update_model_matrix(self):
+        from pyglet import gl
         # fmt: off
         if self._camera_axis == 0:
             self._model_matrix = np.array((
@@ -1510,6 +1526,7 @@ class OpenGLRenderer:
             self.app.event_loop._redraw_windows(self._frame_dt)
 
     def _draw(self):
+        from pyglet import gl
         # catch key hold events
         self._process_inputs()
 
@@ -1580,6 +1597,7 @@ Instances: {len(self._instances)}"""
             self._info_label.draw()
 
     def _draw_grid(self, is_tiled=False):
+        from pyglet import gl
         if not is_tiled:
             gl.glUseProgram(self._grid_shader.id)
 
@@ -1591,6 +1609,7 @@ Instances: {len(self._instances)}"""
         gl.glBindVertexArray(0)
 
     def _draw_sky(self, is_tiled=False):
+        from pyglet import gl
         if not is_tiled:
             gl.glUseProgram(self._sky_shader.id)
 
@@ -1603,6 +1622,7 @@ Instances: {len(self._instances)}"""
         gl.glBindVertexArray(0)
 
     def _render_scene(self):
+        from pyglet import gl
         start_instance_idx = 0
 
         for shape, (vao, _, _, tri_count, _) in self._shape_gl_buffers.items():
@@ -1624,6 +1644,7 @@ Instances: {len(self._instances)}"""
         gl.glBindVertexArray(0)
 
     def _render_scene_tiled(self):
+        from pyglet import gl
         for i, viewport in enumerate(self._tile_viewports):
             projection_matrix_ptr = arr_pointer(self._tile_projection_matrices[i])
             view_matrix_ptr = arr_pointer(self._tile_view_matrices[i] or self._view_matrix)
@@ -1668,6 +1689,7 @@ Instances: {len(self._instances)}"""
         gl.glBindVertexArray(0)
 
     def _mouse_drag_callback(self, x, y, dx, dy, buttons, modifiers):
+        import pyglet
         if buttons & pyglet.window.mouse.LEFT:
             sensitivity = 0.1
             dx *= sensitivity
@@ -1690,6 +1712,9 @@ Instances: {len(self._instances)}"""
         self.update_projection_matrix()
 
     def _process_inputs(self):
+        import pyglet
+        from pyglet.math import Vec3 as PyVec3
+
         if self._key_handler[pyglet.window.key.W] or self._key_handler[pyglet.window.key.UP]:
             self._camera_pos += self._camera_front * (self._camera_speed * self._frame_speed)
             self.update_view_matrix()
@@ -1706,6 +1731,8 @@ Instances: {len(self._instances)}"""
             self.update_view_matrix()
 
     def _key_press_callback(self, symbol, modifiers):
+        import pyglet
+
         if symbol == pyglet.window.key.ESCAPE:
             self.window.close()
         if symbol == pyglet.window.key.SPACE:
@@ -1726,6 +1753,8 @@ Instances: {len(self._instances)}"""
         self._setup_framebuffer()
 
     def register_shape(self, geo_hash, vertices, indices, color1=None, color2=None):
+        from pyglet import gl
+
         shape = len(self._shapes)
         if color1 is None:
             color1 = tab10_color_map(len(self._shape_geo_hash))
@@ -1789,6 +1818,8 @@ Instances: {len(self._instances)}"""
         return instance
 
     def allocate_shape_instances(self):
+        from pyglet import gl
+
         self._add_shape_instances = False
         self._wp_instance_transforms = wp.array(
             [instance[3] for instance in self._instances.values()], dtype=wp.transform, device=self._device
@@ -1964,6 +1995,8 @@ Instances: {len(self._instances)}"""
             self.app.event_loop.exit()
 
     def get_pixels(self, target_image: wp.array, split_up_tiles=True):
+        from pyglet import gl
+
         if split_up_tiles:
             assert (
                 self._tile_width is not None and self._tile_height is not None
@@ -2027,6 +2060,8 @@ Instances: {len(self._instances)}"""
         return True
 
     def get_tile_pixels(self, tile_id: int, target_image: wp.array):
+        from pyglet import gl
+
         viewport = self._tile_viewports[tile_id]
         assert target_image.shape == (
             viewport[3],
@@ -2458,7 +2493,7 @@ Instances: {len(self._instances)}"""
 
         Args:
             points: The points to render
-            radius: The radius of the points
+            radius: The radius of the points (scalar or list)
             colors: The colors of the points
             name: A name for the USD prim on the stage
         """
@@ -2473,13 +2508,18 @@ Instances: {len(self._instances)}"""
 
         if name not in self._shape_instancers:
             instancer = ShapeInstancer(self._shape_shader, self._device)
-            vertices, indices = self._create_sphere_mesh(radius)
+            radius_is_scalar = np.isscalar(radius)
+            if radius_is_scalar:
+                vertices, indices = self._create_sphere_mesh(radius)
+            else:
+                vertices, indices = self._create_sphere_mesh(1.0)
             if colors is None:
                 color = tab10_color_map(len(self._shape_geo_hash))
             else:
                 color = colors[0]
             instancer.register_shape(vertices, indices, color, color)
-            instancer.allocate_instances(np.array(points), colors1=colors, colors2=colors)
+            scalings = None if radius_is_scalar else np.tile(radius, (3, 1)).T
+            instancer.allocate_instances(np.array(points), colors1=colors, colors2=colors, scalings=scalings)
             self._shape_instancers[name] = instancer
         else:
             instancer = self._shape_instancers[name]
@@ -2490,7 +2530,7 @@ Instances: {len(self._instances)}"""
             wp.launch(
                 update_points_positions,
                 dim=len(points),
-                inputs=[wp_points, None],
+                inputs=[wp_points, instancer.instance_scalings],
                 outputs=[instancer.vbo_transforms],
                 device=self._device,
             )
@@ -2572,7 +2612,7 @@ Instances: {len(self._instances)}"""
         cuda_buffer.unmap()
 
     @staticmethod
-    def _create_sphere_mesh(radius=1.0, num_latitudes=default_num_segments, num_longitudes=default_num_segments):
+    def _create_sphere_mesh(radius=1.0, num_latitudes=default_num_segments, num_longitudes=default_num_segments, reverse_winding=False):
         vertices = []
         indices = []
 
@@ -2600,7 +2640,10 @@ Instances: {len(self._instances)}"""
                 first = i * (num_longitudes + 1) + j
                 second = first + num_longitudes + 1
 
-                indices.extend([first, second, first + 1, second, second + 1, first + 1])
+                if reverse_winding:
+                    indices.extend([first, second, first + 1, second, second + 1, first + 1])
+                else:    
+                    indices.extend([first, first + 1, second, second, first + 1, second + 1])
 
         return np.array(vertices, dtype=np.float32), np.array(indices, dtype=np.uint32)
 
@@ -2793,16 +2836,16 @@ Instances: {len(self._instances)}"""
         indices = [
             0, 1, 2,
             0, 2, 3,
-            4, 5, 6,
-            4, 6, 7,
-            8, 9, 10,
-            8, 10, 11,
+            4, 6, 5,
+            4, 7, 6,
+            8, 10, 9,
+            8, 11, 10,
             12, 13, 14,
             12, 14, 15,
             16, 17, 18,
             16, 18, 19,
-            20, 21, 22,
-            20, 22, 23,
+            20, 22, 21,
+            20, 23, 22,
         ]
         # fmt: on
         return np.array(vertices, dtype=np.float32), np.array(indices, dtype=np.uint32)

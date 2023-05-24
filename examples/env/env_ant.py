@@ -37,7 +37,7 @@ class AntEnvironment(Environment):
 
     use_graph_capture = True
     use_tiled_rendering = False
-    show_joints = True
+    show_joints = False
 
     def create_articulation(self, builder):
         wp.sim.parse_mjcf(

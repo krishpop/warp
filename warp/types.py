@@ -7,7 +7,6 @@
 
 import ctypes
 import hashlib
-import inspect
 import struct
 import zlib
 import numpy as np
@@ -252,6 +251,12 @@ def matrix(shape, dtype):
             return warp.mul(self, y)
 
         def __rmul__(self, x):
+            return warp.mul(x, self)
+
+        def __matmul__(self, y):
+            return warp.mul(self, y)
+
+        def __rmatmul__(self, x):
             return warp.mul(x, self)
 
         def __div__(self, y):
@@ -1157,7 +1162,7 @@ class array(Array):
                 if strides is not None:
                     strides = strides[0:-dtype_ndim]
 
-            if device.is_cpu and copy == False:
+            if device.is_cpu and copy is False:
                 # ref numpy memory directly
                 self.shape = shape
                 self.ptr = ptr
@@ -1414,6 +1419,42 @@ class array(Array):
 
         return self.ctype
 
+    def __matmul__(self, other):
+        """
+        Enables A @ B syntax for matrix multiplication
+        """
+        if self.ndim != 2 or other.ndim != 2:
+            raise RuntimeError(
+                "A has dim = {}, B has dim = {}. If multiplying with @, A and B must have dim = 2.".format(
+                    self.ndim, other.ndim
+                )
+            )
+
+        m = self.shape[0]
+        n = other.shape[1]
+        c = warp.zeros(shape=(m, n), dtype=self.dtype, device=self.device, requires_grad=True)
+        d = warp.zeros(shape=(m, n), dtype=self.dtype, device=self.device, requires_grad=True)
+        matmul(self, other, c, d, device=self.device)
+        return d
+
+    @property
+    def grad(self):
+        return self._grad
+
+    @grad.setter
+    def grad(self, value):
+        # trigger re-creation of C-representation
+        self.ctype = None
+        if value is None:
+            self.grad_ptr = None
+            self._grad = None
+            return
+        if self._grad is None:
+            self.grad_ptr = value.ptr
+            self._grad = value
+        else:
+            self._grad.assign(value)
+
     @property
     def grad(self):
         return self._grad
@@ -1470,7 +1511,7 @@ class array(Array):
 
     def zero_(self):
         if not self.is_contiguous:
-            raise RuntimeError(f"Assigning to non-contiguous arrays is unsupported.")
+            raise RuntimeError("Assigning to non-contiguous arrays is unsupported.")
 
         if self.device is not None and self.ptr is not None:
             self.device.memset(
@@ -1479,7 +1520,7 @@ class array(Array):
 
     def fill_(self, value):
         if not self.is_contiguous:
-            raise RuntimeError(f"Assigning to non-contiguous arrays is unsupported.")
+            raise RuntimeError("Assigning to non-contiguous arrays is unsupported.")
 
         if self.device is not None and self.ptr is not None:
             if isinstance(value, ctypes.Array):
@@ -1492,7 +1533,7 @@ class array(Array):
                     value_type_ok = (self.dtype._length_ == value._length_) and (self.dtype._type_ == value._type_)
                 if not value_type_ok:
                     raise RuntimeError(
-                        f"wp.array has Array type elements (eg vec, mat etc). Value type must match element type in wp.array.fill_() method"
+                        "wp.array has Array type elements (eg vec, mat etc). Value type must match element type in wp.array.fill_() method"
                     )
 
                 src = ctypes.cast(value, ctypes.POINTER(ctypes.c_void_p))
@@ -1584,13 +1625,14 @@ class array(Array):
 
     def flatten(self):
         if not self.is_contiguous:
-            raise RuntimeError(f"Flattening non-contiguous arrays is unsupported.")
+            raise RuntimeError("Flattening non-contiguous arrays is unsupported.")
 
         a = array(
             dtype=self.dtype,
             shape=(self.size,),
             strides=(type_size_in_bytes(self.dtype),),
             ptr=self.ptr,
+            grad_ptr=self.grad_ptr,
             capacity=self.capacity,
             device=self.device,
             copy=False,
@@ -2368,6 +2410,14 @@ def matmul(
             "Invalid shapes for matrices: A = {} B = {} C = {} D = {}".format(a.shape, b.shape, c.shape, d.shape)
         )
 
+    if runtime.tape:
+        runtime.tape.record_func(
+            backward=lambda: adj_matmul(
+                a, b, c, a.grad, b.grad, c.grad, d.grad, alpha, beta, allow_tf32x3_arith, device
+            ),
+            arrays=[a, b, c, d],
+        )
+
     # cpu fallback if no cuda devices found
     if device == "cpu":
         d.assign(alpha * (a.numpy() @ b.numpy()) + beta * c.numpy())
@@ -2393,14 +2443,6 @@ def matmul(
     )
     if not ret:
         raise RuntimeError("Matmul failed.")
-
-    if runtime.tape:
-        runtime.tape.record_func(
-            backward=lambda: adj_matmul(
-                a, b, c, a.grad, b.grad, c.grad, d.grad, alpha, beta, allow_tf32x3_arith, device
-            ),
-            arrays=[a, b, c, d],
-        )
 
 
 def adj_matmul(
@@ -2600,6 +2642,14 @@ def batched_matmul(
             "Invalid shapes for matrices: A = {} B = {} C = {} D = {}".format(a.shape, b.shape, c.shape, d.shape)
         )
 
+    if runtime.tape:
+        runtime.tape.record_func(
+            backward=lambda: adj_matmul(
+                a, b, c, a.grad, b.grad, c.grad, d.grad, alpha, beta, allow_tf32x3_arith, device
+            ),
+            arrays=[a, b, c, d],
+        )
+
     # cpu fallback if no cuda devices found
     if device == "cpu":
         d.assign(alpha * np.matmul(a.numpy(), b.numpy()) + beta * c.numpy())
@@ -2625,14 +2675,6 @@ def batched_matmul(
     )
     if not ret:
         raise RuntimeError("Batched matmul failed.")
-
-    if runtime.tape:
-        runtime.tape.record_func(
-            backward=lambda: adj_matmul(
-                a, b, c, a.grad, b.grad, c.grad, d.grad, alpha, beta, allow_tf32x3_arith, device
-            ),
-            arrays=[a, b, c, d],
-        )
 
 
 def adj_batched_matmul(
@@ -2807,6 +2849,9 @@ class HashGrid:
             self.id = runtime.core.hash_grid_create_host(dim_x, dim_y, dim_z)
         else:
             self.id = runtime.core.hash_grid_create_device(self.device.context, dim_x, dim_y, dim_z)
+        
+        # indicates whether the grid data has been reserved for use by a kernel
+        self.reserved = False
 
     def build(self, points, radius):
         """Updates the hash grid data structure.
@@ -2827,6 +2872,7 @@ class HashGrid:
             runtime.core.hash_grid_update_host(self.id, radius, ctypes.cast(points.ptr, ctypes.c_void_p), len(points))
         else:
             runtime.core.hash_grid_update_device(self.id, radius, ctypes.cast(points.ptr, ctypes.c_void_p), len(points))
+        self.reserved = True
 
     def reserve(self, num_points):
         from warp.context import runtime
@@ -2835,6 +2881,7 @@ class HashGrid:
             runtime.core.hash_grid_reserve_host(self.id, num_points)
         else:
             runtime.core.hash_grid_reserve_device(self.id, num_points)
+        self.reserved = True
 
     def __del__(self):
         try:

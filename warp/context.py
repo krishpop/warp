@@ -376,6 +376,10 @@ class Function:
             # failed  to find overload
             return None
 
+    def __repr__(self):
+        inputs_str = ", ".join([f"{k}: {v.__name__}" for k, v in self.input_types.items()])
+        return f"<Function {self.key}({inputs_str})>"
+
 
 class KernelHooks:
     def __init__(self, forward, backward):
@@ -670,12 +674,13 @@ def add_builtin(
 
     def is_generic(t):
         ret = False
-        if t in [warp.types.Scalar, warp.types.Float]:
+        if t in [warp.types.Scalar, warp.types.Float, warp.types.Int]:
             ret = True
         if hasattr(t, "_wp_type_params_"):
             ret = (
                 warp.types.Scalar in t._wp_type_params_
                 or warp.types.Float in t._wp_type_params_
+                or warp.types.Int in t._wp_type_params_
                 or warp.types.Any in t._wp_type_params_
             )
 
@@ -701,7 +706,7 @@ def add_builtin(
             for t in l:
                 if hasattr(t, "_wp_generic_type_str_"):
                     yield t._wp_generic_type_str_
-                elif t in [warp.types.Float, warp.types.Scalar]:
+                elif t in [warp.types.Float, warp.types.Scalar, warp.types.Int]:
                     yield t.__name__
 
         genericset = set(generic_names(input_types.values()))
@@ -713,6 +718,8 @@ def add_builtin(
                 return warp.types.float_types
             elif name == "Scalar":
                 return warp.types.scalar_types
+            elif name == "Int":
+                return warp.types.int_types
             return [x for x in generic_vtypes if x._wp_generic_type_str_ == name]
 
         gtypes = {k: derived(k) for k in genericset}
@@ -739,7 +746,7 @@ def add_builtin(
             consistenttypes = {k: [x for x in v if scalar_type(x) == stype] for k, v in gtypes.items()}
 
             def typelist(param):
-                if param in [warp.types.Scalar, warp.types.Float]:
+                if param in [warp.types.Scalar, warp.types.Float, warp.types.Int]:
                     return [stype]
                 if hasattr(param, "_wp_generic_type_str_"):
                     l = consistenttypes[param._wp_generic_type_str_]
@@ -861,7 +868,7 @@ def get_module(name):
             old_module.kernels = {}
             old_module.functions = {}
             old_module.constants = []
-            old_module.structs = []
+            old_module.structs = {}
             old_module.loader = parent_loader
 
         return user_modules[name]
@@ -931,10 +938,12 @@ class ModuleBuilder:
 
                 def wrap(adj):
                     def value_type(args, kwds, templates):
-                        if adj.return_var:
-                            return adj.return_var.type
-                        else:
+                        if adj.return_var is None or len(adj.return_var) == 0:
                             return None
+                        if len(adj.return_var) == 1:
+                            return adj.return_var[0].type
+                        else:
+                            return [v.type for v in adj.return_var]
 
                     return value_type
 
@@ -1009,7 +1018,7 @@ class Module:
         self.kernels = {}
         self.functions = {}
         self.constants = []
-        self.structs = []
+        self.structs = {}
 
         self.dll = None
         self.cpu_module = None
@@ -1056,7 +1065,7 @@ class Module:
         self.content_hash = None
 
     def register_struct(self, struct):
-        self.structs.append(struct)
+        self.structs[struct.key] = struct
 
         # for a reload of module on next launch
         self.unload()
@@ -1146,7 +1155,7 @@ class Module:
                 ch = hashlib.sha256()
 
                 # struct source
-                for struct in module.structs:
+                for struct in module.structs.values():
                     s = ",".join(
                         "{}: {}".format(name, type_hint) for name, type_hint in get_annotations(struct.cls).items()
                     )
@@ -1508,7 +1517,12 @@ class Stream:
     def __init__(self, device=None, **kwargs):
         self.owner = False
 
-        device = runtime.get_device(device)
+        # we can't use get_device() if called during init, but we can use an explicit Device arg
+        if runtime is not None:
+            device = runtime.get_device(device)
+        elif not isinstance(device, Device):
+            raise RuntimeError("A device object is required when creating a stream before or during Warp initialization")
+
         if not device.is_cuda:
             raise RuntimeError(f"Device {device} is not a CUDA device")
 
@@ -1561,7 +1575,7 @@ class Event:
     def __init__(self, device=None, cuda_event=None, enable_timing=False):
         self.owner = False
 
-        device = runtime.get_device(device)
+        device = get_device(device)
         if not device.is_cuda:
             raise RuntimeError(f"Device {device} is not a CUDA device")
 
@@ -1685,7 +1699,7 @@ class Device:
             if s.device != self:
                 raise RuntimeError(f"Stream from device {s.device} cannot be used on device {self}")
             self._stream = s
-            runtime.core.cuda_context_set_stream(self.context, s.cuda_stream)
+            self.runtime.core.cuda_context_set_stream(self.context, s.cuda_stream)
         else:
             raise RuntimeError(f"Device {self} is not a CUDA device")
 
@@ -2320,6 +2334,9 @@ def assert_initialized():
 
 # global entry points
 def is_cpu_available():
+    if runtime.llvm:
+        return True
+
     # initialize host build env (do this lazily) since
     # it takes 5secs to run all the batch files to locate MSVC
     if warp.config.host_compiler is None:

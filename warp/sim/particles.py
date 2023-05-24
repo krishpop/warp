@@ -6,6 +6,7 @@
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
 import warp as wp
+from .model import PARTICLE_FLAG_ACTIVE
 
 
 @wp.func
@@ -37,7 +38,7 @@ def eval_particle_forces_kernel(
     particle_x: wp.array(dtype=wp.vec3),
     particle_v: wp.array(dtype=wp.vec3),
     particle_radius: wp.array(dtype=float),
-    particle_enabled: wp.array(dtype=wp.uint8),
+    particle_flags: wp.array(dtype=wp.uint32),
     k_contact: float,
     k_damp: float,
     k_friction: float,
@@ -47,12 +48,10 @@ def eval_particle_forces_kernel(
     particle_f: wp.array(dtype=wp.vec3),
 ):
     tid = wp.tid()
-    print(tid)
 
     # order threads by cell
     i = wp.hash_grid_point_id(grid, tid)
-    print(i)
-    if particle_enabled[i] == 0:
+    if (particle_flags[i] & PARTICLE_FLAG_ACTIVE) == 0:
         return
 
     x = particle_x[i]
@@ -87,6 +86,7 @@ def eval_particle_forces_kernel(
 
 def eval_particle_forces(model, state, forces):
     if model.particle_max_radius > 0.0:
+        assert model.particle_grid.reserved, "Particle grid must be reserved"
         wp.launch(
             kernel=eval_particle_forces_kernel,
             dim=model.particle_count,
@@ -95,7 +95,7 @@ def eval_particle_forces(model, state, forces):
                 state.particle_q,
                 state.particle_qd,
                 model.particle_radius,
-                model.particle_enabled,
+                model.particle_flags,
                 model.particle_ke,
                 model.particle_kd,
                 model.particle_kf,
