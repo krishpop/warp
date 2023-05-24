@@ -31,7 +31,7 @@ class AllegroEnvironment(Environment):
     episode_duration = 8.0
 
     sim_substeps_euler = 64
-    sim_substeps_xpbd = 8
+    sim_substeps_xpbd = 5
 
     num_envs = 100
 
@@ -71,9 +71,9 @@ class AllegroEnvironment(Environment):
             limit_kd=1.e+1,
             enable_self_collisions=False)
 
-        for mesh in builder.shape_geo_src:
-            if isinstance(mesh, wp.sim.Mesh):
-                mesh.remesh(visualize=False)
+        # for mesh in builder.shape_geo_src:
+        #     if isinstance(mesh, wp.sim.Mesh):
+        #         mesh.remesh(visualize=False)
 
         # ensure all joint positions are within limits
         offset = 3
@@ -110,6 +110,10 @@ class AllegroEnvironment(Environment):
                 limit_ke=1.e+4,
                 limit_kd=1.e+1,
                 parse_visuals_as_colliders=False)
+
+        # builder.plot_articulation()
+        builder.collapse_fixed_joints()
+        # builder.plot_articulation()
 
 
 if __name__ == "__main__":
