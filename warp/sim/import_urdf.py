@@ -7,6 +7,8 @@
 
 import numpy as np
 
+import xml.etree.ElementTree as ET
+
 import warp as wp
 from warp.sim.model import Mesh
 
@@ -38,12 +40,8 @@ def parse_urdf(
         static_link_mass=1e-2,
         collapse_fixed_joints=True):
 
-    import urdfpy
-    # silence trimesh logging
-    import logging
-    logging.getLogger('trimesh').disabled = True
-
-    robot = urdfpy.URDF.load(filename)
+    file = ET.parse(filename)
+    root = file.getroot()
 
     # maps from link name -> link index
     link_index = {}
@@ -135,27 +133,23 @@ def parse_urdf(
                         thickness=shape_thickness)
 
     # add links
-    for urdf_link in robot.links:
+    for urdf_link in root.findall('link'):
 
         if parse_visuals_as_colliders:
-            colliders = urdf_link.visuals
+            colliders = urdf_link.findall('visual')
         else:
-            colliders = urdf_link.collisions
+            colliders = urdf_link.findall('collision')
 
         link = builder.add_body(
             origin=wp.transform_identity(),
             armature=armature,
-            name=urdf_link.name)
+            name=urdf_link.get('name'))
 
-        if ignore_inertial_definitions:
-            actual_density = density
-        else:
-            m = urdf_link.inertial.mass
-            actual_density = 1.0 if m > 0.0 and density == 0.0 else density
-        parse_shapes(link, colliders, density=actual_density)
+        parse_shapes(link, colliders, density=density)
         m = builder.body_mass[link]
-        if not ignore_inertial_definitions and m > 0.0:
+        if not ignore_inertial_definitions:
             # overwrite inertial parameters if defined
+            
             com = urdfpy.matrix_to_xyz_rpy(urdf_link.inertial.origin)[0:3]
             I_m = urdf_link.inertial.inertia
 
@@ -164,15 +158,15 @@ def parse_urdf(
             builder.body_com[link] = com
             builder.body_inertia[link] = I_m
             builder.body_inv_inertia[link] = np.linalg.inv(I_m)
-        # elif m == 0.0 and ensure_nonstatic_links:
-        #     # set the mass to something nonzero to ensure the body is dynamic
-        #     m = static_link_mass
-        #     # cube with side length 0.5
-        #     I_m = np.eye(3) * 0.5 * m / 12.0
-        #     builder.body_mass[link] = m
-        #     builder.body_inv_mass[link] = 1.0 / m
-        #     builder.body_inertia[link] = I_m
-        #     builder.body_inv_inertia[link] = np.linalg.inv(I_m)
+        elif m == 0.0 and ensure_nonstatic_links:
+            # set the mass to something nonzero to ensure the body is dynamic
+            m = static_link_mass
+            # cube with side length 0.5
+            I_m = np.eye(3) * 0.5 * m / 12.0
+            builder.body_mass[link] = m
+            builder.body_inv_mass[link] = 1.0 / m
+            builder.body_inertia[link] = I_m
+            builder.body_inv_inertia[link] = np.linalg.inv(I_m)
         
         # add ourselves to the index
         link_index[urdf_link.name] = link
@@ -358,3 +352,6 @@ def parse_urdf(
         for i in range(start_shape_count, end_shape_count):
             for j in range(i + 1, end_shape_count):
                 builder.shape_collision_filter_pairs.add((i, j))
+                
+    if collapse_fixed_joints:
+        builder.collapse_fixed_joints()
