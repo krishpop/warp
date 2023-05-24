@@ -406,6 +406,7 @@ def remesh(vertices, faces, method="ftetwild", visualize=False, **remeshing_kwar
         new_vertices, new_faces = remesh_ftetwild(vertices, faces, **remeshing_kwargs)
     elif method == "alphashape":
         new_vertices, new_faces = remesh_alphashape(vertices, faces, **remeshing_kwargs)
+    # TODO add poisson sampling (trimesh has implementation at https://trimsh.org/trimesh.sample.html)
     else:
         raise ValueError(f"Unknown remeshing method: {method}")
     
@@ -413,3 +414,58 @@ def remesh(vertices, faces, method="ftetwild", visualize=False, **remeshing_kwar
         # side-by-side visualization of the input and output meshes
         visualize_meshes([(vertices, faces), (new_vertices, new_faces)], titles=["Original", "Remeshed"])
     return new_vertices, new_faces
+
+
+def plot_graph(vertices, edges, edge_labels=[]):
+    """
+    Plots a graph using matplotlib.
+    
+    Args:
+        vertices: A numpy array of shape (N, 3) containing the vertex positions.
+        edges: A numpy array of shape (M, 2) containing the vertex indices of the edges.
+        edge_labels: A list of edge labels.
+    """
+    import matplotlib.pyplot as plt
+    import networkx as nx
+    G = nx.DiGraph()
+    name_to_index = {}
+    for i, name in enumerate(vertices):
+        G.add_node(i)
+        name_to_index[name] = i
+    g_edge_labels = {}
+    for i, (a, b) in enumerate(edges):
+        a = a if isinstance(a, int) else name_to_index[a]
+        b = b if isinstance(b, int) else name_to_index[b]
+        label = None
+        if i < len(edge_labels):
+            label = edge_labels[i]
+            g_edge_labels[(a, b)] = label
+        G.add_edge(a, b, label=label)
+    
+    # try:
+    #     pos = nx.nx_agraph.graphviz_layout(
+    #         G, prog='neato', args='-Gnodesep="10" -Granksep="10"')
+    # except:
+    #     print(
+    #         "Warning: could not use graphviz to layout graph. Falling back to spring layout.")
+    #     print("To get better layouts, install graphviz and pygraphviz.")
+    #     pos = nx.spring_layout(G, k=3.5, iterations=200)
+    #     # pos = nx.kamada_kawai_layout(G, scale=1.5)
+    #     # pos = nx.spectral_layout(G, scale=1.5)
+    pos = nx.nx_agraph.graphviz_layout(
+        G, prog='neato', args='-Gnodesep="20" -Granksep="20"')
+    
+    default_draw_args = dict(
+        alpha=0.9, edgecolors="black", linewidths=0.5)
+    nx.draw_networkx_nodes(G, pos, **default_draw_args)
+    nx.draw_networkx_labels(G, pos, labels={i: v for i, v in enumerate(vertices)}, font_size=8, bbox=dict(facecolor='white', alpha=0.8, edgecolor='none', pad=0.5))
+
+    nx.draw_networkx_edges(G, pos, edgelist=G.edges(), arrows=True, edge_color='black', node_size=1000)
+    nx.draw_networkx_edge_labels(
+        G, pos,
+        edge_labels=g_edge_labels,
+        font_color='darkslategray',
+        font_size=8,
+    )
+    plt.axis('off')
+    plt.show()
