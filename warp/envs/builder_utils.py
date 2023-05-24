@@ -339,7 +339,10 @@ class ObjectModel:
         self.object_type = object_type
         self.object_name = object_type.name.lower()
         self.base_pos = base_pos
-        self.base_ori = tuple(x for x in wp.quat_rpy(*base_ori))
+        if len(base_ori) == 3:
+            self.base_ori = tuple(x for x in wp.quat_rpy(*base_ori))
+        elif len(base_ori) == 4:
+            self.base_ori = base_ori
         self.joint_type = joint_type
         self.contact_ke = contact_ke
         self.contact_kd = contact_kd
@@ -417,8 +420,8 @@ class OperableObjectModel(ObjectModel):
             builder,
             xform=wp.transform(self.base_pos),
             floating=True,
-            density=1000.0,
-            armature=0.1,
+            density=1.0,
+            armature=1e-4,
             stiffness=0.0,
             damping=0.0,
             shape_ke=1.0e4,
@@ -430,6 +433,7 @@ class OperableObjectModel(ObjectModel):
             enable_self_collisions=False,
             parse_visuals_as_colliders=False,
         )
+        builder.collapse_fixed_joints()
 
 
 def object_generator(object_type, **kwargs):
