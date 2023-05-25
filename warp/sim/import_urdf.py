@@ -6,6 +6,9 @@
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
 import numpy as np
+import os
+
+import xml.etree.ElementTree as ET
 
 import warp as wp
 from warp.sim.model import Mesh
@@ -14,7 +17,7 @@ from typing import Union
 
 
 def parse_urdf(
-        filename,
+        urdf_filename,
         builder,
         xform=wp.transform(),
         floating=False,
@@ -31,49 +34,50 @@ def parse_urdf(
         shape_thickness=0.0,
         limit_ke=100.0,
         limit_kd=10.0,
+        scale=1.0,
         parse_visuals_as_colliders=False,
         enable_self_collisions=True,
         ignore_inertial_definitions=True,
-        collapse_fixed_joints=True):
+        ensure_nonstatic_links=True,
+        static_link_mass=1e-2,
+        collapse_fixed_joints=False):
 
-    import urdfpy
-    # silence trimesh logging
-    import logging
-    logging.getLogger('trimesh').disabled = True
+    file = ET.parse(urdf_filename)
+    root = file.getroot()
 
-    robot = urdfpy.URDF.load(filename)
-
-    # maps from link name -> link index
-    link_index = {}
-
-    builder.add_articulation()
-
-    start_shape_count = len(builder.shape_geo_type)
+    def parse_origin(element):
+        if element is None or element.find('origin') is None:
+            return wp.transform()
+        origin = element.find('origin')
+        xyz = origin.get('xyz') or '0 0 0'
+        rpy = origin.get('rpy') or '0 0 0'
+        xyz = [float(x) * scale for x in xyz.split()]
+        rpy = [float(x) for x in rpy.split()]
+        return wp.transform(xyz, wp.quat_rpy(*rpy))
 
     def parse_shapes(link, collisions, density, incoming_xform=None):
 
         # add geometry
         for collision in collisions:
 
-            origin = urdfpy.matrix_to_xyz_rpy(collision.origin)
+            geo = collision.find('geometry')
+            if geo is None:
+                continue
 
-            pos = origin[0:3]
-            rot = wp.quatf(*wp.quat_rpy(*origin[3:6]))
+            tf = parse_origin(collision)
             if incoming_xform is not None:
-                tf = incoming_xform * wp.transform(pos, rot)
-                pos = tf.p
-                rot = tf.q
+                tf = incoming_xform * tf
 
-            geo = collision.geometry
-
-            if geo.box:
+            for box in geo.findall('box'):
+                size = box.get('size') or '1 1 1'
+                size = [float(x) for x in size.split()]
                 builder.add_shape_box(
                     body=link,
-                    pos=pos,
-                    rot=rot,
-                    hx=geo.box.size[0] * 0.5,
-                    hy=geo.box.size[1] * 0.5,
-                    hz=geo.box.size[2] * 0.5,
+                    pos=tf.p,
+                    rot=tf.q,
+                    hx=size[0] * 0.5 * scale,
+                    hy=size[1] * 0.5 * scale,
+                    hz=size[2] * 0.5 * scale,
                     density=density,
                     ke=shape_ke,
                     kd=shape_kd,
@@ -82,12 +86,12 @@ def parse_urdf(
                     restitution=shape_restitution,
                     thickness=shape_thickness)
 
-            if geo.sphere:
+            for sphere in geo.findall('sphere'):
                 builder.add_shape_sphere(
                     body=link,
-                    pos=pos,
-                    rot=rot,
-                    radius=geo.sphere.radius,
+                    pos=tf.p,
+                    rot=tf.q,
+                    radius=float(sphere.get('radius') or '1') * scale,
                     density=density,
                     ke=shape_ke,
                     kd=shape_kd,
@@ -96,13 +100,13 @@ def parse_urdf(
                     restitution=shape_restitution,
                     thickness=shape_thickness)
 
-            if geo.cylinder:
+            for cylinder in geo.findall('cylinder'):
                 builder.add_shape_capsule(
                     body=link,
-                    pos=pos,
-                    rot=rot,
-                    radius=geo.cylinder.radius,
-                    half_height=geo.cylinder.length * 0.5,
+                    pos=tf.p,
+                    rot=tf.q,
+                    radius=float(cylinder.get('radius') or '1') * scale,
+                    half_height=float(cylinder.get('length') or '1') * 0.5 * scale,
                     density=density,
                     ke=shape_ke,
                     kd=shape_kd,
@@ -112,17 +116,61 @@ def parse_urdf(
                     restitution=shape_restitution,
                     thickness=shape_thickness)
 
-            if geo.mesh:
-                for m in geo.mesh.meshes:
-                    faces = list(np.array(m.faces).astype('int').flatten())
-                    vertices = np.array(m.vertices, dtype=np.float32).reshape((-1, 3))
-                    if geo.mesh.scale is not None:
-                        vertices *= geo.mesh.scale
+            for mesh in geo.findall('mesh'):
+                filename = mesh.get('filename')
+                if filename is None:
+                    continue
+                if filename.startswith('http://') or filename.startswith('https://'):
+                    # download mesh
+                    import requests
+                    import tempfile
+                    import shutil
+                    with tempfile.TemporaryDirectory() as tmpdir:
+                        # get filename extension
+                        extension = os.path.splitext(filename)[1]
+                        tmpfile = os.path.join(tmpdir, 'mesh' + extension)
+                        with requests.get(filename, stream=True) as r:
+                            with open(tmpfile, 'wb') as f:
+                                shutil.copyfileobj(r.raw, f)
+                        filename = tmpfile
+                else:
+                    filename = os.path.join(os.path.dirname(urdf_filename), filename)
+                if not os.path.exists(filename):
+                    import warnings
+                    warnings.warn(f'Warning: mesh file {filename} does not exist')
+                    continue
+
+                import trimesh
+                m = trimesh.load_mesh(filename)
+                scaling = mesh.get('scale') or '1 1 1'
+                scaling = np.array([float(x) * scale for x in scaling.split()])
+                if hasattr(m, 'geometry'):
+                    # multiple meshes are contained in a scene
+                    for geom in m.geometry.values():
+                        vertices = np.array(geom.vertices, dtype=np.float32) * scaling
+                        faces = np.array(geom.faces, dtype=np.int32)
+                        mesh = Mesh(vertices, faces)
+                        builder.add_shape_mesh(
+                            body=link,
+                            pos=tf.p,
+                            rot=tf.q,
+                            mesh=mesh,
+                            density=density,
+                            ke=shape_ke,
+                            kd=shape_kd,
+                            kf=shape_kf,
+                            mu=shape_mu,
+                            restitution=shape_restitution,
+                            thickness=shape_thickness)
+                else:
+                    # a single mesh
+                    vertices = np.array(m.vertices, dtype=np.float32) * scaling
+                    faces = np.array(m.faces, dtype=np.int32)
                     mesh = Mesh(vertices, faces)
                     builder.add_shape_mesh(
                         body=link,
-                        pos=pos,
-                        rot=rot,
+                        pos=tf.p,
+                        rot=tf.q,
                         mesh=mesh,
                         density=density,
                         ke=shape_ke,
@@ -132,51 +180,141 @@ def parse_urdf(
                         restitution=shape_restitution,
                         thickness=shape_thickness)
 
-    # add links
-    for urdf_link in robot.links:
+    # maps from link name -> link index
+    link_index = {}
 
+    builder.add_articulation()
+
+    start_shape_count = len(builder.shape_geo_type)
+
+    # add links
+    for i, urdf_link in enumerate(root.findall('link')):
+
+        if parse_visuals_as_colliders:
+            colliders = urdf_link.findall('visual')
+        else:
+            colliders = urdf_link.findall('collision')
+
+        name = urdf_link.get('name')
         link = builder.add_body(
             origin=wp.transform_identity(),
             armature=armature,
-            name=urdf_link.name)
+            name=name)
 
-        if parse_visuals_as_colliders:
-            colliders = urdf_link.visuals
-        else:
-            colliders = urdf_link.collisions
+        # add ourselves to the index
+        link_index[name] = link
 
-        if ignore_inertial_definitions:
-            actual_density = density
-        else:
-            m = urdf_link.inertial.mass
-            actual_density = 1.0 if m > 0.0 and density == 0.0 else density
-        parse_shapes(link, colliders, density=actual_density)
+        parse_shapes(link, colliders, density=density)
         m = builder.body_mass[link]
-        if not ignore_inertial_definitions and m > 0.0:
+        if not ignore_inertial_definitions and urdf_link.find('inertial') is not None:
             # overwrite inertial parameters if defined
-            com = urdfpy.matrix_to_xyz_rpy(urdf_link.inertial.origin)[0:3]
-            I_m = urdf_link.inertial.inertia
-
+            inertial = urdf_link.find('inertial')
+            inertial_frame = parse_origin(inertial)
+            com = inertial_frame.p
+            I_m = np.zeros((3, 3))
+            I_m[0, 0] = float(inertial.find('inertia').get('ixx') or '0') * scale**2
+            I_m[1, 1] = float(inertial.find('inertia').get('iyy') or '0') * scale**2
+            I_m[2, 2] = float(inertial.find('inertia').get('izz') or '0') * scale**2
+            I_m[0, 1] = float(inertial.find('inertia').get('ixy') or '0') * scale**2
+            I_m[0, 2] = float(inertial.find('inertia').get('ixz') or '0') * scale**2
+            I_m[1, 2] = float(inertial.find('inertia').get('iyz') or '0') * scale**2
+            I_m[1, 0] = I_m[0, 1]
+            I_m[2, 0] = I_m[0, 2]
+            I_m[2, 1] = I_m[1, 2]
+            rot = wp.quat_to_matrix(inertial_frame.q)
+            I_m = rot @ I_m
+            m = float(inertial.find('mass').get('value') or '0')
             builder.body_mass[link] = m
             builder.body_inv_mass[link] = 1.0 / m
             builder.body_com[link] = com
             builder.body_inertia[link] = I_m
             builder.body_inv_inertia[link] = np.linalg.inv(I_m)
-        elif m == 0.0:
+        if m == 0.0 and ensure_nonstatic_links:
             # set the mass to something nonzero to ensure the body is dynamic
-            m = 0.1
+            m = static_link_mass
             # cube with side length 0.5
-            I_m = np.eye(3) * 0.5 * m / 12.0
+            I_m = np.eye(3)* m / 12.0 * (0.5 * scale)**2 * 2.0
             builder.body_mass[link] = m
             builder.body_inv_mass[link] = 1.0 / m
             builder.body_inertia[link] = I_m
             builder.body_inv_inertia[link] = np.linalg.inv(I_m)
+    
+    end_shape_count = len(builder.shape_geo_type)
+    
+    # find joints per body
+    body_children = {name: [] for name in link_index.keys()}
+    # mapping from parent, child link names to joint
+    parent_child_joint = {}
 
-        # add ourselves to the index
-        link_index[urdf_link.name] = link
+    joints = []
+    for joint in root.findall('joint'):
+        parent = joint.find('parent').get('link')
+        child = joint.find('child').get('link')
+        body_children[parent].append(child)
+        joint_data = {
+            'name': joint.get('name'),
+            'parent': parent,
+            'child': child,
+            'type': joint.get('type'),
+            'origin': parse_origin(joint),
+            'damping': damping,
+            'friction': 0.0,
+            'limit_lower': -1.e6,
+            'limit_upper': 1.e6,
+        }
+        if joint.find('axis') is not None:
+            joint_data['axis'] = joint.find('axis').get('xyz')
+            joint_data['axis'] = np.array([float(x) for x in joint_data['axis'].split()])
+        if joint.find('dynamics') is not None:
+            dynamics = joint.find('dynamics')
+            joint_data['damping'] = float(dynamics.get('damping') or str(damping))
+            joint_data['friction'] = float(dynamics.get('friction') or '0')
+        if joint.find('limit') is not None:
+            limit = joint.find('limit')
+            joint_data['limit_lower'] = float(limit.get('lower') or '-1e6')
+            joint_data['limit_upper'] = float(limit.get('upper') or '1e6')
+        if joint.find('mimic') is not None:
+            mimic = joint.find('mimic')
+            joint_data['mimic_joint'] = mimic.get('joint')
+            joint_data['mimic_multiplier'] = float(mimic.get('multiplier') or '1')
+            joint_data['mimic_offset'] = float(mimic.get('offset') or '0')
+        
+        parent_child_joint[(parent, child)] = joint_data
+        joints.append(joint_data)
+
+    # topological sorting of joints because the FK solver will resolve body transforms
+    # in joint order and needs the parent link transform to be resolved before the child
+    visited = {name: False for name in link_index.keys()}
+    sorted_joints = []
+
+    # depth-first search
+    def dfs(joint):
+        link = joint['child']
+        if visited[link]:
+            return
+        visited[link] = True
+
+        for child in body_children[link]:
+            if not visited[child]:
+                dfs(parent_child_joint[(link, child)])
+
+        sorted_joints.insert(0, joint)
+
+    # start DFS from each unvisited joint
+    for joint in joints:
+        if not visited[joint['parent']]:
+            dfs(joint)
 
     # add base joint
-    root = link_index[robot.base_link.name]
+    if len(sorted_joints) > 0:
+        base_link_name = sorted_joints[0]['parent']
+    else:
+        base_link_name = next(iter(link_index.keys()))
+    root = link_index[base_link_name]
+    # in case of the fixed joint, the position is applied first, the rotation only
+    # after the fixed joint itself to not rotate its axis
+    fixed_parent_xform = wp.transform(xform.p, wp.quat_identity())
+    fixed_child_xform = wp.transform((0.0, 0.0, 0.0), wp.quat_inverse(xform.q))
     if fixed_base_joint is not None:
         if isinstance(fixed_base_joint, str):
             axes = fixed_base_joint.lower().split(",")
@@ -191,14 +329,16 @@ def parse_urdf(
             builder.add_joint_d6(
                 linear_axes=[wp.sim.JointAxis(axes[a]) for a in linear_axes],
                 angular_axes=[wp.sim.JointAxis(axes[a]) for a in angular_axes],
-                child_xform=wp.transform_inverse(xform),
+                parent_xform=fixed_parent_xform,
+                child_xform=fixed_child_xform,
                 parent=-1,
                 child=root,
                 name="fixed_base")
         elif isinstance(fixed_base_joint, dict):
             fixed_base_joint["parent"] = -1
             fixed_base_joint["child"] = root
-            fixed_base_joint["child_xform"] = wp.transform_inverse(xform)
+            fixed_base_joint["parent_xform"] = fixed_parent_xform
+            fixed_base_joint["child_xform"] = fixed_child_xform
             fixed_base_joint["name"] = "fixed_base"
             builder.add_joint(**fixed_base_joint)
         else:
@@ -219,67 +359,21 @@ def parse_urdf(
         builder.joint_q[start + 5] = xform.q[2]
         builder.joint_q[start + 6] = xform.q[3]
     else:
-        builder.add_joint_fixed(-1, root, child_xform=wp.transform_inverse(xform), name="fixed_base")
+        builder.add_joint_fixed(-1, root, parent_xform=fixed_parent_xform, child_xform=fixed_child_xform, name="fixed_base")
 
     # add joints, in topological order starting from root body
-
-    # find joints per body
-    body_children = {link.name: [] for link in robot.links}
-    # mapping from parent, child link names to joint
-    parent_child_joint = {}
-
-    for joint in robot.joints:
-        body_children[joint.parent].append(joint.child)
-        parent_child_joint[(joint.parent, joint.child)] = joint
-
-    # topological sorting of joints because the FK solver will resolve body transforms
-    # in joint order and needs the parent link transform to be resolved before the child
-    visited = {link.name: False for link in robot.links}
-    sorted_joints = []
-
-    # depth-first search
-    def dfs(joint):
-        link = joint.child
-        if visited[link]:
-            return
-        visited[link] = True
-
-        for child in body_children[link]:
-            if not visited[child]:
-                dfs(parent_child_joint[(link, child)])
-
-        sorted_joints.insert(0, joint)
-
-    # start DFS from each unvisited joint
-    for joint in robot.joints:
-        if not visited[joint.parent]:
-            dfs(joint)
-
     for joint in sorted_joints:
-        parent = link_index[joint.parent]
-        child = link_index[joint.child]
+        parent = link_index[joint['parent']]
+        child = link_index[joint['child']]
+        if child == -1:
+            # we skipped the insertion of the child body
+            continue
 
-        origin = urdfpy.matrix_to_xyz_rpy(joint.origin)
-        pos = origin[0:3]
-        rot = wp.quat_rpy(*origin[3:6])
+        lower = joint['limit_lower']
+        upper = joint['limit_upper']
+        joint_damping = joint['damping']
 
-        lower = -1.0e3
-        upper = 1.0e3
-        joint_damping = damping
-
-        # limits
-        if joint.limit:
-            if joint.limit.lower is not None:
-                lower = joint.limit.lower
-            if joint.limit.upper is not None:
-                upper = joint.limit.upper
-
-        # overwrite damping if defined in URDF
-        if joint.dynamics:
-            if joint.dynamics.damping:
-                joint_damping = joint.dynamics.damping
-
-        parent_xform = wp.transform(pos, rot)
+        parent_xform = joint['origin']
         child_xform = wp.transform_identity()
 
         joint_mode = wp.sim.JOINT_MODE_LIMIT
@@ -291,32 +385,32 @@ def parse_urdf(
             child=child,
             parent_xform=parent_xform,
             child_xform=child_xform,
-            name=joint.name,
+            name=joint['name'],
         )
 
-        if joint.joint_type == "revolute" or joint.joint_type == "continuous":
+        if joint['type'] == "revolute" or joint['type'] == "continuous":
             builder.add_joint_revolute(
-                axis=joint.axis,
+                axis=joint['axis'],
                 target_ke=stiffness, target_kd=joint_damping,
                 limit_lower=lower, limit_upper=upper,
                 limit_ke=limit_ke, limit_kd=limit_kd,
                 mode=joint_mode,
                 **joint_params)
-        elif joint.joint_type == "prismatic":
+        elif joint['type'] == "prismatic":
             builder.add_joint_prismatic(
-                axis=joint.axis,
+                axis=joint['axis'],
                 target_ke=stiffness, target_kd=joint_damping,
-                limit_lower=lower, limit_upper=upper,
+                limit_lower=lower * scale, limit_upper=upper * scale,
                 limit_ke=limit_ke, limit_kd=limit_kd,
                 mode=joint_mode,
                 **joint_params)
-        elif joint.joint_type == "fixed":
+        elif joint['type'] == "fixed":
             builder.add_joint_fixed(**joint_params)
-        elif joint.joint_type == "floating":
+        elif joint['type'] == "floating":
             builder.add_joint_free(**joint_params)
-        elif joint.joint_type == "planar":
+        elif joint['type'] == "planar":
             # find plane vectors perpendicular to axis
-            axis = np.array(joint.axis)
+            axis = np.array(joint['axis'])
             axis /= np.linalg.norm(axis)
 
             # create helper vector that is not parallel to the axis
@@ -331,18 +425,20 @@ def parse_urdf(
             builder.add_joint_d6(
                 linear_axes=[
                     wp.sim.JointAxis(
-                        u, limit_lower=lower, limit_upper=upper, limit_ke=limit_ke, limit_kd=limit_kd
+                        u, limit_lower=lower * scale, limit_upper=upper * scale, limit_ke=limit_ke, limit_kd=limit_kd
                     ),
                     wp.sim.JointAxis(
-                        v, limit_lower=lower, limit_upper=upper, limit_ke=limit_ke, limit_kd=limit_kd
+                        v, limit_lower=lower * scale, limit_upper=upper * scale, limit_ke=limit_ke, limit_kd=limit_kd
                     ),
                 ],
                 **joint_params)
         else:
-            raise Exception("Unsupported joint type: " + joint.joint_type)
-    end_shape_count = len(builder.shape_geo_type)
+            raise Exception("Unsupported joint type: " + joint['type'])
 
     if not enable_self_collisions:
         for i in range(start_shape_count, end_shape_count):
             for j in range(i + 1, end_shape_count):
                 builder.shape_collision_filter_pairs.add((i, j))
+                
+    if collapse_fixed_joints:
+        builder.collapse_fixed_joints()
