@@ -784,6 +784,7 @@ class OpenGLRenderer:
         axis_scale=1.0,
         vsync=False,
         headless=False,
+        enable_backface_culling=True,
     ):
 
         try:
@@ -901,7 +902,8 @@ class OpenGLRenderer:
 
         gl.glClearColor(*self.background_color, 1)
         gl.glEnable(gl.GL_DEPTH_TEST)
-        gl.glEnable(gl.GL_CULL_FACE)
+        if enable_backface_culling:
+            gl.glEnable(gl.GL_CULL_FACE)
 
         self._shape_shader = ShaderProgram(
             Shader(shape_vertex_shader, "vertex"), Shader(shape_fragment_shader, "fragment")
