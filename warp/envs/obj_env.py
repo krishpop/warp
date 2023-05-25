@@ -1,7 +1,44 @@
 from warp.envs import WarpEnv
 from warp.envs import builder_utils as bu
 from warp.envs.common import ObjectType
-from warp.envs.environment import RenderMode, IntegratorType, run_env
+from warp.envs.environment import RenderMode
+
+
+def run_env(Demo):
+    demo = Demo()
+    # demo.parse_args()
+    if demo.profile:
+        import matplotlib.pyplot as plt
+
+        env_count = 2
+        env_times = []
+        env_size = []
+
+        for i in range(15):
+            demo.num_envs = env_count
+            demo.init()
+            steps_per_second = demo.run()
+
+            env_size.append(env_count)
+            env_times.append(steps_per_second)
+
+            env_count *= 2
+
+        # dump times
+        for i in range(len(env_times)):
+            print(f"envs: {env_size[i]} steps/second: {env_times[i]}")
+
+        # plot
+        plt.figure(1)
+        plt.plot(env_size, env_times)
+        plt.xscale("log")
+        plt.xlabel("Number of Envs")
+        plt.yscale("log")
+        plt.ylabel("Steps/Second")
+        plt.show()
+    else:
+        demo.reset()
+        return demo.run()
 
 
 class ObjectEnv(WarpEnv):
@@ -39,10 +76,7 @@ class ObjectEnv(WarpEnv):
         self.object_type = object_type
         # self.joint_type = joint_type
 
-        self.num_joint_q = 2
-        self.num_joint_qd = 2
-
-        self.init_sim()
+        self.init_sim()  # sets up renderer, model, etc.
         self.setup_autograd_vars()
         if self.use_graph_capture:
             self.graph_capture_params["bwd_model"].joint_attach_ke = self.joint_attach_ke
@@ -58,4 +92,4 @@ class ObjectEnv(WarpEnv):
 
 
 if __name__ == "__main__":
-    run_env(lambda: ObjectEnv(5, 1, 1, 1000))
+    run_env(lambda: ObjectEnv(5, 1, 1, 1000, object_type=ObjectType.PILL_BOTTLE))

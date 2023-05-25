@@ -418,7 +418,7 @@ class OperableObjectModel(ObjectModel):
         wp.sim.parse_urdf(
             os.path.join(os.path.dirname(__file__), "assets", self.model_path),
             builder,
-            xform=wp.transform(self.base_pos),
+            xform=wp.transform(self.base_pos, self.base_ori),
             floating=True,
             density=1.0,
             armature=1e-4,
@@ -455,11 +455,17 @@ def operable_object_generator(object_type, **kwargs):
 StaplerObject = object_generator(ObjectType.TCDM_STAPLER, base_pos=(0.0, 0.01756801, 0.0), scale=1.3)
 OctprismObject = object_generator(ObjectType.OCTPRISM, scale=1.0)
 SprayBottleObject = operable_object_generator(
-    ObjectType.SPRAY_BOTTLE, base_pos=(0.0, 0.22, 0.0), model_path="spray_bottle/mobility.urdf"
+    ObjectType.SPRAY_BOTTLE,
+    base_pos=(0.0, 0.22, 0.0),
+    base_ori=(0.0, 0.0, 0.0),
+    model_path="spray_bottle/mobility.urdf",
 )
 PillBottleObject = operable_object_generator(
     ObjectType.PILL_BOTTLE,
     base_pos=(0.0, 0.01756801, 0.0),
+    base_ori=(-np.pi / 2, 0.0, 0.0),
+    # base_ori=(np.pi / 17, 0.0, 0.0),
+    model_path="pill_bottle/mobility.urdf",
 )
 
 OBJ_MODELS = {}

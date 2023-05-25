@@ -322,10 +322,7 @@ class WarpEnv(Environment):
             body_qd,
         )
         # swap states so start from correct next state
-        (
-            self.simulate_params["state_in"],
-            self.simulate_params["state_out"],
-        ) = (
+        (self.simulate_params["state_in"], self.simulate_params["state_out"],) = (
             self.state_1,
             self.state_0,
         )

@@ -141,6 +141,11 @@ ORIENTATION_GOAL_TYPES = [
 ]
 
 
+class HandType(Enum):
+    ALLEGRO = 0
+    SHADOW = 1
+
+
 class ObjectType(Enum):
     CYLINDER_MESH = 0
     CUBE_MESH = 1
