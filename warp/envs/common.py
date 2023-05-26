@@ -4,7 +4,9 @@ import torch
 import numpy as np
 import random
 import warp as wp
+import warp.sim
 
+from tqdm import trange
 from inspect import getmembers
 from enum import Enum
 from warp.sim.model import State
@@ -185,3 +187,98 @@ def clear_state_grads(state: State):
         if isinstance(v, wp.array) and v.requires_grad and v.grad is not None:
             v.grad.zero_()
     return state
+
+
+joint_coord_map = {
+    wp.sim.JOINT_PRISMATIC: 1,
+    wp.sim.JOINT_REVOLUTE: 1,
+    wp.sim.JOINT_BALL: 4,
+    wp.sim.JOINT_FREE: 7,
+    wp.sim.JOINT_FIXED: 0,
+    wp.sim.JOINT_UNIVERSAL: 2,
+    wp.sim.JOINT_COMPOUND: 3,
+    wp.sim.JOINT_DISTANCE: 0,
+}
+
+supported_joint_types = [
+    wp.sim.JOINT_PRISMATIC,
+    wp.sim.JOINT_REVOLUTE,
+]
+
+
+def run_env(Env, num_states=500):
+    env = Env()
+    # env.parse_args()
+    if env.profile:
+        import matplotlib.pyplot as plt
+
+        env_count = 2
+        env_times = []
+        env_size = []
+
+        for i in range(15):
+            env.num_envs = env_count
+            env.init()
+            steps_per_second = env.run()
+
+            env_size.append(env_count)
+            env_times.append(steps_per_second)
+
+            env_count *= 2
+
+        # dump times
+        for i in range(len(env_times)):
+            print(f"envs: {env_size[i]} steps/second: {env_times[i]}")
+
+        # plot
+        plt.figure(1)
+        plt.plot(env_size, env_times)
+        plt.xscale("log")
+        plt.xlabel("Number of Envs")
+        plt.yscale("log")
+        plt.ylabel("Steps/Second")
+        plt.show()
+    else:
+        # env.reset()
+        upper = env.model.joint_limit_upper.numpy()
+        lower = env.model.joint_limit_lower.numpy()
+        joint_start = env.start_joint_q.cpu().numpy().flatten()
+
+        n_dof = len(upper) // env.num_envs
+        joint_q_start = env.model.joint_q_start.numpy()
+        joint_types = env.model.joint_type.numpy()
+        joint_target_indices = np.concatenate(
+            [
+                list(range(joint_q_start[i], joint_q_start[i + 1]))
+                for i, j_type in enumerate(joint_types)
+                if j_type in supported_joint_types
+            ]
+        )
+        for i in range(n_dof):
+            joint_q_targets = (
+                np.sin(np.linspace(0, 6 * np.pi, 2 * num_states + 1)) * (upper[i] - lower[i]) / 2
+                + (upper[i] + lower[i]) / 2
+            )
+
+            def pi(t):
+                joint_q_target = joint_start.copy()[joint_target_indices].reshape(env.num_envs, -1)
+                # joint_q_target[:, i] = joint_q_targets[t]
+                return joint_q_target
+
+            num_steps = 2 * num_states + 1
+            collect_states(env, num_steps, pi)
+
+
+def collect_states(env, n_steps, pi):
+    o = env.reset()
+    prev_q = env.extras["object_joint_pos"]
+    net_qdelta = 0.0
+    states = []
+    for t in trange(n_steps):
+        ac = pi(t)
+        ac = torch.tensor(ac).to(str(env.device))
+        o, _, _, info = env.step(ac)
+        net_qdelta += torch.abs(info["object_joint_pos"] - prev_q).detach().cpu().numpy().sum().item()
+        prev_q = info["object_joint_pos"]
+        states.append(o)
+    return states

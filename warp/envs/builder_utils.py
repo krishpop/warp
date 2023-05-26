@@ -260,22 +260,28 @@ def add_box(
     )
 
 
-def create_allegro_hand(builder, action_type, floating_base=False):
+def create_allegro_hand(
+    builder,
+    action_type,
+    floating_base=False,
+    stiffness=1000.0,
+    damping=0.0,
+    hand_start_position=(0.01, 0.17, 0.125),
+    hand_start_orientation=(np.pi * 0.0, np.pi * 1.0, np.pi * -0.25),
+):
     stiffness, damping = 0.0, 0.0
     if action_type is ActionType.POSITION or action_type is ActionType.VARIABLE_STIFFNESS:
-        stiffness, damping = 5000.0, 10.0
+        stiffness, damping = stiffness, damping
     if floating_base:
-        xform = wp.transform(
-            (0.01, 0.17, 0.125),
-            # thumb up palm down
-            # wp.quat_rpy(-np.pi / 2 * 3, np.pi * 1.25, np.pi / 2 * 3)
-            # thumb up (default) palm orthogonal to gravity
-            # wp.quat_rpy(-np.pi / 2 * 3, np.pi * 0.75, np.pi / 2 * 3),
-            # thumb up, palm facing left
-            # wp.quat_rpy(-np.pi / 2 * 3, np.pi * 0.75, np.pi / 2 * 3),
-            # thumb up, palm facing right
-            wp.quat_rpy(np.pi * 0.0, np.pi * 1.0, np.pi * -0.25),
-        )
+        xform = wp.transform(hand_start_position, wp.quat_rpy(*hand_start_orientation))
+        # thumb up palm down
+        # wp.quat_rpy(-np.pi / 2 * 3, np.pi * 1.25, np.pi / 2 * 3)
+        # thumb up (default) palm orthogonal to gravity
+        # wp.quat_rpy(-np.pi / 2 * 3, np.pi * 0.75, np.pi / 2 * 3),
+        # thumb up, palm facing left
+        # wp.quat_rpy(-np.pi / 2 * 3, np.pi * 0.75, np.pi / 2 * 3),
+        # thumb up, palm facing right
+        # wp.quat_rpy(np.pi * 0.0, np.pi * 1.0, np.pi * -0.25),
     else:
         xform = wp.transform(
             np.array((0.1, 0.15, 0.0)),
@@ -303,6 +309,7 @@ def create_allegro_hand(builder, action_type, floating_base=False):
         limit_kd=1.0e1,
         enable_self_collisions=False,
     )
+    # builder.collapse_fixed_joints()
 
     # ensure all joint positions are within limits
     q_offset = 7 if floating_base else 0
@@ -400,9 +407,10 @@ class OperableObjectModel(ObjectModel):
         object_type,
         base_pos=(0.0, 0.075, 0.0),
         base_ori=(np.pi / 2, 0.0, 0.0),
-        contact_ke=1.0e3,
+        contact_ke=1.0e4,
         contact_kd=100.0,
         scale=0.4,
+        density=1.0,
         stiffness=0.0,
         damping=0.0,
         model_path: str = "",
@@ -417,6 +425,7 @@ class OperableObjectModel(ObjectModel):
             stiffness=stiffness,
             damping=damping,
         )
+        self.density = density
         assert model_path and os.path.splitext(model_path)[1] == ".urdf"
         self.model_path = model_path
 
@@ -426,13 +435,13 @@ class OperableObjectModel(ObjectModel):
             builder,
             xform=wp.transform(self.base_pos, self.base_ori),
             floating=True,
-            density=1.0,
+            density=self.density,
             scale=self.scale,
             armature=1e-4,
             stiffness=self.stiffness,
             damping=self.damping,
-            shape_ke=1.0e4,
-            shape_kd=1.0e2,
+            shape_ke=self.contact_ke,
+            shape_kd=self.contact_kd,
             shape_kf=1.0e2,
             shape_mu=1.0,
             limit_ke=1.0e4,
@@ -466,7 +475,8 @@ SprayBottleObject = operable_object_generator(
     ObjectType.SPRAY_BOTTLE,
     base_pos=(0.0, 0.22, 0.0),
     base_ori=(0.0, 0.0, 0.0),
-    scale=0.4,
+    scale=1.0,
+    density=1.0,
     model_path="spray_bottle/mobility.urdf",
 )
 PillBottleObject = operable_object_generator(
@@ -480,10 +490,10 @@ PillBottleObject = operable_object_generator(
 BottleObject = operable_object_generator(
     ObjectType.BOTTLE,
     base_pos=(0.0, 0.01756801, 0.0),
-    base_ori=(-np.pi / 2, 0.0, 0.0),
+    base_ori=(-0.5 * np.pi, 0.0, 0.0),
     scale=0.4,
     # base_ori=(np.pi / 17, 0.0, 0.0),
-    model_path="Bottle/3558/mobility.urdf",
+    model_path="Bottle/3616/mobility.urdf",
 )
 DispenserObject = operable_object_generator(
     ObjectType.DISPENSER,
