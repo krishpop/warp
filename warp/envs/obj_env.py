@@ -2,7 +2,7 @@ from warp.envs import WarpEnv
 from warp.envs import builder_utils as bu
 from warp.envs.common import ObjectType
 from warp.envs.environment import RenderMode
-
+import numpy as np
 
 def run_env(Demo):
     demo = Demo()
@@ -38,7 +38,9 @@ def run_env(Demo):
         plt.show()
     else:
         #demo.reset()
-        
+        print(demo.model.joint_name)
+        print(demo.model.joint_limit_upper.numpy())
+        print(demo.model.joint_limit_lower.numpy())
         return demo.run()
 
 
@@ -93,4 +95,4 @@ class ObjectEnv(WarpEnv):
 
 
 if __name__ == "__main__":
-    run_env(lambda: ObjectEnv(5, 1, 1, 1000, object_type=ObjectType.STAPLER))
+    run_env(lambda: ObjectEnv(5, 1, 1, 1000, object_type=ObjectType.EYEGLASSES))
