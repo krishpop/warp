@@ -162,7 +162,9 @@ class Mesh:
         self.vertices, self.indices = wp.sim.remesh(self.vertices, self.indices.reshape(-1, 3), **remeshing_kwargs)
         self.indices = self.indices.flatten()
         if recompute_inertia:
-            self.mass, self.com, self.I, _ = compute_mesh_inertia(1.0, self.vertices, self.indices, is_solid=self.is_solid)
+            self.mass, self.com, self.I, _ = compute_mesh_inertia(
+                1.0, self.vertices, self.indices, is_solid=self.is_solid
+            )
 
     # construct simulation ready buffers from points
     def finalize(self, device=None):
@@ -268,7 +270,7 @@ def compute_shape_mass(type, scale, src, density, is_solid, thickness):
         else:
             hollow = compute_cone_inertia(density, r - thickness, h - 2.0 * thickness)
             return solid[0] - hollow[0], solid[1], solid[2] - hollow[2]
-    elif (type == GEO_MESH):
+    elif type == GEO_MESH:
         if src.has_inertia and src.mass > 0.0 and src.is_solid == is_solid:
             m, c, I = src.mass, src.com, src.I
 
@@ -287,11 +289,7 @@ def compute_shape_mass(type, scale, src, density, is_solid, thickness):
             Ixz = I[0, 2] * sx * sz * mass_ratio
             Iyz = I[1, 2] * sy * sz * mass_ratio
 
-            I_new = np.array([
-                [Ixx, Ixy, Ixz],
-                [Ixy, Iyy, Iyz],
-                [Ixz, Iyz, Izz]
-            ])
+            I_new = np.array([[Ixx, Ixy, Ixz], [Ixy, Iyy, Iyz], [Ixz, Iyz, Izz]])
 
             return m_new, c_new, I_new
         else:
@@ -620,7 +618,7 @@ class Model:
             s.body_qd.requires_grad = requires_grad
             s.body_f.requires_grad = requires_grad
 
-        if (self.joint_count):
+        if self.joint_count:
             s.joint_q = wp.clone(self.joint_q)
             s.joint_qd = wp.clone(self.joint_qd)
             s.joint_qdd = wp.zeros_like(self.joint_qd)
@@ -811,6 +809,7 @@ class Model:
     @property
     def soft_contact_distance(self):
         import warnings
+
         warnings.warn(
             "Model.soft_contact_distance is deprecated and will be removed in a future Warp version. "
             "Particles now have individual radii, returning `Model.particle_max_radius`.",
@@ -822,6 +821,7 @@ class Model:
     @soft_contact_distance.setter
     def soft_contact_distance(self, value):
         import warnings
+
         warnings.warn(
             "Model.soft_contact_distance is deprecated and will be removed in a future Warp version. "
             "Particles now have individual radii, setting `Model.particle_radius` array to given value.",
@@ -1857,30 +1857,30 @@ class ModelBuilder:
             collision_filter_parent=collision_filter_parent,
             enabled=enabled,
         )
-        
+
     def plot_articulation(self):
         """Plots the model's articulation."""
-        
+
         def joint_type_str(type):
             if type == JOINT_FREE:
-                return 'free'
+                return "free"
             elif type == JOINT_BALL:
-                return 'ball'
+                return "ball"
             elif type == JOINT_PRISMATIC:
-                return 'prismatic'
+                return "prismatic"
             elif type == JOINT_REVOLUTE:
-                return 'revolute'
+                return "revolute"
             elif type == JOINT_D6:
-                return 'D6'
+                return "D6"
             elif type == JOINT_UNIVERSAL:
-                return 'universal'
+                return "universal"
             elif type == JOINT_COMPOUND:
-                return 'compound'
+                return "compound"
             elif type == JOINT_FIXED:
-                return 'fixed'
-            return 'unknown'
-        
-        vertices = ['world'] + self.body_name + [f'shape_{i}' for i in range(self.shape_count)]
+                return "fixed"
+            return "unknown"
+
+        vertices = ["world"] + self.body_name + [f"shape_{i}" for i in range(self.shape_count)]
         edges = []
         edge_labels = []
         for i in range(self.joint_count):
@@ -1889,26 +1889,26 @@ class ModelBuilder:
         for i in range(self.shape_count):
             edges.append((len(self.body_name) + i + 1, self.shape_body[i] + 1))
         wp.sim.plot_graph(vertices, edges, edge_labels=edge_labels)
-        
+
     def collapse_fixed_joints(self):
         """Removes fixed joints from the model and merges the bodies they connect."""
-        
+
         body_data = {}
         body_children = {-1: []}
         visited = {}
         for i in range(self.body_count):
             name = self.body_name[i]
             body_data[i] = {
-                'shapes': self.body_shapes[i],
-                'q': self.body_q[i],
-                'qd': self.body_qd[i],
-                'mass': self.body_mass[i],
-                'inertia': self.body_inertia[i],
-                'inv_mass': self.body_inv_mass[i],
-                'inv_inertia': self.body_inv_inertia[i],
-                'com': self.body_com[i],
-                'name': name,
-                'original_id': i,
+                "shapes": self.body_shapes[i],
+                "q": self.body_q[i],
+                "qd": self.body_qd[i],
+                "mass": self.body_mass[i],
+                "inertia": self.body_inertia[i],
+                "inv_mass": self.body_inv_mass[i],
+                "inv_inertia": self.body_inv_inertia[i],
+                "com": self.body_com[i],
+                "name": name,
+                "original_id": i,
             }
             visited[i] = False
             body_children[i] = []
@@ -1919,7 +1919,7 @@ class ModelBuilder:
             parent = self.joint_parent[i]
             child = self.joint_child[i]
             body_children[parent].append(child)
-            
+
             q_start = self.joint_q_start[i]
             qd_start = self.joint_qd_start[i]
             if i < self.joint_count - 1:
@@ -1930,45 +1930,47 @@ class ModelBuilder:
                 qd_dim = len(self.joint_qd) - qd_start
 
             data = {
-                'type': self.joint_type[i],
+                "type": self.joint_type[i],
                 # 'armature': self.joint_armature[i],
-                'q': self.joint_q[q_start:q_start+q_dim],
-                'qd': self.joint_qd[qd_start:qd_start+qd_dim],
-                'q_start': q_start,
-                'qd_start': qd_start,
-                'linear_compliance': self.joint_linear_compliance[i],
-                'angular_compliance': self.joint_angular_compliance[i],
-                'name': name,
-                'parent_xform': wp.transform_expand(self.joint_X_p[i]),
-                'child_xform': wp.transform_expand(self.joint_X_c[i]),
-                'enabled': self.joint_enabled[i],
-                'axes': [],
-                'axis_dim': self.joint_axis_dim[i],
-                'parent': parent,
-                'child': child,
-                'original_id': i,
+                "q": self.joint_q[q_start : q_start + q_dim],
+                "qd": self.joint_qd[qd_start : qd_start + qd_dim],
+                "q_start": q_start,
+                "qd_start": qd_start,
+                "linear_compliance": self.joint_linear_compliance[i],
+                "angular_compliance": self.joint_angular_compliance[i],
+                "name": name,
+                "parent_xform": wp.transform_expand(self.joint_X_p[i]),
+                "child_xform": wp.transform_expand(self.joint_X_c[i]),
+                "enabled": self.joint_enabled[i],
+                "axes": [],
+                "axis_dim": self.joint_axis_dim[i],
+                "parent": parent,
+                "child": child,
+                "original_id": i,
             }
             num_lin_axes, num_ang_axes = self.joint_axis_dim[i]
             start_ax = self.joint_axis_start[i]
             for j in range(start_ax, start_ax + num_lin_axes + num_ang_axes):
-                data['axes'].append({
-                    'axis': self.joint_axis[j],
-                    'axis_mode': self.joint_axis_mode[j],
-                    'target': self.joint_target[j],
-                    'target_ke': self.joint_target_ke[j],
-                    'target_kd': self.joint_target_kd[j],
-                    'limit_ke': self.joint_limit_ke[j],
-                    'limit_kd': self.joint_limit_kd[j],
-                    'limit_lower': self.joint_limit_lower[j],
-                    'limit_upper': self.joint_limit_upper[j],
-                })
-            
+                data["axes"].append(
+                    {
+                        "axis": self.joint_axis[j],
+                        "axis_mode": self.joint_axis_mode[j],
+                        "target": self.joint_target[j],
+                        "target_ke": self.joint_target_ke[j],
+                        "target_kd": self.joint_target_kd[j],
+                        "limit_ke": self.joint_limit_ke[j],
+                        "limit_kd": self.joint_limit_kd[j],
+                        "limit_lower": self.joint_limit_lower[j],
+                        "limit_upper": self.joint_limit_upper[j],
+                    }
+                )
+
             joint_data[(parent, child)] = data
-            
+
         # sort body children so we traverse the tree in the same order as the bodies are listed
         for children in body_children.values():
-            children.sort(key=lambda x: body_data[x]['original_id'])
-            
+            children.sort(key=lambda x: body_data[x]["original_id"])
+
         retained_joints = []
         retained_bodies = []
         body_remap = {-1: -1}
@@ -1980,42 +1982,50 @@ class ModelBuilder:
             nonlocal retained_bodies
             nonlocal body_data
             nonlocal body_remap
-            
+
             joint = joint_data[(parent_body, child_body)]
-            if joint['type'] == JOINT_FIXED:
-                joint_xform = joint['parent_xform'] * wp.transform_inverse(joint['child_xform'])
+            if joint["type"] == JOINT_FIXED:
+                joint_xform = joint["parent_xform"] * wp.transform_inverse(joint["child_xform"])
                 incoming_xform = incoming_xform * joint_xform
-                print(f'Remove fixed joint {joint["name"]} between {body_data[parent_body]["name"]} and {body_data[child_body]["name"]}, merging {body_data[child_body]["name"]} into {body_data[last_dynamic_body]["name"]}')
-                child_id = body_data[child_body]['original_id']
+                parent_name = self.body_name[parent_body] if parent_body > -1 else "world"
+                child_name = self.body_name[child_body]
+                last_dynamic_body_name = self.body_name[last_dynamic_body] if last_dynamic_body > -1 else "world"
+                print(
+                    f'Remove fixed joint {joint["name"]} between {parent_name} and {child_name}, merging {child_name} into {last_dynamic_body_name}'
+                )
+                child_id = body_data[child_body]["original_id"]
                 for shape in self.body_shapes[child_id]:
-                    self.shape_body[shape] = body_data[last_dynamic_body]['id']
+                    self.shape_body[shape] = body_data[last_dynamic_body]["id"]
                     self.shape_transform[shape] = incoming_xform * self.shape_transform[shape]
-                    print(f'  Shape {shape} moved to body {self.body_name[last_dynamic_body]} with transform {self.shape_transform[shape]}')
+                    print(
+                        f"  Shape {shape} moved to body {last_dynamic_body_name} with transform {self.shape_transform[shape]}"
+                    )
                     if last_dynamic_body > -1:
                         # self.body_shapes[last_dynamic_body].append(shape)
                         # add inertia to last_dynamic_body
-                        m = body_data[child_body]['mass']
-                        com = body_data[child_body]['com']
-                        inertia = body_data[child_body]['inertia']
-                        body_data[last_dynamic_body]['inertia'] += wp.sim.transform_inertia(
-                            m, inertia, incoming_xform.p, incoming_xform.q)
-                        body_data[last_dynamic_body]['mass'] += m
-                        source_m = body_data[last_dynamic_body]['mass']
-                        source_com = body_data[last_dynamic_body]['com']
-                        body_data[last_dynamic_body]['com'] = (m * com + source_m * source_com) / (m + source_m)
-                        body_data[last_dynamic_body]['shapes'].append(shape)
+                        m = body_data[child_body]["mass"]
+                        com = body_data[child_body]["com"]
+                        inertia = body_data[child_body]["inertia"]
+                        body_data[last_dynamic_body]["inertia"] += wp.sim.transform_inertia(
+                            m, inertia, incoming_xform.p, incoming_xform.q
+                        )
+                        body_data[last_dynamic_body]["mass"] += m
+                        source_m = body_data[last_dynamic_body]["mass"]
+                        source_com = body_data[last_dynamic_body]["com"]
+                        body_data[last_dynamic_body]["com"] = (m * com + source_m * source_com) / (m + source_m)
+                        body_data[last_dynamic_body]["shapes"].append(shape)
                         # indicate to recompute inverse mass, inertia for this body
-                        body_data[last_dynamic_body]['inv_mass'] = None
+                        body_data[last_dynamic_body]["inv_mass"] = None
             else:
-                joint['parent_xform'] = incoming_xform * joint['parent_xform']
-                joint['parent'] = last_dynamic_body
+                joint["parent_xform"] = incoming_xform * joint["parent_xform"]
+                joint["parent"] = last_dynamic_body
                 last_dynamic_body = child_body
                 incoming_xform = wp.transform()
                 retained_joints.append(joint)
                 new_id = len(retained_bodies)
-                body_data[child_body]['id'] = new_id
+                body_data[child_body]["id"] = new_id
                 retained_bodies.append(child_body)
-                for shape in body_data[child_body]['shapes']:
+                for shape in body_data[child_body]["shapes"]:
                     self.shape_body[shape] = new_id
 
             visited[parent_body] = True
@@ -2024,11 +2034,11 @@ class ModelBuilder:
             for child in body_children[child_body]:
                 if not visited[child]:
                     dfs(child_body, child, incoming_xform, last_dynamic_body)
-                    
+
         for body in body_children[-1]:
             if not visited[body]:
                 dfs(-1, body, wp.transform(), -1)
-                
+
         # repopulate the model
         self.body_name.clear()
         self.body_q.clear()
@@ -2042,32 +2052,32 @@ class ModelBuilder:
         for i in retained_bodies:
             body = body_data[i]
             new_id = len(self.body_name)
-            body_remap[body['original_id']] = new_id
-            self.body_name.append(body['name'])
-            self.body_q.append(list(body['q']))
-            self.body_qd.append(list(body['qd']))
-            m = body['mass']
-            inertia = body['inertia']
+            body_remap[body["original_id"]] = new_id
+            self.body_name.append(body["name"])
+            self.body_q.append(list(body["q"]))
+            self.body_qd.append(list(body["qd"]))
+            m = body["mass"]
+            inertia = body["inertia"]
             self.body_mass.append(m)
             self.body_inertia.append(inertia)
-            self.body_com.append(body['com'])
-            if body['inv_mass'] is None:
+            self.body_com.append(body["com"])
+            if body["inv_mass"] is None:
                 # recompute inverse mass and inertia
                 if m > 0.0:
-                    self.body_inv_mass.append(1. / m)
+                    self.body_inv_mass.append(1.0 / m)
                     self.body_inv_inertia.append(np.linalg.inv(inertia))
                 else:
                     self.body_inv_mass.append(0.0)
                     self.body_inv_inertia.append(np.zeros((3, 3)))
             else:
-                self.body_inv_mass.append(body['inv_mass'])
-                self.body_inv_inertia.append(body['inv_inertia'])
-            self.body_shapes[new_id] = body['shapes']
-            body_remap[body['original_id']] = new_id
-            
+                self.body_inv_mass.append(body["inv_mass"])
+                self.body_inv_inertia.append(body["inv_inertia"])
+            self.body_shapes[new_id] = body["shapes"]
+            body_remap[body["original_id"]] = new_id
+
         # sort joints so they appear in the same order as before
-        retained_joints.sort(key=lambda x: x['original_id'])
-            
+        retained_joints.sort(key=lambda x: x["original_id"])
+
         self.joint_name.clear()
         self.joint_type.clear()
         self.joint_parent.clear()
@@ -2093,31 +2103,31 @@ class ModelBuilder:
         self.joint_axis_dim.clear()
         self.joint_axis_start.clear()
         for joint in retained_joints:
-            self.joint_name.append(joint['name'])
-            self.joint_type.append(joint['type'])
-            self.joint_parent.append(body_remap[joint['parent']])
-            self.joint_child.append(body_remap[joint['child']])
+            self.joint_name.append(joint["name"])
+            self.joint_type.append(joint["type"])
+            self.joint_parent.append(body_remap[joint["parent"]])
+            self.joint_child.append(body_remap[joint["child"]])
             self.joint_q_start.append(len(self.joint_q))
             self.joint_qd_start.append(len(self.joint_qd))
-            self.joint_q.extend(joint['q'])
-            self.joint_qd.extend(joint['qd'])
-            self.joint_enabled.append(joint['enabled'])
-            self.joint_linear_compliance.append(joint['linear_compliance'])
-            self.joint_angular_compliance.append(joint['angular_compliance'])
-            self.joint_X_p.append(list(joint['parent_xform']))
-            self.joint_X_c.append(list(joint['child_xform']))
-            self.joint_axis_dim.append(joint['axis_dim'])
+            self.joint_q.extend(joint["q"])
+            self.joint_qd.extend(joint["qd"])
+            self.joint_enabled.append(joint["enabled"])
+            self.joint_linear_compliance.append(joint["linear_compliance"])
+            self.joint_angular_compliance.append(joint["angular_compliance"])
+            self.joint_X_p.append(list(joint["parent_xform"]))
+            self.joint_X_c.append(list(joint["child_xform"]))
+            self.joint_axis_dim.append(joint["axis_dim"])
             self.joint_axis_start.append(len(self.joint_axis))
-            for axis in joint['axes']:
-                self.joint_axis.append(axis['axis'])
-                self.joint_axis_mode.append(axis['axis_mode'])
-                self.joint_target.append(axis['target'])
-                self.joint_target_ke.append(axis['target_ke'])
-                self.joint_target_kd.append(axis['target_kd'])
-                self.joint_limit_lower.append(axis['limit_lower'])
-                self.joint_limit_upper.append(axis['limit_upper'])
-                self.joint_limit_ke.append(axis['limit_ke'])
-                self.joint_limit_kd.append(axis['limit_kd'])
+            for axis in joint["axes"]:
+                self.joint_axis.append(axis["axis"])
+                self.joint_axis_mode.append(axis["axis_mode"])
+                self.joint_target.append(axis["target"])
+                self.joint_target_ke.append(axis["target_ke"])
+                self.joint_target_kd.append(axis["target_kd"])
+                self.joint_limit_lower.append(axis["limit_lower"])
+                self.joint_limit_upper.append(axis["limit_upper"])
+                self.joint_limit_ke.append(axis["limit_ke"])
+                self.joint_limit_kd.append(axis["limit_kd"])
 
     # muscles
     def add_muscle(
@@ -2205,9 +2215,21 @@ class ModelBuilder:
         scale = (width, length, 0.0)
 
         return self._add_shape(
-            body, pos, rot, GEO_PLANE, scale,
-            None, 0.0, ke, kd, kf, mu, restitution, thickness,
-            has_ground_collision=has_ground_collision)
+            body,
+            pos,
+            rot,
+            GEO_PLANE,
+            scale,
+            None,
+            0.0,
+            ke,
+            kd,
+            kf,
+            mu,
+            restitution,
+            thickness,
+            has_ground_collision=has_ground_collision,
+        )
 
     def add_shape_sphere(
         self,
@@ -2245,9 +2267,22 @@ class ModelBuilder:
         """
 
         return self._add_shape(
-            body, pos, rot, GEO_SPHERE, (radius, 0.0, 0.0, 0.0),
-            None, density, ke, kd, kf, mu, restitution, thickness + radius, is_solid,
-            has_ground_collision=has_ground_collision)
+            body,
+            pos,
+            rot,
+            GEO_SPHERE,
+            (radius, 0.0, 0.0, 0.0),
+            None,
+            density,
+            ke,
+            kd,
+            kf,
+            mu,
+            restitution,
+            thickness + radius,
+            is_solid,
+            has_ground_collision=has_ground_collision,
+        )
 
     def add_shape_box(
         self,
@@ -2289,9 +2324,22 @@ class ModelBuilder:
         """
 
         return self._add_shape(
-            body, pos, rot, GEO_BOX, (hx, hy, hz, 0.0),
-            None, density, ke, kd, kf, mu, restitution, thickness, is_solid,
-            has_ground_collision=has_ground_collision)
+            body,
+            pos,
+            rot,
+            GEO_BOX,
+            (hx, hy, hz, 0.0),
+            None,
+            density,
+            ke,
+            kd,
+            kf,
+            mu,
+            restitution,
+            thickness,
+            is_solid,
+            has_ground_collision=has_ground_collision,
+        )
 
     def add_shape_capsule(
         self,
@@ -2340,9 +2388,22 @@ class ModelBuilder:
             q = wp.mul(rot, wp.quat(sqh, 0.0, 0.0, sqh))
 
         return self._add_shape(
-            body, pos, q, GEO_CAPSULE, (radius, half_height, 0.0, 0.0),
-            None, density, ke, kd, kf, mu, restitution, thickness + radius, is_solid,
-            has_ground_collision=has_ground_collision)
+            body,
+            pos,
+            q,
+            GEO_CAPSULE,
+            (radius, half_height, 0.0, 0.0),
+            None,
+            density,
+            ke,
+            kd,
+            kf,
+            mu,
+            restitution,
+            thickness + radius,
+            is_solid,
+            has_ground_collision=has_ground_collision,
+        )
 
     def add_shape_cylinder(
         self,
@@ -2391,9 +2452,22 @@ class ModelBuilder:
             q = wp.mul(rot, wp.quat(sqh, 0.0, 0.0, sqh))
 
         return self._add_shape(
-            body, pos, q, GEO_CYLINDER, (radius, half_height, 0.0, 0.0),
-            None, density, ke, kd, kf, mu, restitution, thickness, is_solid,
-            has_ground_collision=has_ground_collision)
+            body,
+            pos,
+            q,
+            GEO_CYLINDER,
+            (radius, half_height, 0.0, 0.0),
+            None,
+            density,
+            ke,
+            kd,
+            kf,
+            mu,
+            restitution,
+            thickness,
+            is_solid,
+            has_ground_collision=has_ground_collision,
+        )
 
     def add_shape_cone(
         self,
@@ -2442,9 +2516,22 @@ class ModelBuilder:
             q = wp.mul(rot, wp.quat(sqh, 0.0, 0.0, sqh))
 
         return self._add_shape(
-            body, pos, q, GEO_CONE, (radius, half_height, 0.0, 0.0),
-            None, density, ke, kd, kf, mu, restitution, thickness, is_solid,
-            has_ground_collision=has_ground_collision)
+            body,
+            pos,
+            q,
+            GEO_CONE,
+            (radius, half_height, 0.0, 0.0),
+            None,
+            density,
+            ke,
+            kd,
+            kf,
+            mu,
+            restitution,
+            thickness,
+            is_solid,
+            has_ground_collision=has_ground_collision,
+        )
 
     def add_shape_mesh(
         self,
@@ -2484,10 +2571,22 @@ class ModelBuilder:
         """
 
         return self._add_shape(
-            body, pos, rot, GEO_MESH, (scale[0], scale[1], scale[2], 0.0),
-            mesh, density, ke, kd, kf, mu,
-            restitution, thickness, is_solid,
-            has_ground_collision=has_ground_collision)
+            body,
+            pos,
+            rot,
+            GEO_MESH,
+            (scale[0], scale[1], scale[2], 0.0),
+            mesh,
+            density,
+            ke,
+            kd,
+            kf,
+            mu,
+            restitution,
+            thickness,
+            is_solid,
+            has_ground_collision=has_ground_collision,
+        )
 
     def _shape_radius(self, type, scale, src):
         """
@@ -2572,7 +2671,9 @@ class ModelBuilder:
         return shape
 
     # particles
-    def add_particle(self, pos: Vec3, vel: Vec3, mass: float, radius: float = None, flags: wp.uint32 = PARTICLE_FLAG_ACTIVE) -> int:
+    def add_particle(
+        self, pos: Vec3, vel: Vec3, mass: float, radius: float = None, flags: wp.uint32 = PARTICLE_FLAG_ACTIVE
+    ) -> int:
         """Adds a single particle to the model
 
         Args:
