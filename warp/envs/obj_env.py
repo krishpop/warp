@@ -37,7 +37,8 @@ def run_env(Demo):
         plt.ylabel("Steps/Second")
         plt.show()
     else:
-        demo.reset()
+        #demo.reset()
+        
         return demo.run()
 
 
@@ -92,4 +93,4 @@ class ObjectEnv(WarpEnv):
 
 
 if __name__ == "__main__":
-    run_env(lambda: ObjectEnv(5, 1, 1, 1000, object_type=ObjectType.PILL_BOTTLE))
+    run_env(lambda: ObjectEnv(5, 1, 1, 1000, object_type=ObjectType.STAPLER))
