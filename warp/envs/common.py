@@ -159,8 +159,13 @@ class ObjectType(Enum):
     TCDM_STAPLER = 9
     SPRAY_BOTTLE = 10
     PILL_BOTTLE = 11
-    PLIER = 12
-    SCISSORS = 13
+    BOTTLE = 12
+    PLIERS = 13
+    SCISSORS = 14
+    DISPENSER = 15
+    EYEGLASSES = 16
+    FAUCET = 17
+    STAPLER = 18
 
 
 OBJ_PATHS = {

@@ -20,7 +20,7 @@
 		<axis xyz="1 0 0"/>
 		<child link="link_0"/>
 		<parent link="link_2"/>
-		<limit lower="0.0" upper="0.5215043804959058"/>
+		<limit lower="0.0" upper="0.5215043804959058" effort="100.0" velocity="1"/>
 	</joint>
 	<link name="link_1">
 		<visual name="base_body-8">
@@ -775,6 +775,6 @@
 		<axis xyz="0 1 0"/>
 		<child link="link_2_helper"/>
 		<parent link="link_1"/>
-		<limit lower="0" upper="0.12"/>
+		<limit lower="0" upper="0.12" effort="100.0" velocity="1"/>
 	</joint>
 </robot>

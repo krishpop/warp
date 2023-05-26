@@ -30,6 +30,7 @@ def add_joint(
     limit_lower=-2 * np.pi * 3.0,
     limit_upper=2 * np.pi * 3.0,
     parent=-1,
+    stiffness=0.0,
     damping=0.75,
 ):
     """Add a joint to the builder"""
@@ -49,7 +50,7 @@ def add_joint(
             wp.transform(pos, ori),
             wp.transform_identity(),
             axis=joint_axis,
-            target_ke=0.0,  # 1.0
+            target_ke=stiffness,  # 1.0
             target_kd=damping,  # 1.5
             limit_ke=100.0,
             limit_kd=150.0,
@@ -334,6 +335,7 @@ class ObjectModel:
         contact_ke=1.0e3,
         contact_kd=100.0,
         scale=0.4,
+        stiffness=0.0,
         damping=0.5,
     ):
         self.object_type = object_type
@@ -347,6 +349,7 @@ class ObjectModel:
         self.contact_ke = contact_ke
         self.contact_kd = contact_kd
         self.scale = scale
+        self.stiffness = stiffness
         self.damping = damping
         self.model_path = TCDM_MESH_PATHS.get(self.object_type)
         if self.model_path is not None:
@@ -360,6 +363,7 @@ class ObjectModel:
             pos=self.base_pos,
             ori=self.base_ori,
             joint_type=self.joint_type,
+            stiffness=self.stiffness,
             damping=self.damping,
             body_name="object",  # self.object_name + "_body_joint",
         )
@@ -399,7 +403,8 @@ class OperableObjectModel(ObjectModel):
         contact_ke=1.0e3,
         contact_kd=100.0,
         scale=0.4,
-        damping=0.5,
+        stiffness=0.0,
+        damping=0.0,
         model_path: str = "",
     ):
         super().__init__(
@@ -409,6 +414,7 @@ class OperableObjectModel(ObjectModel):
             contact_ke=contact_ke,
             contact_kd=contact_kd,
             scale=scale,
+            stiffness=stiffness,
             damping=damping,
         )
         assert model_path and os.path.splitext(model_path)[1] == ".urdf"
@@ -421,9 +427,10 @@ class OperableObjectModel(ObjectModel):
             xform=wp.transform(self.base_pos, self.base_ori),
             floating=True,
             density=1.0,
+            scale=self.scale,
             armature=1e-4,
-            stiffness=0.0,
-            damping=0.0,
+            stiffness=self.stiffness,
+            damping=self.damping,
             shape_ke=1.0e4,
             shape_kd=1.0e2,
             shape_kf=1.0e2,
@@ -446,7 +453,8 @@ def object_generator(object_type, **kwargs):
 
 def operable_object_generator(object_type, **kwargs):
     class __OpDexObj__(OperableObjectModel):
-        def __init__(self):
+        def __init__(self, **override_kwargs):
+            kwargs.update(override_kwargs)
             super().__init__(object_type=object_type, **kwargs)
 
     return __OpDexObj__
@@ -458,14 +466,72 @@ SprayBottleObject = operable_object_generator(
     ObjectType.SPRAY_BOTTLE,
     base_pos=(0.0, 0.22, 0.0),
     base_ori=(0.0, 0.0, 0.0),
+    scale=0.4,
     model_path="spray_bottle/mobility.urdf",
 )
 PillBottleObject = operable_object_generator(
     ObjectType.PILL_BOTTLE,
-    base_pos=(0.0, 0.01756801, 0.0),
+    base_pos=(0.0, 0.3, 0.0),
     base_ori=(-np.pi / 2, 0.0, 0.0),
+    scale=0.2,
     # base_ori=(np.pi / 17, 0.0, 0.0),
     model_path="pill_bottle/mobility.urdf",
+)
+BottleObject = operable_object_generator(
+    ObjectType.BOTTLE,
+    base_pos=(0.0, 0.01756801, 0.0),
+    base_ori=(-np.pi / 2, 0.0, 0.0),
+    scale=0.4,
+    # base_ori=(np.pi / 17, 0.0, 0.0),
+    model_path="Bottle/3558/mobility.urdf",
+)
+DispenserObject = operable_object_generator(
+    ObjectType.DISPENSER,
+    base_pos=(0.0, 0.01756801, 0.0),
+    base_ori=(-np.pi / 2, 0.0, 0.0),
+    scale=0.4,
+    # base_ori=(np.pi / 17, 0.0, 0.0),
+    model_path="Dispenser/101417/mobility.urdf",
+)
+EyeglassesObject = operable_object_generator(
+    ObjectType.EYEGLASSES,
+    base_pos=(0.0, 0.01756801, 0.0),
+    base_ori=(-np.pi / 2, 0.0, 0.0),
+    scale=0.2,
+    # base_ori=(np.pi / 17, 0.0, 0.0),
+    model_path="Eyeglasses/101284/mobility.urdf",
+)
+FaucetObject = operable_object_generator(
+    ObjectType.FAUCET,
+    base_pos=(0.0, 0.01756801, 0.0),
+    base_ori=(-np.pi / 2, 0.0, np.pi / 24),
+    scale=0.4,
+    # base_ori=(np.pi / 17, 0.0, 0.0),
+    model_path="Faucet/152/mobility.urdf",
+)
+PliersObject = operable_object_generator(
+    ObjectType.PLIERS,
+    base_pos=(0.0, 0.01756801, 0.0),
+    base_ori=(-np.pi / 2, 0.0, 0.0),
+    scale=0.4,
+    # base_ori=(np.pi / 17, 0.0, 0.0),
+    model_path="Pliers/100142/mobility.urdf",
+)
+ScissorsObject = operable_object_generator(
+    ObjectType.SCISSORS,
+    base_pos=(0.0, 0.01756801, 0.0),
+    base_ori=(-np.pi / 2, 0.0, 0.0),
+    scale=0.4,
+    # base_ori=(np.pi / 17, 0.0, 0.0),
+    model_path="Scissors/10449/mobility.urdf",
+)
+StaplerObject = operable_object_generator(
+    ObjectType.STAPLER,
+    base_pos=(0.0, 0.01756801, 0.0),
+    base_ori=(-np.pi / 2, 0.0, 0.0),
+    scale=0.4,
+    # base_ori=(np.pi / 17, 0.0, 0.0),
+    model_path="Stapler/103271/mobility.urdf",
 )
 
 OBJ_MODELS = {}
@@ -473,3 +539,13 @@ OBJ_MODELS[ObjectType.TCDM_STAPLER] = StaplerObject
 OBJ_MODELS[ObjectType.OCTPRISM] = OctprismObject
 OBJ_MODELS[ObjectType.SPRAY_BOTTLE] = SprayBottleObject
 OBJ_MODELS[ObjectType.PILL_BOTTLE] = PillBottleObject
+OBJ_MODELS[ObjectType.BOTTLE] = BottleObject
+OBJ_MODELS[ObjectType.DISPENSER] = DispenserObject
+OBJ_MODELS[ObjectType.EYEGLASSES] = EyeglassesObject
+OBJ_MODELS[ObjectType.FAUCET] = FaucetObject
+OBJ_MODELS[ObjectType.PLIERS] = PliersObject
+OBJ_MODELS[ObjectType.SCISSORS] = ScissorsObject
+OBJ_MODELS[ObjectType.STAPLER] = StaplerObject
+
+action_penalty = lambda act: torch.linalg.norm(act, dim=-1)
+l2_dist = lambda x, y: torch.linalg.norm(x - y, dim=-1)

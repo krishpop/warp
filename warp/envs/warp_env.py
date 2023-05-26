@@ -258,6 +258,7 @@ class WarpEnv(Environment):
         raise NotImplementedError
 
     def reset(self, env_ids=None, force_reset=True):
+        self.render_time = 0.0
         if env_ids is None:
             if force_reset:
                 env_ids = np.arange(self.num_envs, dtype=int)
@@ -403,19 +404,12 @@ class WarpEnv(Environment):
 
     def render(self, mode="human"):
         if self.visualize and self.renderer:
-            if self.render_mode is RenderMode.USD:
+            with wp.ScopedTimer("render", False):
                 self.render_time += self.frame_dt
                 self.renderer.begin_frame(self.render_time)
+                # render state 1 (swapped with state 0 just before)
                 self.renderer.render(self.state_0)
                 self.renderer.end_frame()
-                if self.num_frames % self.render_freq == 0:
-                    self.renderer.save()
-            elif self.render_mode is RenderMode.OPENGL:
-                self.renderer.begin_frame(self.render_time)
-                self.renderer.render(self.state_0)
-                self.renderer.end_frame()
-                # if mode == "rgb_array":
-                #     return self.renderer.get_pixel_buffer()
 
     def get_checkpoint(self, save_path=None):
         checkpoint = {}
