@@ -1307,6 +1307,9 @@ class array(Array):
         else:
             return str(self.to("cpu").numpy())
 
+    def __repr__(self):
+        return f"wp.array({str(self.numpy())}, dtype={self.dtype}, device={self.device})"
+
     def __getitem__(self, key):
         if isinstance(key, int):
             if self.ndim == 1:
