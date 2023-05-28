@@ -672,7 +672,7 @@ USBObjects = {
         base_ori=(-np.pi / 2, 0.0, 0.0),
         scale=0.4,
         # base_ori=(np.pi / 17, 0.0, 0.0),
-        model_path=f"Switch/{switch_id}/mobility.urdf",
+        model_path=f"USB/{usb_id}/mobility.urdf",
     )
     for usb_id in usb_ids
 }
