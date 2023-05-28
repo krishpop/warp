@@ -162,6 +162,7 @@ class WarpEnv(Environment):
             "state_in": self.state_0,
             "state_out": self.state_1,
             "ag_return_body": self.ag_return_body,
+            "body_f": wp.zeros_like(self.state_0.body_f),
         }
         self.act_params = {
             "q_offset": 0,
@@ -358,7 +359,9 @@ class WarpEnv(Environment):
             self.body_q = wp.to_torch(self.state_0.body_q)
             self.body_qd = wp.to_torch(self.state_0.body_qd)
 
-        if self.use_graph_capture:
+        if self.requires_grad:
+            self.record_forward_simulate()
+        elif self.use_graph_capture:
             if self.forward_sim_graph is None:
                 self.forward_sim_graph = get_compute_graph(forward)
             wp.capture_launch(self.forward_sim_graph)
