@@ -258,7 +258,7 @@ def run_env(Env, num_states=500):
 
         for i in range(n_dof):
             joint_q_targets = (
-                np.sin(np.linspace(0, 3 * np.pi, 2 * num_states + 1)) * (upper[i] - lower[i]) / 2
+                0.8 * np.sin(np.linspace(0, 3 * np.pi, 2 * num_states + 1)) * (upper[i] - lower[i]) / 2
                 + (upper[i] + lower[i]) / 2
             )
 

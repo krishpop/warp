@@ -475,6 +475,8 @@ def operable_object_generator(object_type, **kwargs):
 
 StaplerObject = object_generator(ObjectType.TCDM_STAPLER, base_pos=(0.0, 0.01756801, 0.0), scale=1.3)
 OctprismObject = object_generator(ObjectType.OCTPRISM, scale=1.0)
+
+
 SprayBottleObject = operable_object_generator(
     ObjectType.SPRAY_BOTTLE,
     base_pos=(0.25, 0.12, 0.0),
@@ -483,6 +485,7 @@ SprayBottleObject = operable_object_generator(
     density=1.0,
     model_path="spray_bottle/mobility.urdf",
 )
+
 PillBottleObject = operable_object_generator(
     ObjectType.PILL_BOTTLE,
     base_pos=(0.0, 0.3, 0.0),
@@ -492,78 +495,195 @@ PillBottleObject = operable_object_generator(
     model_path="pill_bottle/mobility.urdf",
 )
 
-BottleObject = operable_object_generator(
-    ObjectType.BOTTLE,
-    base_pos=(0.0, 0.01756801, 0.0),
-    base_ori=(-0.5 * np.pi, 0.0, 0.0),
-    scale=0.4,
-    # base_ori=(np.pi / 17, 0.0, 0.0),
-    model_path=f"Bottle/{bottle_id}/mobility.urdf",
-)
-DispenserObject = operable_object_generator(
-    ObjectType.DISPENSER,
-    base_pos=(0.0, 0.01756801, 0.0),
-    base_ori=(-np.pi / 2, 0.0, 0.0),
-    scale=0.4,
-    # base_ori=(np.pi / 17, 0.0, 0.0),
-    model_path="Dispenser/101417/mobility.urdf",
-)
-EyeglassesObject = operable_object_generator(
-    ObjectType.EYEGLASSES,
-    base_pos=(0.0, 0.01756801, 0.0),
-    base_ori=(-np.pi / 2, 0.0, 0.0),
-    scale=0.2,
-    # base_ori=(np.pi / 17, 0.0, 0.0),
-    model_path="Eyeglasses/101284/mobility.urdf",
-)
-FaucetObject = operable_object_generator(
-    ObjectType.FAUCET,
-    base_pos=(0.0, 0.01756801, 0.0),
-    base_ori=(-np.pi / 2, 0.0, np.pi / 24),
-    scale=0.4,
-    # base_ori=(np.pi / 17, 0.0, 0.0),
-    model_path="Faucet/152/mobility.urdf",
-)
-PliersObject = operable_object_generator(
-    ObjectType.PLIERS,
-    base_pos=(0.0, 0.01756801, 0.0),
-    base_ori=(-np.pi / 2, 0.0, 0.0),
-    scale=0.4,
-    # base_ori=(np.pi / 17, 0.0, 0.0),
-    model_path="Pliers/100142/mobility.urdf",
-)
-ScissorsObject = operable_object_generator(
-    ObjectType.SCISSORS,
-    base_pos=(0.0, 0.01756801, 0.0),
-    base_ori=(-np.pi / 2, 0.0, 0.0),
-    scale=0.4,
-    # base_ori=(np.pi / 17, 0.0, 0.0),
-    model_path="Scissors/10449/mobility.urdf",
-)
-StaplerObject = operable_object_generator(
-    ObjectType.STAPLER,
-    base_pos=(0.0, 0.01756801, 0.0),
-    base_ori=(-np.pi / 2, 0.0, 0.0),
-    scale=0.4,
-    # base_ori=(np.pi / 17, 0.0, 0.0),
-    model_path="Stapler/103271/mobility.urdf",
-)
-SwitchObject = operable_object_generator(
-    ObjectType.SWITCH,
-    base_pos=(0.0, 0.01756801, 0.0),
-    base_ori=(-np.pi / 2, 0.0, 0.0),
-    scale=0.4,
-    # base_ori=(np.pi / 17, 0.0, 0.0),
-    model_path="Switch/100866/mobility.urdf",
-)
-USBObject = operable_object_generator(
-    ObjectType.USB,
-    base_pos=(0.0, 0.01756801, 0.0),
-    base_ori=(-np.pi / 2, 0.0, 0.0),
-    scale=0.4,
-    # base_ori=(np.pi / 17, 0.0, 0.0),
-    model_path="USB/100061/mobility.urdf",
-)
+bottle_ids = ("3558", "3574", "3616")
+BottleObjects = {
+    bottle_id: operable_object_generator(
+        ObjectType.BOTTLE,
+        base_pos=(0.0, 0.01756801, 0.0),
+        base_ori=(-0.5 * np.pi, 0.0, 0.0),
+        scale=0.4,
+        # base_ori=(np.pi / 17, 0.0, 0.0),
+        model_path=f"Bottle/{bottle_id}/mobility.urdf",
+    )
+    for bottle_id in bottle_ids
+}
+
+# BottleObject = operable_object_generator(
+#     ObjectType.BOTTLE,
+#     base_pos=(0.0, 0.01756801, 0.0),
+#     base_ori=(-0.5 * np.pi, 0.0, 0.0),
+#     scale=0.4,
+#     # base_ori=(np.pi / 17, 0.0, 0.0),
+#     model_path=f"Bottle/{bottle_id}/mobility.urdf",
+# )
+
+dispenser_ids = ("101417", "101490", "101517", "101539", "101540", "103405", "103619")
+DispenserObjects = {
+    dispenser_id: operable_object_generator(
+        ObjectType.DISPENSER,
+        base_pos=(0.0, 0.01756801, 0.0),
+        base_ori=(-0.5 * np.pi, 0.0, 0.0),
+        scale=0.4,
+        # base_ori=(np.pi / 17, 0.0, 0.0),
+        model_path=f"Dispenser/{dispenser_id}/mobility.urdf",
+    )
+    for dispenser_id in dispenser_ids
+}
+# DispenserObject = operable_object_generator(
+#     ObjectType.DISPENSER,
+#     base_pos=(0.0, 0.01756801, 0.0),
+#     base_ori=(-np.pi / 2, 0.0, 0.0),
+#     scale=0.4,
+#     # base_ori=(np.pi / 17, 0.0, 0.0),
+#     model_path="Dispenser/101417/mobility.urdf",
+# )
+
+eyeglasses_ids = ("101284", "102586", "103189")
+EyeglassesObjects = {
+    eyeglasses_id: operable_object_generator(
+        ObjectType.EYEGLASSES,
+        base_pos=(0.0, 0.01756801, 0.0),
+        base_ori=(-np.pi / 2, 0.0, 0.0),
+        scale=0.2,
+        # base_ori=(np.pi / 17, 0.0, 0.0),
+        model_path=f"Eyeglasses/{eyeglasses_id}/mobility.urdf",
+    )
+    for eyeglasses_id in eyeglasses_ids
+}
+# EyeglassesObject = operable_object_generator(
+#     ObjectType.EYEGLASSES,
+#     base_pos=(0.0, 0.01756801, 0.0),
+#     base_ori=(-np.pi / 2, 0.0, 0.0),
+#     scale=0.2,
+#     # base_ori=(np.pi / 17, 0.0, 0.0),
+#     model_path="Eyeglasses/101284/mobility.urdf",
+# )
+
+faucet_ids = ("152", "1556", "156", "2170")
+FaucetObjects = {
+    faucet_id: operable_object_generator(
+        ObjectType.FAUCET,
+        base_pos=(0.0, 0.01756801, 0.0),
+        base_ori=(-np.pi / 2, 0.0, 0.0),
+        scale=0.4,
+        # base_ori=(np.pi / 17, 0.0, 0.0),
+        model_path=f"Faucet/{faucet_id}/mobility.urdf",
+    )
+    for faucet_id in faucet_ids
+}
+# FaucetObject = operable_object_generator(
+#     ObjectType.FAUCET,
+#     base_pos=(0.0, 0.01756801, 0.0),
+#     base_ori=(-np.pi / 2, 0.0, np.pi / 24),
+#     scale=0.4,
+#     # base_ori=(np.pi / 17, 0.0, 0.0),
+#     model_path="Faucet/152/mobility.urdf",
+# )
+
+pliers_ids = ("100142", "100182", "100705", "102074")
+PliersObjects = {
+    pliers_id: operable_object_generator(
+        ObjectType.PLIERS,
+        base_pos=(0.0, 0.01756801, 0.0),
+        base_ori=(-np.pi / 2, 0.0, 0.0),
+        scale=0.4,
+        # base_ori=(np.pi / 17, 0.0, 0.0),
+        model_path=f"Pliers/{pliers_id}/mobility.urdf",
+    )
+    for pliers_id in pliers_ids
+}
+# PliersObject = operable_object_generator(
+#     ObjectType.PLIERS,
+#     base_pos=(0.0, 0.01756801, 0.0),
+#     base_ori=(-np.pi / 2, 0.0, 0.0),
+#     scale=0.4,
+#     # base_ori=(np.pi / 17, 0.0, 0.0),
+#     model_path="Pliers/100142/mobility.urdf",
+# )
+
+scissors_ids = ("10449", "10889", "11080", "11100")
+ScissorsObjects = {
+    scissors_id: operable_object_generator(
+        ObjectType.SCISSORS,
+        base_pos=(0.0, 0.01756801, 0.0),
+        base_ori=(-np.pi / 2, 0.0, 0.0),
+        scale=0.4,
+        # base_ori=(np.pi / 17, 0.0, 0.0),
+        model_path=f"Scissors/{scissors_id}/mobility.urdf",
+    )
+    for scissors_id in scissors_ids
+}
+# ScissorsObject = operable_object_generator(
+#     ObjectType.SCISSORS,
+#     base_pos=(0.0, 0.01756801, 0.0),
+#     base_ori=(-np.pi / 2, 0.0, 0.0),
+#     scale=0.4,
+#     # base_ori=(np.pi / 17, 0.0, 0.0),
+#     model_path="Scissors/10449/mobility.urdf",
+# )
+
+stapler_ids = ("102990", "103271", "103792")
+StaplerObjects = {
+    stapler_id: operable_object_generator(
+        ObjectType.STAPLER,
+        base_pos=(0.0, 0.01756801, 0.0),
+        base_ori=(-np.pi / 2, 0.0, 0.0),
+        scale=0.4,
+        # base_ori=(np.pi / 17, 0.0, 0.0),
+        model_path=f"Stapler/{stapler_id}/mobility.urdf",
+    )
+    for stapler_id in stapler_ids
+}
+# StaplerObject = operable_object_generator(
+#     ObjectType.STAPLER,
+#     base_pos=(0.0, 0.01756801, 0.0),
+#     base_ori=(-np.pi / 2, 0.0, 0.0),
+#     scale=0.4,
+#     # base_ori=(np.pi / 17, 0.0, 0.0),
+#     model_path="Stapler/103271/mobility.urdf",
+# )
+
+switch_ids = ("100866", "100883", "100901", "102812")
+SwitchObjects = {
+    switch_id: operable_object_generator(
+        ObjectType.SWITCH,
+        base_pos=(0.0, 0.01756801, 0.0),
+        base_ori=(-np.pi / 2, 0.0, 0.0),
+        scale=0.4,
+        # base_ori=(np.pi / 17, 0.0, 0.0),
+        model_path=f"Switch/{switch_id}/mobility.urdf",
+    )
+    for switch_id in switch_ids
+}
+# SwitchObject = operable_object_generator(
+#     ObjectType.SWITCH,
+#     base_pos=(0.0, 0.01756801, 0.0),
+#     base_ori=(-np.pi / 2, 0.0, 0.0),
+#     scale=0.4,
+#     # base_ori=(np.pi / 17, 0.0, 0.0),
+#     model_path="Switch/100866/mobility.urdf",
+# )
+
+usb_ids = ("100061", "100065", "100109", "102052")
+USBObjects = {
+    usb_id: operable_object_generator(
+        ObjectType.USB,
+        base_pos=(0.0, 0.01756801, 0.0),
+        base_ori=(-np.pi / 2, 0.0, 0.0),
+        scale=0.4,
+        # base_ori=(np.pi / 17, 0.0, 0.0),
+        model_path=f"Switch/{switch_id}/mobility.urdf",
+    )
+    for usb_id in usb_ids
+}
+# USBObject = operable_object_generator(
+#     ObjectType.USB,
+#     base_pos=(0.0, 0.01756801, 0.0),
+#     base_ori=(-np.pi / 2, 0.0, 0.0),
+#     scale=0.4,
+#     # base_ori=(np.pi / 17, 0.0, 0.0),
+#     model_path="USB/100061/mobility.urdf",
+# )
 
 
 OBJ_MODELS = {}
@@ -571,15 +691,15 @@ OBJ_MODELS[ObjectType.TCDM_STAPLER] = StaplerObject
 OBJ_MODELS[ObjectType.OCTPRISM] = OctprismObject
 OBJ_MODELS[ObjectType.SPRAY_BOTTLE] = SprayBottleObject
 OBJ_MODELS[ObjectType.PILL_BOTTLE] = PillBottleObject
-OBJ_MODELS[ObjectType.BOTTLE] = BottleObject
-OBJ_MODELS[ObjectType.DISPENSER] = DispenserObject
-OBJ_MODELS[ObjectType.EYEGLASSES] = EyeglassesObject
-OBJ_MODELS[ObjectType.FAUCET] = FaucetObject
-OBJ_MODELS[ObjectType.PLIERS] = PliersObject
-OBJ_MODELS[ObjectType.SCISSORS] = ScissorsObject
-OBJ_MODELS[ObjectType.STAPLER] = StaplerObject
-OBJ_MODELS[ObjectType.SWITCH] = SwitchObject
-OBJ_MODELS[ObjectType.USB] = USBObject
+OBJ_MODELS[ObjectType.BOTTLE] = BottleObjects
+OBJ_MODELS[ObjectType.DISPENSER] = DispenserObjects
+OBJ_MODELS[ObjectType.EYEGLASSES] = EyeglassesObjects
+OBJ_MODELS[ObjectType.FAUCET] = FaucetObjects
+OBJ_MODELS[ObjectType.PLIERS] = PliersObjects
+OBJ_MODELS[ObjectType.SCISSORS] = ScissorsObjects
+OBJ_MODELS[ObjectType.STAPLER] = StaplerObjects
+OBJ_MODELS[ObjectType.SWITCH] = SwitchObjects
+OBJ_MODELS[ObjectType.USB] = USBObjects
 
 action_penalty = lambda act: torch.linalg.norm(act, dim=-1)
 l2_dist = lambda x, y: torch.linalg.norm(x - y, dim=-1)
