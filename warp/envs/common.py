@@ -250,8 +250,8 @@ def run_env(Env, num_states=500):
         # env.reset()
         joint_target_indices = env.env_joint_target_indices
 
-        upper = env.model.joint_limit_upper.numpy().reshape(env.num_envs, -1)[:, joint_target_indices]
-        lower = env.model.joint_limit_lower.numpy().reshape(env.num_envs, -1)[:, joint_target_indices]
+        upper = env.model.joint_limit_upper.numpy().reshape(env.num_envs, -1)[0, joint_target_indices]
+        lower = env.model.joint_limit_lower.numpy().reshape(env.num_envs, -1)[0, joint_target_indices]
         joint_start = env.start_joint_q.cpu().numpy()[:, joint_target_indices]
 
         n_dof = env.num_acts
@@ -268,25 +268,31 @@ def run_env(Env, num_states=500):
                 return action
 
             num_steps = 2 * num_states + 1
-            ac, states = collect_states(env, num_steps, pi)
-            np.savez(f"run_dof-{i}", ac=np.asarray(ac), states=np.asarray(states))
+            actions, states, rewards = collect_rollout(env, num_steps, pi)
+            np.savez(
+                f"{env.env_name}_dof_rollout-{i}",
+                actions=np.asarray(actions),
+                states=np.asarray(states),
+                rewards=np.asarray(rewards),
+            )
 
 
-def collect_states(env, n_steps, pi):
+def collect_rollout(env, n_steps, pi):
     o = env.reset()
-    prev_q = env.extras["object_joint_pos"]
-    cost = 0.0
+    net_cost = 0.0
     states = []
     actions = []
-    with trange(n_steps, desc=f"cost={cost:.2f}") as pbar:
+    rewards = []
+    with trange(n_steps, desc=f"cost={net_cost:.2f}") as pbar:
         for t in pbar:
             ac = pi(t)
             actions.append(ac)
             ac = torch.tensor(ac).to(str(env.device))
             o, rew, _, info = env.step(ac)
             # net_qdelta += torch.abs(info["object_joint_pos"] - prev_q).detach().cpu().numpy().sum().item()
-            prev_q = info["object_joint_pos"]
-            cost += rew.sum()
-            pbar.set_description(f"cost={cost:.2f}")
+            rew = rew.sum().cpu().detach().item()
+            net_cost += rew
+            pbar.set_description(f"cost={net_cost:.2f}, body_f_max={info['body_f_max']:.2f}")
             states.append(o.cpu().numpy())
-    return actions, states
+            rewards.append(rew)
+    return actions, states, rewards

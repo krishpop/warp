@@ -1,11 +1,11 @@
-from typing import Tuple
+from typing import Tuple, Optional
 import numpy as np
 import warp as wp
 import torch
 from warp.envs import ObjectTask
 from warp.envs import builder_utils as bu
-from warp.envs.common import HandType, ObjectType, ActionType  # , run_env
-from warp.envs.environment import RenderMode, run_env
+from warp.envs.common import HandType, ObjectType, ActionType, joint_coord_map, supported_joint_types, run_env
+from warp.envs.environment import RenderMode
 
 
 num_act_dict = {
@@ -33,7 +33,8 @@ class HandObjectTask(ObjectTask):
         device="cuda",
         render_mode=RenderMode.OPENGL,
         stage_path=None,
-        object_type: ObjectType = ObjectType.SPRAY_BOTTLE,
+        object_type: Optional[ObjectType] = None,
+        object_id=0,
         stiffness=0.0,
         damping=0.5,
         rew_params=None,
@@ -46,6 +47,7 @@ class HandObjectTask(ObjectTask):
         self.hand_start_position = hand_start_position
         self.hand_start_orientation = hand_start_orientation
         self.hand_type = hand_type
+        self.gravity = 0.0
         super().__init__(
             num_envs,
             num_obs,
@@ -59,14 +61,14 @@ class HandObjectTask(ObjectTask):
             render_mode,
             stage_path,
             object_type,
+            object_id,
             stiffness,
             damping,
             rew_params,
         )
 
-        # self.joint_type = joint_type
+        print("gravity", self.model.gravity, self.gravity)
 
-        # self.init_sim()
         self.setup_autograd_vars()
         if self.use_graph_capture:
             self.graph_capture_params["bwd_model"].joint_attach_ke = self.joint_attach_ke
@@ -74,8 +76,10 @@ class HandObjectTask(ObjectTask):
 
         self.simulate_params["ag_return_body"] = True
 
-    def _pre_step(self):
-        self.extras["hand_joint_target_pos"] = self.actions.view(self.num_envs, -1)
+    def _post_step(self):
+        self.extras["target_pos"] = self.actions.view(self.num_envs, -1)
+        self.extras["hand_pos"] = self.joint_q.view(self.num_envs, -1)[:, self.env_joint_target_indices]
+        self.extras["body_f_max"] = self.body_f.max().item()
 
     def _get_obs_dict(self):
         joint_q, joint_qd = self.joint_q.view(self.num_envs, -1), self.joint_qd.view(self.num_envs, -1)
@@ -86,9 +90,13 @@ class HandObjectTask(ObjectTask):
         obs_dict["hand_joint_vel"] = joint_qd[
             :, self.hand_joint_start : self.hand_joint_start + self.hand_num_joint_axis
         ]
-        obs_dict["object_joint_pos"] = joint_qd[
-            :, self.object_joint_start : self.object_joint_start + self.object_num_joint_axis
-        ]
+        if self.object_type is not None:
+            obs_dict["object_joint_pos"] = joint_q[
+                :, self.object_joint_start : self.object_joint_start + self.object_num_joint_axis
+            ]
+            obs_dict["object_joint_vel"] = joint_qd[
+                :, self.object_joint_start : self.object_joint_start + self.object_num_joint_axis
+            ]
         self.extras.update(obs_dict)
         return obs_dict
 
@@ -101,30 +109,32 @@ class HandObjectTask(ObjectTask):
                 hand_start_orientation=self.hand_start_orientation,
             )
         self.hand_joint_names = builder.joint_name
-        self.hand_joint_start = builder.joint_axis_start
-        self.joint_target_pos_indices = np.concatenate(
+        if self.actions.max() > 0.1:
+            __import__("ipdb").set_trace()
+        self.hand_joint_start = builder.joint_axis_start[0]
+        joint_indices = np.concatenate(
             [
-                np.arange(self.hand_joint_start[i], self.hand_joint_start[i + 1])
-                for i in range(len(self.hand_joint_start) - 1)
-                if self.hand_joint_type[i] in supported_joint_types[self.action_type]
+                np.arange(joint_idx, joint_idx + joint_coord_map[joint_type])
+                for joint_idx, joint_type in zip(builder.joint_axis_start, builder.joint_type)
+                if joint_type in supported_joint_types[self.action_type]
             ]
         )
-        self.hand_joint_type = builder.joint_type
         self.hand_num_joint_axis = builder.joint_axis_count
-        self.num_joint_q = len(builder.joint_q)
-        self.num_joint_qd = len(builder.joint_qd)
-        self.num_joint_axis = builder.joint_axis_count
+        self.num_joint_q += len(builder.joint_q)
+        self.num_joint_qd += len(builder.joint_qd)
 
-        object_articulation_builder = wp.sim.ModelBuilder()
-        super().create_articulation(object_articulation_builder)
-        self.object_joint_names = object_articulation_builder.joint_name
-        self.object_joint_start = (
-            object_articulation_builder.joint_axis_start[0] + self.hand_joint_start + self.hand_num_joint_axis
-        )
-        self.object_joint_type = object_articulation_builder.joint_type
-        self.object_num_joint_axis = object_articulation_builder.joint_axis_count
+        if self.object_type:
+            object_articulation_builder = wp.sim.ModelBuilder()
+            super().create_articulation(object_articulation_builder)
+            self.object_joint_start = (
+                object_articulation_builder.joint_axis_start[0] + self.hand_joint_start + self.hand_num_joint_axis
+            )
+            self.object_joint_type = object_articulation_builder.joint_type
+            self.object_num_joint_axis = object_articulation_builder.joint_axis_count
+            self.asset_builders.append(object_articulation_builder)
 
-        self.asset_builders.append(object_articulation_builder)
+        self.env_joint_target_indices = joint_indices
+        self.env_num_joints = len(joint_indices)
 
 
 if __name__ == "__main__":
@@ -151,7 +161,7 @@ if __name__ == "__main__":
     rew_params = {
         "hand_joint_pos_err": (
             lambda x, y: torch.abs(x - y).sum(dim=-1),
-            ["hand_joint_target_pos", "hand_joint_pos"],
+            ["target_pos", "hand_pos"],
             1.0,
         )
     }
@@ -161,10 +171,11 @@ if __name__ == "__main__":
             args.num_obs,
             args.episode_length,
             action_type=ActionType[args.action_type.upper()],
-            object_type=ObjectType[args.object_type.upper()],
+            object_type=None,  # ObjectType[args.object_type.upper()],
             hand_type=HandType[args.hand_type.upper()],
             render=args.render,
-            stiffness=1000.0,
+            stiffness=5000.0,
+            damping=10.0,
             rew_params=rew_params,
         )
     )

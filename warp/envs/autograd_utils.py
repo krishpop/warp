@@ -5,6 +5,7 @@ from typing import Union
 from inspect import getmembers
 from warp.sim.model import State, Model
 from torch.cuda.amp import custom_fwd, custom_bwd
+from warp_utils import integrate_body_f
 
 # from warp.tests.grad_utils import check_kernel_jacobian, check_backward_pass, plot_jacobian_comparison
 
@@ -234,6 +235,19 @@ def forward_simulate(ctx, forward=False, requires_grad=False):
             state_temp,
             ctx.dt,
         )
+    if isinstance(ctx.integrator, wp.sim.SemiImplicitIntegrator):
+        ctx.body_f.assign(state_in.body_f)  # takes instantaneous force from last substep
+    else:
+        # captures applied joint torques
+        ctx.body_f.assign(state_in.body_f)
+        integrate_body_f(
+            ctx.model,
+            ctx.state_out.body_q,
+            ctx.state_in.body_qd,
+            ctx.state_out.body_qd,
+            ctx.body_f,
+            ctx.dt * ctx.substeps,
+        )
     wp.sim.eval_ik(model, state_out, joint_q_end, joint_qd_end)
 
 
@@ -257,6 +271,7 @@ class IntegratorSimulate(torch.autograd.Function):
         ctx.state_out = simulate_params["state_out"]
         ctx.state_list = simulate_params.get("state_list", None)
         ctx.return_body = simulate_params.get("ag_return_body", False)
+        ctx.body_f = simulate_params["body_f"]
         ctx.act = act_params["act"]
         ctx.joint_act = act_params["joint_act"]
         ctx.act_pt = action

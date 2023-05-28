@@ -7,6 +7,7 @@ import warp.sim.render
 import random
 from .autograd_utils import get_compute_graph, forward_ag
 from .environment import Environment, RenderMode
+from warp_utils import integrate_body_f
 
 
 def set_seed(seed):
@@ -339,6 +340,10 @@ class WarpEnv(Environment):
         """Method to store relevant data before stepping the simulation"""
         pass
 
+    def _post_step(self):
+        """Method to store relevant data after stepping the simulation"""
+        pass
+
     def update(self):
         """Overrides Environment.update() for forward simulation with graph capture"""
 
@@ -355,9 +360,18 @@ class WarpEnv(Environment):
                 else:
                     self.state_0.body_q.assign(self.state_1.body_q)
                     self.state_0.body_qd.assign(self.state_1.body_qd)
+            integrate_body_f(
+                self.model,
+                self.state_0.body_q,
+                self.state_1.body_qd,
+                self.state_0.body_qd,
+                self.simulate_params["body_f"],
+                self.frame_dt,
+            )
             wp.sim.eval_ik(self.model, self.state_0, self._joint_q, self._joint_qd)
             self.body_q = wp.to_torch(self.state_0.body_q)
             self.body_qd = wp.to_torch(self.state_0.body_qd)
+            self.body_f = wp.to_torch(self.simulate_params["body_f"])
 
         if self.requires_grad:
             self.record_forward_simulate()

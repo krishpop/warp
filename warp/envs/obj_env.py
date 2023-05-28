@@ -33,7 +33,12 @@ class ObjectTask(WarpEnv):
         damping=0.5,
         rew_params=None,
     ):
-        env_name = object_type.name + "Env"
+        if object_type:
+            env_name = object_type.name + "Env"
+        else:
+            env_name = "ObjectEnv"
+        self.num_joint_q = 0
+        self.num_joint_qd = 0
         super().__init__(
             num_envs,
             num_obs,
@@ -52,7 +57,9 @@ class ObjectTask(WarpEnv):
         self.object_type = object_type
         self.object_id = object_id
         self.action_type = ActionType.POSITION
-        self.object_cls = bu.OBJ_MODELS[self.object_type][object_id]
+        self.object_cls = bu.OBJ_MODELS.get(self.object_type)
+        if isinstance(self.object_cls, dict):
+            self.object_cls = self.object_cls[object_id]
         self.stiffness = stiffness
         self.damping = damping
         if rew_params is None:
@@ -73,17 +80,9 @@ class ObjectTask(WarpEnv):
                 for joint_idx, joint_type in zip(joint_axis_start, joint_type)
                 if joint_type in supported_joint_types[self.action_type]
             ],
-            dtype=int,
         )
         self.joint_target_indices = wp.array(joint_target_indices, device=self.device, dtype=int)
 
-        # self.joint_target_indices = np.array(
-        #     [
-        #         joint_idx
-        #         for i, joint_idx in enumerate(joint_axis_start)
-        #         if joint_type[i] in supported_joint_types[self.action_type]
-        #     ]
-        # )
         self.setup_autograd_vars()
         if self.use_graph_capture:
             self.graph_capture_params["bwd_model"].joint_attach_ke = self.joint_attach_ke
@@ -114,6 +113,7 @@ class ObjectTask(WarpEnv):
         self.assign_actions(actions)
         self._pre_step()
         self.update()
+        self._post_step()
         self.calculateObservations()
         self.calculateReward()
         self.progress_buf += 1
@@ -121,6 +121,9 @@ class ObjectTask(WarpEnv):
         if self.visualize:
             self.render()
         return self.obs_buf, self.rew_buf, self.reset_buf, self.extras
+
+    def _post_step(self):
+        self.extras["body_f_max"] = self.body_f.max().item()
 
     def _get_rew_dict(self):
         rew_dict = {}
@@ -144,8 +147,6 @@ class ObjectTask(WarpEnv):
 
     def calculateReward(self):
         rew_dict = self._get_rew_dict()
-        if self.actions.max() > 0.1:
-            __import__("ipdb").set_trace()
         self.rew_buf = torch.sum(torch.cat([v for v in rew_dict.values()]), axis=-1, keepdim=True)
         self.extras.update(rew_dict)
         return self.rew_buf
@@ -158,8 +159,8 @@ class ObjectTask(WarpEnv):
     def create_articulation(self, builder):
         self.object_model = self.object_cls(stiffness=self.stiffness, damping=self.damping)
         self.object_model.create_articulation(builder)
-        self.num_joint_q = len(builder.joint_q)
-        self.num_joint_qd = len(builder.joint_qd)
+        self.num_joint_q += len(builder.joint_q)
+        self.num_joint_qd += len(builder.joint_qd)
         joint_indices = np.concatenate(
             [
                 np.arange(joint_idx, joint_idx + joint_coord_map[joint_type])
@@ -181,6 +182,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--object_type", type=str, default="spray_bottle")
+    parser.add_argument("--object_id", type=int, default=0)
     parser.add_argument("--stiffness", type=float, default=10.0)
     parser.add_argument("--damping", type=float, default=0.5)
     args = parser.parse_args()

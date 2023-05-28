@@ -182,9 +182,11 @@ class Environment:
             self.env_offset = (0.0, 0.0, 0.0)
 
         builder = wp.sim.ModelBuilder()
+        builder.gravity = self.gravity
         builder.rigid_contact_margin = self.rigid_contact_margin
         try:
             articulation_builder = wp.sim.ModelBuilder()
+            articulation_builder.gravity = self.gravity
             self.create_articulation(articulation_builder)
             self.asset_builders.append(articulation_builder)
             env_offsets = compute_env_offsets(self.num_envs, self.env_offset, self.up_axis)
