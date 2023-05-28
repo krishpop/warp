@@ -266,7 +266,7 @@ def create_allegro_hand(
     floating_base=False,
     stiffness=1000.0,
     damping=0.0,
-    hand_start_position=(0.01, 0.17, 0.125),
+    hand_start_position=(0.01, 0.30, 0.125),
     hand_start_orientation=(np.pi * 0.0, np.pi * 1.0, np.pi * -0.25),
 ):
     stiffness, damping = 0.0, 0.0
@@ -297,6 +297,7 @@ def create_allegro_hand(
         builder,
         xform=xform,
         floating=floating_base,
+        fixed_base_joint="rx, ry, rz",
         density=1e3,
         armature=0.01,
         stiffness=stiffness,
@@ -430,11 +431,13 @@ class OperableObjectModel(ObjectModel):
         self.model_path = model_path
 
     def create_articulation(self, builder):
+
         wp.sim.parse_urdf(
             os.path.join(os.path.dirname(__file__), "assets", self.model_path),
             builder,
             xform=wp.transform(self.base_pos, self.base_ori),
-            floating=True,
+            floating=False,
+            fixed_base_joint="rx, ry, rz",
             density=self.density,
             scale=self.scale,
             armature=1e-4,
@@ -448,8 +451,9 @@ class OperableObjectModel(ObjectModel):
             limit_kd=1.0e1,
             enable_self_collisions=False,
             parse_visuals_as_colliders=False,
+            collapse_fixed_joints=True,
         )
-        builder.collapse_fixed_joints()
+        return
 
 
 def object_generator(object_type, **kwargs):
@@ -473,7 +477,7 @@ StaplerObject = object_generator(ObjectType.TCDM_STAPLER, base_pos=(0.0, 0.01756
 OctprismObject = object_generator(ObjectType.OCTPRISM, scale=1.0)
 SprayBottleObject = operable_object_generator(
     ObjectType.SPRAY_BOTTLE,
-    base_pos=(0.0, 0.22, 0.0),
+    base_pos=(0.25, 0.12, 0.0),
     base_ori=(0.0, 0.0, 0.0),
     scale=1.0,
     density=1.0,
@@ -487,13 +491,14 @@ PillBottleObject = operable_object_generator(
     # base_ori=(np.pi / 17, 0.0, 0.0),
     model_path="pill_bottle/mobility.urdf",
 )
+
 BottleObject = operable_object_generator(
     ObjectType.BOTTLE,
     base_pos=(0.0, 0.01756801, 0.0),
     base_ori=(-0.5 * np.pi, 0.0, 0.0),
     scale=0.4,
     # base_ori=(np.pi / 17, 0.0, 0.0),
-    model_path="Bottle/3616/mobility.urdf",
+    model_path=f"Bottle/{bottle_id}/mobility.urdf",
 )
 DispenserObject = operable_object_generator(
     ObjectType.DISPENSER,
@@ -543,6 +548,23 @@ StaplerObject = operable_object_generator(
     # base_ori=(np.pi / 17, 0.0, 0.0),
     model_path="Stapler/103271/mobility.urdf",
 )
+SwitchObject = operable_object_generator(
+    ObjectType.SWITCH,
+    base_pos=(0.0, 0.01756801, 0.0),
+    base_ori=(-np.pi / 2, 0.0, 0.0),
+    scale=0.4,
+    # base_ori=(np.pi / 17, 0.0, 0.0),
+    model_path="Switch/100866/mobility.urdf",
+)
+USBObject = operable_object_generator(
+    ObjectType.USB,
+    base_pos=(0.0, 0.01756801, 0.0),
+    base_ori=(-np.pi / 2, 0.0, 0.0),
+    scale=0.4,
+    # base_ori=(np.pi / 17, 0.0, 0.0),
+    model_path="USB/100061/mobility.urdf",
+)
+
 
 OBJ_MODELS = {}
 OBJ_MODELS[ObjectType.TCDM_STAPLER] = StaplerObject
@@ -556,6 +578,9 @@ OBJ_MODELS[ObjectType.FAUCET] = FaucetObject
 OBJ_MODELS[ObjectType.PLIERS] = PliersObject
 OBJ_MODELS[ObjectType.SCISSORS] = ScissorsObject
 OBJ_MODELS[ObjectType.STAPLER] = StaplerObject
+OBJ_MODELS[ObjectType.SWITCH] = SwitchObject
+OBJ_MODELS[ObjectType.USB] = USBObject
 
 action_penalty = lambda act: torch.linalg.norm(act, dim=-1)
 l2_dist = lambda x, y: torch.linalg.norm(x - y, dim=-1)
+abs_dist = lambda x, y: torch.abs(x - y).sum(dim=-1)

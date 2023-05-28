@@ -167,6 +167,7 @@ class Environment:
         self.profile = args.profile
 
     def init(self):
+        self.asset_builders = []
         if self.integrator_type == IntegratorType.EULER:
             self.sim_substeps = self.sim_substeps_euler
         elif self.integrator_type == IntegratorType.XPBD:
@@ -185,6 +186,7 @@ class Environment:
         try:
             articulation_builder = wp.sim.ModelBuilder()
             self.create_articulation(articulation_builder)
+            self.asset_builders.append(articulation_builder)
             env_offsets = compute_env_offsets(self.num_envs, self.env_offset, self.up_axis)
             for i in range(self.num_envs):
                 xform = wp.transform(env_offsets[i], wp.quat_identity())
@@ -193,9 +195,13 @@ class Environment:
                     if self.up_axis == "y":
                         quat_rotate = wp.quat_from_axis_angle((1.0, 0.0, 0.0), -np.pi / 2.0)
                     xform = wp.transform(env_offsets[i], quat_rotate)
-                builder.add_builder(
-                    articulation_builder, xform, separate_collision_group=self.separate_collision_group_per_env
-                )
+                for asset_builder in self.asset_builders:
+                    builder.add_builder(
+                        asset_builder,
+                        xform,
+                        separate_collision_group=self.separate_collision_group_per_env,
+                    )
+
             self.bodies_per_env = len(articulation_builder.body_q)
         except NotImplementedError:
             # custom simulation setup where something other than an articulation is used

@@ -50,9 +50,7 @@ def quat_ang_err(q1: wp.quat, q2: wp.quat):
     q1_inv = wp.quat_inverse(q1)
     q2_rel = q1_inv * q2
     r_err = wp.normalize(q2_rel)
-    ang_err = (
-        wp.normalize(wp.vec3(r_err[0], r_err[1], r_err[2])) * wp.acos(r_err[3]) * 2.0
-    )
+    ang_err = wp.normalize(wp.vec3(r_err[0], r_err[1], r_err[2])) * wp.acos(r_err[3]) * 2.0
     return wp.abs(ang_err[0]) + wp.abs(ang_err[1]) + wp.abs(ang_err[2])
 
 
@@ -93,9 +91,7 @@ def eval_joint_torque(
 
 
 @wp.func
-def compute_joint_q(
-    X_wp: wp.transform, X_wc: wp.transform, axis: wp.vec3, rotation_count: float
-):
+def compute_joint_q(X_wp: wp.transform, X_wc: wp.transform, axis: wp.vec3, rotation_count: float):
     # child transform and moment arm
     q_p = wp.transform_get_rotation(X_wp)
     q_c = wp.transform_get_rotation(X_wc)
@@ -106,9 +102,7 @@ def compute_joint_q(
     twist = quat_twist(axis, r_err)
 
     q = (
-        wp.acos(twist[3])
-        * 2.0
-        * wp.sign(wp.dot(axis, wp.vec3(twist[0], twist[1], twist[2])))
+        wp.acos(twist[3]) * 2.0 * wp.sign(wp.dot(axis, wp.vec3(twist[0], twist[1], twist[2])))
     ) + 4.0 * PI * rotation_count
     return q
 
@@ -291,9 +285,7 @@ def eval_tight_friction(
     t_total = wp.spatial_top(body_f[body_idx])[2]
     # depending on whether net torque is +/-, friction should only go up to -t_total
     # ie. not apply external force
-    friction = wp.select(
-        t_total <= 0.0, wp.max(-t_total, -t_friction), wp.min(-t_total, t_friction)
-    )  # joint friction
+    friction = wp.select(t_total <= 0.0, wp.max(-t_total, -t_friction), wp.min(-t_total, t_friction))  # joint friction
 
     if upaxis == 2:
         body_friction = wp.spatial_vector(
@@ -335,11 +327,7 @@ def get_joint_q(
     type = joint_type[tid]
     axis = joint_axis[tid]
 
-    if (
-        type != wp.sim.JOINT_REVOLUTE
-        and type != JOINT_REVOLUTE_TIGHT
-        and type != JOINT_REVOLUTE_SPRING
-    ):
+    if type != wp.sim.JOINT_REVOLUTE and type != JOINT_REVOLUTE_TIGHT and type != JOINT_REVOLUTE_SPRING:
         return
 
     c_child = tid
@@ -458,9 +446,7 @@ def eval_body_joints(
     # parent transform and moment arm
     if c_parent >= 0:
         X_wp = body_q[c_parent] * X_wp
-        r_p = wp.transform_get_translation(X_wp) - wp.transform_point(
-            body_q[c_parent], body_com[c_parent]
-        )
+        r_p = wp.transform_get_translation(X_wp) - wp.transform_point(body_q[c_parent], body_com[c_parent])
 
         twist_p = body_qd[c_parent]
 
@@ -469,9 +455,7 @@ def eval_body_joints(
 
     # child transform and moment arm
     X_wc = body_q[c_child]  # *X_cj
-    r_c = wp.transform_get_translation(X_wc) - wp.transform_point(
-        body_q[c_child], body_com[c_child]
-    )
+    r_c = wp.transform_get_translation(X_wc) - wp.transform_point(body_q[c_child], body_com[c_child])
 
     twist_c = body_qd[c_child]
 
@@ -513,16 +497,11 @@ def eval_body_joints(
     angular_damping_scale = 0.01
 
     if type == wp.sim.JOINT_FIXED:
-        ang_err = (
-            wp.normalize(wp.vec3(r_err[0], r_err[1], r_err[2]))
-            * wp.acos(r_err[3])
-            * 2.0
-        )
+        ang_err = wp.normalize(wp.vec3(r_err[0], r_err[1], r_err[2])) * wp.acos(r_err[3]) * 2.0
 
         f_total += x_err * joint_attach_ke + v_err * joint_attach_kd
         t_total += (
-            wp.transform_vector(X_wp, ang_err) * joint_attach_ke
-            + w_err * joint_attach_kd * angular_damping_scale
+            wp.transform_vector(X_wp, ang_err) * joint_attach_ke + w_err * joint_attach_kd * angular_damping_scale
         )
 
     if type == wp.sim.JOINT_PRISMATIC:
@@ -548,26 +527,15 @@ def eval_body_joints(
         )
 
         # attachment dynamics
-        ang_err = (
-            wp.normalize(wp.vec3(r_err[0], r_err[1], r_err[2]))
-            * wp.acos(r_err[3])
-            * 2.0
-        )
+        ang_err = wp.normalize(wp.vec3(r_err[0], r_err[1], r_err[2])) * wp.acos(r_err[3]) * 2.0
 
         # project off any displacement along the joint axis
-        f_total += (x_err - q * axis_p) * joint_attach_ke + (
-            v_err - qd * axis_p
-        ) * joint_attach_kd
+        f_total += (x_err - q * axis_p) * joint_attach_ke + (v_err - qd * axis_p) * joint_attach_kd
         t_total += (
-            wp.transform_vector(X_wp, ang_err) * joint_attach_ke
-            + w_err * joint_attach_kd * angular_damping_scale
+            wp.transform_vector(X_wp, ang_err) * joint_attach_ke + w_err * joint_attach_kd * angular_damping_scale
         )
 
-    if (
-        type == wp.sim.JOINT_REVOLUTE
-        or type == JOINT_REVOLUTE_SPRING
-        or type == JOINT_REVOLUTE_TIGHT
-    ):
+    if type == wp.sim.JOINT_REVOLUTE or type == JOINT_REVOLUTE_SPRING or type == JOINT_REVOLUTE_TIGHT:
         axis_p = wp.transform_vector(X_wp, axis)
         axis_c = wp.transform_vector(X_wc, axis)
 
@@ -575,9 +543,7 @@ def eval_body_joints(
         twist = quat_twist(axis, r_err)
 
         q = (
-            wp.acos(twist[3])
-            * 2.0
-            * wp.sign(wp.dot(axis, wp.vec3(twist[0], twist[1], twist[2])))
+            wp.acos(twist[3]) * 2.0 * wp.sign(wp.dot(axis, wp.vec3(twist[0], twist[1], twist[2])))
         ) + 4.0 * PI * joint_rotation_count
 
         qd = wp.dot(w_err, axis_p)
@@ -601,17 +567,10 @@ def eval_body_joints(
 
         f_total += x_err * joint_attach_ke + v_err * joint_attach_kd
 
-        t_total += (
-            swing_err * joint_attach_ke
-            + (w_err - qd * axis_p) * joint_attach_kd * angular_damping_scale
-        )
+        t_total += swing_err * joint_attach_ke + (w_err - qd * axis_p) * joint_attach_kd * angular_damping_scale
 
     if type == wp.sim.JOINT_BALL:
-        ang_err = (
-            wp.normalize(wp.vec3(r_err[0], r_err[1], r_err[2]))
-            * wp.acos(r_err[3])
-            * 2.0
-        )
+        ang_err = wp.normalize(wp.vec3(r_err[0], r_err[1], r_err[2])) * wp.acos(r_err[3]) * 2.0
 
         # todo: joint limits
         t_total += target_kd * w_err + target_ke * wp.transform_vector(X_wp, ang_err)
@@ -757,9 +716,7 @@ def eval_body_joints(
             wp.spatial_vector(t_total + wp.cross(r_p, f_total), f_total),
         )
 
-    wp.atomic_sub(
-        body_f, c_child, wp.spatial_vector(t_total + wp.cross(r_c, f_total), f_total)
-    )
+    wp.atomic_sub(body_f, c_child, wp.spatial_vector(t_total + wp.cross(r_c, f_total), f_total))
 
 
 @wp.kernel
@@ -885,10 +842,7 @@ def compute_goal_reward(
         f_idx = finger_id[f_i + tid * num_fingers]
         finger_xform = body_q[f_idx]
         finger_dist = finger_dist + (
-            wp.length(
-                wp.cw_mul(obj_center - wp.transform_point(finger_xform, offset), e_xz)
-            )
-            - object_thickness
+            wp.length(wp.cw_mul(obj_center - wp.transform_point(finger_xform, offset), e_xz)) - object_thickness
         )
     origin = wp.transform_get_translation(body_q[obj_idx - 5])
     # Projects object pos onto the xz plane, and computes distance to goal
@@ -900,12 +854,7 @@ def compute_goal_reward(
         obj_quat = wp.transform_get_rotation(body_q[obj_idx])  # quaternion
         q_dist = quat_ang_err(obj_quat, goal_q)
     else:
-        if (
-            goal_type == GOAL_POS
-            or goal_type == GOAL_POS_TRAJ
-            or goal_type == GOAL_POS_FORCE
-            or goal_type == GOAL_POSE
-        ):
+        if goal_type == GOAL_POS or goal_type == GOAL_POS_TRAJ or goal_type == GOAL_POS_FORCE or goal_type == GOAL_POSE:
             q = yaw_from_Xform(body_q[obj_idx], 2)
         else:
             q = joint_q[q_idx]
@@ -924,17 +873,9 @@ def compute_goal_reward(
     elif goal_type == GOAL_ORI_TORQUE:
         wrench_dist = wp.length(goal_torque - wp.spatial_top(body_f[obj_idx]))
 
-    if (
-        goal_type == GOAL_POS
-        or goal_type == GOAL_POS_TRAJ
-        or goal_type == GOAL_POS_FORCE
-    ):
+    if goal_type == GOAL_POS or goal_type == GOAL_POS_TRAJ or goal_type == GOAL_POS_FORCE:
         succ = pos_dist < POSE_THRESHOLD
-    elif (
-        goal_type == GOAL_ORI
-        or goal_type == GOAL_ORI_TRAJ
-        or goal_type == GOAL_ORI_TORQUE
-    ):
+    elif goal_type == GOAL_ORI or goal_type == GOAL_ORI_TRAJ or goal_type == GOAL_ORI_TORQUE:
         succ = q_dist < POSE_THRESHOLD
     task_bonus = 0.0
     task_bonus = wp.select(succ, task_bonus, task_bonus + 2.0)
@@ -991,12 +932,7 @@ def compute_goal_reward(
     wp.atomic_add(
         reward_total,
         tid,
-        c_act * rew_ctrl
-        + c_finger * rew_finger
-        + c_q * rew_q
-        + c_pos * rew_pos
-        + c_ft * rew_ft
-        + task_bonus,
+        c_act * rew_ctrl + c_finger * rew_finger + c_q * rew_q + c_pos * rew_pos + c_ft * rew_ft + task_bonus,
     )
 
     # neg-exponential rewards, r_i in (0, 1)
@@ -1111,13 +1047,13 @@ def integrate_body_f_kernel(
 
 @wp.kernel
 def assign_act_kernel(
-    act: wp.array(dtype=float),  # unflattened shape (n, 4)
+    act: wp.array(dtype=float),
     action_type: int,
     num_acts: int,
     num_joints: int,
     q_offset: int,
     # outputs
-    joint_act: wp.array(dtype=float),  # unflattened shape (n, 6)
+    joint_act: wp.array(dtype=float),
     joint_stiffness: wp.array(dtype=float),
 ):
     i, j = wp.tid()
@@ -1126,6 +1062,18 @@ def assign_act_kernel(
     wp.atomic_add(joint_act, joint_act_idx, act[act_idx])
     if action_type == ACTION_JOINT_STIFFNESS:
         wp.atomic_add(joint_stiffness, joint_act_idx, act[act_idx + num_acts // 2])
+
+
+@wp.kernel
+def assign_act_indexed_kernel(
+    act_src: wp.array(dtype=float),
+    act_index: wp.array(dtype=int),
+    # outputs
+    action_target: wp.array(dtype=float),
+):
+    tid = wp.tid()
+    target_idx = act_index[tid]
+    wp.atomic_add(action_target, target_idx, act_src[tid])
 
 
 ######### Warp Helpers
@@ -1157,21 +1105,33 @@ def assign_act(
     num_envs=None,
     num_joints=6,
     q_offset=1,
+    joint_indices=None,
 ):
-    assert (
-        np.prod(act.shape) == num_envs * num_acts
-    ), f"act shape {act.shape} is not {num_envs} x {num_acts}"
+    assert np.prod(act.shape) == num_envs * num_acts, f"act shape {act.shape} is not {num_envs} x {num_acts}"
     act_count = num_acts
     if action_type.value == ACTION_JOINT_STIFFNESS:
         # num_acts should correspond to number of joint_act dims, not include joint_ke
         act_count = num_acts // 2
-    wp.launch(
-        kernel=assign_act_kernel,
-        dim=(num_envs, act_count),
-        device=joint_act.device,
-        inputs=[act, action_type.value, num_acts, num_joints, q_offset],
-        outputs=[joint_act, joint_stiffness],
-    )
+    if joint_indices is not None:
+        assert (
+            joint_indices.size == act.size
+        ), f"Expected joint_indices.size == act.size, got {joint_indices.size}, {act.size}"
+        wp.launch(
+            kernel=assign_act_indexed_kernel,
+            dim=act.size,
+            device=joint_act.device,
+            inputs=[act, joint_indices],
+            outputs=[joint_act],
+        )
+
+    else:
+        wp.launch(
+            kernel=assign_act_kernel,
+            dim=(num_envs, act_count),
+            device=joint_act.device,
+            inputs=[act, action_type.value, num_acts, num_joints, q_offset],
+            outputs=[joint_act, joint_stiffness],
+        )
     return
 
 
@@ -1184,14 +1144,10 @@ class IntegratorEuler(SemiImplicitIntegrator):
             if state_in.body_count:
                 body_f = state_in.body_f
 
-            compute_forces(
-                model, state_in, particle_f, body_f, requires_grad=requires_grad
-            )
+            compute_forces(model, state_in, particle_f, body_f, requires_grad=requires_grad)
             compute_tight_friction(model, state_in, body_f)
             body_f.zero_()
-            compute_forces(
-                model, state_in, particle_f, body_f, requires_grad=requires_grad
-            )
+            compute_forces(model, state_in, particle_f, body_f, requires_grad=requires_grad)
 
             # -------------------------------------
             # integrate bodies

@@ -334,6 +334,10 @@ class WarpEnv(Environment):
         else:
             self.joint_q, self.joint_qd, self.body_q, self.body_qd = ret
 
+    def _pre_step(self):
+        """Method to store relevant data before stepping the simulation"""
+        pass
+
     def update(self):
         """Overrides Environment.update() for forward simulation with graph capture"""
 
@@ -341,6 +345,7 @@ class WarpEnv(Environment):
         def forward():
             for _ in range(self.sim_substeps):
                 self.state_0.clear_forces()
+                self._pre_step()  # replace custom_update to _pre_step
                 if self.activate_ground_plane:
                     wp.sim.collide(self.model, self.state_0)
                 self.state_1 = self.integrator.simulate(self.model, self.state_0, self.state_1, self.sim_dt)
