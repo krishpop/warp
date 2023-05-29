@@ -39,7 +39,7 @@ class HandObjectTask(ObjectTask):
         damping=0.5,
         rew_params=None,
         hand_type: HandType = HandType.ALLEGRO,
-        hand_start_position: Tuple = (0.01, 0.6, 0.6),
+        hand_start_position: Tuple = (0.0, 0.3, -0.6),
         hand_start_orientation: Tuple = (-np.pi / 2 * 3, np.pi * 1.25, np.pi / 2 * 3),
     ):
         env_name = hand_type.name + "Env"
@@ -48,31 +48,32 @@ class HandObjectTask(ObjectTask):
         self.hand_start_orientation = hand_start_orientation
         self.hand_type = hand_type
         self.gravity = 0.0
+
         super().__init__(
-            num_envs,
-            num_obs,
-            num_act_dict[(hand_type, action_type)],
-            episode_length,
-            seed,
-            no_grad,
-            render,
-            stochastic_init,
-            device,
-            render_mode,
-            stage_path,
-            object_type,
-            object_id,
-            stiffness,
-            damping,
-            rew_params,
+            num_envs=num_envs,
+            num_obs=num_obs,
+            num_act=num_act_dict[(hand_type, action_type)],
+            episode_length=episode_length,
+            seed=seed,
+            no_grad=no_grad,
+            render=render,
+            stochastic_init=stochastic_init,
+            device=device,
+            render_mode=render_mode,
+            stage_path=stage_path,
+            object_type=object_type,
+            object_id=object_id,
+            stiffness=stiffness,
+            damping=damping,
+            rew_params=rew_params,
+            env_name=env_name,
         )
 
         print("gravity", self.model.gravity, self.gravity)
+        self.hand_stiffness = self.model.joint_target_ke
+        self.hand_damping = self.model.joint_target_kd
 
         self.setup_autograd_vars()
-        if self.use_graph_capture:
-            self.graph_capture_params["bwd_model"].joint_attach_ke = self.joint_attach_ke
-            self.graph_capture_params["bwd_model"].joint_attach_kd = self.joint_attach_kd
 
         self.simulate_params["ag_return_body"] = True
 
@@ -108,6 +109,16 @@ class HandObjectTask(ObjectTask):
                 hand_start_position=self.hand_start_position,
                 hand_start_orientation=self.hand_start_orientation,
             )
+        elif self.hand_type == HandType.SHADOW:
+            bu.create_shadow_hand(
+                builder,
+                self.action_type,
+                hand_start_position=self.hand_start_position,
+                hand_start_orientation=self.hand_start_orientation,
+            )
+        else:
+            raise NotImplementedError("Hand type not supported:", self.hand_type)
+
         self.hand_joint_names = builder.joint_name
         if self.actions.max() > 0.1:
             __import__("ipdb").set_trace()
@@ -156,11 +167,13 @@ if __name__ == "__main__":
     parser.add_argument("--num_envs", type=int, default=1)
     parser.add_argument("--num_obs", type=int, default=36)
     parser.add_argument("--episode_length", type=int, default=1000)
+    parser.add_argument("--stiffness", type=float, default=5000.0)
+    parser.add_argument("--damping", type=float, default=10.0)
     args = parser.parse_args()
 
     rew_params = {
         "hand_joint_pos_err": (
-            lambda x, y: torch.abs(x - y).sum(dim=-1),
+            bu.l1_dist,
             ["target_pos", "hand_pos"],
             1.0,
         )
@@ -174,8 +187,8 @@ if __name__ == "__main__":
             object_type=None,  # ObjectType[args.object_type.upper()],
             hand_type=HandType[args.hand_type.upper()],
             render=args.render,
-            stiffness=5000.0,
-            damping=10.0,
+            stiffness=args.stiffness,
+            damping=args.damping,
             rew_params=rew_params,
         )
     )
