@@ -1759,19 +1759,19 @@ def sub(x: Transformation[Scalar], y: Transformation[Scalar]) -> Transformation[
 
 
 @over
-def bit_and(x: Int, y: Int) -> Int:
+def logical_and(x: Int, y: Int) -> Int:
     """ """
     ...
 
 
 @over
-def bit_or(x: Int, y: Int) -> Int:
+def logical_or(x: Int, y: Int) -> Int:
     """ """
     ...
 
 
 @over
-def bit_xor(x: Int, y: Int) -> Int:
+def logical_xor(x: Int, y: Int) -> Int:
     """ """
     ...
 
