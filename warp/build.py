@@ -156,9 +156,7 @@ def quote(path):
     return '"' + path + '"'
 
 
-def build_dll(
-    dll_path, cpp_paths, cu_path, libs=[], mode="release", verify_fp=False, fast_math=False, quick=False
-):
+def build_dll(dll_path, cpp_paths, cu_path, libs=[], mode="release", verify_fp=False, fast_math=False, quick=False):
     cuda_home = warp.config.cuda_path
     cuda_cmd = None
 
@@ -277,13 +275,13 @@ def build_dll(
             debug = "_DEBUG"
 
         if "/NODEFAULTLIB" in libs:
-            runtime = "/sdl- /GS-"  # don't specify a runtime, and disable security checks with depend on it
+            runtime = "/sdl- /GS-"  # don't specify a runtime, and disable security checks which depend on it
 
-        if mode == "debug":
-            cpp_flags = f'/nologo {runtime} /Zi /Od /D "{debug}" /D "WP_CPU" /D "{cuda_enabled}" /D "{cutlass_enabled}" /D "{cuda_compat_enabled}" /D "{iter_dbg}" /I"{native_dir}" /I"{nanovdb_home}" {includes}'
+        if warp.config.mode == "debug":
+            cpp_flags = f'/nologo {runtime} /Zi /Od /D "{debug}" /D WP_ENABLE_DEBUG=1 /D "WP_CPU" /D "{cuda_enabled}" /D "{cutlass_enabled}" /D "{cuda_compat_enabled}" /D "{iter_dbg}" /I"{native_dir}" /I"{nanovdb_home}" {includes}'
             linkopts = ["/DLL", "/DEBUG"]
-        elif mode == "release":
-            cpp_flags = f'/nologo {runtime} /Ox /D "{debug}" /D "WP_CPU" /D "{cuda_enabled}" /D "{cutlass_enabled}" /D "{cuda_compat_enabled}" /D "{iter_dbg}" /I"{native_dir}" /I"{nanovdb_home}" {includes}'
+        elif warp.config.mode == "release":
+            cpp_flags = f'/nologo {runtime} /Ox /D "{debug}" /D WP_ENABLE_DEBUG=0 /D "WP_CPU" /D "{cuda_enabled}" /D "{cutlass_enabled}" /D "{cuda_compat_enabled}" /D "{iter_dbg}" /I"{native_dir}" /I"{nanovdb_home}" {includes}'
             linkopts = ["/DLL"]
         else:
             raise RuntimeError(f"Unrecognized build configuration (debug, release), got: {mode}")
@@ -301,7 +299,9 @@ def build_dll(
 
                 if clang:
                     with open(cpp_path, "rb") as cpp:
-                        clang.compile_cpp(cpp.read(), native_dir.encode("utf-8"), cpp_out.encode("utf-8"))
+                        clang.compile_cpp(
+                            cpp.read(), native_dir.encode("utf-8"), cpp_out.encode("utf-8"), mode == "debug"
+                        )
 
                 else:
                     cpp_cmd = f'"{warp.config.host_compiler}" {cpp_flags} -c "{cpp_path}" /Fo"{cpp_out}"'
@@ -334,7 +334,10 @@ def build_dll(
         try:
             if sys.platform == "darwin":
                 # try loading libwarp-clang.dylib, except when we're building libwarp-clang.dylib or libwarp.dylib
-                if os.path.basename(dll_path) != "libwarp-clang.dylib" and os.path.basename(dll_path) != "libwarp.dylib":
+                if (
+                    os.path.basename(dll_path) != "libwarp-clang.dylib"
+                    and os.path.basename(dll_path) != "libwarp.dylib"
+                ):
                     clang = warp.build.load_dll(f"{warp_home_path}/bin/libwarp-clang.dylib")
             else:  # Linux
                 # try loading warp-clang.so, except when we're building warp-clang.so or warp.so
@@ -349,10 +352,10 @@ def build_dll(
         includes = cpp_includes + cuda_includes
 
         if mode == "debug":
-            cpp_flags = f'-O0 -g -D_DEBUG -DWP_CPU -D{cuda_enabled} -D{cutlass_enabled} -D{cuda_compat_enabled} -fPIC -fvisibility=hidden --std=c++14 -D_GLIBCXX_USE_CXX11_ABI=0 -fkeep-inline-functions -I"{native_dir}" {includes}'
+            cpp_flags = f'-O0 -g -fno-rtti -D_DEBUG -DWP_ENABLE_DEBUG=1 -DWP_CPU -D{cuda_enabled} -D{cutlass_enabled} -D{cuda_compat_enabled} -fPIC -fvisibility=hidden --std=c++14 -D_GLIBCXX_USE_CXX11_ABI=0 -fkeep-inline-functions -I"{native_dir}" {includes}'
 
         if mode == "release":
-            cpp_flags = f'-O3 -DNDEBUG -DWP_CPU -D{cuda_enabled} -D{cutlass_enabled} -D{cuda_compat_enabled} -fPIC -fvisibility=hidden --std=c++14 -D_GLIBCXX_USE_CXX11_ABI=0 -I"{native_dir}" {includes}'
+            cpp_flags = f'-O3 -DNDEBUG -DWP_ENABLE_DEBUG=0 -DWP_CPU -D{cuda_enabled} -D{cutlass_enabled} -D{cuda_compat_enabled} -fPIC -fvisibility=hidden --std=c++14 -D_GLIBCXX_USE_CXX11_ABI=0 -I"{native_dir}" {includes}'
 
         if verify_fp:
             cpp_flags += " -DWP_VERIFY_FP"
@@ -369,7 +372,9 @@ def build_dll(
 
                 if clang:
                     with open(cpp_path, "rb") as cpp:
-                        clang.compile_cpp(cpp.read(), native_dir.encode("utf-8"), cpp_out.encode("utf-8"))
+                        clang.compile_cpp(
+                            cpp.read(), native_dir.encode("utf-8"), cpp_out.encode("utf-8"), mode == "debug"
+                        )
 
                 else:
                     build_cmd = f'g++ {cpp_flags} -c "{cpp_path}" -o "{cpp_out}"'
@@ -408,6 +413,16 @@ def build_dll(
 
 
 def load_dll(dll_path):
+    if sys.platform == "win32":
+        if dll_path[-4:] != ".dll":
+            return None
+    elif sys.platform == "darwin":
+        if dll_path[-6:] != ".dylib":
+            return None
+    else:
+        if dll_path[-3:] != ".so":
+            return None
+
     try:
         if sys.version_info[0] > 3 or sys.version_info[0] == 3 and sys.version_info[1] >= 8:
             dll = ctypes.CDLL(dll_path, winmode=0)
@@ -419,6 +434,9 @@ def load_dll(dll_path):
 
 
 def unload_dll(dll):
+    if dll is None:
+        return
+
     handle = dll._handle
     del dll
 

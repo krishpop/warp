@@ -66,6 +66,7 @@ class Function:
         missing_grad=False,
         generic=False,
         native_func=None,
+        defaults=None,
     ):
         self.func = func  # points to Python function decorated with @wp.func, may be None for builtins
         self.key = key
@@ -78,6 +79,8 @@ class Function:
         self.group = group
         self.module = module
         self.variadic = variadic  # function can take arbitrary number of inputs, e.g.: printf()
+        self.defaults = defaults
+
         if initializer_list_func is None:
             self.initializer_list_func = lambda x, y: False
         else:
@@ -521,6 +524,7 @@ class Kernel:
 
 # ----------------------
 
+
 # decorator to register function, @func
 def func(f):
     name = warp.codegen.make_full_qualified_name(f)
@@ -660,6 +664,7 @@ def add_builtin(
     skip_replay=False,
     missing_grad=False,
     native_func=None,
+    defaults=None,
 ):
     # wrap simple single-type functions with a value_func()
     if value_func is None:
@@ -672,23 +677,12 @@ def add_builtin(
         def initializer_list_func(args, templates):
             return False
 
-    def is_generic(t):
-        ret = False
-        if t in [warp.types.Scalar, warp.types.Float, warp.types.Int]:
-            ret = True
-        if hasattr(t, "_wp_type_params_"):
-            ret = (
-                warp.types.Scalar in t._wp_type_params_
-                or warp.types.Float in t._wp_type_params_
-                or warp.types.Int in t._wp_type_params_
-                or warp.types.Any in t._wp_type_params_
-            )
-
-        return ret
+    if defaults == None:
+        defaults = {}
 
     # Add specialized versions of this builtin if it's generic by matching arguments against
     # hard coded types. We do this so you can use hard coded warp types outside kernels:
-    generic = any(is_generic(x) for x in input_types.values())
+    generic = any(warp.types.type_is_generic(x) for x in input_types.values())
     if generic and export:
         # get a list of existing generic vector types (includes matrices and stuff)
         # so we can match arguments against them:
@@ -706,7 +700,7 @@ def add_builtin(
             for t in l:
                 if hasattr(t, "_wp_generic_type_str_"):
                     yield t._wp_generic_type_str_
-                elif t in [warp.types.Float, warp.types.Scalar, warp.types.Int]:
+                elif warp.types.type_is_generic_scalar(t):
                     yield t.__name__
 
         genericset = set(generic_names(input_types.values()))
@@ -746,7 +740,7 @@ def add_builtin(
             consistenttypes = {k: [x for x in v if scalar_type(x) == stype] for k, v in gtypes.items()}
 
             def typelist(param):
-                if param in [warp.types.Scalar, warp.types.Float, warp.types.Int]:
+                if warp.types.type_is_generic_scalar(param):
                     return [stype]
                 if hasattr(param, "_wp_generic_type_str_"):
                     l = consistenttypes[param._wp_generic_type_str_]
@@ -814,6 +808,7 @@ def add_builtin(
         missing_grad=missing_grad,
         generic=generic,
         native_func=native_func,
+        defaults=defaults,
     )
 
     if key in builtin_functions:
@@ -1029,7 +1024,7 @@ class Module:
 
         self.options = {
             "max_unroll": 16,
-            "enable_backward": True,
+            "enable_backward": warp.config.enable_backward,
             "fast_math": False,
             "cuda_output": None,  # supported values: "ptx", "cubin", or None (automatic)
             "mode": warp.config.mode,
@@ -1186,9 +1181,11 @@ class Module:
                 s = f"{k}={module.options[k]}"
                 h.update(bytes(s, "utf-8"))
 
-            # ensure to trigger recompilation if verify_fp flag is changed
+            # ensure to trigger recompilation if flags affecting kernel compilation are changed
             if warp.config.verify_fp:
                 h.update(bytes("verify_fp", "utf-8"))
+
+            h.update(bytes(warp.config.mode, "utf-8"))
 
             # compile-time constants (global)
             if warp.types._constant_hash:
@@ -1521,7 +1518,9 @@ class Stream:
         if runtime is not None:
             device = runtime.get_device(device)
         elif not isinstance(device, Device):
-            raise RuntimeError("A device object is required when creating a stream before or during Warp initialization")
+            raise RuntimeError(
+                "A device object is required when creating a stream before or during Warp initialization"
+            )
 
         if not device.is_cuda:
             raise RuntimeError(f"Device {device} is not a CUDA device")
@@ -1872,10 +1871,23 @@ class Runtime:
         self.core.bvh_refit_device.argtypes = [ctypes.c_uint64]
 
         self.core.mesh_create_host.restype = ctypes.c_uint64
-        self.core.mesh_create_host.argtypes = [warp.types.array_t, warp.types.array_t, warp.types.array_t, ctypes.c_int, ctypes.c_int]
+        self.core.mesh_create_host.argtypes = [
+            warp.types.array_t,
+            warp.types.array_t,
+            warp.types.array_t,
+            ctypes.c_int,
+            ctypes.c_int,
+        ]
 
         self.core.mesh_create_device.restype = ctypes.c_uint64
-        self.core.mesh_create_device.argtypes = [ctypes.c_void_p, warp.types.array_t, warp.types.array_t, warp.types.array_t, ctypes.c_int, ctypes.c_int]
+        self.core.mesh_create_device.argtypes = [
+            ctypes.c_void_p,
+            warp.types.array_t,
+            warp.types.array_t,
+            warp.types.array_t,
+            ctypes.c_int,
+            ctypes.c_int,
+        ]
 
         self.core.mesh_destroy_host.argtypes = [ctypes.c_uint64]
         self.core.mesh_destroy_device.argtypes = [ctypes.c_uint64]
@@ -3215,7 +3227,7 @@ def copy(
     if count == 0:
         return
 
-    has_grad = (hasattr(src, "grad_ptr") and hasattr(dest, "grad_ptr") and src.grad_ptr and dest.grad_ptr)
+    has_grad = hasattr(src, "grad_ptr") and hasattr(dest, "grad_ptr") and src.grad_ptr and dest.grad_ptr
 
     if src.is_contiguous and dest.is_contiguous:
         bytes_to_copy = count * warp.types.type_size_in_bytes(src.dtype)

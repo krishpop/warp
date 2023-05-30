@@ -165,6 +165,12 @@ def vector(length, dtype):
         def __str__(self):
             return f"[{', '.join(map(str, self))}]"
 
+        def __eq__(self, other):
+            for i in range(self._length_):
+                if self[i] != other[i]:
+                    return False
+            return True
+
     return vec_t
 
 
@@ -278,6 +284,13 @@ def matrix(shape, dtype):
                 row_str.append(f"[{', '.join(map(str, row_val))}]")
 
             return "[" + ",\n ".join(row_str) + "]"
+
+        def __eq__(self, other):
+            for i in range(self._length_):
+                if self[i] != other[i]:
+                    return False
+            return True
+
 
         def get_row(self, r):
             if r < 0 or r >= self._shape_[0]:
@@ -820,14 +833,16 @@ class shape_t(ctypes.Structure):
     def __init__(self):
         pass
 
-class array_t(ctypes.Structure): 
 
-    _fields_ = [("data", ctypes.c_uint64),
-                ("grad", ctypes.c_uint64),
-                ("shape", ctypes.c_int32*ARRAY_MAX_DIMS),
-                ("strides", ctypes.c_int32*ARRAY_MAX_DIMS),
-                ("ndim", ctypes.c_int32)]
-    
+class array_t(ctypes.Structure):
+    _fields_ = [
+        ("data", ctypes.c_uint64),
+        ("grad", ctypes.c_uint64),
+        ("shape", ctypes.c_int32 * ARRAY_MAX_DIMS),
+        ("strides", ctypes.c_int32 * ARRAY_MAX_DIMS),
+        ("ndim", ctypes.c_int32),
+    ]
+
     def __init__(self, data=0, grad=0, ndim=0, shape=(0,), strides=(0,)):
         self.data = data
         self.grad = grad
@@ -871,7 +886,7 @@ def type_ctype(dtype):
 
 
 def type_length(dtype):
-    if dtype == float or dtype == int:
+    if dtype == float or dtype == int or isinstance(dtype, warp.codegen.Struct):
         return 1
     else:
         return dtype._length_
@@ -880,10 +895,13 @@ def type_length(dtype):
 def type_size_in_bytes(dtype):
     if dtype.__module__ == "ctypes":
         return ctypes.sizeof(dtype)
+    elif type_is_struct(dtype):
+        return ctypes.sizeof(dtype.ctype)
     elif dtype == float or dtype == int:
         return 4
     elif hasattr(dtype, "_type_"):
         return getattr(dtype, "_length_", 1) * ctypes.sizeof(dtype._type_)
+    
     else:
         return 0
 
@@ -898,6 +916,8 @@ def type_to_warp(dtype):
 
 
 def type_typestr(dtype):
+    from warp.codegen import Struct
+
     if dtype == float16:
         return "<f2"
     elif dtype == float32:
@@ -920,10 +940,24 @@ def type_typestr(dtype):
         return "<i8"
     elif dtype == uint64:
         return "<u8"
+    elif isinstance(dtype, Struct):
+        return f"|V{ctypes.sizeof(dtype.ctype)}"        
     elif issubclass(dtype, ctypes.Array):
         return type_typestr(dtype._wp_scalar_type_)
     else:
         raise Exception("Unknown ctype")
+
+
+# converts any known type to a human readable string, good for error messages, reporting etc
+def type_repr(t):
+    if is_array(t):
+        return str(f"array(ndim={t.ndim}, dtype={t.dtype})")
+    if type_is_vector(t):
+        return str(f"vector(length={t._shape_[0]}, dtype={t._wp_scalar_type_})")
+    elif type_is_matrix(t):
+        return str(f"matrix(shape=({t._shape_[0]}, {t._shape_[1]}), dtype={t._wp_scalar_type_})")
+    else:
+        return str(t)
 
 
 def type_is_int(t):
@@ -938,6 +972,30 @@ def type_is_float(t):
         t = float32
 
     return t in float_types
+
+
+def type_is_struct(dtype):
+    from warp.codegen import Struct
+
+    if isinstance(dtype, Struct):
+        return True
+    else:
+        return False
+
+# returns True if the passed *type* is a vector
+def type_is_vector(t):
+    if hasattr(t, "_wp_generic_type_str_") and t._wp_generic_type_str_ == "vec_t":
+        return True
+    else:
+        return False
+
+
+# returns True if the passed *type* is a matrix
+def type_is_matrix(t):
+    if hasattr(t, "_wp_generic_type_str_") and t._wp_generic_type_str_ == "mat_t":
+        return True
+    else:
+        return False
 
 
 # returns true for all value types (int, float, bool, scalars, vectors, matrices)
@@ -959,6 +1017,11 @@ def is_float(x):
 
 def is_value(x):
     return type_is_value(type(x))
+
+
+# returns true if the passed *instance* is one of the array types
+def is_array(a):
+    return isinstance(a, array_types)
 
 
 def types_equal(a, b, match_generic=False):
@@ -1105,26 +1168,42 @@ class array(Array):
                 # data or ptr, not both
                 raise RuntimeError("Should only construct arrays with either data or ptr arguments, not both")
 
-            try:
-                # force convert tuples and lists (or any array type) to ndarray
-                arr = np.array(data, copy=False)
-            except Exception as e:
-                raise RuntimeError(
-                    "When constructing an array the data argument must be convertible to ndarray type type. Encountered an error while converting:"
-                    + str(e)
-                )
+            if isinstance(dtype, warp.codegen.Struct):
+                try:
+                    # convert each struct instance to its corresponding ctype
+                    ctype_list = [v.__ctype__() for v in data]
+                    # convert the list of ctypes to a contiguous ctypes array
+                    ctype_arr = (dtype.ctype * len(ctype_list))(*ctype_list)
+                    # convert to numpy
+                    arr = np.frombuffer(ctype_arr, dtype=dtype.ctype)
+                    #arr = np.array(ctype_arr, copy=False)
+                
+                except Exception as e:
+                    raise RuntimeError(
+                        "Error while trying to construct Warp array from a Python list of Warp structs." + str(e))
+                   
+            else:
+                try:
+                    # convert tuples and lists of numeric types to ndarray
+                    arr = np.array(data, copy=False)
+                except Exception as e:
+                    raise RuntimeError(
+                        "When constructing an array the data argument must be convertible to ndarray type type. Encountered an error while converting:"
+                        + str(e)
+                    )
 
             if dtype == Any:
                 # infer dtype from the source data array
                 dtype = np_dtype_to_warp_type[arr.dtype]
 
-            try:
-                # try to convert src array to destination type
-                arr = arr.astype(dtype=type_typestr(dtype), copy=False)
-            except:
-                raise RuntimeError(
-                    f"Could not convert input data with type {arr.dtype} to array with type {dtype._type_}"
-                )
+            # try to convert numeric src array to destination type
+            if not isinstance(dtype, warp.codegen.Struct):
+                try:
+                    arr = arr.astype(dtype=type_typestr(dtype), copy=False)
+                except:
+                    raise RuntimeError(
+                        f"Could not convert input data with type {arr.dtype} to array with type {dtype._type_}"
+                    )
 
             # ensure contiguous
             arr = np.ascontiguousarray(arr)
@@ -1245,13 +1324,14 @@ class array(Array):
                 self.is_contiguous = strides[:ndim] == contiguous_strides[:ndim]
 
             # store flat shape (including type shape)
-            if self.dtype not in [Any, Scalar, Float, Int] and issubclass(dtype, ctypes.Array):
+
+            if isinstance(dtype, type) and issubclass(dtype, ctypes.Array):
                 # vector type, flatten the dimensions into one tuple
                 arr_shape = (*self.shape, *self.dtype._shape_)
                 dtype_strides = strides_from_shape(self.dtype._shape_, self.dtype._type_)
                 arr_strides = (*self.strides, *dtype_strides)
             else:
-                # scalar type
+                # scalar or struct type
                 arr_shape = self.shape
                 arr_strides = self.strides
 
@@ -1495,7 +1575,9 @@ class array(Array):
             with warp.ScopedStream(self.device.null_stream):
                 self.device.memset(self.grad_ptr, 0, num_bytes)
 
-        self._grad = array(ptr=self.grad_ptr, shape=self.shape, dtype=self.dtype, device=self.device, requires_grad=False, owner=False)
+        self._grad = array(
+            ptr=self.grad_ptr, shape=self.shape, dtype=self.dtype, device=self.device, requires_grad=False, owner=False
+        )
         # trigger re-creation of C-representation
         self.ctype = None
 
@@ -1610,8 +1692,38 @@ class array(Array):
             if self.ptr is None:
                 return np.empty(shape=self.shape, dtype=self.dtype)
             else:
-                return np.array(self.to("cpu"), copy=False)
+                a = self.to("cpu")
 
+                if isinstance(self.dtype, warp.codegen.Struct):
+                    # Note: cptr holds a backref to the source array to avoid it being deallocated
+                    p = a.cptr()
+                    return np.ctypeslib.as_array(p, self.shape)
+                else:
+                    # convert through array interface
+                    return np.array(a, copy=False)
+
+    # return a ctypes cast of the array address
+    # note that accesses to this object are *not* bounds checked
+    def cptr(self):
+        if self.device != "cpu":
+            raise RuntimeError("Accessing array memory through a ctypes ptr is only supported for CPU arrays.")
+        
+        p = ctypes.cast(self.ptr, ctypes.POINTER(self.dtype.ctype))
+
+        # store backref to the underlying array to avoid it being deallocated
+        p._ref = self
+
+        return p
+
+    # returns a flattened list of items in the array as a Python list
+    def list(self):
+        a = self.to("cpu").flatten()
+
+        # Note: cptr holds a backref to the source array to avoid it being deallocated
+        p = a.cptr()
+
+        return p[:a.size]
+    
     # convert data from one device to another, nop if already on device
     def to(self, device):
         device = warp.get_device(device)
@@ -1802,9 +1914,7 @@ class indexedarray(Generic[T]):
     # (initialized when needed)
     _vars = None
 
-    def __init__(
-        self, data: array = None, indices: Union[array, List[array]] = None, dtype=None, ndim=None
-    ):
+    def __init__(self, data: array = None, indices: Union[array, List[array]] = None, dtype=None, ndim=None):
         # canonicalize types
         if dtype is not None:
             if dtype == int:
@@ -1926,7 +2036,21 @@ class indexedarray(Generic[T]):
     def numpy(self):
         # use the CUDA default stream for synchronous behaviour with other streams
         with warp.ScopedStream(self.device.null_stream):
-            return np.array(self.contiguous().to("cpu"), copy=False)
+
+            a = self.contiguous().to("cpu")
+
+            if isinstance(self.dtype, warp.codegen.Struct):
+                p = ctypes.cast(a.ptr, ctypes.POINTER(a.dtype.ctype))
+                np.ctypeslib.as_array(p, self.shape)
+            else:
+                # convert through array interface
+                return np.array(a, copy=False)
+
+    # returns a flattened list of items in the array as a Python list
+    def list(self):
+        a = self.flatten()
+        p = ctypes.cast(a.ptr, ctypes.POINTER(a.dtype.ctype))
+        return p[:a.size]
 
 
 # aliases for indexedarrays with small dimensions
@@ -1954,10 +2078,6 @@ def indexedarray4d(*args, **kwargs):
 
 
 array_types = (array, indexedarray)
-
-
-def is_array(a):
-    return isinstance(a, array_types)
 
 
 class Bvh:
@@ -2036,7 +2156,7 @@ class Mesh:
     vars = {
         "points": Var("points", array(dtype=vec3)),
         "velocities": Var("velocities", array(dtype=vec3)),
-        "indices": Var("indices", array(dtype=int32, ndim=2)),
+        "indices": Var("indices", array(dtype=int32)),
     }
 
     def __init__(self, points=None, indices=None, velocities=None):
@@ -2048,7 +2168,7 @@ class Mesh:
 
         Args:
             points (:class:`warp.array`): Array of vertex positions of type :class:`warp.vec3`
-            indices (:class:`warp.array`): Array of triangle indices of type :class:`warp.int32`, should be length 3*number of triangles
+            indices (:class:`warp.array`): Array of triangle indices of type :class:`warp.int32`, should be a 1d array with shape (num_tris, 3)
             velocities (:class:`warp.array`): Array of vertex velocities of type :class:`warp.vec3` (optional)
         """
 
@@ -2064,6 +2184,9 @@ class Mesh:
         if indices.dtype != int32 or not indices.is_contiguous:
             raise RuntimeError("Mesh indices should be a contiguous array of type wp.int32")
 
+        if indices.ndim > 1:
+            raise RuntimeError("Mesh indices should be a flattened 1d array of indices")
+
         self.device = points.device
         self.points = points
         self.velocities = velocities
@@ -2077,7 +2200,8 @@ class Mesh:
                 velocities.__ctype__() if velocities else array().__ctype__(),
                 indices.__ctype__(),
                 int(len(points)),
-                int(indices.size / 3))
+                int(indices.size / 3),
+            )
         else:
             self.id = runtime.core.mesh_create_device(
                 self.device.context,
@@ -2085,7 +2209,8 @@ class Mesh:
                 velocities.__ctype__() if velocities else array().__ctype__(),
                 indices.__ctype__(),
                 int(len(points)),
-                int(indices.size / 3))
+                int(indices.size / 3),
+            )
 
     def __del__(self):
         try:
@@ -2853,6 +2978,9 @@ class HashGrid:
         # indicates whether the grid data has been reserved for use by a kernel
         self.reserved = False
 
+        # indicates whether the grid data has been reserved for use by a kernel
+        self.reserved = False
+
     def build(self, points, radius):
         """Updates the hash grid data structure.
 
@@ -2994,6 +3122,10 @@ def type_is_generic(t):
                 return True
     else:
         return False
+
+
+def type_is_generic_scalar(t):
+    return t in (Scalar, Float, Int)
 
 
 def type_matches_template(arg_type, template_type):
