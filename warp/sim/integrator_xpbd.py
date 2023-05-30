@@ -6,7 +6,13 @@
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
 import warp as wp
-from .model import PARTICLE_FLAG_ACTIVE, ModelShapeMaterials, JOINT_MODE_TARGET_POSITION, JOINT_MODE_TARGET_VELOCITY, JOINT_MODE_LIMIT
+from .model import (
+    PARTICLE_FLAG_ACTIVE,
+    ModelShapeMaterials,
+    JOINT_MODE_TARGET_POSITION,
+    JOINT_MODE_TARGET_VELOCITY,
+    JOINT_MODE_LIMIT,
+)
 from .utils import velocity_at_point, vec_min, vec_max, vec_abs
 from .integrator_euler import integrate_bodies, integrate_particles
 
@@ -100,7 +106,7 @@ def apply_soft_restitution_ground(
 
 
 @wp.kernel
-def solve_soft_contacts(
+def solve_particle_shape_contacts(
     particle_x: wp.array(dtype=wp.vec3),
     particle_v: wp.array(dtype=wp.vec3),
     particle_invmass: wp.array(dtype=float),
@@ -207,6 +213,75 @@ def solve_soft_contacts(
     if body_index >= 0:
         delta_t = wp.cross(r, delta_total)
         wp.atomic_sub(body_delta, body_index, wp.spatial_vector(delta_t, delta_total))
+
+
+@wp.kernel
+def solve_particle_particle_contacts(
+    grid: wp.uint64,
+    particle_x: wp.array(dtype=wp.vec3),
+    particle_v: wp.array(dtype=wp.vec3),
+    particle_invmass: wp.array(dtype=float),
+    particle_radius: wp.array(dtype=float),
+    particle_flags: wp.array(dtype=wp.uint32),
+    k_mu: float,
+    k_cohesion: float,
+    max_radius: float,
+    dt: float,
+    relaxation: float,
+    # outputs
+    deltas: wp.array(dtype=wp.vec3),
+):
+    tid = wp.tid()
+
+    # order threads by cell
+    i = wp.hash_grid_point_id(grid, tid)
+    if i == -1:
+        # hash grid has not been built yet
+        return
+    if (particle_flags[i] & PARTICLE_FLAG_ACTIVE) == 0:
+        return
+
+    x = particle_x[i]
+    v = particle_v[i]
+    radius = particle_radius[i]
+    w1 = particle_invmass[i]
+
+    f = wp.vec3()
+
+    # particle contact
+    query = wp.hash_grid_query(grid, x, radius + max_radius + k_cohesion)
+    index = int(0)
+    
+    delta = wp.vec3(0.0)
+
+    while wp.hash_grid_query_next(query, index):
+        if (particle_flags[index] & PARTICLE_FLAG_ACTIVE) != 0 and index != i:
+            # compute distance to point
+            n = x - particle_x[index]
+            d = wp.length(n)
+            err = d - radius - particle_radius[index]
+            
+            # compute inverse masses
+            w2 = particle_invmass[index]
+            denom = w1 + w2
+
+            if err <= k_cohesion and denom > 0.0:
+                n = n / d
+                vrel = v - particle_v[index]
+
+                # normal
+                lambda_n = err
+                delta_n = n * lambda_n
+
+                # friction
+                vn = wp.dot(n, vrel)
+                vt = v - n * vn
+
+                lambda_f = wp.max(k_mu * lambda_n, -wp.length(vt) * dt)
+                delta_f = wp.normalize(vt) * lambda_f
+                delta += (delta_f - delta_n) / denom
+
+    wp.atomic_add(deltas, i, delta * relaxation)
 
 
 @wp.kernel
@@ -1167,6 +1242,7 @@ def solve_body_joints(
         #               axis_damping[0], axis_damping[1], axis_damping[2],
         #               axis_limits_lower[0], axis_limits_lower[1], axis_limits_lower[2],
         #               axis_limits_upper[0], axis_limits_upper[1], axis_limits_upper[2])
+        #     # wp.printf("wp.sqrt(1.0-qtwist[0]*qtwist[0]) = %f\n", wp.sqrt(1.0-qtwist[0]*qtwist[0]))
 
         for dim in range(3):
             e = errs[dim]
@@ -1904,7 +1980,7 @@ class XPBDIntegrator:
                     # particle - rigid body contacts (besides ground plane)
                     if model.shape_count > 1:
                         wp.launch(
-                            kernel=solve_soft_contacts,
+                            kernel=solve_particle_shape_contacts,
                             dim=model.soft_contact_max,
                             inputs=[
                                 particle_q,
@@ -1933,6 +2009,27 @@ class XPBDIntegrator:
                             ],
                             # outputs
                             outputs=[deltas, state_out.body_deltas],
+                            device=model.device,
+                        )
+                        
+                    if model.particle_max_radius > 0.0:
+                        wp.launch(
+                            kernel=solve_particle_particle_contacts,
+                            dim=model.particle_count,
+                            inputs=[
+                                model.particle_grid.id,
+                                particle_q,
+                                particle_qd,
+                                model.particle_inv_mass,
+                                model.particle_radius,
+                                model.particle_flags,
+                                model.particle_mu,
+                                model.particle_cohesion,
+                                model.particle_max_radius,
+                                dt,
+                                self.soft_contact_relaxation,
+                            ],
+                            outputs=[deltas],
                             device=model.device,
                         )
 

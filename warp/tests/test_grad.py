@@ -475,41 +475,52 @@ def test_3d_math_grad(test, device):
 
 
 def test_mesh_grad(test, device):
-    pos = wp.array([
-        [0.0, 0.0, 0.0],
-        [1.0, 0.0, 0.0],
-        [0.0, 1.0, 0.0],
-        [0.0, 0.0, 1.0],
-    ], dtype=wp.vec3, device=device, requires_grad=True)
-    indices = wp.array([
-        [0, 1, 2],
-        [0, 2, 3],
-        [0, 3, 1],
-        [1, 3, 2],
-    ], dtype=wp.int32, device=device)
+    pos = wp.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+        ],
+        dtype=wp.vec3,
+        device=device,
+        requires_grad=True,
+    )
+    indices = wp.array(
+        [
+            0, 1, 2,
+            0, 2, 3,
+            0, 3, 1,
+            1, 3, 2
+        ],
+        dtype=wp.int32,
+        device=device,
+    )
 
     mesh = wp.Mesh(points=pos, indices=indices)
 
     @wp.func
     def compute_triangle_area(mesh_id: wp.uint64, tri_id: int):
         mesh = wp.mesh_get(mesh_id)
-        i, j, k = mesh.indices[tri_id, 0], mesh.indices[tri_id, 1], mesh.indices[tri_id, 2]
+        i, j, k = mesh.indices[tri_id*3+0], mesh.indices[tri_id*3+1], mesh.indices[tri_id*3+2]
         a = mesh.points[i]
         b = mesh.points[j]
         c = mesh.points[k]
         return wp.length(wp.cross(b - a, c - a)) * 0.5
-    
+
     def compute_area(mesh_id: wp.uint64, out: wp.array(dtype=wp.float32)):
         wp.atomic_add(out, 0, compute_triangle_area(mesh_id, wp.tid()))
 
     module = wp.get_module(compute_area.__module__)
     kernel = wp.Kernel(func=compute_area, key="compute_area", module=module)
 
+    num_tris = int(len(indices) / 3)
+
     # compute analytical gradient
     tape = wp.Tape()
     output = wp.zeros(1, dtype=wp.float32, device=device, requires_grad=True)
     with tape:
-        wp.launch(kernel, dim=len(indices), inputs=[mesh.id], outputs=[output], device=device)
+        wp.launch(kernel, dim=num_tris, inputs=[mesh.id], outputs=[output], device=device)
 
     tape.backward(loss=output)
 
@@ -519,19 +530,20 @@ def test_mesh_grad(test, device):
     eps = 1e-3
     pos_np = pos.numpy()
     fd_grad = np.zeros_like(ad_grad)
+
     for i in range(len(pos)):
         for j in range(3):
             pos_np[i, j] += eps
             pos = wp.array(pos_np, dtype=wp.vec3, device=device)
             mesh = wp.Mesh(points=pos, indices=indices)
             output.zero_()
-            wp.launch(kernel, dim=len(indices), inputs=[mesh.id], outputs=[output], device=device)
+            wp.launch(kernel, dim=num_tris, inputs=[mesh.id], outputs=[output], device=device)
             f1 = output.numpy()[0]
             pos_np[i, j] -= 2 * eps
             pos = wp.array(pos_np, dtype=wp.vec3, device=device)
             mesh = wp.Mesh(points=pos, indices=indices)
             output.zero_()
-            wp.launch(kernel, dim=len(indices), inputs=[mesh.id], outputs=[output], device=device)
+            wp.launch(kernel, dim=num_tris, inputs=[mesh.id], outputs=[output], device=device)
             f2 = output.numpy()[0]
             pos_np[i, j] += eps
             fd_grad[i, j] = (f1 - f2) / (2 * eps)
