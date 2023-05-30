@@ -31,7 +31,7 @@ class AllegroEnvironment(Environment):
     episode_duration = 8.0
 
     sim_substeps_euler = 64
-    sim_substeps_xpbd = 5
+    sim_substeps_xpbd = 8
 
     num_envs = 100
 
