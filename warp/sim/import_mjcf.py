@@ -371,7 +371,7 @@ def parse_mjcf(
                 else:
                     geom_radius = geom_size[0]
                     geom_height = geom_size[1]
-                    geom_up_axis = 2
+                    geom_up_axis = up_axis
 
                 if geom_type == "cylinder":
                     builder.add_shape_cylinder(
