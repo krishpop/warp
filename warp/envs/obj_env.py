@@ -103,7 +103,8 @@ class ObjectTask(WarpEnv):
 
     def assign_actions(self, actions):
         self.warp_actions.zero_()
-        self.warp_actions.assign(wp.from_torch(actions))
+        self.joint_target = wp.from_torch(actions, requires_grad=self.requires_grad)
+        self.warp_actions.assign(self.joint_target)
         self.model.joint_target.zero_()
         assign_act(
             self.warp_actions,
@@ -114,7 +115,6 @@ class ObjectTask(WarpEnv):
             self.num_envs,
             joint_indices=self.joint_target_indices,
         )
-        self.joint_target = wp.from_torch(actions)
         # self.model.joint_target.assign(wp.from_torch(actions))
 
     def step(self, actions):

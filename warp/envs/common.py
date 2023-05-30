@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 from tqdm import trange
 from inspect import getmembers
 from enum import Enum
-from warp.envs.warp_utils import l1_loss
+from warp.envs.warp_utils import l1_loss, l1_xform_loss
 from warp.sim.model import State
 
 
@@ -270,6 +270,7 @@ def run_env(Env, num_states=500):
 
 def collect_rollout(env, n_steps, pi, loss=None):
     o = env.reset()
+    target = wp.clone(env.state_0.body_q)
     net_cost = 0.0
     states = []
     actions = []
@@ -282,11 +283,14 @@ def collect_rollout(env, n_steps, pi, loss=None):
             rew = rew.sum().cpu().detach().item()
             if loss is not None:
                 wp.launch(
-                    kernel=l1_loss,
-                    inputs=[env.state_0.joint_q, env.joint_target, env.joint_target_indices, env.num_envs],
+                    kernel=l1_xform_loss,
+                    inputs=[target, env.state_0.body_q],
+                    # kernel=l1_loss,
+                    # inputs=[env.joint_target, env.state_0.joint_q, env.joint_target_indices],
                     outputs=[loss],
                     device=env.device,
-                    dim=env.num_envs * env.num_acts,
+                    dim=env.model.body_count,
+                    # dim=env.num_acts * env.num_envs,
                 )
 
             net_cost += rew

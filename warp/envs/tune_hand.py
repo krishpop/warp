@@ -46,7 +46,7 @@ def main():
     pi = lambda x, y: action
 
     for i in range(num_opt_steps):
-        num_steps = 2 * num_states + 1
+        num_steps = 1  # 2 * num_states + 1
         loss.zero_()
         tape = wp.Tape()
         with tape:

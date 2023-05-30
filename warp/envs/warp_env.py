@@ -220,8 +220,8 @@ class WarpEnv(Environment):
 
     def init_sim(self):
         self.init()
-        self.state_0 = self.model.state()
-        self.state_1 = self.model.state()
+        self.state_0 = self.model.state(requires_grad=self.requires_grad)
+        self.state_1 = self.model.state(requires_grad=self.requires_grad)
         self._joint_q = wp.zeros_like(self.model.joint_q)
         self._joint_qd = wp.zeros_like(self.model.joint_qd)
         if self.requires_grad:

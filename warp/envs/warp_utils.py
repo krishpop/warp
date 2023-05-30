@@ -147,13 +147,25 @@ def l1_loss(
     a: wp.array(dtype=float),
     b: wp.array(dtype=float),
     idx: wp.array(dtype=int),
-    num_envs: int,
     # outputs:
     loss: wp.array(dtype=float),
 ):
     tid = wp.tid()
     i = idx[tid]
     wp.atomic_add(loss, 0, wp.abs(a[i] - b[i]))
+
+
+@wp.kernel
+def l1_xform_loss(
+    a: wp.array(dtype=wp.transform),
+    b: wp.array(dtype=wp.transform),
+    # outputs:
+    loss: wp.array(dtype=float),
+):
+    i = wp.tid()
+    a_pos = wp.transform_get_translation(a[i])
+    b_pos = wp.transform_get_translation(b[i])
+    wp.atomic_add(loss, 0, wp.length(a_pos - b_pos))
 
 
 @wp.kernel
