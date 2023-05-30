@@ -656,9 +656,7 @@ def count_contact_points(
     elif actual_type_a == wp.sim.GEO_PLANE:
         return  # no plane-plane contacts
     else:
-        print("count_contact_points: unsupported geometry type")
-        print(actual_type_a)
-        print(actual_type_b)
+        wp.printf("count_contact_points: unsupported geometry type combination %d and %d\n", actual_type_a, actual_type_b)
 
     wp.atomic_add(contact_count, 0, num_contacts)
 
