@@ -1995,12 +1995,12 @@ class ModelBuilder:
                 )
                 child_id = body_data[child_body]["original_id"]
                 for shape in self.body_shapes[child_id]:
-                    self.shape_body[shape] = body_data[last_dynamic_body]["id"]
                     self.shape_transform[shape] = incoming_xform * self.shape_transform[shape]
                     print(
                         f"  Shape {shape} moved to body {last_dynamic_body_name} with transform {self.shape_transform[shape]}"
                     )
                     if last_dynamic_body > -1:
+                        self.shape_body[shape] = body_data[last_dynamic_body]["id"]
                         # self.body_shapes[last_dynamic_body].append(shape)
                         # add inertia to last_dynamic_body
                         m = body_data[child_body]["mass"]
@@ -2016,6 +2016,8 @@ class ModelBuilder:
                         body_data[last_dynamic_body]["shapes"].append(shape)
                         # indicate to recompute inverse mass, inertia for this body
                         body_data[last_dynamic_body]["inv_mass"] = None
+                    else:
+                        self.shape_body[shape] = -1
             else:
                 joint["parent_xform"] = incoming_xform * joint["parent_xform"]
                 joint["parent"] = last_dynamic_body
