@@ -47,7 +47,7 @@ class HandObjectTask(ObjectTask):
         self.hand_start_position = hand_start_position
         self.hand_start_orientation = hand_start_orientation
         self.hand_type = hand_type
-        self.gravity = 0.0
+        # self.gravity = 0.0
 
         super().__init__(
             num_envs=num_envs,

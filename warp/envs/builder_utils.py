@@ -5,8 +5,16 @@ import math
 import numpy as np
 from pathlib import Path
 from warp.envs.common import *
-from warp.envs.tcdm_utils import get_tcdm_trajectory
+from warp.envs.tcdm_utils import get_tcdm_trajectory, TCDM_MESH_PATHS, TCDM_TRAJ_PATHS, TCDM_OBJ_NAMES
 from tcdm.envs import asset_abspath
+
+
+OBJ_PATHS = {
+    ObjectType.CYLINDER_MESH: "cylinder.stl",
+    ObjectType.CUBE_MESH: "cube.stl",
+    ObjectType.OCTPRISM_MESH: "octprism-2.stl",
+    ObjectType.ELLIPSOID_MESH: "ellipsoid.stl",
+}
 
 
 def quat_multiply(a, b):
@@ -260,6 +268,98 @@ def add_box(
     )
 
 
+def create_shadow_hand(
+    builder,
+    action_type,
+    floating_base=False,
+    stiffness=1000.0,
+    damping=0.0,
+    hand_start_position=(0.01, 0.30, 0.125),
+    hand_start_orientation=(0, 0, 0),
+):
+    stiffness, damping = 0.0, 0.0
+    if action_type is ActionType.POSITION or action_type is ActionType.VARIABLE_STIFFNESS:
+        stiffness, damping = stiffness, damping
+    if floating_base:
+        xform = wp.transform(hand_start_position, wp.quat_rpy(*hand_start_orientation))
+    else:
+        xform = wp.transform(
+            np.array((0.1, 0.15, 0.0)),
+            # wp.quat_rpy(-np.pi / 2 * 3, np.pi * 0.75, np.pi / 2),  # thumb down
+            # wp.quat_rpy(-np.pi / 2 * 3, np.pi * 0.75, np.pi / 2 * 3),  # thumb up (default) palm orthogonal to gravity
+            wp.quat_rpy(-np.pi / 2 * 3, np.pi * 1.25, np.pi / 2 * 3),  # thumb up palm down
+        )
+    wp.sim.parse_urdf(
+        os.path.join(
+            os.path.split(os.path.dirname(__file__))[0],
+            "envs/assets/shadowhand/shadowhand.urdf",
+        ),
+        builder,
+        xform=xform,
+        floating=floating_base,
+        fixed_base_joint="rx, ry, rz",
+        density=1e3,
+        armature=0.01,
+        stiffness=stiffness,
+        damping=damping,
+        shape_ke=1.0e3,
+        shape_kd=1.0e2,
+        shape_kf=1.0e2,
+        shape_mu=0.5,
+        limit_ke=1.0e4,
+        limit_kd=1.0e1,
+        enable_self_collisions=False,
+    )
+    builder.collapse_fixed_joints()
+
+    # ensure all joint positions are within limits
+    q_offset = 7 if floating_base else 0
+    for i in range(2, 22):
+        x, y = 0.65, 0.35
+        builder.joint_q[i + q_offset] = x * (builder.joint_limit_lower[i]) + y * (builder.joint_limit_upper[i])
+        builder.joint_target[i] = builder.joint_q[i + q_offset]
+
+        if action_type is ActionType.POSITION or action_type is ActionType.VARIABLE_STIFFNESS:
+            builder.joint_target_ke[i] = 5000.0
+            builder.joint_target_kd[i] = 10.0
+        else:
+            builder.joint_target_ke[i] = 0.0
+            builder.joint_target_kd[i] = 0.0
+
+
+class ObjectModel:
+    def __init__(
+        self,
+        object_type,
+        base_pos=(0.0, 0.075, 0.0),
+        base_ori=(np.pi / 2, 0.0, 0.0),
+        joint_type=wp.sim.JOINT_FREE,
+        contact_ke=1.0e3,
+        contact_kd=100.0,
+        scale=0.4,
+        stiffness=0.0,
+        damping=0.5,
+    ):
+        self.object_type = object_type
+        self.object_name = object_type.name.lower()
+        self.base_pos = base_pos
+        if len(base_ori) == 3:
+            self.base_ori = tuple(x for x in wp.quat_rpy(*base_ori))
+        elif len(base_ori) == 4:
+            self.base_ori = base_ori
+        self.joint_type = joint_type
+        self.contact_ke = contact_ke
+        self.contact_kd = contact_kd
+        self.scale = scale
+        self.stiffness = stiffness
+        self.damping = damping
+        self.model_path = TCDM_MESH_PATHS.get(self.object_type)
+        if self.model_path is not None:
+            self.tcdm_trajectory, self.dex_trajectory = get_tcdm_trajectory(self.object_type)
+        else:
+            self.tcdm_trajectory = self.dex_trajectory = None
+
+
 def create_allegro_hand(
     builder,
     action_type,
@@ -289,6 +389,8 @@ def create_allegro_hand(
             # wp.quat_rpy(-np.pi / 2 * 3, np.pi * 0.75, np.pi / 2 * 3),  # thumb up (default) palm orthogonal to gravity
             wp.quat_rpy(-np.pi / 2 * 3, np.pi * 1.25, np.pi / 2 * 3),  # thumb up palm down
         )
+
+    fbj = "rx, ry, rz" if floating_base else None
     wp.sim.parse_urdf(
         os.path.join(
             os.path.split(os.path.dirname(__file__))[0],
@@ -297,7 +399,7 @@ def create_allegro_hand(
         builder,
         xform=xform,
         floating=floating_base,
-        fixed_base_joint="rx, ry, rz",
+        fixed_base_joint=fbj,
         density=1e3,
         armature=0.01,
         stiffness=stiffness,
@@ -314,14 +416,15 @@ def create_allegro_hand(
 
     # ensure all joint positions are within limits
     q_offset = 7 if floating_base else 0
-    for i in range(16):
+
+    for i in range(3 * floating_base, 16 + 3 * floating_base):
         # if i > 17:
         #     builder.joint_q[i + q_offset] = builder.joint_limit_lower[i + qd_offset]
         # else:
-        if floating_base and 12 <= i <= 13:
-            x, y = 0.3, 0.7
-        else:
-            x, y = 0.65, 0.35
+        # if floating_base and 12 <= i <= 13:
+        #     x, y = 0.3, 0.7
+        # else:
+        x, y = 0.65, 0.35
         builder.joint_q[i + q_offset] = x * (builder.joint_limit_lower[i]) + y * (builder.joint_limit_upper[i])
         builder.joint_target[i] = builder.joint_q[i + q_offset]
 
@@ -703,4 +806,4 @@ OBJ_MODELS[ObjectType.USB] = USBObjects
 
 action_penalty = lambda act: torch.linalg.norm(act, dim=-1)
 l2_dist = lambda x, y: torch.linalg.norm(x - y, dim=-1)
-abs_dist = lambda x, y: torch.abs(x - y).sum(dim=-1)
+l1_dist = lambda x, y: torch.abs(x - y).sum(dim=-1)

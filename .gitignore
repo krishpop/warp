@@ -27,3 +27,4 @@ examples/assets
 external/
 
 **.ipynb_checkpoints/
+**outputs/

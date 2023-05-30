@@ -32,11 +32,13 @@ class ObjectTask(WarpEnv):
         stiffness=0.0,
         damping=0.5,
         rew_params=None,
+        env_name=None,
     ):
-        if object_type:
-            env_name = object_type.name + "Env"
-        else:
-            env_name = "ObjectEnv"
+        if not env_name:
+            if object_type:
+                env_name = object_type.name + "Env"
+            else:
+                env_name = "ObjectEnv"
         self.num_joint_q = 0
         self.num_joint_qd = 0
         super().__init__(
@@ -57,9 +59,16 @@ class ObjectTask(WarpEnv):
         self.object_type = object_type
         self.object_id = object_id
         self.action_type = ActionType.POSITION
-        self.object_cls = bu.OBJ_MODELS.get(self.object_type)
-        if isinstance(self.object_cls, dict):
-            self.object_cls = self.object_cls[object_id]
+
+        if self.object_type:
+            obj_generator = bu.OBJ_MODELS[self.object_type]
+        else:
+            obj_generator = None
+        if isinstance(obj_generator, dict):
+            obj_generator = obj_generator[object_id]
+
+        self.object_cls = obj_generator
+
         self.stiffness = stiffness
         self.damping = damping
         if rew_params is None:
@@ -71,7 +80,9 @@ class ObjectTask(WarpEnv):
 
         self.init_sim()  # sets up renderer, model, etc.
         self.num_actions = self.env_num_joints  # number of actions that set joint target
-        self.warp_actions = wp.zeros(self.num_envs * self.num_actions, device=self.device)
+        self.warp_actions = wp.zeros(
+            self.num_envs * self.num_actions, device=self.device, requires_grad=self.requires_grad
+        )
         joint_axis_start = self.model.joint_axis_start.numpy()
         joint_type = self.model.joint_type.numpy()
         joint_target_indices = np.concatenate(
@@ -103,6 +114,7 @@ class ObjectTask(WarpEnv):
             self.num_envs,
             joint_indices=self.joint_target_indices,
         )
+        self.joint_target = wp.from_torch(actions)
         # self.model.joint_target.assign(wp.from_torch(actions))
 
     def step(self, actions):

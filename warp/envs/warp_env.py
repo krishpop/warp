@@ -182,7 +182,7 @@ class WarpEnv(Environment):
         self.graph_capture_params["joint_qd_end"] = self._joint_qd
 
         if self.use_graph_capture and self.requires_grad:
-            if not self.activate_ground_plane:
+            if not self.activate_ground_plane:  # ie no contact
                 backward_model = self.builder.finalize(device=self.device)
             else:
                 backward_model = self.builder.finalize(
@@ -196,6 +196,8 @@ class WarpEnv(Environment):
             backward_model.body_q.requires_grad = True
             backward_model.body_qd.requires_grad = True
             backward_model.ground = self.activate_ground_plane
+            backward_model.joint_attach_ke = self.joint_attach_ke
+            backward_model.joint_attach_kd = self.joint_attach_kd
             self.act_params["bwd_joint_act"] = backward_model.joint_act
             self.graph_capture_params["bwd_model"] = backward_model
             # persist tape across multiple calls to backward
@@ -336,6 +338,8 @@ class WarpEnv(Environment):
         else:
             self.joint_q, self.joint_qd, self.body_q, self.body_qd = ret
 
+        self.body_f = wp.to_torch(self.simulate_params["body_f"])
+
     def _pre_step(self):
         """Method to store relevant data before stepping the simulation"""
         pass
@@ -354,6 +358,8 @@ class WarpEnv(Environment):
                 self._pre_step()  # replace custom_update to _pre_step
                 if self.activate_ground_plane:
                     wp.sim.collide(self.model, self.state_0)
+                if not self.use_graph_capture:
+                    self.state_1 = self.model.state(self.requires_grad)
                 self.state_1 = self.integrator.simulate(self.model, self.state_0, self.state_1, self.sim_dt)
                 if not self.use_graph_capture:
                     self.state_0, self.state_1 = self.state_1, self.state_0
@@ -368,14 +374,17 @@ class WarpEnv(Environment):
                 self.simulate_params["body_f"],
                 self.frame_dt,
             )
-            wp.sim.eval_ik(self.model, self.state_0, self._joint_q, self._joint_qd)
+            # wp.sim.eval_ik(self.model, self.state_0, self._joint_q, self._joint_qd)
+            wp.sim.eval_ik(self.model, self.state_0, self.state_0.joint_q, self.state_0.joint_qd)
+            self._joint_q.assign(self.state_0.joint_q)
+            self._joint_qd.assign(self.state_0.joint_qd)
             self.body_q = wp.to_torch(self.state_0.body_q)
             self.body_qd = wp.to_torch(self.state_0.body_qd)
             self.body_f = wp.to_torch(self.simulate_params["body_f"])
 
-        if self.requires_grad:
-            self.record_forward_simulate()
-        elif self.use_graph_capture:
+        # if self.requires_grad:
+        #     self.record_forward_simulate()
+        if self.use_graph_capture:
             if self.forward_sim_graph is None:
                 self.forward_sim_graph = get_compute_graph(forward)
             wp.capture_launch(self.forward_sim_graph)

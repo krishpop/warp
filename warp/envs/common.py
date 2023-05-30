@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 from tqdm import trange
 from inspect import getmembers
 from enum import Enum
+from warp.envs.warp_utils import l1_loss
 from warp.sim.model import State
 
 
@@ -173,18 +174,6 @@ class ObjectType(Enum):
     USB = 20
 
 
-OBJ_PATHS = {
-    ObjectType.CYLINDER_MESH: "cylinder.stl",
-    ObjectType.CUBE_MESH: "cube.stl",
-    ObjectType.OCTPRISM_MESH: "octprism-2.stl",
-    ObjectType.ELLIPSOID_MESH: "ellipsoid.stl",
-}
-
-TCDM_MESH_PATHS = {ObjectType.TCDM_STAPLER: "meshes/objects/stapler/stapler.stl"}
-TCDM_TRAJ_PATHS = {ObjectType.TCDM_STAPLER: "stapler_lift.npz"}
-TCDM_OBJ_NAMES = {ObjectType.TCDM_STAPLER: "stapler-lift"}
-
-
 def clear_state_grads(state: State):
     for k, v in getmembers(state):
         if isinstance(v, wp.array) and v.requires_grad and v.grad is not None:
@@ -256,16 +245,18 @@ def run_env(Env, num_states=500):
 
         n_dof = env.num_acts
 
+        # for each degree of freedom, collect a rollout controlling joint target
         for i in range(n_dof):
             joint_q_targets = (
-                0.8 * np.sin(np.linspace(0, 3 * np.pi, 2 * num_states + 1)) * (upper[i] - lower[i]) / 2
+                np.sin(np.linspace(0, 3 * np.pi, 2 * num_states + 1)) * (upper[i] - lower[i]) / 2
                 + (upper[i] + lower[i]) / 2
             )
 
-            def pi(t):
+            def pi(obs, t):
+                del obs
                 action = joint_start.copy()
                 action[:, i] = joint_q_targets[t]
-                return action
+                return torch.tensor(action, device=str(env.device))
 
             num_steps = 2 * num_states + 1
             actions, states, rewards = collect_rollout(env, num_steps, pi)
@@ -277,7 +268,7 @@ def run_env(Env, num_states=500):
             )
 
 
-def collect_rollout(env, n_steps, pi):
+def collect_rollout(env, n_steps, pi, loss=None):
     o = env.reset()
     net_cost = 0.0
     states = []
@@ -285,14 +276,21 @@ def collect_rollout(env, n_steps, pi):
     rewards = []
     with trange(n_steps, desc=f"cost={net_cost:.2f}") as pbar:
         for t in pbar:
-            ac = pi(t)
-            actions.append(ac)
-            ac = torch.tensor(ac).to(str(env.device))
+            ac = pi(o, t)
+            actions.append(ac.cpu().detach().numpy())
             o, rew, _, info = env.step(ac)
-            # net_qdelta += torch.abs(info["object_joint_pos"] - prev_q).detach().cpu().numpy().sum().item()
             rew = rew.sum().cpu().detach().item()
+            if loss is not None:
+                wp.launch(
+                    kernel=l1_loss,
+                    inputs=[env.state_0.joint_q, env.joint_target, env.joint_target_indices, env.num_envs],
+                    outputs=[loss],
+                    device=env.device,
+                    dim=env.num_envs * env.num_acts,
+                )
+
             net_cost += rew
             pbar.set_description(f"cost={net_cost:.2f}, body_f_max={info['body_f_max']:.2f}")
-            states.append(o.cpu().numpy())
+            states.append(o.cpu().detach().numpy())
             rewards.append(rew)
     return actions, states, rewards

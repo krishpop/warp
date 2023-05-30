@@ -143,6 +143,20 @@ def theta_from_quat_wp(quat: wp.quat, axis: int):
 
 
 @wp.kernel
+def l1_loss(
+    a: wp.array(dtype=float),
+    b: wp.array(dtype=float),
+    idx: wp.array(dtype=int),
+    num_envs: int,
+    # outputs:
+    loss: wp.array(dtype=float),
+):
+    tid = wp.tid()
+    i = idx[tid]
+    wp.atomic_add(loss, 0, wp.abs(a[i] - b[i]))
+
+
+@wp.kernel
 def revolute_spring(
     body_q: wp.array(dtype=wp.transform),
     body_qd: wp.array(dtype=wp.spatial_vector),

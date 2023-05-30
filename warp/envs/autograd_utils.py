@@ -140,7 +140,7 @@ def get_compute_graph(func, kwargs={}, tape=None, grads={}, back_grads={}):
 
 
 def build_assign_grads_map(adj_arrs, params, sim_params, act_params):
-    """Builds a map of adjoint input/output variables to their corresponding gradient variables"""
+    """Builds a map of adjoint input/output variables to their corresponding pytorch gradient variables"""
     if sim_params.get("ag_return_body", False):
         adj_joint_q, adj_joint_qd, adj_body_q, adj_body_qd = adj_arrs
     else:
