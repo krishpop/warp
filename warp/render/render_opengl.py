@@ -1433,7 +1433,7 @@ class OpenGLRenderer:
             ))
         elif self._camera_axis == 2:
             self._model_matrix = np.array((
-                self._scaling, 0, 0, 0,
+                -self._scaling, 0, 0, 0,
                 0, 0, self._scaling, 0,
                 0, self._scaling, 0, 0,
                 0, 0, 0, 1
