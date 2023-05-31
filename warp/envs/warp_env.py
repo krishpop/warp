@@ -8,6 +8,7 @@ import random
 from .autograd_utils import get_compute_graph, forward_ag
 from .environment import Environment, RenderMode
 from . import params
+from warp_utils import integrate_body_f
 
 
 def set_seed(seed):
@@ -163,6 +164,7 @@ class WarpEnv(Environment):
             "state_in": self.state_0,
             "state_out": self.state_1,
             "ag_return_body": self.ag_return_body,
+            "body_f": wp.zeros_like(self.state_0.body_f),
         }
         self.act_params = {
             "q_offset": 0,
@@ -181,7 +183,7 @@ class WarpEnv(Environment):
         self.graph_capture_params["joint_qd_end"] = self._joint_qd
 
         if self.use_graph_capture and self.requires_grad:
-            if not self.activate_ground_plane:
+            if not self.activate_ground_plane:  # ie no contact
                 backward_model = self.builder.finalize(device=self.device)
             else:
                 backward_model = self.builder.finalize(
@@ -195,6 +197,8 @@ class WarpEnv(Environment):
             backward_model.body_q.requires_grad = True
             backward_model.body_qd.requires_grad = True
             backward_model.ground = self.activate_ground_plane
+            backward_model.joint_attach_ke = self.joint_attach_ke
+            backward_model.joint_attach_kd = self.joint_attach_kd
             self.act_params["bwd_joint_act"] = backward_model.joint_act
             self.graph_capture_params["bwd_model"] = backward_model
             # persist tape across multiple calls to backward
@@ -217,8 +221,8 @@ class WarpEnv(Environment):
 
     def init_sim(self):
         self.init()
-        self.state_0 = self.model.state()
-        self.state_1 = self.model.state()
+        self.state_0 = self.model.state(requires_grad=self.requires_grad)
+        self.state_1 = self.model.state(requires_grad=self.requires_grad)
         self._joint_q = wp.zeros_like(self.model.joint_q)
         self._joint_qd = wp.zeros_like(self.model.joint_qd)
         if self.requires_grad:
@@ -259,6 +263,7 @@ class WarpEnv(Environment):
         raise NotImplementedError
 
     def reset(self, env_ids=None, force_reset=True):
+        self.render_time = 0.0
         if env_ids is None:
             if force_reset:
                 env_ids = np.arange(self.num_envs, dtype=int)
@@ -306,7 +311,7 @@ class WarpEnv(Environment):
         self.joint_q = wp.to_torch(self._joint_q).clone()
         self.joint_qd = wp.to_torch(self._joint_qd).clone()
 
-    def record_forward_simulate(self):
+    def record_forward_simulate(self, actions):
         # does this cut off grad to prev timestep?
         assert self.model.body_q.requires_grad and self.state_0.body_q.requires_grad
         # all grads should be from joint_q, not from body_q
@@ -318,15 +323,12 @@ class WarpEnv(Environment):
             self.simulate_params,
             self.graph_capture_params,
             self.act_params,
-            self.actions.flatten(),
+            actions.flatten(),
             body_q,
             body_qd,
         )
         # swap states so start from correct next state
-        (
-            self.simulate_params["state_in"],
-            self.simulate_params["state_out"],
-        ) = (
+        (self.simulate_params["state_in"], self.simulate_params["state_out"],) = (
             self.state_1,
             self.state_0,
         )
@@ -337,6 +339,16 @@ class WarpEnv(Environment):
         else:
             self.joint_q, self.joint_qd, self.body_q, self.body_qd = ret
 
+        self.body_f = wp.to_torch(self.simulate_params["body_f"])
+
+    def _pre_step(self):
+        """Method to store relevant data before stepping the simulation"""
+        pass
+
+    def _post_step(self):
+        """Method to store relevant data after stepping the simulation"""
+        pass
+
     def update(self):
         """Overrides Environment.update() for forward simulation with graph capture"""
 
@@ -344,17 +356,34 @@ class WarpEnv(Environment):
         def forward():
             for _ in range(self.sim_substeps):
                 self.state_0.clear_forces()
+                self._pre_step()  # replace custom_update to _pre_step
                 if self.activate_ground_plane:
                     wp.sim.collide(self.model, self.state_0)
+                if not self.use_graph_capture:
+                    self.state_1 = self.model.state(self.requires_grad)
                 self.state_1 = self.integrator.simulate(self.model, self.state_0, self.state_1, self.sim_dt)
                 if not self.use_graph_capture:
                     self.state_0, self.state_1 = self.state_1, self.state_0
                 else:
                     self.state_0.body_q.assign(self.state_1.body_q)
                     self.state_0.body_qd.assign(self.state_1.body_qd)
+
+            self.simulate_params["body_f"].zero_()
+            integrate_body_f(
+                self.model,
+                self.state_1.body_qd,
+                self.state_0.body_q,
+                self.state_0.body_qd,
+                self.simulate_params["body_f"],
+                self.frame_dt,
+            )
             wp.sim.eval_ik(self.model, self.state_0, self._joint_q, self._joint_qd)
+            # wp.sim.eval_ik(self.model, self.state_0, self.state_0.joint_q, self.state_0.joint_qd)
+            # self._joint_q.assign(self.state_0.joint_q)
+            # self._joint_qd.assign(self.state_0.joint_qd)
             self.body_q = wp.to_torch(self.state_0.body_q)
             self.body_qd = wp.to_torch(self.state_0.body_qd)
+            self.body_f = wp.to_torch(self.simulate_params["body_f"])
 
         if self.use_graph_capture:
             if self.forward_sim_graph is None:
@@ -407,19 +436,12 @@ class WarpEnv(Environment):
 
     def render(self, mode="human"):
         if self.visualize and self.renderer:
-            if self.render_mode is RenderMode.USD:
+            with wp.ScopedTimer("render", False):
                 self.render_time += self.frame_dt
                 self.renderer.begin_frame(self.render_time)
+                # render state 1 (swapped with state 0 just before)
                 self.renderer.render(self.state_0)
                 self.renderer.end_frame()
-                if self.num_frames % self.render_freq == 0:
-                    self.renderer.save()
-            elif self.render_mode is RenderMode.OPENGL:
-                self.renderer.begin_frame(self.render_time)
-                self.renderer.render(self.state_0)
-                self.renderer.end_frame()
-                # if mode == "rgb_array":
-                #     return self.renderer.get_pixel_buffer()
 
     def get_checkpoint(self, save_path=None):
         checkpoint = {}

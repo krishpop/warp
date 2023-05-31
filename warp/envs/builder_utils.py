@@ -5,8 +5,16 @@ import math
 import numpy as np
 from pathlib import Path
 from warp.envs.common import *
-from warp.envs.tcdm_utils import get_tcdm_trajectory
+from warp.envs.tcdm_utils import get_tcdm_trajectory, TCDM_MESH_PATHS, TCDM_TRAJ_PATHS, TCDM_OBJ_NAMES
 from tcdm.envs import asset_abspath
+
+
+OBJ_PATHS = {
+    ObjectType.CYLINDER_MESH: "cylinder.stl",
+    ObjectType.CUBE_MESH: "cube.stl",
+    ObjectType.OCTPRISM_MESH: "octprism-2.stl",
+    ObjectType.ELLIPSOID_MESH: "ellipsoid.stl",
+}
 
 
 def quat_multiply(a, b):
@@ -30,6 +38,7 @@ def add_joint(
     limit_lower=-2 * np.pi * 3.0,
     limit_upper=2 * np.pi * 3.0,
     parent=-1,
+    stiffness=0.0,
     damping=0.75,
 ):
     """Add a joint to the builder"""
@@ -49,7 +58,7 @@ def add_joint(
             wp.transform(pos, ori),
             wp.transform_identity(),
             axis=joint_axis,
-            target_ke=0.0,  # 1.0
+            target_ke=stiffness,  # 1.0
             target_kd=damping,  # 1.5
             limit_ke=100.0,
             limit_kd=150.0,
@@ -259,22 +268,20 @@ def add_box(
     )
 
 
-def create_allegro_hand(builder, action_type, floating_base=False):
+def create_shadow_hand(
+    builder,
+    action_type,
+    floating_base=False,
+    stiffness=1000.0,
+    damping=0.0,
+    hand_start_position=(0.01, 0.30, 0.125),
+    hand_start_orientation=(0, 0, 0),
+):
     stiffness, damping = 0.0, 0.0
     if action_type is ActionType.POSITION or action_type is ActionType.VARIABLE_STIFFNESS:
-        stiffness, damping = 5000.0, 10.0
+        stiffness, damping = stiffness, damping
     if floating_base:
-        xform = wp.transform(
-            (0.01, 0.17, 0.125),
-            # thumb up palm down
-            # wp.quat_rpy(-np.pi / 2 * 3, np.pi * 1.25, np.pi / 2 * 3)
-            # thumb up (default) palm orthogonal to gravity
-            # wp.quat_rpy(-np.pi / 2 * 3, np.pi * 0.75, np.pi / 2 * 3),
-            # thumb up, palm facing left
-            # wp.quat_rpy(-np.pi / 2 * 3, np.pi * 0.75, np.pi / 2 * 3),
-            # thumb up, palm facing right
-            wp.quat_rpy(np.pi * 0.0, np.pi * 1.0, np.pi * -0.25),
-        )
+        xform = wp.transform(hand_start_position, wp.quat_rpy(*hand_start_orientation))
     else:
         xform = wp.transform(
             np.array((0.1, 0.15, 0.0)),
@@ -285,11 +292,12 @@ def create_allegro_hand(builder, action_type, floating_base=False):
     wp.sim.parse_urdf(
         os.path.join(
             os.path.split(os.path.dirname(__file__))[0],
-            "envs/assets/isaacgymenvs/kuka_allegro_description/allegro.urdf",
+            "envs/assets/shadowhand/shadowhand.urdf",
         ),
         builder,
         xform=xform,
         floating=floating_base,
+        fixed_base_joint="rx, ry, rz",
         density=1e3,
         armature=0.01,
         stiffness=stiffness,
@@ -302,17 +310,12 @@ def create_allegro_hand(builder, action_type, floating_base=False):
         limit_kd=1.0e1,
         enable_self_collisions=False,
     )
+    builder.collapse_fixed_joints()
 
     # ensure all joint positions are within limits
     q_offset = 7 if floating_base else 0
-    for i in range(16):
-        # if i > 17:
-        #     builder.joint_q[i + q_offset] = builder.joint_limit_lower[i + qd_offset]
-        # else:
-        if floating_base and 12 <= i <= 13:
-            x, y = 0.3, 0.7
-        else:
-            x, y = 0.65, 0.35
+    for i in range(2, 22):
+        x, y = 0.65, 0.35
         builder.joint_q[i + q_offset] = x * (builder.joint_limit_lower[i]) + y * (builder.joint_limit_upper[i])
         builder.joint_target[i] = builder.joint_q[i + q_offset]
 
@@ -334,6 +337,7 @@ class ObjectModel:
         contact_ke=1.0e3,
         contact_kd=100.0,
         scale=0.4,
+        stiffness=0.0,
         damping=0.5,
     ):
         self.object_type = object_type
@@ -347,6 +351,119 @@ class ObjectModel:
         self.contact_ke = contact_ke
         self.contact_kd = contact_kd
         self.scale = scale
+        self.stiffness = stiffness
+        self.damping = damping
+        self.model_path = TCDM_MESH_PATHS.get(self.object_type)
+        if self.model_path is not None:
+            self.tcdm_trajectory, self.dex_trajectory = get_tcdm_trajectory(self.object_type)
+        else:
+            self.tcdm_trajectory = self.dex_trajectory = None
+
+
+def create_allegro_hand(
+    builder,
+    action_type,
+    floating_base=False,
+    stiffness=1000.0,
+    damping=0.0,
+    hand_start_position=(0.0, 0.30, 0.0),
+    hand_start_orientation=(-np.pi / 2, np.pi * 0.75, np.pi / 2),
+    # (np.pi * 0.0, np.pi * 1.0, np.pi * -0.25),
+    fixed_base_joint=None,
+):
+    if action_type is ActionType.POSITION or action_type is ActionType.VARIABLE_STIFFNESS:
+        stiffness, damping = stiffness, damping
+    else:
+        stiffness, damping = 0.0, 0.0
+    if floating_base:
+        xform = wp.transform(hand_start_position, wp.quat_rpy(*hand_start_orientation))
+        # thumb up palm down
+        # wp.quat_rpy(-np.pi / 2 * 3, np.pi * 1.25, np.pi / 2 * 3)
+        # thumb up (default) palm orthogonal to gravity
+        # wp.quat_rpy(-np.pi / 2 * 3, np.pi * 0.75, np.pi / 2 * 3),
+        # thumb up, palm facing left
+        # wp.quat_rpy(-np.pi / 2 * 3, np.pi * 0.75, np.pi / 2 * 3),
+        # thumb up, palm facing right
+        # wp.quat_rpy(np.pi * 0.0, np.pi * 1.0, np.pi * -0.25),
+    else:
+        xform = wp.transform(hand_start_position, wp.quat_rpy(*hand_start_orientation))
+        # xform = wp.transform(
+        # np.array((0.1, 0.15, 0.0)),
+        # wp.quat_rpy(-np.pi / 2 * 3, np.pi * 0.75, np.pi / 2),  # thumb down
+        # wp.quat_rpy(-np.pi / 2 * 3, np.pi * 0.75, np.pi / 2 * 3),  # thumb up (default) palm orthogonal to gravity
+        #     wp.quat_rpy(-np.pi / 2 * 3, np.pi * 1.25, np.pi / 2 * 3),  # thumb up palm down
+        # )
+
+    wp.sim.parse_urdf(
+        os.path.join(
+            os.path.split(os.path.dirname(__file__))[0],
+            "envs/assets/isaacgymenvs/kuka_allegro_description/allegro.urdf",
+        ),
+        builder,
+        xform=xform,
+        floating=floating_base,
+        fixed_base_joint=fixed_base_joint,
+        density=1e3,
+        armature=0.01,
+        stiffness=stiffness,
+        damping=damping,
+        shape_ke=1.0e3,
+        shape_kd=1.0e2,
+        shape_kf=1.0e2,
+        shape_mu=0.5,
+        limit_ke=1.0e4,
+        limit_kd=1.0e1,
+        enable_self_collisions=False,
+    )
+    builder.collapse_fixed_joints()
+
+    # ensure all joint positions are within limits
+    q_offset = 7 if floating_base else 0
+
+    for i in range(3 * floating_base, 16 + 3 * floating_base):
+        # if i > 17:
+        #     builder.joint_q[i + q_offset] = builder.joint_limit_lower[i + qd_offset]
+        # else:
+        # if floating_base and 12 <= i <= 13:
+        #     x, y = 0.3, 0.7
+        # else:
+        x, y = 0.65, 0.35
+        builder.joint_q[i + q_offset] = x * (builder.joint_limit_lower[i]) + y * (builder.joint_limit_upper[i])
+        builder.joint_target[i] = builder.joint_q[i + q_offset]
+
+        if action_type is ActionType.POSITION or action_type is ActionType.VARIABLE_STIFFNESS:
+            builder.joint_target_ke[i] = 5000.0
+            builder.joint_target_kd[i] = 10.0
+        else:
+            builder.joint_target_ke[i] = 0.0
+            builder.joint_target_kd[i] = 0.0
+
+
+class ObjectModel:
+    def __init__(
+        self,
+        object_type,
+        base_pos=(0.0, 0.075, 0.0),
+        base_ori=(np.pi / 2, 0.0, 0.0),
+        joint_type=wp.sim.JOINT_FREE,
+        contact_ke=1.0e3,
+        contact_kd=100.0,
+        scale=0.4,
+        stiffness=0.0,
+        damping=0.5,
+    ):
+        self.object_type = object_type
+        self.object_name = object_type.name.lower()
+        self.base_pos = base_pos
+        if len(base_ori) == 3:
+            self.base_ori = tuple(x for x in wp.quat_rpy(*base_ori))
+        elif len(base_ori) == 4:
+            self.base_ori = base_ori
+        self.joint_type = joint_type
+        self.contact_ke = contact_ke
+        self.contact_kd = contact_kd
+        self.scale = scale
+        self.stiffness = stiffness
         self.damping = damping
         self.model_path = TCDM_MESH_PATHS.get(self.object_type)
         if self.model_path is not None:
@@ -360,6 +477,7 @@ class ObjectModel:
             pos=self.base_pos,
             ori=self.base_ori,
             joint_type=self.joint_type,
+            stiffness=self.stiffness,
             damping=self.damping,
             body_name="object",  # self.object_name + "_body_joint",
         )
@@ -396,10 +514,12 @@ class OperableObjectModel(ObjectModel):
         object_type,
         base_pos=(0.0, 0.075, 0.0),
         base_ori=(np.pi / 2, 0.0, 0.0),
-        contact_ke=1.0e3,
+        contact_ke=1.0e4,
         contact_kd=100.0,
         scale=0.4,
-        damping=0.5,
+        density=1.0,
+        stiffness=0.0,
+        damping=0.0,
         model_path: str = "",
     ):
         super().__init__(
@@ -409,31 +529,37 @@ class OperableObjectModel(ObjectModel):
             contact_ke=contact_ke,
             contact_kd=contact_kd,
             scale=scale,
+            stiffness=stiffness,
             damping=damping,
         )
+        self.density = density
         assert model_path and os.path.splitext(model_path)[1] == ".urdf"
         self.model_path = model_path
 
     def create_articulation(self, builder):
+
         wp.sim.parse_urdf(
             os.path.join(os.path.dirname(__file__), "assets", self.model_path),
             builder,
-            xform=wp.transform(self.base_pos),
-            floating=True,
-            density=1.0,
+            xform=wp.transform(self.base_pos, self.base_ori),
+            floating=False,
+            fixed_base_joint="rx, ry, rz",
+            density=self.density,
+            scale=self.scale,
             armature=1e-4,
-            stiffness=0.0,
-            damping=0.0,
-            shape_ke=1.0e4,
-            shape_kd=1.0e2,
+            stiffness=self.stiffness,
+            damping=self.damping,
+            shape_ke=self.contact_ke,
+            shape_kd=self.contact_kd,
             shape_kf=1.0e2,
             shape_mu=1.0,
             limit_ke=1.0e4,
             limit_kd=1.0e1,
             enable_self_collisions=False,
             parse_visuals_as_colliders=False,
+            collapse_fixed_joints=True,
         )
-        builder.collapse_fixed_joints()
+        return
 
 
 def object_generator(object_type, **kwargs):
@@ -446,7 +572,8 @@ def object_generator(object_type, **kwargs):
 
 def operable_object_generator(object_type, **kwargs):
     class __OpDexObj__(OperableObjectModel):
-        def __init__(self):
+        def __init__(self, **override_kwargs):
+            kwargs.update(override_kwargs)
             super().__init__(object_type=object_type, **kwargs)
 
     return __OpDexObj__
@@ -454,16 +581,232 @@ def operable_object_generator(object_type, **kwargs):
 
 StaplerObject = object_generator(ObjectType.TCDM_STAPLER, base_pos=(0.0, 0.01756801, 0.0), scale=1.3)
 OctprismObject = object_generator(ObjectType.OCTPRISM, scale=1.0)
+
+
 SprayBottleObject = operable_object_generator(
-    ObjectType.SPRAY_BOTTLE, base_pos=(0.0, 0.22, 0.0), model_path="spray_bottle/mobility.urdf"
+    ObjectType.SPRAY_BOTTLE,
+    base_pos=(0.25, 0.12, 0.0),
+    base_ori=(0.0, 0.0, 0.0),
+    scale=1.0,
+    density=1.0,
+    model_path="spray_bottle/mobility.urdf",
 )
+
 PillBottleObject = operable_object_generator(
     ObjectType.PILL_BOTTLE,
-    base_pos=(0.0, 0.01756801, 0.0),
+    base_pos=(0.0, 0.3, 0.0),
+    base_ori=(-np.pi / 2, 0.0, 0.0),
+    scale=0.2,
+    # base_ori=(np.pi / 17, 0.0, 0.0),
+    model_path="pill_bottle/mobility.urdf",
 )
+
+bottle_ids = ("3558", "3574", "3616")
+BottleObjects = {
+    bottle_id: operable_object_generator(
+        ObjectType.BOTTLE,
+        base_pos=(0.0, 0.01756801, 0.0),
+        base_ori=(-0.5 * np.pi, 0.0, 0.0),
+        scale=0.4,
+        # base_ori=(np.pi / 17, 0.0, 0.0),
+        model_path=f"Bottle/{bottle_id}/mobility.urdf",
+    )
+    for bottle_id in bottle_ids
+}
+
+# BottleObject = operable_object_generator(
+#     ObjectType.BOTTLE,
+#     base_pos=(0.0, 0.01756801, 0.0),
+#     base_ori=(-0.5 * np.pi, 0.0, 0.0),
+#     scale=0.4,
+#     # base_ori=(np.pi / 17, 0.0, 0.0),
+#     model_path=f"Bottle/{bottle_id}/mobility.urdf",
+# )
+
+dispenser_ids = ("101417", "101490", "101517", "101539", "101540", "103405", "103619")
+DispenserObjects = {
+    dispenser_id: operable_object_generator(
+        ObjectType.DISPENSER,
+        base_pos=(0.0, 0.01756801, 0.0),
+        base_ori=(-0.5 * np.pi, 0.0, 0.0),
+        scale=0.4,
+        # base_ori=(np.pi / 17, 0.0, 0.0),
+        model_path=f"Dispenser/{dispenser_id}/mobility.urdf",
+    )
+    for dispenser_id in dispenser_ids
+}
+# DispenserObject = operable_object_generator(
+#     ObjectType.DISPENSER,
+#     base_pos=(0.0, 0.01756801, 0.0),
+#     base_ori=(-np.pi / 2, 0.0, 0.0),
+#     scale=0.4,
+#     # base_ori=(np.pi / 17, 0.0, 0.0),
+#     model_path="Dispenser/101417/mobility.urdf",
+# )
+
+eyeglasses_ids = ("101284", "102586", "103189")
+EyeglassesObjects = {
+    eyeglasses_id: operable_object_generator(
+        ObjectType.EYEGLASSES,
+        base_pos=(0.0, 0.01756801, 0.0),
+        base_ori=(-np.pi / 2, 0.0, 0.0),
+        scale=0.2,
+        # base_ori=(np.pi / 17, 0.0, 0.0),
+        model_path=f"Eyeglasses/{eyeglasses_id}/mobility.urdf",
+    )
+    for eyeglasses_id in eyeglasses_ids
+}
+# EyeglassesObject = operable_object_generator(
+#     ObjectType.EYEGLASSES,
+#     base_pos=(0.0, 0.01756801, 0.0),
+#     base_ori=(-np.pi / 2, 0.0, 0.0),
+#     scale=0.2,
+#     # base_ori=(np.pi / 17, 0.0, 0.0),
+#     model_path="Eyeglasses/101284/mobility.urdf",
+# )
+
+faucet_ids = ("152", "1556", "156", "2170")
+FaucetObjects = {
+    faucet_id: operable_object_generator(
+        ObjectType.FAUCET,
+        base_pos=(0.0, 0.01756801, 0.0),
+        base_ori=(-np.pi / 2, 0.0, 0.0),
+        scale=0.4,
+        # base_ori=(np.pi / 17, 0.0, 0.0),
+        model_path=f"Faucet/{faucet_id}/mobility.urdf",
+    )
+    for faucet_id in faucet_ids
+}
+# FaucetObject = operable_object_generator(
+#     ObjectType.FAUCET,
+#     base_pos=(0.0, 0.01756801, 0.0),
+#     base_ori=(-np.pi / 2, 0.0, np.pi / 24),
+#     scale=0.4,
+#     # base_ori=(np.pi / 17, 0.0, 0.0),
+#     model_path="Faucet/152/mobility.urdf",
+# )
+
+pliers_ids = ("100142", "100182", "100705", "102074")
+PliersObjects = {
+    pliers_id: operable_object_generator(
+        ObjectType.PLIERS,
+        base_pos=(0.0, 0.01756801, 0.0),
+        base_ori=(-np.pi / 2, 0.0, 0.0),
+        scale=0.4,
+        # base_ori=(np.pi / 17, 0.0, 0.0),
+        model_path=f"Pliers/{pliers_id}/mobility.urdf",
+    )
+    for pliers_id in pliers_ids
+}
+# PliersObject = operable_object_generator(
+#     ObjectType.PLIERS,
+#     base_pos=(0.0, 0.01756801, 0.0),
+#     base_ori=(-np.pi / 2, 0.0, 0.0),
+#     scale=0.4,
+#     # base_ori=(np.pi / 17, 0.0, 0.0),
+#     model_path="Pliers/100142/mobility.urdf",
+# )
+
+scissors_ids = ("10449", "10889", "11080", "11100")
+ScissorsObjects = {
+    scissors_id: operable_object_generator(
+        ObjectType.SCISSORS,
+        base_pos=(0.0, 0.01756801, 0.0),
+        base_ori=(-np.pi / 2, 0.0, 0.0),
+        scale=0.4,
+        # base_ori=(np.pi / 17, 0.0, 0.0),
+        model_path=f"Scissors/{scissors_id}/mobility.urdf",
+    )
+    for scissors_id in scissors_ids
+}
+# ScissorsObject = operable_object_generator(
+#     ObjectType.SCISSORS,
+#     base_pos=(0.0, 0.01756801, 0.0),
+#     base_ori=(-np.pi / 2, 0.0, 0.0),
+#     scale=0.4,
+#     # base_ori=(np.pi / 17, 0.0, 0.0),
+#     model_path="Scissors/10449/mobility.urdf",
+# )
+
+stapler_ids = ("102990", "103271", "103792")
+StaplerObjects = {
+    stapler_id: operable_object_generator(
+        ObjectType.STAPLER,
+        base_pos=(0.0, 0.01756801, 0.0),
+        base_ori=(-np.pi / 2, 0.0, 0.0),
+        scale=0.4,
+        # base_ori=(np.pi / 17, 0.0, 0.0),
+        model_path=f"Stapler/{stapler_id}/mobility.urdf",
+    )
+    for stapler_id in stapler_ids
+}
+# StaplerObject = operable_object_generator(
+#     ObjectType.STAPLER,
+#     base_pos=(0.0, 0.01756801, 0.0),
+#     base_ori=(-np.pi / 2, 0.0, 0.0),
+#     scale=0.4,
+#     # base_ori=(np.pi / 17, 0.0, 0.0),
+#     model_path="Stapler/103271/mobility.urdf",
+# )
+
+switch_ids = ("100866", "100883", "100901", "102812")
+SwitchObjects = {
+    switch_id: operable_object_generator(
+        ObjectType.SWITCH,
+        base_pos=(0.0, 0.01756801, 0.0),
+        base_ori=(-np.pi / 2, 0.0, 0.0),
+        scale=0.4,
+        # base_ori=(np.pi / 17, 0.0, 0.0),
+        model_path=f"Switch/{switch_id}/mobility.urdf",
+    )
+    for switch_id in switch_ids
+}
+# SwitchObject = operable_object_generator(
+#     ObjectType.SWITCH,
+#     base_pos=(0.0, 0.01756801, 0.0),
+#     base_ori=(-np.pi / 2, 0.0, 0.0),
+#     scale=0.4,
+#     # base_ori=(np.pi / 17, 0.0, 0.0),
+#     model_path="Switch/100866/mobility.urdf",
+# )
+
+usb_ids = ("100061", "100065", "100109", "102052")
+USBObjects = {
+    usb_id: operable_object_generator(
+        ObjectType.USB,
+        base_pos=(0.0, 0.01756801, 0.0),
+        base_ori=(-np.pi / 2, 0.0, 0.0),
+        scale=0.4,
+        # base_ori=(np.pi / 17, 0.0, 0.0),
+        model_path=f"USB/{usb_id}/mobility.urdf",
+    )
+    for usb_id in usb_ids
+}
+# USBObject = operable_object_generator(
+#     ObjectType.USB,
+#     base_pos=(0.0, 0.01756801, 0.0),
+#     base_ori=(-np.pi / 2, 0.0, 0.0),
+#     scale=0.4,
+#     # base_ori=(np.pi / 17, 0.0, 0.0),
+#     model_path="USB/100061/mobility.urdf",
+# )
+
 
 OBJ_MODELS = {}
 OBJ_MODELS[ObjectType.TCDM_STAPLER] = StaplerObject
 OBJ_MODELS[ObjectType.OCTPRISM] = OctprismObject
 OBJ_MODELS[ObjectType.SPRAY_BOTTLE] = SprayBottleObject
 OBJ_MODELS[ObjectType.PILL_BOTTLE] = PillBottleObject
+OBJ_MODELS[ObjectType.BOTTLE] = BottleObjects
+OBJ_MODELS[ObjectType.DISPENSER] = DispenserObjects
+OBJ_MODELS[ObjectType.EYEGLASSES] = EyeglassesObjects
+OBJ_MODELS[ObjectType.FAUCET] = FaucetObjects
+OBJ_MODELS[ObjectType.PLIERS] = PliersObjects
+OBJ_MODELS[ObjectType.SCISSORS] = ScissorsObjects
+OBJ_MODELS[ObjectType.STAPLER] = StaplerObjects
+OBJ_MODELS[ObjectType.SWITCH] = SwitchObjects
+OBJ_MODELS[ObjectType.USB] = USBObjects
+
+action_penalty = lambda act: torch.linalg.norm(act, dim=-1)
+l2_dist = lambda x, y: torch.linalg.norm(x - y, dim=-1)
+l1_dist = lambda x, y: torch.abs(x - y).sum(dim=-1)

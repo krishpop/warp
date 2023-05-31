@@ -3,12 +3,7 @@ import warp as wp
 import torch
 from tcdm.envs import suite
 from tcdm.envs import traj_abspath
-from dmanip.utils.common import (
-    ObjectType,
-    TCDM_MESH_PATHS,
-    TCDM_TRAJ_PATHS,
-    TCDM_OBJ_NAMES,
-)
+from dmanip.utils.common import ObjectType
 from dmanip.utils.warp_utils import integrate_body_f_kernel
 import scipy.ndimage as filters
 from dmanip.utils.rotation3d import (
@@ -30,8 +25,8 @@ def get_tcdm_trajectory(object_type):
     )
     trajectory_wrench = generate_wrenches(return_dict, object_type)
     torque, force = trajectory_wrench[:, :3], trajectory_wrench[:, 3:]
-    return_dict["position"] = return_dict['position'][1:]
-    return_dict["orientation"] = return_dict['orientation'][1:]
+    return_dict["position"] = return_dict["position"][1:]
+    return_dict["orientation"] = return_dict["orientation"][1:]
     return_dict["force"] = force
     return_dict["torque"] = torque
     return trajectory, return_dict
@@ -53,15 +48,11 @@ def compute_angular_velocity(r, dt, gaussian_filter=True):
     # assume the second last dimension is the time axis
     r = torch.as_tensor(r)
     diff_quat_data = quat_identity_like(r)
-    diff_quat_data[..., :-1, :] = quat_mul_norm(
-        r[..., 1:, :], quat_inverse(r[..., :-1, :])
-    )
+    diff_quat_data[..., :-1, :] = quat_mul_norm(r[..., 1:, :], quat_inverse(r[..., :-1, :]))
     diff_angle, diff_axis = quat_angle_axis(diff_quat_data)
     angular_velocity = diff_axis * diff_angle.unsqueeze(-1) / dt
     if gaussian_filter:
-        angular_velocity = filters.gaussian_filter1d(
-            angular_velocity.numpy(), 2, axis=-2, mode="nearest"
-        )
+        angular_velocity = filters.gaussian_filter1d(angular_velocity.numpy(), 2, axis=-2, mode="nearest")
     return angular_velocity
 
 
@@ -118,3 +109,8 @@ def generate_wrenches(traj, object_type):
         outputs=[body_f],
     )
     return body_f.numpy()
+
+
+TCDM_MESH_PATHS = {ObjectType.TCDM_STAPLER: "meshes/objects/stapler/stapler.stl"}
+TCDM_TRAJ_PATHS = {ObjectType.TCDM_STAPLER: "stapler_lift.npz"}
+TCDM_OBJ_NAMES = {ObjectType.TCDM_STAPLER: "stapler-lift"}

@@ -25,9 +25,10 @@ build/
 
 examples/assets
 external/
-.ipynb_checkpoints/
 
 warp/envs/outputs
 **tags
 warp/envs/partnet-mobility-dataset/
+
+**.ipynb_checkpoints/
 **outputs/
