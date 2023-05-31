@@ -310,7 +310,7 @@ class WarpEnv(Environment):
         self.joint_q = wp.to_torch(self._joint_q).clone()
         self.joint_qd = wp.to_torch(self._joint_qd).clone()
 
-    def record_forward_simulate(self):
+    def record_forward_simulate(self, actions):
         # does this cut off grad to prev timestep?
         assert self.model.body_q.requires_grad and self.state_0.body_q.requires_grad
         # all grads should be from joint_q, not from body_q
@@ -322,7 +322,7 @@ class WarpEnv(Environment):
             self.simulate_params,
             self.graph_capture_params,
             self.act_params,
-            self.actions.flatten(),
+            actions.flatten(),
             body_q,
             body_qd,
         )
@@ -366,24 +366,24 @@ class WarpEnv(Environment):
                 else:
                     self.state_0.body_q.assign(self.state_1.body_q)
                     self.state_0.body_qd.assign(self.state_1.body_qd)
+
+            self.simulate_params["body_f"].zero_()
             integrate_body_f(
                 self.model,
-                self.state_0.body_q,
                 self.state_1.body_qd,
+                self.state_0.body_q,
                 self.state_0.body_qd,
                 self.simulate_params["body_f"],
                 self.frame_dt,
             )
-            # wp.sim.eval_ik(self.model, self.state_0, self._joint_q, self._joint_qd)
-            wp.sim.eval_ik(self.model, self.state_0, self.state_0.joint_q, self.state_0.joint_qd)
-            self._joint_q.assign(self.state_0.joint_q)
-            self._joint_qd.assign(self.state_0.joint_qd)
+            wp.sim.eval_ik(self.model, self.state_0, self._joint_q, self._joint_qd)
+            # wp.sim.eval_ik(self.model, self.state_0, self.state_0.joint_q, self.state_0.joint_qd)
+            # self._joint_q.assign(self.state_0.joint_q)
+            # self._joint_qd.assign(self.state_0.joint_qd)
             self.body_q = wp.to_torch(self.state_0.body_q)
             self.body_qd = wp.to_torch(self.state_0.body_qd)
             self.body_f = wp.to_torch(self.simulate_params["body_f"])
 
-        # if self.requires_grad:
-        #     self.record_forward_simulate()
         if self.use_graph_capture:
             if self.forward_sim_graph is None:
                 self.forward_sim_graph = get_compute_graph(forward)

@@ -1,10 +1,18 @@
-from typing import Tuple, Optional
+from typing import Tuple, Optional, List
 import numpy as np
 import warp as wp
 import torch
 from warp.envs import ObjectTask
 from warp.envs import builder_utils as bu
-from warp.envs.common import HandType, ObjectType, ActionType, joint_coord_map, supported_joint_types, run_env
+from warp.envs.common import (
+    HandType,
+    ObjectType,
+    ActionType,
+    GraspParams,
+    joint_coord_map,
+    supported_joint_types,
+    run_env,
+)
 from warp.envs.environment import RenderMode
 
 
@@ -41,12 +49,18 @@ class HandObjectTask(ObjectTask):
         hand_type: HandType = HandType.ALLEGRO,
         hand_start_position: Tuple = (0.0, 0.3, -0.6),
         hand_start_orientation: Tuple = (-np.pi / 2 * 3, np.pi * 1.25, np.pi / 2 * 3),
+        grasps: List[GraspParams] = None,
+        use_autograd: bool = False,
     ):
         env_name = hand_type.name + "Env"
         self.action_type = action_type
         self.hand_start_position = hand_start_position
         self.hand_start_orientation = hand_start_orientation
         self.hand_type = hand_type
+        self.grasps = grasps
+        stochastic_init = stochastic_init or (grasps is not None)
+        self.hand_stiffness = stiffness
+        self.hand_damping = damping
         # self.gravity = 0.0
 
         super().__init__(
@@ -63,15 +77,16 @@ class HandObjectTask(ObjectTask):
             stage_path=stage_path,
             object_type=object_type,
             object_id=object_id,
-            stiffness=stiffness,
+            stiffness=0.0,
             damping=damping,
             rew_params=rew_params,
             env_name=env_name,
+            use_autograd=use_autograd,
         )
 
         print("gravity", self.model.gravity, self.gravity)
-        self.hand_stiffness = self.model.joint_target_ke
-        self.hand_damping = self.model.joint_target_kd
+        self.hand_target_ke = self.model.joint_target_ke
+        self.hand_target_kd = self.model.joint_target_kd
 
         self.setup_autograd_vars()
 
@@ -101,11 +116,32 @@ class HandObjectTask(ObjectTask):
         self.extras.update(obs_dict)
         return obs_dict
 
+    def sample_grasps(self, num_envs):
+        self.grasp = self.grasps[np.random.randint(len(self.grasps), size=num_envs)]
+        self.hand_init_xform = np.stack([g.xform for g in self.grasp], axis=0)
+        self.hand_init_q = np.stack([g.q for g in self.grasp], axis=0)
+
+    def get_stochastic_init(self, env_ids, joint_q, joint_qd):
+        # need to set the base joint of each env to sampled grasp xform
+        # then set each joint target pos to grasp.
+        joint_q, joint_qd = super().get_stochastic_init()
+        if self.grasps is not None:
+            joint_q[
+                :,
+            ] = self.hand_init_q.copy()
+
+    def reset(self, env_ids=None, force_reset=True):
+        if self.grasps is not None:
+            self.sample_grasps()
+        super().reset(env_ids=env_ids, force_reset=force_reset)
+
     def create_articulation(self, builder):
         if self.hand_type == HandType.ALLEGRO:
             bu.create_allegro_hand(
                 builder,
                 self.action_type,
+                stiffness=self.hand_stiffness,
+                damping=self.hand_damping,
                 hand_start_position=self.hand_start_position,
                 hand_start_orientation=self.hand_start_orientation,
             )
@@ -163,12 +199,17 @@ if __name__ == "__main__":
     parser.add_argument("--hand_type", type=str, default="allegro")
     parser.add_argument("--action_type", type=str, default="position")
     parser.add_argument("--object_type", type=str, default="spray_bottle")
-    parser.add_argument("--render", type=bool, default=True)
+    parser.add_argument("--object_id", type=int, default=None)
+    parser.add_argument("--render", action="store_true")
+    parser.add_argument("--norender", action="store_false", dest="render")
     parser.add_argument("--num_envs", type=int, default=1)
     parser.add_argument("--num_obs", type=int, default=36)
     parser.add_argument("--episode_length", type=int, default=1000)
     parser.add_argument("--stiffness", type=float, default=5000.0)
     parser.add_argument("--damping", type=float, default=10.0)
+    parser.add_argument("--profile", action="store_true")
+    parser.set_defaults(render=True)
+
     args = parser.parse_args()
 
     rew_params = {
@@ -178,6 +219,7 @@ if __name__ == "__main__":
             1.0,
         )
     }
+    HandObjectTask.profile = args.profile
     run_env(
         lambda: HandObjectTask(
             args.num_envs,
@@ -192,5 +234,3 @@ if __name__ == "__main__":
             rew_params=rew_params,
         )
     )
-
-    # run_env(lambda: HandEnv(5, 1, 1000, action_type=ActionType.POSITION, hand_type=HandType.ALLEGRO))

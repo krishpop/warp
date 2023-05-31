@@ -155,43 +155,13 @@ class HopperEnv(WarpEnv):
         self.prev_contact_count = contact_count
         self.extras["contact_count_changed"] = self.contact_count_changed
 
-    def forward_simulate(self, actions):
-        # does this cut off grad to prev timestep?
-        # assert self.model.body_q.requires_grad and self.state_0.body_q.requires_grad
-        # all grads should be from joint_q, not from body_q
-        # with torch.no_grad():
-        body_q, body_qd = (
-            self.body_q.detach().clone(),
-            self.body_qd.detach().clone(),
-        )
-
-        ret = forward_ag(
-            self.simulate_params,
-            self.graph_capture_params,
-            self.act_params,
-            actions.flatten(),
-            body_q,
-            body_qd,
-        )
-        # swap states so start from correct next state
-        (
-            self.simulate_params["state_in"],
-            self.simulate_params["state_out"],
-        ) = (
-            self.state_1,
-            self.state_0,
-        )
-        self.joint_q, self.joint_qd = ret
-        self.body_q = wp.to_torch(self.simulate_params["state_in"].body_q)
-        self.body_qd = wp.to_torch(self.simulate_params["state_in"].body_qd)
-
     def step(self, actions):
         """Simulate the environment for one timestep."""
         self.assign_actions(actions)
 
         with wp.ScopedTimer("simulate", active=False, detailed=False):
             if self.requires_grad:
-                self.forward_simulate(actions)
+                self.record_forward_simulate(actions)
             else:
                 # simulates without recording on tape
                 self.update()

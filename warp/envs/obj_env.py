@@ -33,6 +33,7 @@ class ObjectTask(WarpEnv):
         damping=0.5,
         rew_params=None,
         env_name=None,
+        use_autograd=False,
     ):
         if not env_name:
             if object_type:
@@ -55,6 +56,7 @@ class ObjectTask(WarpEnv):
             render_mode,
             stage_path,
         )
+        self.use_autograd = use_autograd
 
         self.object_type = object_type
         self.object_id = object_id
@@ -79,6 +81,10 @@ class ObjectTask(WarpEnv):
         self.rew_params = rew_params
 
         self.init_sim()  # sets up renderer, model, etc.
+        self.simulate_params["ag_return_body"] = self.ag_return_body
+
+    def init_sim(self):
+        super().init_sim()
         self.num_actions = self.env_num_joints  # number of actions that set joint target
         self.warp_actions = wp.zeros(
             self.num_envs * self.num_actions, device=self.device, requires_grad=self.requires_grad
@@ -99,12 +105,9 @@ class ObjectTask(WarpEnv):
             self.graph_capture_params["bwd_model"].joint_attach_ke = self.joint_attach_ke
             self.graph_capture_params["bwd_model"].joint_attach_kd = self.joint_attach_kd
 
-        self.simulate_params["ag_return_body"] = self.ag_return_body
-
     def assign_actions(self, actions):
         self.warp_actions.zero_()
-        self.joint_target = wp.from_torch(actions, requires_grad=self.requires_grad)
-        self.warp_actions.assign(self.joint_target)
+        self.warp_actions.assign(wp.from_torch(actions))
         self.model.joint_target.zero_()
         assign_act(
             self.warp_actions,
@@ -124,11 +127,15 @@ class ObjectTask(WarpEnv):
         self.extras = OrderedDict(actions=self.actions)
         self.assign_actions(actions)
         self._pre_step()
-        self.update()
+        if self.requires_grad and self.use_autograd:
+            self.record_forward_simulate(actions)
+        else:
+            self.update()
         self._post_step()
         self.calculateObservations()
         self.calculateReward()
         self.progress_buf += 1
+        self.num_frames += 1
         self.reset_buf = self.reset_buf | (self.progress_buf >= self.episode_length)
         if self.visualize:
             self.render()
