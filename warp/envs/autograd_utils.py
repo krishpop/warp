@@ -242,8 +242,8 @@ def forward_simulate(ctx, forward=False, requires_grad=False):
         ctx.body_f.assign(state_in.body_f)
         integrate_body_f(
             ctx.model,
-            ctx.state_out.body_q,
             ctx.state_in.body_qd,
+            ctx.state_out.body_q,
             ctx.state_out.body_qd,
             ctx.body_f,
             ctx.dt * ctx.substeps,
@@ -349,7 +349,6 @@ class IntegratorSimulate(torch.autograd.Function):
             assert state_in.body_q.grad.numpy().sum() == 0
             assert state_out.body_q.grad.numpy().sum() == 0
             # Do forward sim again, allocating rigid pairs and intermediate states
-            # __import__("ipdb").set_trace()
             if "bwd_forward_graph" not in ctx.graph_capture_params:
                 ctx.graph_capture_params["bwd_forward_graph"] = get_compute_graph(
                     forward_simulate,

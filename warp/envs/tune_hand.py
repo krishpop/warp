@@ -27,32 +27,54 @@ def main():
         damping=0.5,
         rew_params=rew_params,
     )
+
     env.reset()
+    body_q_target = wp.clone(env.state_0.body_q)
+    body_q_target.requires_grad = False
+    joint_q_target = env.warp_actions
+    joint_q_target.requires_grad = False
+    loss = wp.zeros(1, dtype=wp.float32, device=env.device, requires_grad=True)
+
+    def compute_joint_q_loss():
+        wp.launch(
+            kernel=bu.l1_loss,
+            inputs=[joint_q_target, env._joint_q, env.joint_target_indices],
+            outputs=[loss],
+            device=env.device,
+            dim=env.num_acts * env.num_envs,
+        )
+
+    def compute_body_q_loss():
+        wp.launch(
+            kernel=bu.l1_xform_loss,
+            inputs=[body_q_target, env.state_0.body_q],
+            outputs=[loss],
+            device=env.device,
+            dim=env.model.body_count,
+        )
+
     joint_target_indices = env.env_joint_target_indices
 
     # upper = env.model.joint_limit_upper.numpy().reshape(env.num_envs, -1)[0, joint_target_indices]
     # lower = env.model.joint_limit_lower.numpy().reshape(env.num_envs, -1)[0, joint_target_indices]
     joint_start = env.start_joint_q.cpu().numpy()[:, joint_target_indices]
     action = torch.tensor(joint_start, device=str(env.device))
-    stiffness = env.hand_stiffness
-    damping = env.hand_damping
+    stiffness = env.hand_target_ke
+    damping = env.hand_target_kd
     stiffness.requires_grad = True
     damping.requires_grad = True
-    num_states = 1
     optimizer = Adam([stiffness, damping], lr=1e-3)
-    loss = wp.zeros(1, dtype=wp.float32, device=env.device, requires_grad=True)
 
     num_opt_steps = 100
     pi = lambda x, y: action
 
     for i in range(num_opt_steps):
-        num_steps = 1  # 2 * num_states + 1
+        num_steps = 2  # 2 * num_states + 1
         loss.zero_()
         tape = wp.Tape()
         with tape:
-            actions, states, rewards = collect_rollout(env, num_steps, pi, loss=loss)
+            actions, states, rewards, _ = collect_rollout(env, num_steps, pi, loss=loss)
         tape.backward(loss=loss)
-        __import__("ipdb").set_trace()
         optimizer.step([stiffness.grad, damping.grad])
         tape.zero()
         # loss = -rewards.sum()

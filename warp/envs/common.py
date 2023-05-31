@@ -8,8 +8,10 @@ import warp.sim
 import matplotlib.pyplot as plt
 
 from tqdm import trange
+from typing import Optional
 from inspect import getmembers
 from enum import Enum
+from dataclasses import dataclass
 from warp.envs.warp_utils import l1_loss, l1_xform_loss
 from warp.sim.model import State
 
@@ -174,6 +176,15 @@ class ObjectType(Enum):
     USB = 20
 
 
+@dataclass
+class GraspParams:
+    xform: np.ndarray = np.array([0, 0, 0, 0, 0, 0, 1], dtype=np.float32)
+    hand_type: HandType = HandType.ALLEGRO
+    joint_pos: np.ndarray = np.zeros(7, dtype=np.float32)
+    stiffness: Optional[float] = None
+    damping: Optional[float] = None
+
+
 def clear_state_grads(state: State):
     for k, v in getmembers(state):
         if isinstance(v, wp.array) and v.requires_grad and v.grad is not None:
@@ -214,8 +225,8 @@ def run_env(Env, num_states=500):
         env_size = []
 
         for i in range(15):
-            env.num_envs = env_count
-            env.init()
+            env.num_environments = env_count
+            env.init_sim()
             steps_per_second = env.run()
 
             env_size.append(env_count)
@@ -259,7 +270,7 @@ def run_env(Env, num_states=500):
                 return torch.tensor(action, device=str(env.device))
 
             num_steps = 2 * num_states + 1
-            actions, states, rewards = collect_rollout(env, num_steps, pi)
+            actions, states, rewards, _ = collect_rollout(env, num_steps, pi)
             np.savez(
                 f"{env.env_name}_dof_rollout-{i}",
                 actions=np.asarray(actions),
@@ -268,33 +279,53 @@ def run_env(Env, num_states=500):
             )
 
 
-def collect_rollout(env, n_steps, pi, loss=None):
+def collect_rollout(env, n_steps, pi, loss_fn=None, plot_body_coords=False, plot_joint_coords=False):
     o = env.reset()
-    target = wp.clone(env.state_0.body_q)
     net_cost = 0.0
     states = []
     actions = []
     rewards = []
+    if plot_body_coords:
+        q_history, qd_history, delta_history, num_con_history = [], [], [], []
+        q_history = []
+        q_history.append(env.state_0.body_q.numpy().copy())
+        qd_history = []
+        qd_history.append(env.state_0.body_qd.numpy().copy())
+        delta_history = []
+        delta_history.append(env.state_0.body_deltas.numpy().copy())
+        num_con_history = []
+        num_con_history.append(env.model.rigid_contact_inv_weight.numpy().copy())
+    if plot_joint_coords:
+        joint_q_history = []
+
     with trange(n_steps, desc=f"cost={net_cost:.2f}") as pbar:
         for t in pbar:
             ac = pi(o, t)
             actions.append(ac.cpu().detach().numpy())
             o, rew, _, info = env.step(ac)
+            if plot_body_coords:
+                q_history.append(env.state_0.body_q.numpy().copy())
+                qd_history.append(env.state_0.body_qd.numpy().copy())
+                delta_history.append(env.state_0.body_deltas.numpy().copy())
+                num_con_history.append(env.model.rigid_contact_inv_weight.numpy().copy())
+            if plot_joint_coords:
+                joint_q_history.append(env.state_0.joint_q.numpy().copy())
+
             rew = rew.sum().cpu().detach().item()
-            if loss is not None:
-                wp.launch(
-                    kernel=l1_xform_loss,
-                    inputs=[target, env.state_0.body_q],
-                    # kernel=l1_loss,
-                    # inputs=[env.joint_target, env.state_0.joint_q, env.joint_target_indices],
-                    outputs=[loss],
-                    device=env.device,
-                    dim=env.model.body_count,
-                    # dim=env.num_acts * env.num_envs,
-                )
+            if loss_fn is not None:
+                loss_fn()
 
             net_cost += rew
             pbar.set_description(f"cost={net_cost:.2f}, body_f_max={info['body_f_max']:.2f}")
             states.append(o.cpu().detach().numpy())
             rewards.append(rew)
-    return actions, states, rewards
+    history = {}
+    if plot_body_coords:
+        history["q"] = np.stack(q_history)
+        history["qd"] = np.stack(qd_history)
+        history["delta"] = np.stack(delta_history)
+        history["num_con"] = np.stack(num_con_history)
+    if plot_joint_coords:
+        history["joint_q"] = np.stack(joint_q_history)
+
+    return actions, states, rewards, history

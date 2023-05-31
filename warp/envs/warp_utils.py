@@ -1105,13 +1105,13 @@ def assign_act_indexed_kernel(
 ######### Warp Helpers
 
 
-def integrate_body_f(model, body_q, body_qd_in, body_qd_out, body_f, dt):
+def integrate_body_f(model, body_qd_in, body_q_out, body_qd_out, body_f, dt):
     wp.launch(
         integrate_body_f_kernel,
         dim=len(body_f),
         device=model.device,
         inputs=[
-            body_q,
+            body_q_out,
             body_qd_in,
             body_qd_out,
             dt,

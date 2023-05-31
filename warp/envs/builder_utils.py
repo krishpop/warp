@@ -366,12 +366,15 @@ def create_allegro_hand(
     floating_base=False,
     stiffness=1000.0,
     damping=0.0,
-    hand_start_position=(0.01, 0.30, 0.125),
-    hand_start_orientation=(np.pi * 0.0, np.pi * 1.0, np.pi * -0.25),
+    hand_start_position=(0.0, 0.30, 0.0),
+    hand_start_orientation=(-np.pi / 2, np.pi * 0.75, np.pi / 2),
+    # (np.pi * 0.0, np.pi * 1.0, np.pi * -0.25),
+    fixed_base_joint=None,
 ):
-    stiffness, damping = 0.0, 0.0
     if action_type is ActionType.POSITION or action_type is ActionType.VARIABLE_STIFFNESS:
         stiffness, damping = stiffness, damping
+    else:
+        stiffness, damping = 0.0, 0.0
     if floating_base:
         xform = wp.transform(hand_start_position, wp.quat_rpy(*hand_start_orientation))
         # thumb up palm down
@@ -383,14 +386,14 @@ def create_allegro_hand(
         # thumb up, palm facing right
         # wp.quat_rpy(np.pi * 0.0, np.pi * 1.0, np.pi * -0.25),
     else:
-        xform = wp.transform(
-            np.array((0.1, 0.15, 0.0)),
-            # wp.quat_rpy(-np.pi / 2 * 3, np.pi * 0.75, np.pi / 2),  # thumb down
-            # wp.quat_rpy(-np.pi / 2 * 3, np.pi * 0.75, np.pi / 2 * 3),  # thumb up (default) palm orthogonal to gravity
-            wp.quat_rpy(-np.pi / 2 * 3, np.pi * 1.25, np.pi / 2 * 3),  # thumb up palm down
-        )
+        xform = wp.transform(hand_start_position, wp.quat_rpy(*hand_start_orientation))
+        # xform = wp.transform(
+        # np.array((0.1, 0.15, 0.0)),
+        # wp.quat_rpy(-np.pi / 2 * 3, np.pi * 0.75, np.pi / 2),  # thumb down
+        # wp.quat_rpy(-np.pi / 2 * 3, np.pi * 0.75, np.pi / 2 * 3),  # thumb up (default) palm orthogonal to gravity
+        #     wp.quat_rpy(-np.pi / 2 * 3, np.pi * 1.25, np.pi / 2 * 3),  # thumb up palm down
+        # )
 
-    fbj = "rx, ry, rz" if floating_base else None
     wp.sim.parse_urdf(
         os.path.join(
             os.path.split(os.path.dirname(__file__))[0],
@@ -399,7 +402,7 @@ def create_allegro_hand(
         builder,
         xform=xform,
         floating=floating_base,
-        fixed_base_joint=fbj,
+        fixed_base_joint=fixed_base_joint,
         density=1e3,
         armature=0.01,
         stiffness=stiffness,
@@ -412,7 +415,7 @@ def create_allegro_hand(
         limit_kd=1.0e1,
         enable_self_collisions=False,
     )
-    # builder.collapse_fixed_joints()
+    builder.collapse_fixed_joints()
 
     # ensure all joint positions are within limits
     q_offset = 7 if floating_base else 0
