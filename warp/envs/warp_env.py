@@ -7,6 +7,7 @@ import warp.sim.render
 import random
 from .autograd_utils import get_compute_graph, forward_ag
 from .environment import Environment, RenderMode
+from . import params
 from warp_utils import integrate_body_f
 
 
@@ -497,3 +498,87 @@ class WarpEnv(Environment):
             self.writer.close()
         if self.render_mode is RenderMode.USD:
             self.renderer.app.window.set_request_exit()
+
+
+class DRWarpEnv(WarpEnv):
+    def __init__(
+        self,
+        num_envs,
+        num_obs,
+        num_act,
+        episode_length,
+        seed=0,
+        no_grad=True,
+        render=True,
+        stochastic_init=True,
+        device="cuda",
+        env_name="warp_env",
+        render_mode=RenderMode.OPENGL,
+        stage_path=None,
+        randomization_params=params.RandomizationParams(),
+        randomize=True,
+    ):
+        super().__init__(
+            num_envs,
+            num_obs,
+            num_act,
+            episode_length,
+            seed,
+            no_grad,
+            render,
+            stochastic_init,
+            device,
+            env_name,
+            render_mode,
+            stage_path,
+        )
+        self.randomization_params = randomization_params
+        self.randomize = randomize
+        self.rng = np.random.RandomState(seed)
+
+    def get_stochastic_init(self, env_ids, joint_q, joint_qd):
+        dr_params = self.randomization_params.sample_params()
+        randomized_values = self.apply_randomizations(dr_params, env_ids)
+        if "joint_q" in randomized_values:
+            joint_q = randomized_values["joint_q"]
+        if "joint_qd" in randomized_values:
+            joint_qd = randomized_values["joint_qd"]
+        return joint_q, joint_qd
+
+    def apply_randomizations(self, dr_params, env_ids=None):
+        """Apply physics randomization to the environment params.
+
+        Only applies randomizations on resets
+
+        Args:
+            dr_params: dict containing params for domain randomization to use.
+            env_ids: selective randomisation of environments
+        """
+        if not self.randomize:
+            return
+
+        params = self.randomize_params.sample_params(include_list=dr_params)
+        if env_ids is None:
+            env_ids = torch.ones(self.num_envs, device=self.device)
+
+        if "physics_params" in params:
+            bwd_model = self.graph_capture_params["bwd_model"]
+            for param in params["physics_params"]:
+                if param == "gravity":
+                    self.model.gravity[self.model.gravity.nonzero()] = params["physics_params"][param]
+                    bwd_model.gravity[self.model.gravity.nonzero()] = params["physics_params"][param]
+                if param == "rigid_contact_torsional_friction":
+                    self.model.rigid_contact_torsional_friction = params["physics_params"][param]
+                    bwd_model.rigid_contact_torsional_friction = params["physics_params"][param]
+                if param == "rigid_contact_rolling_friction":
+                    self.model.rigid_contact_rolling_friction = params["physics_params"][param]
+                    bwd_model.rigid_contact_rolling_friction = params["physics_params"][param]
+
+        if "joint_params" in params:
+            joint_params = self.randomize_joints(params["joint_params"], env_ids)
+        else:
+            joint_params = {}
+        return joint_params
+
+    def randomize_joints(self):
+        return {}

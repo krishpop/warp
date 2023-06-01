@@ -66,8 +66,11 @@ class ObjectTask(WarpEnv):
             obj_generator = bu.OBJ_MODELS[self.object_type]
         else:
             obj_generator = None
-        if isinstance(obj_generator, dict):
-            obj_generator = obj_generator[object_id]
+        try:
+            if isinstance(obj_generator, dict):
+                obj_generator = obj_generator[object_id]
+        except KeyError:
+            raise ValueError(f"Object ID {object_id} not found for object type {object_type}")
 
         self.object_cls = obj_generator
 
@@ -89,15 +92,8 @@ class ObjectTask(WarpEnv):
         self.warp_actions = wp.zeros(
             self.num_envs * self.num_actions, device=self.device, requires_grad=self.requires_grad
         )
-        joint_axis_start = self.model.joint_axis_start.numpy()
-        joint_type = self.model.joint_type.numpy()
-        joint_target_indices = np.concatenate(
-            [
-                np.arange(joint_idx, joint_idx + joint_coord_map[joint_type])
-                for joint_idx, joint_type in zip(joint_axis_start, joint_type)
-                if joint_type in supported_joint_types[self.action_type]
-            ],
-        )
+        joint_axis_start = self.model.joint_axis_start.numpy().reshape(self.num_envs, -1)
+        joint_target_indices = joint_axis_start[:, self.env_joint_target_indices].flatten()
         self.joint_target_indices = wp.array(joint_target_indices, device=self.device, dtype=int)
 
         self.setup_autograd_vars()
@@ -204,7 +200,14 @@ if __name__ == "__main__":
     parser.add_argument("--object_id", type=int, default=0)
     parser.add_argument("--stiffness", type=float, default=10.0)
     parser.add_argument("--damping", type=float, default=0.5)
+    parser.add_argument("--render", action="store_true")
+    parser.add_argument("--log", action="store_true")
     args = parser.parse_args()
     object_type = ObjectType[args.object_type.upper()]
 
-    run_env(lambda: ObjectTask(5, 1, 1, 1000, object_type=object_type, stiffness=args.stiffness, damping=args.damping))
+    run_env(
+        lambda: ObjectTask(
+            5, 1, 1, 1000, object_type=object_type, stiffness=args.stiffness, damping=args.damping, render=args.render
+        ),
+        log_runs=args.log,
+    )

@@ -215,11 +215,10 @@ supported_joint_types = {
 }
 
 
-def run_env(Env, num_states=500):
+def run_env(Env, num_states=500, log_runs=False):
     env = Env()
     # env.parse_args()
     if env.profile:
-
         env_count = 2
         env_times = []
         env_size = []
@@ -271,12 +270,13 @@ def run_env(Env, num_states=500):
 
             num_steps = 2 * num_states + 1
             actions, states, rewards, _ = collect_rollout(env, num_steps, pi)
-            np.savez(
-                f"{env.env_name}_dof_rollout-{i}",
-                actions=np.asarray(actions),
-                states=np.asarray(states),
-                rewards=np.asarray(rewards),
-            )
+            if log_runs:
+                np.savez(
+                    f"{env.env_name}_dof_rollout-{i}",
+                    actions=np.asarray(actions),
+                    states=np.asarray(states),
+                    rewards=np.asarray(rewards),
+                )
 
 
 def collect_rollout(env, n_steps, pi, loss_fn=None, plot_body_coords=False, plot_joint_coords=False):

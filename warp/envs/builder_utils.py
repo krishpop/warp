@@ -375,29 +375,28 @@ def create_allegro_hand(
         stiffness, damping = stiffness, damping
     else:
         stiffness, damping = 0.0, 0.0
-    if floating_base:
-        xform = wp.transform(hand_start_position, wp.quat_rpy(*hand_start_orientation))
-        # thumb up palm down
-        # wp.quat_rpy(-np.pi / 2 * 3, np.pi * 1.25, np.pi / 2 * 3)
-        # thumb up (default) palm orthogonal to gravity
-        # wp.quat_rpy(-np.pi / 2 * 3, np.pi * 0.75, np.pi / 2 * 3),
-        # thumb up, palm facing left
-        # wp.quat_rpy(-np.pi / 2 * 3, np.pi * 0.75, np.pi / 2 * 3),
-        # thumb up, palm facing right
-        # wp.quat_rpy(np.pi * 0.0, np.pi * 1.0, np.pi * -0.25),
-    else:
-        xform = wp.transform(hand_start_position, wp.quat_rpy(*hand_start_orientation))
-        # xform = wp.transform(
-        # np.array((0.1, 0.15, 0.0)),
-        # wp.quat_rpy(-np.pi / 2 * 3, np.pi * 0.75, np.pi / 2),  # thumb down
-        # wp.quat_rpy(-np.pi / 2 * 3, np.pi * 0.75, np.pi / 2 * 3),  # thumb up (default) palm orthogonal to gravity
-        #     wp.quat_rpy(-np.pi / 2 * 3, np.pi * 1.25, np.pi / 2 * 3),  # thumb up palm down
-        # )
+    xform = wp.transform(hand_start_position, wp.quat_rpy(*hand_start_orientation))
+    # thumb up palm down
+    # wp.quat_rpy(-np.pi / 2 * 3, np.pi * 1.25, np.pi / 2 * 3)
+    # thumb up (default) palm orthogonal to gravity
+    # wp.quat_rpy(-np.pi / 2 * 3, np.pi * 0.75, np.pi / 2 * 3),
+    # thumb up, palm facing left
+    # wp.quat_rpy(-np.pi / 2 * 3, np.pi * 0.75, np.pi / 2 * 3),
+    # thumb up, palm facing right
+    # wp.quat_rpy(np.pi * 0.0, np.pi * 1.0, np.pi * -0.25),
+    # else:
+    #     xform = wp.transform(hand_start_position, wp.quat_rpy(*hand_start_orientation))
+    # xform = wp.transform(
+    # np.array((0.1, 0.15, 0.0)),
+    # wp.quat_rpy(-np.pi / 2 * 3, np.pi * 0.75, np.pi / 2),  # thumb down
+    # wp.quat_rpy(-np.pi / 2 * 3, np.pi * 0.75, np.pi / 2 * 3),  # thumb up (default) palm orthogonal to gravity
+    #     wp.quat_rpy(-np.pi / 2 * 3, np.pi * 1.25, np.pi / 2 * 3),  # thumb up palm down
+    # )
 
     wp.sim.parse_urdf(
         os.path.join(
             os.path.split(os.path.dirname(__file__))[0],
-            "envs/assets/isaacgymenvs/kuka_allegro_description/allegro.urdf",
+            "../examples/assets/isaacgymenvs/kuka_allegro_description/allegro.urdf",
         ),
         builder,
         xform=xform,
@@ -537,7 +536,6 @@ class OperableObjectModel(ObjectModel):
         self.model_path = model_path
 
     def create_articulation(self, builder):
-
         wp.sim.parse_urdf(
             os.path.join(os.path.dirname(__file__), "assets", self.model_path),
             builder,
