@@ -188,7 +188,7 @@ class Environment:
             articulation_builder = wp.sim.ModelBuilder()
             articulation_builder.gravity = self.gravity
             self.create_articulation(articulation_builder)
-            self.asset_builders.append(articulation_builder)
+            self.asset_builders.insert(0, articulation_builder)
             env_offsets = compute_env_offsets(self.num_envs, self.env_offset, self.up_axis)
             for i in range(self.num_envs):
                 xform = wp.transform(env_offsets[i], wp.quat_identity())

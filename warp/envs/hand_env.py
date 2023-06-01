@@ -93,8 +93,8 @@ class HandObjectTask(ObjectTask):
         self.simulate_params["ag_return_body"] = True
 
     def _post_step(self):
-        self.extras["target_pos"] = self.actions.view(self.num_envs, -1)
-        self.extras["hand_pos"] = self.joint_q.view(self.num_envs, -1)[:, self.env_joint_target_indices]
+        self.extras["target_qpos"] = self.actions.view(self.num_envs, -1)
+        self.extras["hand_qpos"] = self.joint_q.view(self.num_envs, -1)[:, self.env_joint_target_indices]
         self.extras["body_f_max"] = self.body_f.max().item()
 
     def _get_obs_dict(self):
@@ -126,9 +126,10 @@ class HandObjectTask(ObjectTask):
         # then set each joint target pos to grasp.
         joint_q, joint_qd = super().get_stochastic_init()
         if self.grasps is not None:
-            joint_q[
-                :,
-            ] = self.hand_init_q.copy()
+            assert joint_q.shape[-1] == self.hand_init_q.shape[-1]
+            joint_q[env_ids, self.env_joint_target_indices] = self.hand_init_q.copy()
+
+        return joint_q, joint_qd
 
     def reset(self, env_ids=None, force_reset=True):
         if self.grasps is not None:
@@ -173,12 +174,13 @@ class HandObjectTask(ObjectTask):
         if self.object_type:
             object_articulation_builder = wp.sim.ModelBuilder()
             super().create_articulation(object_articulation_builder)
+            self.object_num_joint_axis = object_articulation_builder.joint_axis_count
             self.object_joint_start = (
                 object_articulation_builder.joint_axis_start[0] + self.hand_joint_start + self.hand_num_joint_axis
             )
             self.object_joint_type = object_articulation_builder.joint_type
             self.object_num_joint_axis = object_articulation_builder.joint_axis_count
-            self.asset_builders.append(object_articulation_builder)
+            self.asset_builders.insert(0, object_articulation_builder)
 
         self.env_joint_target_indices = joint_indices
         self.env_num_joints = len(joint_indices)
@@ -215,7 +217,7 @@ if __name__ == "__main__":
     rew_params = {
         "hand_joint_pos_err": (
             bu.l1_dist,
-            ["target_pos", "hand_pos"],
+            ["target_qpos", "hand_qpos"],
             1.0,
         )
     }
@@ -226,7 +228,8 @@ if __name__ == "__main__":
             args.num_obs,
             args.episode_length,
             action_type=ActionType[args.action_type.upper()],
-            object_type=None,  # ObjectType[args.object_type.upper()],
+            object_type=ObjectType[args.object_type.upper()],
+            object_id=args.object_id,
             hand_type=HandType[args.hand_type.upper()],
             render=args.render,
             stiffness=args.stiffness,
