@@ -1128,7 +1128,17 @@ class ModelBuilder:
 
         start_body_idx = self.body_count
         start_shape_idx = self.shape_count
-        self.shape_body.extend([b + start_body_idx for b in articulation.shape_body])
+        for s, b in enumerate(articulation.shape_body):
+            if b > -1:
+                new_b = b + start_body_idx
+                self.shape_body.append(new_b)
+                self.shape_transform.append(articulation.shape_transform[s])
+            else:
+                self.shape_body.append(-1)
+                # apply offset transform to root bodies
+                if xform is not None:
+                    self.shape_transform.append(xform * articulation.shape_transform[s])
+
         for b, shapes in articulation.body_shapes.items():
             self.body_shapes[b + start_body_idx] = [s + start_shape_idx for s in shapes]
 
@@ -1221,7 +1231,6 @@ class ModelBuilder:
             "joint_target_kd",
             "joint_linear_compliance",
             "joint_angular_compliance",
-            "shape_transform",
             "shape_geo_type",
             "shape_geo_scale",
             "shape_geo_src",
@@ -1890,7 +1899,7 @@ class ModelBuilder:
             edges.append((len(self.body_name) + i + 1, self.shape_body[i] + 1))
         wp.sim.plot_graph(vertices, edges, edge_labels=edge_labels)
 
-    def collapse_fixed_joints(self):
+    def collapse_fixed_joints(self, verbose=wp.config.verbose):
         """Removes fixed joints from the model and merges the bodies they connect."""
 
         body_data = {}
@@ -1990,21 +1999,20 @@ class ModelBuilder:
                 parent_name = self.body_name[parent_body] if parent_body > -1 else "world"
                 child_name = self.body_name[child_body]
                 last_dynamic_body_name = self.body_name[last_dynamic_body] if last_dynamic_body > -1 else "world"
-                print(
-                    f'Remove fixed joint {joint["name"]} between {parent_name} and {child_name}, merging {child_name} into {last_dynamic_body_name}'
-                )
+                if verbose:
+                    print(
+                        f'Remove fixed joint {joint["name"]} between {parent_name} and {child_name}, '
+                        f'merging {child_name} into {last_dynamic_body_name}'
+                    )
                 child_id = body_data[child_body]["original_id"]
                 for shape in self.body_shapes[child_id]:
                     self.shape_transform[shape] = incoming_xform * self.shape_transform[shape]
-                    if last_dynamic_body < 0: 
-                        self.shape_body[shape] = -1
-                    else:
-                        self.shape_body[shape] = body_data[last_dynamic_body]["id"]
-                    print(
-                        f"  Shape {shape} moved to body {last_dynamic_body_name} with transform {self.shape_transform[shape]}"
-                    )
+                    if verbose:
+                        print(
+                            f"  Shape {shape} moved to body {last_dynamic_body_name} with transform {self.shape_transform[shape]}"
+                        )
                     if last_dynamic_body > -1:
-                        # self.body_shapes[last_dynamic_body].append(shape)
+                        self.shape_body[shape] = body_data[last_dynamic_body]["id"]
                         # add inertia to last_dynamic_body
                         m = body_data[child_body]["mass"]
                         com = body_data[child_body]["com"]
