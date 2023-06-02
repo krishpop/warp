@@ -2027,6 +2027,8 @@ class ModelBuilder:
                         body_data[last_dynamic_body]["shapes"].append(shape)
                         # indicate to recompute inverse mass, inertia for this body
                         body_data[last_dynamic_body]["inv_mass"] = None
+                    else:
+                        self.shape_body[shape] = -1
             else:
                 joint["parent_xform"] = incoming_xform * joint["parent_xform"]
                 joint["parent"] = last_dynamic_body
