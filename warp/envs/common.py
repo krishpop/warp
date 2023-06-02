@@ -174,6 +174,7 @@ class ObjectType(Enum):
     STAPLER = 18
     SWITCH = 19
     USB = 20
+    REPOSE_CUBE = 21
 
 
 @dataclass
@@ -183,6 +184,11 @@ class GraspParams:
     joint_pos: np.ndarray = np.zeros(7, dtype=np.float32)
     stiffness: Optional[float] = None
     damping: Optional[float] = None
+
+
+def load_grasps_npy(path) -> GraspParams:
+    data = np.load(path, allow_pickle=True)
+    return GraspParams(**data)
 
 
 def clear_state_grads(state: State):
@@ -200,6 +206,7 @@ joint_coord_map = {
     wp.sim.JOINT_FIXED: 0,
     wp.sim.JOINT_UNIVERSAL: 2,
     wp.sim.JOINT_COMPOUND: 3,
+    wp.sim.JOINT_D6: 3,
     wp.sim.JOINT_DISTANCE: 0,
 }
 
@@ -207,11 +214,9 @@ supported_joint_types = {
     ActionType.POSITION: [
         wp.sim.JOINT_PRISMATIC,
         wp.sim.JOINT_REVOLUTE,
+        wp.sim.JOINT_BALL,
     ],
-    ActionType.TORQUE: [
-        wp.sim.JOINT_PRISMATIC,
-        wp.sim.JOINT_REVOLUTE,
-    ],
+    ActionType.TORQUE: [wp.sim.JOINT_PRISMATIC, wp.sim.JOINT_REVOLUTE, wp.sim.JOINT_BALL],
 }
 
 
