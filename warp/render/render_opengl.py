@@ -776,6 +776,7 @@ class OpenGLRenderer:
         draw_sky=True,
         draw_axis=True,
         show_info=True,
+        render_wireframe=False,
         axis_scale=1.0,
         vsync=False,
         headless=False,
@@ -783,10 +784,10 @@ class OpenGLRenderer:
     ):
         try:
             import pyglet
-        
+
             # disable error checking for performance
             pyglet.options['debug_gl'] = False
-            
+
             from pyglet import gl
             from pyglet.math import Vec3 as PyVec3
             from pyglet.graphics.shader import Shader, ShaderProgram
@@ -802,6 +803,8 @@ class OpenGLRenderer:
         self.draw_sky = draw_sky
         self.draw_axis = draw_axis
         self.show_info = show_info
+        self.render_wireframe = render_wireframe
+        self.enable_backface_culling = enable_backface_culling
 
         self._device = wp.get_cuda_device()
         self._title = title
@@ -900,8 +903,6 @@ class OpenGLRenderer:
 
         gl.glClearColor(*self.background_color, 1)
         gl.glEnable(gl.GL_DEPTH_TEST)
-        if enable_backface_culling:
-            gl.glEnable(gl.GL_CULL_FACE)
 
         self._shape_shader = ShaderProgram(
             Shader(shape_vertex_shader, "vertex"), Shader(shape_fragment_shader, "fragment")
@@ -1534,6 +1535,11 @@ class OpenGLRenderer:
         # catch key hold events
         self._process_inputs()
 
+        if self.enable_backface_culling:
+            gl.glEnable(gl.GL_CULL_FACE)
+        else:
+            gl.glDisable(gl.GL_CULL_FACE)
+
         if self._frame_fbo is not None:
             gl.glBindFramebuffer(gl.GL_FRAMEBUFFER, self._frame_fbo)
             gl.glBindBuffer(gl.GL_PIXEL_UNPACK_BUFFER, self._frame_fbo)
@@ -1557,10 +1563,15 @@ class OpenGLRenderer:
         gl.glUniformMatrix4fv(self._loc_shape_view, 1, gl.GL_FALSE, view_mat_ptr)
         gl.glUniformMatrix4fv(self._loc_shape_projection, 1, gl.GL_FALSE, projection_mat_ptr)
 
+        if self.render_wireframe:
+            gl.glPolygonMode(gl.GL_FRONT_AND_BACK, gl.GL_LINE)
+
         if self._tiled_rendering:
             self._render_scene_tiled()
         else:
             self._render_scene()
+
+        gl.glPolygonMode(gl.GL_FRONT_AND_BACK, gl.GL_FILL)
 
         gl.glBindBuffer(gl.GL_PIXEL_UNPACK_BUFFER, 0)
         gl.glBindFramebuffer(gl.GL_FRAMEBUFFER, 0)
@@ -1754,6 +1765,10 @@ Instances: {len(self._instances)}"""
             self.draw_grid = not self.draw_grid
         if symbol == pyglet.window.key.I:
             self.show_info = not self.show_info
+        if symbol == pyglet.window.key.X:
+            self.render_wireframe = not self.render_wireframe
+        if symbol == pyglet.window.key.B:
+            self.enable_backface_culling = not self.enable_backface_culling
 
     def _window_resize_callback(self, width, height):
         self._first_mouse = True
