@@ -77,7 +77,7 @@ def add_object(
     link,
     object_type,
     rot=(1.0, 0.0, 0.0, 0.0),
-    density=100.0,
+    density=1.0,
     contact_ke=1e4,
     contact_kd=1e2,
     xform=None,
@@ -418,8 +418,9 @@ def create_allegro_hand(
 
     # ensure all joint positions are within limits
     q_offset = 7 if floating_base else 0
+    fixed_base_offset = 3 if fixed_base_joint is not None else 0
 
-    for i in range(3 * floating_base, 16 + 3 * floating_base):
+    for i in range(fixed_base_offset, 16 + fixed_base_offset):
         # if i > 17:
         #     builder.joint_q[i + q_offset] = builder.joint_limit_lower[i + qd_offset]
         # else:
@@ -516,10 +517,11 @@ class OperableObjectModel(ObjectModel):
         contact_ke=1.0e4,
         contact_kd=100.0,
         scale=0.4,
-        density=1.0,
+        density=1e2,
         stiffness=0.0,
         damping=0.0,
         model_path: str = "",
+        fixed_base_joint=None,
     ):
         super().__init__(
             object_type,
@@ -531,6 +533,8 @@ class OperableObjectModel(ObjectModel):
             stiffness=stiffness,
             damping=damping,
         )
+
+        self.fixed_base_joint = fixed_base_joint
         self.density = density
         assert model_path and os.path.splitext(model_path)[1] == ".urdf"
         self.model_path = model_path
@@ -541,7 +545,7 @@ class OperableObjectModel(ObjectModel):
             builder,
             xform=wp.transform(self.base_pos, self.base_ori),
             floating=False,
-            fixed_base_joint="rx, ry, rz",
+            fixed_base_joint=self.fixed_base_joint,
             density=self.density,
             scale=self.scale,
             armature=1e-4,
@@ -580,13 +584,29 @@ def operable_object_generator(object_type, **kwargs):
 StaplerObject = object_generator(ObjectType.TCDM_STAPLER, base_pos=(0.0, 0.01756801, 0.0), scale=1.3)
 OctprismObject = object_generator(ObjectType.OCTPRISM, scale=1.0)
 
+ReposeCubeObject = operable_object_generator(
+    ObjectType.REPOSE_CUBE,
+    base_pos=(0.0, 0.1, 0.0),
+    base_ori=(0.0, 0.0, 0.0),
+    scale=1.0,
+    density=1e2,
+    stiffness=0.0,
+    damping=0.0,
+    contact_ke=1e3,
+    contact_kd=1e2,
+    fixed_base_joint="rx, ry, rz",
+    model_path="isaacgymenvs/objects/cube_multicolor.urdf",
+)
+
 
 SprayBottleObject = operable_object_generator(
     ObjectType.SPRAY_BOTTLE,
-    base_pos=(0.25, 0.12, 0.0),
-    base_ori=(0.0, 0.0, 0.0),
+    base_pos=(0.0, 0.12, 0.0),
+    base_ori=(0.0, -np.pi / 4, 0.0),
     scale=1.0,
     density=1.0,
+    # fixed_base_joint=None,
+    fixed_base_joint="px, py, pz",
     model_path="spray_bottle/mobility.urdf",
 )
 
@@ -612,15 +632,6 @@ BottleObjects = {
     for bottle_id in bottle_ids
 }
 
-# BottleObject = operable_object_generator(
-#     ObjectType.BOTTLE,
-#     base_pos=(0.0, 0.01756801, 0.0),
-#     base_ori=(-0.5 * np.pi, 0.0, 0.0),
-#     scale=0.4,
-#     # base_ori=(np.pi / 17, 0.0, 0.0),
-#     model_path=f"Bottle/{bottle_id}/mobility.urdf",
-# )
-
 dispenser_ids = ("101417", "101490", "101517", "101539", "101540", "103405", "103619")
 DispenserObjects = {
     dispenser_id: operable_object_generator(
@@ -633,14 +644,6 @@ DispenserObjects = {
     )
     for dispenser_id in dispenser_ids
 }
-# DispenserObject = operable_object_generator(
-#     ObjectType.DISPENSER,
-#     base_pos=(0.0, 0.01756801, 0.0),
-#     base_ori=(-np.pi / 2, 0.0, 0.0),
-#     scale=0.4,
-#     # base_ori=(np.pi / 17, 0.0, 0.0),
-#     model_path="Dispenser/101417/mobility.urdf",
-# )
 
 eyeglasses_ids = ("101284", "102586", "103189")
 EyeglassesObjects = {
@@ -654,14 +657,6 @@ EyeglassesObjects = {
     )
     for eyeglasses_id in eyeglasses_ids
 }
-# EyeglassesObject = operable_object_generator(
-#     ObjectType.EYEGLASSES,
-#     base_pos=(0.0, 0.01756801, 0.0),
-#     base_ori=(-np.pi / 2, 0.0, 0.0),
-#     scale=0.2,
-#     # base_ori=(np.pi / 17, 0.0, 0.0),
-#     model_path="Eyeglasses/101284/mobility.urdf",
-# )
 
 faucet_ids = ("152", "1556", "156", "2170")
 FaucetObjects = {
@@ -675,14 +670,6 @@ FaucetObjects = {
     )
     for faucet_id in faucet_ids
 }
-# FaucetObject = operable_object_generator(
-#     ObjectType.FAUCET,
-#     base_pos=(0.0, 0.01756801, 0.0),
-#     base_ori=(-np.pi / 2, 0.0, np.pi / 24),
-#     scale=0.4,
-#     # base_ori=(np.pi / 17, 0.0, 0.0),
-#     model_path="Faucet/152/mobility.urdf",
-# )
 
 pliers_ids = ("100142", "100182", "100705", "102074")
 PliersObjects = {
@@ -696,14 +683,6 @@ PliersObjects = {
     )
     for pliers_id in pliers_ids
 }
-# PliersObject = operable_object_generator(
-#     ObjectType.PLIERS,
-#     base_pos=(0.0, 0.01756801, 0.0),
-#     base_ori=(-np.pi / 2, 0.0, 0.0),
-#     scale=0.4,
-#     # base_ori=(np.pi / 17, 0.0, 0.0),
-#     model_path="Pliers/100142/mobility.urdf",
-# )
 
 scissors_ids = ("10449", "10889", "11080", "11100")
 ScissorsObjects = {
@@ -717,14 +696,6 @@ ScissorsObjects = {
     )
     for scissors_id in scissors_ids
 }
-# ScissorsObject = operable_object_generator(
-#     ObjectType.SCISSORS,
-#     base_pos=(0.0, 0.01756801, 0.0),
-#     base_ori=(-np.pi / 2, 0.0, 0.0),
-#     scale=0.4,
-#     # base_ori=(np.pi / 17, 0.0, 0.0),
-#     model_path="Scissors/10449/mobility.urdf",
-# )
 
 stapler_ids = ("102990", "103271", "103792")
 StaplerObjects = {
@@ -738,14 +709,6 @@ StaplerObjects = {
     )
     for stapler_id in stapler_ids
 }
-# StaplerObject = operable_object_generator(
-#     ObjectType.STAPLER,
-#     base_pos=(0.0, 0.01756801, 0.0),
-#     base_ori=(-np.pi / 2, 0.0, 0.0),
-#     scale=0.4,
-#     # base_ori=(np.pi / 17, 0.0, 0.0),
-#     model_path="Stapler/103271/mobility.urdf",
-# )
 
 switch_ids = ("100866", "100883", "100901", "102812")
 SwitchObjects = {
@@ -759,14 +722,6 @@ SwitchObjects = {
     )
     for switch_id in switch_ids
 }
-# SwitchObject = operable_object_generator(
-#     ObjectType.SWITCH,
-#     base_pos=(0.0, 0.01756801, 0.0),
-#     base_ori=(-np.pi / 2, 0.0, 0.0),
-#     scale=0.4,
-#     # base_ori=(np.pi / 17, 0.0, 0.0),
-#     model_path="Switch/100866/mobility.urdf",
-# )
 
 usb_ids = ("100061", "100065", "100109", "102052")
 USBObjects = {
@@ -780,14 +735,6 @@ USBObjects = {
     )
     for usb_id in usb_ids
 }
-# USBObject = operable_object_generator(
-#     ObjectType.USB,
-#     base_pos=(0.0, 0.01756801, 0.0),
-#     base_ori=(-np.pi / 2, 0.0, 0.0),
-#     scale=0.4,
-#     # base_ori=(np.pi / 17, 0.0, 0.0),
-#     model_path="USB/100061/mobility.urdf",
-# )
 
 
 OBJ_MODELS = {}
@@ -804,7 +751,4 @@ OBJ_MODELS[ObjectType.SCISSORS] = ScissorsObjects
 OBJ_MODELS[ObjectType.STAPLER] = StaplerObjects
 OBJ_MODELS[ObjectType.SWITCH] = SwitchObjects
 OBJ_MODELS[ObjectType.USB] = USBObjects
-
-action_penalty = lambda act: torch.linalg.norm(act, dim=-1)
-l2_dist = lambda x, y: torch.linalg.norm(x - y, dim=-1)
-l1_dist = lambda x, y: torch.abs(x - y).sum(dim=-1)
+OBJ_MODELS[ObjectType.REPOSE_CUBE] = ReposeCubeObject
