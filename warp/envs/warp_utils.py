@@ -1135,6 +1135,10 @@ def assign_act(
 ):
     assert np.prod(act.shape) == num_envs * num_acts, f"act shape {act.shape} is not {num_envs} x {num_acts}"
     act_count = num_acts
+    if action_type.value is None:
+        print("Warning: attemted to assign action when action_type is None")
+        return
+
     if action_type.value == ACTION_JOINT_STIFFNESS:
         # num_acts should correspond to number of joint_act dims, not include joint_ke
         act_count = num_acts // 2

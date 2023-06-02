@@ -3,6 +3,7 @@ from torch.nn.modules import activation
 from warp.envs.warp_utils import assign_act
 from warp.envs import WarpEnv
 from warp.envs import builder_utils as bu
+from warp.envs.rewards import action_penalty, l1_dist
 from warp.envs.common import ActionType, ObjectType, run_env, supported_joint_types, joint_coord_map
 from warp.envs.environment import RenderMode
 
@@ -19,7 +20,8 @@ class ObjectTask(WarpEnv):
         num_envs,
         num_obs,
         num_act,
-        episode_length,
+        action_type: ActionType = ActionType.TORQUE,
+        episode_length: int = 200,
         seed=0,
         no_grad=True,
         render=True,
@@ -78,10 +80,11 @@ class ObjectTask(WarpEnv):
         self.damping = damping
         if rew_params is None:
             rew_params = {
-                "action_penalty": (bu.action_penalty, ["actions"], 1e-3),
-                "object_pos_err": (bu.abs_dist, ["object_pos", "target_pos"], -1),
+                "action_penalty": (action_penalty, ["actions"], 1e-3),
+                "object_pos_err": (l1_dist, ["object_pos", "target_pos"], -1),
             }
         self.rew_params = rew_params
+        self.rew_extras = {}
 
         self.init_sim()  # sets up renderer, model, etc.
         self.simulate_params["ag_return_body"] = self.ag_return_body
@@ -92,8 +95,17 @@ class ObjectTask(WarpEnv):
         self.warp_actions = wp.zeros(
             self.num_envs * self.num_actions, device=self.device, requires_grad=self.requires_grad
         )
-        joint_axis_start = self.model.joint_axis_start.numpy().reshape(self.num_envs, -1)
-        joint_target_indices = joint_axis_start[:, self.env_joint_target_indices].flatten()
+        joint_axis_start = (
+            self.model.joint_axis_start.numpy().reshape(self.num_envs, -1)[:, self.env_joint_mask].flatten()
+        )
+        joint_types = self.model.joint_type.numpy().reshape(self.num_envs, -1)[:, self.env_joint_mask].flatten()
+        joint_target_indices = np.concatenate(
+            [
+                np.arange(joint_idx, joint_idx + joint_coord_map[joint_type])
+                for i, (joint_idx, joint_type) in enumerate(zip(joint_axis_start, joint_types))
+                if self.env_joint_mask[i % self.num_envs]
+            ]
+        )
         self.joint_target_indices = wp.array(joint_target_indices, device=self.device, dtype=int)
 
         self.setup_autograd_vars()
@@ -119,6 +131,9 @@ class ObjectTask(WarpEnv):
     def step(self, actions):
         self.actions = actions
         actions = actions.flatten()
+        if self.num_frames >= 50 and self.num_frames % 25 == 0:
+            print("object joint velocity:", self.extras["object_joint_vel"][0])
+            __import__("ipdb").set_trace()
         del self.extras
         self.extras = OrderedDict(actions=self.actions)
         self.assign_actions(actions)
@@ -143,7 +158,14 @@ class ObjectTask(WarpEnv):
     def _get_rew_dict(self):
         rew_dict = {}
         for k, (cost_fn, rew_terms, rew_scale) in self.rew_params.items():
-            rew_args = [self.extras[k] for k in rew_terms]
+            rew_args = []
+            for arg in rew_terms:
+                if isinstance(arg, str) and arg in self.rew_extras:
+                    rew_args.append(self.rew_extras[arg])
+                elif isinstance(arg, str) and arg in self.extras:
+                    rew_args.append(self.extras[arg])
+                else:
+                    rew_args.append(arg)
             v = self.extras.get(k, cost_fn(*rew_args) * rew_scale)  # if pre-computed, use that
             assert np.prod(v.shape) == self.num_envs
             rew_dict[k] = v.view(self.num_envs, -1)
@@ -162,7 +184,7 @@ class ObjectTask(WarpEnv):
 
     def calculateReward(self):
         rew_dict = self._get_rew_dict()
-        self.rew_buf = torch.sum(torch.cat([v for v in rew_dict.values()]), axis=-1, keepdim=True)
+        self.rew_buf = torch.sum(torch.cat([v for v in rew_dict.values()]), dim=-1).view(self.num_envs)
         self.extras.update(rew_dict)
         return self.rew_buf
 
@@ -186,6 +208,13 @@ class ObjectTask(WarpEnv):
 
         self.env_num_joints = len(joint_indices)
         self.env_joint_target_indices = joint_indices
+        self.env_joint_mask = np.array(
+            [
+                i
+                for i, joint_type in enumerate(builder.joint_type)
+                if joint_type in supported_joint_types[self.action_type]
+            ]
+        )
 
         self.start_pos = self.object_model.base_pos
         self.start_ori = self.object_model.base_ori

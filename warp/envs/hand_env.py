@@ -1,9 +1,11 @@
 from typing import Tuple, Optional, List
+from gym.spaces import flatten_space
 import numpy as np
+from trimesh.util import is_pathlib
 import warp as wp
-import torch
 from warp.envs import ObjectTask
 from warp.envs import builder_utils as bu
+from warp.envs.rewards import l1_dist
 from warp.envs.common import (
     HandType,
     ObjectType,
@@ -27,6 +29,8 @@ num_act_dict = {
 
 class HandObjectTask(ObjectTask):
     obs_keys = ["hand_joint_pos", "hand_joint_vel"]
+    fix_position: bool = True
+    fix_orientation: bool = True
 
     def __init__(
         self,
@@ -53,7 +57,6 @@ class HandObjectTask(ObjectTask):
         use_autograd: bool = False,
     ):
         env_name = hand_type.name + "Env"
-        self.action_type = action_type
         self.hand_start_position = hand_start_position
         self.hand_start_orientation = hand_start_orientation
         self.hand_type = hand_type
@@ -68,6 +71,7 @@ class HandObjectTask(ObjectTask):
             num_obs=num_obs,
             num_act=num_act_dict[(hand_type, action_type)],
             episode_length=episode_length,
+            action_type=action_type,
             seed=seed,
             no_grad=no_grad,
             render=render,
@@ -92,6 +96,19 @@ class HandObjectTask(ObjectTask):
 
         self.simulate_params["ag_return_body"] = True
 
+    @property
+    def fixed_base_joint(self):
+        if self.fix_position and self.fix_orientation:
+            fixed_base_joint = None
+        elif self.fix_orientation:
+            fixed_base_joint += "rx, ry, rz "
+        elif self.fix_position:
+            fixed_base_joint = "px, py, pz"
+        else:
+            fixed_base_joint = ""
+            self.floating_base = True
+        return fixed_base_joint
+
     def _post_step(self):
         self.extras["target_qpos"] = self.actions.view(self.num_envs, -1)
         self.extras["hand_qpos"] = self.joint_q.view(self.num_envs, -1)[:, self.env_joint_target_indices]
@@ -100,12 +117,8 @@ class HandObjectTask(ObjectTask):
     def _get_obs_dict(self):
         joint_q, joint_qd = self.joint_q.view(self.num_envs, -1), self.joint_qd.view(self.num_envs, -1)
         obs_dict = {}
-        obs_dict["hand_joint_pos"] = joint_q[
-            :, self.hand_joint_start : self.hand_joint_start + self.hand_num_joint_axis
-        ]
-        obs_dict["hand_joint_vel"] = joint_qd[
-            :, self.hand_joint_start : self.hand_joint_start + self.hand_num_joint_axis
-        ]
+        obs_dict["hand_joint_pos"] = joint_q[:, : self.hand_num_joint_axis]
+        obs_dict["hand_joint_vel"] = joint_qd[:, : self.hand_num_joint_axis]
         if self.object_type is not None:
             obs_dict["object_joint_pos"] = joint_q[
                 :, self.object_joint_start : self.object_joint_start + self.object_num_joint_axis
@@ -128,8 +141,14 @@ class HandObjectTask(ObjectTask):
         if self.grasps is not None:
             assert joint_q.shape[-1] == self.hand_init_q.shape[-1]
             joint_q[env_ids, self.env_joint_target_indices] = self.hand_init_q.copy()
+            self._set_hand_base_xform(env_ids, self.hand_init_xform)
 
         return joint_q, joint_qd
+
+    def _set_hand_base_xform(self, env_ids, xform):
+        joint_X_p = wp.to_torch(self.model.joint_X_p).view(self.num_envs, -1, 7)
+        joint_X_p[env_ids, self.hand_joint_start] = xform
+        self.model.joint_X_p.assign(wp.from_torch(joint_X_p.view(-1, 7), dtype=wp.transform)),
 
     def reset(self, env_ids=None, force_reset=True):
         if self.grasps is not None:
@@ -143,6 +162,7 @@ class HandObjectTask(ObjectTask):
                 self.action_type,
                 stiffness=self.hand_stiffness,
                 damping=self.hand_damping,
+                fixed_base_joint=self.fixed_base_joint,
                 hand_start_position=self.hand_start_position,
                 hand_start_orientation=self.hand_start_orientation,
             )
@@ -157,9 +177,6 @@ class HandObjectTask(ObjectTask):
             raise NotImplementedError("Hand type not supported:", self.hand_type)
 
         self.hand_joint_names = builder.joint_name
-        if self.actions.max() > 0.1:
-            __import__("ipdb").set_trace()
-        self.hand_joint_start = builder.joint_axis_start[0]
         joint_indices = np.concatenate(
             [
                 np.arange(joint_idx, joint_idx + joint_coord_map[joint_type])
@@ -175,14 +192,19 @@ class HandObjectTask(ObjectTask):
             object_articulation_builder = wp.sim.ModelBuilder()
             super().create_articulation(object_articulation_builder)
             self.object_num_joint_axis = object_articulation_builder.joint_axis_count
-            self.object_joint_start = (
-                object_articulation_builder.joint_axis_start[0] + self.hand_joint_start + self.hand_num_joint_axis
-            )
+            self.object_joint_start = object_articulation_builder.joint_axis_start[0] + self.hand_num_joint_axis
             self.object_joint_type = object_articulation_builder.joint_type
             self.object_num_joint_axis = object_articulation_builder.joint_axis_count
             self.asset_builders.insert(0, object_articulation_builder)
 
         self.env_joint_target_indices = joint_indices
+        self.env_joint_mask = np.array(
+            [
+                i
+                for i, joint_type in enumerate(builder.joint_type)
+                if joint_type in supported_joint_types[self.action_type]
+            ]
+        )
         self.env_num_joints = len(joint_indices)
 
 
@@ -200,7 +222,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--hand_type", type=str, default="allegro")
     parser.add_argument("--action_type", type=str, default="position")
-    parser.add_argument("--object_type", type=str, default="spray_bottle")
+    parser.add_argument("--object_type", type=str, default=None)
     parser.add_argument("--object_id", type=int, default=None)
     parser.add_argument("--render", action="store_true")
     parser.add_argument("--norender", action="store_false", dest="render")
@@ -214,13 +236,11 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    rew_params = {
-        "hand_joint_pos_err": (
-            bu.l1_dist,
-            ["target_qpos", "hand_qpos"],
-            1.0,
-        )
-    }
+    if args.object_type is None:
+        object_type = None
+    else:
+        object_type = ObjectType[args.object_type.upper()]
+    rew_params = {"hand_joint_pos_err": (l1_dist, ("target_qpos", "hand_qpos"), 1.0)}
     HandObjectTask.profile = args.profile
     run_env(
         lambda: HandObjectTask(
@@ -228,7 +248,7 @@ if __name__ == "__main__":
             args.num_obs,
             args.episode_length,
             action_type=ActionType[args.action_type.upper()],
-            object_type=ObjectType[args.object_type.upper()],
+            object_type=object_type,
             object_id=args.object_id,
             hand_type=HandType[args.hand_type.upper()],
             render=args.render,
