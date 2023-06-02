@@ -360,6 +360,19 @@ class ObjectModel:
             self.tcdm_trajectory = self.dex_trajectory = None
 
 
+########### Allegro Hand poses (base orientation)
+# thumb up palm down
+# wp.quat_rpy(-np.pi / 2 * 3, np.pi * 1.25, np.pi / 2 * 3)
+# thumb up (default) palm orthogonal to gravity
+# wp.quat_rpy(-np.pi / 2 * 3, np.pi * 0.75, np.pi / 2 * 3),
+# thumb up, palm facing left
+# wp.quat_rpy(-np.pi / 2 * 3, np.pi * 0.75, np.pi / 2 * 3),
+# thumb up, palm facing right
+# wp.quat_rpy(np.pi * 0.0, np.pi * 1.0, np.pi * -0.25),
+# thumb down
+# wp.quat_rpy(-np.pi / 2 * 3, np.pi * 0.75, np.pi / 2),
+
+
 def create_allegro_hand(
     builder,
     action_type,
@@ -376,23 +389,6 @@ def create_allegro_hand(
     else:
         stiffness, damping = 0.0, 0.0
     xform = wp.transform(hand_start_position, wp.quat_rpy(*hand_start_orientation))
-    # thumb up palm down
-    # wp.quat_rpy(-np.pi / 2 * 3, np.pi * 1.25, np.pi / 2 * 3)
-    # thumb up (default) palm orthogonal to gravity
-    # wp.quat_rpy(-np.pi / 2 * 3, np.pi * 0.75, np.pi / 2 * 3),
-    # thumb up, palm facing left
-    # wp.quat_rpy(-np.pi / 2 * 3, np.pi * 0.75, np.pi / 2 * 3),
-    # thumb up, palm facing right
-    # wp.quat_rpy(np.pi * 0.0, np.pi * 1.0, np.pi * -0.25),
-    # else:
-    #     xform = wp.transform(hand_start_position, wp.quat_rpy(*hand_start_orientation))
-    # xform = wp.transform(
-    # np.array((0.1, 0.15, 0.0)),
-    # wp.quat_rpy(-np.pi / 2 * 3, np.pi * 0.75, np.pi / 2),  # thumb down
-    # wp.quat_rpy(-np.pi / 2 * 3, np.pi * 0.75, np.pi / 2 * 3),  # thumb up (default) palm orthogonal to gravity
-    #     wp.quat_rpy(-np.pi / 2 * 3, np.pi * 1.25, np.pi / 2 * 3),  # thumb up palm down
-    # )
-
     wp.sim.parse_urdf(
         os.path.join(
             os.path.split(os.path.dirname(__file__))[0],
@@ -421,22 +417,12 @@ def create_allegro_hand(
     fixed_base_offset = 3 if base_joint is not None else 0
 
     for i in range(fixed_base_offset, 16 + fixed_base_offset):
-        # if i > 17:
-        #     builder.joint_q[i + q_offset] = builder.joint_limit_lower[i + qd_offset]
-        # else:
-        # if floating_base and 12 <= i <= 13:
-        #     x, y = 0.3, 0.7
-        # else:
         x, y = 0.65, 0.35
         builder.joint_q[i + q_offset] = x * (builder.joint_limit_lower[i]) + y * (builder.joint_limit_upper[i])
         builder.joint_target[i] = builder.joint_q[i + q_offset]
 
-        if action_type is ActionType.POSITION or action_type is ActionType.VARIABLE_STIFFNESS:
-            builder.joint_target_ke[i] = 5000.0
-            builder.joint_target_kd[i] = 10.0
-        else:
-            builder.joint_target_ke[i] = 0.0
-            builder.joint_target_kd[i] = 0.0
+        builder.joint_target_ke[i] = stiffness
+        builder.joint_target_kd[i] = damping
 
 
 class ObjectModel:
