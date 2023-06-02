@@ -297,7 +297,7 @@ def create_shadow_hand(
         builder,
         xform=xform,
         floating=floating_base,
-        fixed_base_joint="rx, ry, rz",
+        base_joint="rx, ry, rz",
         density=1e3,
         armature=0.01,
         stiffness=stiffness,
@@ -369,7 +369,7 @@ def create_allegro_hand(
     hand_start_position=(0.0, 0.30, 0.0),
     hand_start_orientation=(-np.pi / 2, np.pi * 0.75, np.pi / 2),
     # (np.pi * 0.0, np.pi * 1.0, np.pi * -0.25),
-    fixed_base_joint=None,
+    base_joint=None,
 ):
     if action_type is ActionType.POSITION or action_type is ActionType.VARIABLE_STIFFNESS:
         stiffness, damping = stiffness, damping
@@ -401,7 +401,7 @@ def create_allegro_hand(
         builder,
         xform=xform,
         floating=floating_base,
-        fixed_base_joint=fixed_base_joint,
+        base_joint=base_joint,
         density=1e3,
         armature=0.01,
         stiffness=stiffness,
@@ -418,7 +418,7 @@ def create_allegro_hand(
 
     # ensure all joint positions are within limits
     q_offset = 7 if floating_base else 0
-    fixed_base_offset = 3 if fixed_base_joint is not None else 0
+    fixed_base_offset = 3 if base_joint is not None else 0
 
     for i in range(fixed_base_offset, 16 + fixed_base_offset):
         # if i > 17:
@@ -521,7 +521,7 @@ class OperableObjectModel(ObjectModel):
         stiffness=0.0,
         damping=0.0,
         model_path: str = "",
-        fixed_base_joint=None,
+        base_joint=None,
     ):
         super().__init__(
             object_type,
@@ -534,7 +534,7 @@ class OperableObjectModel(ObjectModel):
             damping=damping,
         )
 
-        self.fixed_base_joint = fixed_base_joint
+        self.base_joint = base_joint
         self.density = density
         assert model_path and os.path.splitext(model_path)[1] == ".urdf"
         self.model_path = model_path
@@ -545,7 +545,7 @@ class OperableObjectModel(ObjectModel):
             builder,
             xform=wp.transform(self.base_pos, self.base_ori),
             floating=False,
-            fixed_base_joint=self.fixed_base_joint,
+            base_joint=self.base_joint,
             density=self.density,
             scale=self.scale,
             armature=1e-4,
@@ -594,7 +594,7 @@ ReposeCubeObject = operable_object_generator(
     damping=0.0,
     contact_ke=1e3,
     contact_kd=1e2,
-    fixed_base_joint="rx, ry, rz",
+    base_joint="rx, ry, rz",
     model_path="isaacgymenvs/objects/cube_multicolor.urdf",
 )
 
@@ -605,8 +605,8 @@ SprayBottleObject = operable_object_generator(
     base_ori=(0.0, -np.pi / 4, 0.0),
     scale=1.0,
     density=1.0,
-    # fixed_base_joint=None,
-    fixed_base_joint="px, py, pz",
+    # base_joint=None,
+    base_joint="rx, ry, rz",
     model_path="spray_bottle/mobility.urdf",
 )
 

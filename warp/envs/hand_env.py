@@ -97,17 +97,18 @@ class HandObjectTask(ObjectTask):
         self.simulate_params["ag_return_body"] = True
 
     @property
-    def fixed_base_joint(self):
+    def base_joint(self):
+        base_joint = ""
         if self.fix_position and self.fix_orientation:
-            fixed_base_joint = None
+            base_joint = None
         elif self.fix_orientation:
-            fixed_base_joint += "rx, ry, rz "
+            base_joint += "rx, ry, rz "
         elif self.fix_position:
-            fixed_base_joint = "px, py, pz"
+            base_joint = "px, py, pz"
         else:
-            fixed_base_joint = ""
+            base_joint = ""
             self.floating_base = True
-        return fixed_base_joint
+        return base_joint
 
     def _post_step(self):
         self.extras["target_qpos"] = self.actions.view(self.num_envs, -1)
@@ -162,7 +163,7 @@ class HandObjectTask(ObjectTask):
                 self.action_type,
                 stiffness=self.hand_stiffness,
                 damping=self.hand_damping,
-                fixed_base_joint=self.fixed_base_joint,
+                base_joint=self.base_joint,
                 hand_start_position=self.hand_start_position,
                 hand_start_orientation=self.hand_start_orientation,
             )

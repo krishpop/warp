@@ -102,10 +102,10 @@ class ObjectTask(WarpEnv):
         joint_target_indices = np.concatenate(
             [
                 np.arange(joint_idx, joint_idx + joint_coord_map[joint_type])
-                for i, (joint_idx, joint_type) in enumerate(zip(joint_axis_start, joint_types))
-                if self.env_joint_mask[i % self.num_envs]
+                for joint_idx, joint_type in zip(joint_axis_start, joint_types)
             ]
         )
+        __import__("ipdb").set_trace()
         self.joint_target_indices = wp.array(joint_target_indices, device=self.device, dtype=int)
 
         self.setup_autograd_vars()
@@ -131,9 +131,6 @@ class ObjectTask(WarpEnv):
     def step(self, actions):
         self.actions = actions
         actions = actions.flatten()
-        if self.num_frames >= 50 and self.num_frames % 25 == 0:
-            print("object joint velocity:", self.extras["object_joint_vel"][0])
-            __import__("ipdb").set_trace()
         del self.extras
         self.extras = OrderedDict(actions=self.actions)
         self.assign_actions(actions)
