@@ -76,7 +76,7 @@ class PandaSimulation(Environment):
             xform=wp.transform(np.array([0., 0.30, 0.]),
                                wp.quat_from_axis_angle((1.0, 0.0, 0.0), math.pi * 0.5)),
             floating=False,
-            fixed_base_joint="px, py, pz, ry",
+            base_joint="px, py, pz, ry",
             density=1000,
             armature=0.001,
             stiffness=0.0,  # 120,
