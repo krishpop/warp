@@ -1,7 +1,13 @@
-newmtl material_0_0
-illum 3
-d 1
-Ns 30
-Kd 0.9254901960784314 0.8274509803921568 0.6274509803921569 
-Ks 0.06666666666666667 0.06666666666666667 0.06666666666666667 
+# Blender MTL File: 'None'
+# Material Count: 1
 
+newmtl material_0_0.070
+Ns 29.999999
+Ka 1.000000 1.000000 1.000000
+Kd 1.000000 1.000000 1.000000
+Ks 0.066667 0.066667 0.066667
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 3
+map_Kd /afs/cs.stanford.edu/u/ksrini/scratch-ssd/ksrini/diff_manip/external/warp/warp/envs/assets/Eyeglasses/103189/images/texture_0.jpg
