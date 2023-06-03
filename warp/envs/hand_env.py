@@ -1,8 +1,9 @@
+import os
+import numpy as np
+import warp as wp
+from trimesh.util import is_pathlib
 from typing import Tuple, Optional, List
 from gym.spaces import flatten_space
-import numpy as np
-from trimesh.util import is_pathlib
-import warp as wp
 from warp.envs import ObjectTask
 from warp.envs import builder_utils as bu
 from warp.envs.rewards import l1_dist
@@ -10,21 +11,12 @@ from warp.envs.common import (
     HandType,
     ObjectType,
     ActionType,
-    GraspParams,
+    HAND_ACT_COUNT,
     joint_coord_map,
     supported_joint_types,
     run_env,
 )
 from warp.envs.environment import RenderMode
-
-
-num_act_dict = {
-    (HandType.ALLEGRO, ActionType.POSITION): 16,
-    (HandType.ALLEGRO, ActionType.TORQUE): 16,
-    (HandType.ALLEGRO, ActionType.VARIABLE_STIFFNESS): 32,
-    (HandType.SHADOW, ActionType.POSITION): 24,
-    (HandType.SHADOW, ActionType.TORQUE): 24,
-}
 
 
 class HandObjectTask(ObjectTask):
@@ -47,21 +39,33 @@ class HandObjectTask(ObjectTask):
         stage_path=None,
         object_type: Optional[ObjectType] = None,
         object_id=0,
-        stiffness=0.0,
+        stiffness=1000.0,
         damping=0.5,
         rew_params=None,
         hand_type: HandType = HandType.ALLEGRO,
         hand_start_position: Tuple = (0.0, 0.3, -0.6),
         hand_start_orientation: Tuple = (-np.pi / 2 * 3, np.pi * 1.25, np.pi / 2 * 3),
-        grasps: List[GraspParams] = None,
+        grasp_file: str = "",
+        grasp_id: int = None,
         use_autograd: bool = False,
     ):
         env_name = hand_type.name + "Env"
         self.hand_start_position = hand_start_position
         self.hand_start_orientation = hand_start_orientation
         self.hand_type = hand_type
-        self.grasps = grasps
-        stochastic_init = stochastic_init or (grasps is not None)
+
+        if os.path.exists(grasp_file):
+            all_grasps = np.load(grasp_file, allow_pickle=False)
+            if grasp_id != None:
+                self.grasps = all_grasps[grasp_id]
+            else:
+                self.grasps = all_grasps[np.random.randint(0, all_grasps.shape[0])]
+        else:
+            self.grasps = None
+            if grasp_file != "":
+                print(f"Grasp file {grasp_file} not found")
+
+        stochastic_init = stochastic_init or (self.grasps is not None)
         self.hand_stiffness = stiffness
         self.hand_damping = damping
         # self.gravity = 0.0
@@ -69,7 +73,7 @@ class HandObjectTask(ObjectTask):
         super().__init__(
             num_envs=num_envs,
             num_obs=num_obs,
-            num_act=num_act_dict[(hand_type, action_type)],
+            num_act=HAND_ACT_COUNT[hand_type.value][action_type.value],
             episode_length=episode_length,
             action_type=action_type,
             seed=seed,
@@ -171,6 +175,9 @@ class HandObjectTask(ObjectTask):
             bu.create_shadow_hand(
                 builder,
                 self.action_type,
+                stiffness=self.hand_stiffness,
+                damping=self.hand_damping,
+                base_joint=self.base_joint,
                 hand_start_position=self.hand_start_position,
                 hand_start_orientation=self.hand_start_orientation,
             )
@@ -178,13 +185,20 @@ class HandObjectTask(ObjectTask):
             raise NotImplementedError("Hand type not supported:", self.hand_type)
 
         self.hand_joint_names = builder.joint_name
-        joint_indices = np.concatenate(
-            [
-                np.arange(joint_idx, joint_idx + joint_coord_map[joint_type])
-                for joint_idx, joint_type in zip(builder.joint_axis_start, builder.joint_type)
-                if joint_type in supported_joint_types[self.action_type]
-            ]
+        valid_joint_types = supported_joint_types[self.action_type.value]
+        self.env_joint_mask = list(
+            map(lambda x: x[0], filter(lambda x: x[1] in valid_joint_types, enumerate(builder.joint_type)))
         )
+
+        if len(self.env_joint_mask) > 0:
+            joint_indices = []
+            for i in self.env_joint_mask:
+                joint_start, axis_count = builder.joint_axis_start[i], joint_coord_map[builder.joint_type[i]]
+                joint_indices.append(np.arange(joint_start, joint_start + axis_count))
+            joint_indices = np.concatenate(joint_indices)
+        else:
+            joint_indices = []
+
         self.hand_num_joint_axis = builder.joint_axis_count
         self.num_joint_q += len(builder.joint_q)
         self.num_joint_qd += len(builder.joint_qd)
@@ -199,25 +213,11 @@ class HandObjectTask(ObjectTask):
             self.asset_builders.insert(0, object_articulation_builder)
 
         self.env_joint_target_indices = joint_indices
-        self.env_joint_mask = np.array(
-            [
-                i
-                for i, joint_type in enumerate(builder.joint_type)
-                if joint_type in supported_joint_types[self.action_type]
-            ]
-        )
+        assert self.num_acts == len(joint_indices), "num_act must match number of joint control indices"
         self.env_num_joints = len(joint_indices)
 
 
 if __name__ == "__main__":
-    # operable_object_generator(
-    #     ObjectType.SPRAY_BOTTLE,
-    #     base_pos=(0.0, 0.22, 0.0),
-    #     base_ori=(0.0, 0.0, 0.0),
-    #     scale=1.0,
-    #     model_path="spray_bottle/mobility.urdf",
-    # )
-    # create argparse params for handenv
     import argparse
 
     parser = argparse.ArgumentParser()
@@ -233,28 +233,47 @@ if __name__ == "__main__":
     parser.add_argument("--stiffness", type=float, default=5000.0)
     parser.add_argument("--damping", type=float, default=10.0)
     parser.add_argument("--profile", action="store_true")
+    parser.add_argument("--debug", action="store_true")
+    parser.add_argument("--grasp_file", type=str, default="")
+    parser.add_argument("--grasp_id", type=int, default=None)
+    parser.add_argument("--headless", action="store_true")
     parser.set_defaults(render=True)
 
     args = parser.parse_args()
+    if args.debug:
+        wp.config.mode = "debug"
+        wp.config.print_launches = True
+        wp.config.verify_cuda = True
 
     if args.object_type is None:
         object_type = None
     else:
         object_type = ObjectType[args.object_type.upper()]
+
+    if args.headless:
+        HandObjectTask.opengl_render_settings["headless"] = True
+
     rew_params = {"hand_joint_pos_err": (l1_dist, ("target_qpos", "hand_qpos"), 1.0)}
     HandObjectTask.profile = args.profile
-    run_env(
-        lambda: HandObjectTask(
-            args.num_envs,
-            args.num_obs,
-            args.episode_length,
-            action_type=ActionType[args.action_type.upper()],
-            object_type=object_type,
-            object_id=args.object_id,
-            hand_type=HandType[args.hand_type.upper()],
-            render=args.render,
-            stiffness=args.stiffness,
-            damping=args.damping,
-            rew_params=rew_params,
-        )
+
+    env = HandObjectTask(
+        args.num_envs,
+        args.num_obs,
+        args.episode_length,
+        action_type=ActionType[args.action_type.upper()],
+        object_type=object_type,
+        object_id=args.object_id,
+        hand_type=HandType[args.hand_type.upper()],
+        render=args.render,
+        grasp_file=args.grasp_file,
+        grasp_id=args.grasp_id,
+        stiffness=args.stiffness,
+        damping=args.damping,
+        rew_params=rew_params,
     )
+    if args.headless and args.render:
+        from warp.envs.wrappers import Monitor
+
+        env = Monitor(env, "outputs/videos")
+    run_env(env, num_states=10)
+    env.close()

@@ -44,6 +44,7 @@ class ObjectTask(WarpEnv):
                 env_name = "ObjectEnv"
         self.num_joint_q = 0
         self.num_joint_qd = 0
+        self.action_type = action_type
         super().__init__(
             num_envs,
             num_obs,
@@ -70,9 +71,11 @@ class ObjectTask(WarpEnv):
             obj_generator = None
         try:
             if isinstance(obj_generator, dict):
-                obj_generator = obj_generator[object_id]
+                obj_generator = obj_generator[str(object_id)]
         except KeyError:
-            raise ValueError(f"Object ID {object_id} not found for object type {object_type}")
+            raise ValueError(
+                f"Object ID {object_id} not found for object type {object_type}, valid options are: {obj_generator.keys()}"
+            )
 
         self.object_cls = obj_generator
 
@@ -91,7 +94,10 @@ class ObjectTask(WarpEnv):
 
     def init_sim(self):
         super().init_sim()
-        self.num_actions = self.env_num_joints  # number of actions that set joint target
+        if not hasattr(self, "num_actions"):
+            self.num_actions = self.env_num_joints  # number of actions that set joint target
+        else:
+            assert self.env_num_joints == self.num_actions, "Number of actions must match number of joints"
         self.warp_actions = wp.zeros(
             self.num_envs * self.num_actions, device=self.device, requires_grad=self.requires_grad
         )
@@ -105,7 +111,6 @@ class ObjectTask(WarpEnv):
                 for joint_idx, joint_type in zip(joint_axis_start, joint_types)
             ]
         )
-        __import__("ipdb").set_trace()
         self.joint_target_indices = wp.array(joint_target_indices, device=self.device, dtype=int)
 
         self.setup_autograd_vars()
@@ -161,8 +166,10 @@ class ObjectTask(WarpEnv):
                     rew_args.append(self.rew_extras[arg])
                 elif isinstance(arg, str) and arg in self.extras:
                     rew_args.append(self.extras[arg])
-                else:
+                elif not isinstance(arg, str):
                     rew_args.append(arg)
+                else:
+                    continue
             v = self.extras.get(k, cost_fn(*rew_args) * rew_scale)  # if pre-computed, use that
             assert np.prod(v.shape) == self.num_envs
             rew_dict[k] = v.view(self.num_envs, -1)
@@ -195,23 +202,22 @@ class ObjectTask(WarpEnv):
         self.object_model.create_articulation(builder)
         self.num_joint_q += len(builder.joint_q)
         self.num_joint_qd += len(builder.joint_qd)
-        joint_indices = np.concatenate(
-            [
-                np.arange(joint_idx, joint_idx + joint_coord_map[joint_type])
-                for joint_idx, joint_type in zip(builder.joint_axis_start, builder.joint_type)
-                if joint_type in supported_joint_types[self.action_type]
-            ]
+
+        valid_joint_types = supported_joint_types[self.action_type.value]
+        self.env_joint_mask = list(
+            map(lambda x: x[0], filter(lambda x: x[1] in valid_joint_types, enumerate(builder.joint_type)))
         )
+        if len(self.env_joint_mask) > 0:
+            joint_indices = []
+            for i in self.env_joint_mask:
+                joint_start, axis_count = builder.joint_axis_start[i], joint_coord_map[builder.joint_type[i]]
+                joint_indices.append(np.arange(joint_start, joint_start + axis_count))
+            joint_indices = np.concatenate(joint_indices)
+        else:
+            joint_indices = []
 
         self.env_num_joints = len(joint_indices)
         self.env_joint_target_indices = joint_indices
-        self.env_joint_mask = np.array(
-            [
-                i
-                for i, joint_type in enumerate(builder.joint_type)
-                if joint_type in supported_joint_types[self.action_type]
-            ]
-        )
 
         self.start_pos = self.object_model.base_pos
         self.start_ori = self.object_model.base_ori
@@ -232,7 +238,7 @@ if __name__ == "__main__":
     object_type = ObjectType[args.object_type.upper()]
 
     run_env(
-        lambda: ObjectTask(
+        ObjectTask(
             5, 1, 1, 1000, object_type=object_type, stiffness=args.stiffness, damping=args.damping, render=args.render
         ),
         log_runs=args.log,
