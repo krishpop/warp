@@ -11,8 +11,8 @@ import sys
 
 import torch
 
-from warp.envs.environment import Environment, RenderMode, IntegratorType
-from warp.envs.warp_env import WarpEnv
+from .environment import Environment, RenderMode, IntegratorType
+from .warp_env import WarpEnv
 import numpy as np
 import warp as wp
 
@@ -23,7 +23,7 @@ try:
 except ModuleNotFoundError:
     print("No pxr package")
 
-from . import torch_utils as tu
+from .utils import torch_utils as tu
 
 
 class HumanoidEnv(WarpEnv):

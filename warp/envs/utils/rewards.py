@@ -1,5 +1,5 @@
 import torch
-from warp.envs.torch_utils import quat_conjugate, quat_mul
+from .torch_utils import quat_conjugate, quat_mul
 
 action_penalty = lambda act: torch.linalg.norm(act, dim=-1)
 l2_dist = lambda x, y: torch.linalg.norm(x - y, dim=-1)
@@ -16,6 +16,11 @@ def rot_dist(object_rot, target_rot):
 @torch.jit.script
 def rot_reward(object_rot, target_rot):
     return 1.0 / torch.abs(rot_dist(object_rot, target_rot) + 0.1)
+
+
+@torch.jit.script
+def rot_reward_delta(object_rot, target_rot, prev_rot_reward):
+    return prev_rot_reward - rot_reward(object_rot, target_rot)
 
 
 @torch.jit.script

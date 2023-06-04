@@ -1,15 +1,23 @@
 from collections import OrderedDict
-from torch.nn.modules import activation
-from warp.envs.warp_utils import assign_act
-from warp.envs import WarpEnv
-from warp.envs import builder_utils as bu
-from warp.envs.rewards import action_penalty, l1_dist
-from warp.envs.common import ActionType, ObjectType, run_env, supported_joint_types, joint_coord_map
-from warp.envs.environment import RenderMode
 
-import warp as wp
 import numpy as np
 import torch
+from torch.nn.modules import activation
+
+import warp as wp
+
+from .environment import RenderMode
+from .utils.common import (
+    ActionType,
+    ObjectType,
+    joint_coord_map,
+    run_env,
+    supported_joint_types,
+)
+from .utils import builder as bu
+from .utils.rewards import action_penalty, l1_dist
+from .utils.warp_utils import assign_act
+from .warp_env import WarpEnv
 
 
 class ObjectTask(WarpEnv):
@@ -66,7 +74,7 @@ class ObjectTask(WarpEnv):
         self.action_type = ActionType.POSITION
 
         if self.object_type:
-            obj_generator = bu.OBJ_MODELS[self.object_type]
+            obj_generator = bu.OBJ_MODELS[self.object_type.value]
         else:
             obj_generator = None
         try:
@@ -86,11 +94,26 @@ class ObjectTask(WarpEnv):
                 "action_penalty": (action_penalty, ["actions"], 1e-3),
                 "object_pos_err": (l1_dist, ["object_pos", "target_pos"], -1),
             }
+        else:
+            rew_params = self.parse_rew_params(rew_params)
         self.rew_params = rew_params
         self.rew_extras = {}
 
         self.init_sim()  # sets up renderer, model, etc.
         self.simulate_params["ag_return_body"] = self.ag_return_body
+
+    def parse_rew_params(self, rew_params_dict):
+        rew_params = {}
+        for key, value in rew_params_dict.items():
+            if isinstance(value, dict):
+                function = value["reward_fn_partial"]
+                # function = instantiate(function_name)
+                arguments = value["args"]
+                coefficient = value["scale"]
+            else:
+                function, arguments, coefficient = value
+            rew_params[key] = (function, arguments, coefficient)
+        return rew_params
 
     def init_sim(self):
         super().init_sim()
@@ -166,13 +189,14 @@ class ObjectTask(WarpEnv):
                     rew_args.append(self.rew_extras[arg])
                 elif isinstance(arg, str) and arg in self.extras:
                     rew_args.append(self.extras[arg])
-                elif not isinstance(arg, str):
-                    rew_args.append(arg)
                 else:
-                    continue
+                    raise TypeError("Invalid argument for reward function {}, ('{}')".format(k, arg))
             v = self.extras.get(k, cost_fn(*rew_args) * rew_scale)  # if pre-computed, use that
+
             assert np.prod(v.shape) == self.num_envs
-            rew_dict[k] = v.view(self.num_envs, -1)
+            rew_dict[k] = v.view(self.num_envs)
+
+        self.extras.update({f"prev_{k}": v for k, v in rew_dict.items()})
         return rew_dict
 
     def _get_obs_dict(self):
@@ -189,7 +213,6 @@ class ObjectTask(WarpEnv):
     def calculateReward(self):
         rew_dict = self._get_rew_dict()
         self.rew_buf = torch.sum(torch.cat([v for v in rew_dict.values()]), dim=-1).view(self.num_envs)
-        self.extras.update(rew_dict)
         return self.rew_buf
 
     def calculateObservations(self):
@@ -203,7 +226,7 @@ class ObjectTask(WarpEnv):
         self.num_joint_q += len(builder.joint_q)
         self.num_joint_qd += len(builder.joint_qd)
 
-        valid_joint_types = supported_joint_types[self.action_type.value]
+        valid_joint_types = supported_joint_types[self.action_type]
         self.env_joint_mask = list(
             map(lambda x: x[0], filter(lambda x: x[1] in valid_joint_types, enumerate(builder.joint_type)))
         )

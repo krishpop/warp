@@ -9,8 +9,8 @@ import warp.sim
 import numpy as np
 
 np.set_printoptions(precision=5, linewidth=256, suppress=True)
-from . import torch_utils as tu
-from .autograd_utils import assign_act, forward_ag, clear_arrays
+from .utils import torch_utils as tu
+from .utils.autograd import assign_act, forward_ag, clear_arrays
 
 
 class HopperEnv(WarpEnv):

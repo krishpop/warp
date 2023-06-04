@@ -8,11 +8,13 @@ import warp.sim
 import matplotlib.pyplot as plt
 
 from tqdm import trange
-from typing import Optional
+from scipy.spatial.transform import Rotation as R
+from typing import Optional, List
 from inspect import getmembers
 from enum import Enum
 from dataclasses import dataclass
-from warp.envs.warp_utils import l1_loss, l1_xform_loss
+from .rewards import l1_dist
+
 from warp.sim.model import State
 
 
@@ -152,6 +154,15 @@ class HandType(Enum):
     SHADOW = 1
 
 
+HAND_ACT_COUNT = {
+    (HandType.ALLEGRO, ActionType.POSITION): 16,
+    (HandType.ALLEGRO, ActionType.TORQUE): 16,
+    (HandType.ALLEGRO, ActionType.VARIABLE_STIFFNESS): 32,
+    (HandType.SHADOW, ActionType.POSITION): 24,
+    (HandType.SHADOW, ActionType.TORQUE): 24,
+}
+
+
 class ObjectType(Enum):
     CYLINDER_MESH = 0
     CUBE_MESH = 1
@@ -181,14 +192,61 @@ class ObjectType(Enum):
 class GraspParams:
     xform: np.ndarray = np.array([0, 0, 0, 0, 0, 0, 1], dtype=np.float32)
     hand_type: HandType = HandType.ALLEGRO
-    joint_pos: np.ndarray = np.zeros(7, dtype=np.float32)
+    joint_pos: np.ndarray = None
     stiffness: Optional[float] = None
     damping: Optional[float] = None
 
 
-def load_grasps_npy(path) -> GraspParams:
+SHADOW_HAND_JOINTS = [
+    "THJ5",
+    "THJ4",
+    "THJ3",
+    "THJ2",
+    "THJ1",
+    "LFJ5",
+    "LFJ4",
+    "LFJ3",
+    "LFJ2",
+    "LFJ1",
+    "RFJ4",
+    "RFJ3",
+    "RFJ2",
+    "RFJ1",
+    "MFJ4",
+    "MFJ3",
+    "MFJ2",
+    "MFJ1",
+    "FFJ4",
+    "FFJ3",
+    "FFJ2",
+    "FFJ1",
+]
+
+
+def parse_grasp_data(grasp):
+    if len(grasp["qpos"]) == 22:
+        hand_type = HandType.ALLEGRO
+        qpos = np.array([grasp["qpos"][f"joint_{i}.0"] for i in range(16)])
+    elif len(grasp["qpos"]) == 28:
+        hand_type = HandType.SHADOW
+        qpos = np.array([grasp["qpos"][f"robot0:{joint_name}"] for joint_name in SHADOW_HAND_JOINTS])
+    else:
+        raise NotImplementedError("Hand type not supported")
+
+    pose_r = [grasp["qpos"][f"WRJR{d}"] for d in "xyz"]
+    pose_t = [grasp["qpos"][f"WRJT{d}"] for d in "xyz"]
+    pose_r = R.from_euler("xyz", pose_r).as_quat()
+    return np.concatenate([pose_t, pose_r]), qpos, hand_type
+
+
+def load_grasps_npy(path) -> List[GraspParams]:
     data = np.load(path, allow_pickle=True)
-    return GraspParams(**data)
+
+    params = []
+    for grasp in data:
+        hand_pose, qpos, hand_type = parse_grasp_data(grasp)
+        params.append(GraspParams(hand_type=hand_type, xform=hand_pose, joint_pos=qpos))
+    return params
 
 
 def clear_state_grads(state: State):
@@ -220,37 +278,37 @@ supported_joint_types = {
 }
 
 
-def run_env(Env, num_states=500, log_runs=False):
-    env = Env()
-    # env.parse_args()
-    if env.profile:
-        env_count = 2
-        env_times = []
-        env_size = []
+def profile(env):
+    env_count = 2
+    env_times = []
+    env_size = []
 
-        for i in range(15):
-            env.num_environments = env_count
-            env.init_sim()
-            steps_per_second = env.run()
+    for i in range(15):
+        env.num_environments = env_count
+        env.init_sim()
+        steps_per_second = env.run()
 
-            env_size.append(env_count)
-            env_times.append(steps_per_second)
+        env_size.append(env_count)
+        env_times.append(steps_per_second)
 
-            env_count *= 2
+        env_count *= 2
 
-        # dump times
-        for i in range(len(env_times)):
-            print(f"envs: {env_size[i]} steps/second: {env_times[i]}")
+    # dump times
+    for i in range(len(env_times)):
+        print(f"envs: {env_size[i]} steps/second: {env_times[i]}")
 
-        # plot
-        plt.figure(1)
-        plt.plot(env_size, env_times)
-        plt.xscale("log")
-        plt.xlabel("Number of Envs")
-        plt.yscale("log")
-        plt.ylabel("Steps/Second")
-        plt.show()
-    else:
+    # plot
+    plt.figure(1)
+    plt.plot(env_size, env_times)
+    plt.xscale("log")
+    plt.xlabel("Number of Envs")
+    plt.yscale("log")
+    plt.ylabel("Steps/Second")
+    plt.show()
+
+
+def run_env(env, pi=None, num_steps=50, log_runs=False):
+    if pi is None:
         # env.reset()
         joint_target_indices = env.env_joint_target_indices
 
@@ -261,27 +319,25 @@ def run_env(Env, num_states=500, log_runs=False):
         n_dof = env.num_acts
 
         # for each degree of freedom, collect a rollout controlling joint target
-        for i in range(n_dof):
+
+        def pi(obs, t):
+            del obs
             joint_q_targets = (
-                np.sin(np.linspace(0, 3 * np.pi, 2 * num_states + 1)) * (upper[i] - lower[i]) / 2
-                + (upper[i] + lower[i]) / 2
+                np.sin(np.linspace(0, 3 * np.pi, num_steps))[:, None] * (upper - lower) / 2 + (upper + lower) / 2
             )
+            action = joint_start.copy()
+            action[:, :] = joint_q_targets[t % num_steps]
+            return torch.tensor(action, device=str(env.device))
 
-            def pi(obs, t):
-                del obs
-                action = joint_start.copy()
-                action[:, i] = joint_q_targets[t]
-                return torch.tensor(action, device=str(env.device))
-
-            num_steps = 2 * num_states + 1
-            actions, states, rewards, _ = collect_rollout(env, num_steps, pi)
-            if log_runs:
-                np.savez(
-                    f"{env.env_name}_dof_rollout-{i}",
-                    actions=np.asarray(actions),
-                    states=np.asarray(states),
-                    rewards=np.asarray(rewards),
-                )
+    num_steps = num_steps * n_dof
+    actions, states, rewards, _ = collect_rollout(env, num_steps, pi)
+    if log_runs:
+        np.savez(
+            f"{env.env_name}_rollout",
+            actions=np.asarray(actions),
+            states=np.asarray(states),
+            rewards=np.asarray(rewards),
+        )
 
 
 def collect_rollout(env, n_steps, pi, loss_fn=None, plot_body_coords=False, plot_joint_coords=False):

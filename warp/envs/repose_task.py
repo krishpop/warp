@@ -1,15 +1,13 @@
+from typing import Tuple
+
 import numpy as np
 import torch
-from warp.envs.common import (
-    HandType,
-    ObjectType, ActionType,
-    run_env,
-)
-from warp.envs.environment import RenderMode
-from warp.envs.hand_env import HandObjectTask
-from warp.envs.rewards import action_penalty, l2_dist, rot_dist, rot_reward, reach_bonus
 
-from typing import Tuple
+from .utils import torch_utils as tu
+from .environment import RenderMode
+from .hand_env import HandObjectTask
+from .utils.common import ActionType, HandType, ObjectType, run_env
+from .utils.rewards import action_penalty, l2_dist, reach_bonus, rot_dist, rot_reward
 
 
 class ReposeTask(HandObjectTask):
@@ -18,8 +16,8 @@ class ReposeTask(HandObjectTask):
     def __init__(
         self,
         num_envs,
-        num_obs,
-        episode_length,
+        num_obs=1,
+        episode_length=500,
         action_type: ActionType = ActionType.POSITION,
         seed=0,
         no_grad=True,
@@ -33,14 +31,14 @@ class ReposeTask(HandObjectTask):
         rew_params=None,
         hand_type: HandType = HandType.ALLEGRO,
         hand_start_position: Tuple = (0.0, 0.3, -0.6),
-        hand_start_orientation: Tuple = (-np.pi / 2 * 3, np.pi * 1.25, np.pi / 2 * 3),
+        hand_start_orientation: Tuple = (-np.pi / 2 * 3, np.pi * 0.75, np.pi / 2 * 3),
         use_autograd: bool = False,
         reach_threshold=0.1,
     ):
         object_type = ObjectType.REPOSE_CUBE
         object_id = 0
         rew_dict_params = {k: v for k, v in rew_params.items() if k != "reach_bonus"}
-        self.reach_bonus = rew_params.get("reach_bonus", (lambda x: torch.ones_like(x), ("object_pose_err"), 100.0))
+        self.reach_bonus = rew_params.get("reach_bonus", (lambda x: torch.zeros_like(x), ("object_pose_err",), 100.0))
         super().__init__(
             num_envs=num_envs,
             num_obs=num_obs,
@@ -61,34 +59,58 @@ class ReposeTask(HandObjectTask):
             hand_type=hand_type,
             hand_start_position=hand_start_position,
             hand_start_orientation=hand_start_orientation,
-            grasps=None,
+            grasp_file="",
+            grasp_id=None,
             use_autograd=use_autograd,
         )
         self.rew_extras["reach_threshold"] = reach_threshold
-        self.goal_pos = torch.as_tensor([0.0, 0.3, -0.6], dtype=float, device=self.device)
+        self.goal_pos = torch.as_tensor([0.0, 0.3, -0.6], dtype=float, device=str(self.device))
+        self.goal_rot = torch.as_tensor([0.0, 0.0, 0.0, 1.0], dtype=float, device=str(self.device))
 
     def _get_object_pose(self):
         joint_q = self.joint_q.view(self.num_envs, -1)
-        object_joint_pos = joint_q[:, self.object_joint_start : self.object_joint_start + 3]
+
         pose = {}
-        pose["position"] = object_joint_pos
-        return object_joint_pos
+        if self.object_model.floating:
+            object_joint_pos = joint_q[:, self.object_joint_start : self.object_joint_start + 3]
+            object_joint_quat = joint_q[:, self.object_joint_start + 3 : self.object_joint_start + 7]
+            pose["position"] = object_joint_pos + tu.to_torch(self.object_model.base_pos).view(1, 3)
+            pose["orientation"] = tu.quat_mul(object_joint_quat, tu.to_torch(self.object_model.base_quat).view(1, 4))
+        elif self.object_model.base_joint == "px, py, px":
+            pose["position"] = joint_q[:, self.object_joint_start : self.object_joint_start + 3]
+        elif self.object_model.base_joint == "rx, ry, rx":
+            pose["orientation"] = joint_q[:, self.object_joint_start : self.object_joint_start + 3]
+        elif self.object_model.base_joint == "px, py, pz, rx, ry, rz":
+            pose["position"] = joint_q[:, self.object_joint_start : self.object_joint_start + 3]
+            pose["orientation"] = joint_q[:, self.object_joint_start + 3 : self.object_joint_start + 6]
+        return pose
 
     def _get_obs_dict(self):
         obs_dict = super()._get_obs_dict()
-        obs_dict["target_pos"] = self.goal_pos
+        obs_dict["target_pos"] = self.goal_pos.view(1, 3).repeat(self.num_envs, 1)
+        obs_dict["target_quat"] = self.goal_rot.view(1, 4).repeat(self.num_envs, 1)
         object_pose = self._get_object_pose()
         obs_dict["object_pos"] = object_pose["position"]
         # obs_dict["object_rot"] = object_pose['orientation']
-        obs_dict["object_pose_err"] = l2_dist(obs_dict["object_pos"], obs_dict["target_pos"])
-        # obj_dict["object_pose_err"] += rot_dist(self.object_rot, self.target_rot)
+        obs_dict["object_pose_err"] = l2_dist(obs_dict["object_pos"], obs_dict["target_pos"]).view(self.num_envs)
+        # obj_dict["object_pose_err"] += rot_dist(
+        #     object_pos["orientation"], self.goal_rot.view(1, 3).repeat(self.num_envs, 1)
+        # )
+        obs_dict["action"] = self.actions.view(self.num_envs, -1)
+        self.extras.update(obs_dict)
         return obs_dict
 
     def _get_rew_dict(self):
         rew_dict = super()._get_rew_dict()
         cost_fn, rew_args, rew_scale = self.reach_bonus
-        rew_args = [rew_dict[k] for k in rew_args]
-        rew_dict["reach_bonus"] = cost_fn(*rew_args) * rew_scale
+        args = []
+        for arg in rew_args:
+            if arg in self.extras:
+                args.append(self.extras[arg])
+            elif arg in rew_dict:
+                args.append(rew_dict[arg])
+
+        rew_dict["reach_bonus"] = cost_fn(*args) * rew_scale
         return rew_dict
 
 
@@ -96,9 +118,9 @@ if __name__ == "__main__":
     reach_bonus = lambda x: torch.where(x < 0.1, torch.ones_like(x), torch.zeros_like(x))
     rew_params = {
         "object_pos_err": (l2_dist, ("target_pos", "object_pos"), -10.0),
-        "rot_reward": (rot_reward, ("object_rot", "target_rot"), 1.0),
-        "action_penalty": (action_penalty, ("action"), -0.0002),
-        "reach_bonus": (reach_bonus, ("object_pose_err", "reach_threshold"), 250.0),
+        # "rot_reward": (rot_reward, ("object_rot", "target_rot"), 1.0),
+        "action_penalty": (action_penalty, ("action",), -0.0002),
+        # "reach_bonus": (reach_bonus, ("object_pose_err", "reach_threshold"), 250.0),
     }
 
-    run_env(lambda: ReposeTask(num_envs=1, num_obs=1, episode_length=1000, rew_params=rew_params))
+    run_env(ReposeTask(num_envs=1, num_obs=1, episode_length=1000, rew_params=rew_params))

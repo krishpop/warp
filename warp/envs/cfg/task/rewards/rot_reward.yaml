@@ -1,0 +1,7 @@
+"rot_reward": (rot_reward, ("object_rot", "target_rot"), 1.0),
+
+reward_fn: @warp.envs.utils.rewards.rot_reward
+args: 
+  - object_rot
+  - target_rot
+scale: -1.0

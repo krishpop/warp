@@ -5,7 +5,7 @@ from typing import Union
 from inspect import getmembers
 from warp.sim.model import State, Model
 from torch.cuda.amp import custom_fwd, custom_bwd
-from warp_utils import integrate_body_f
+from .warp_utils import integrate_body_f
 
 # from warp.tests.grad_utils import check_kernel_jacobian, check_backward_pass, plot_jacobian_comparison
 

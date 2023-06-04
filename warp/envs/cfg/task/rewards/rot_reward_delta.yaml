@@ -1,0 +1,6 @@
+reward_fn: @warp.envs.utils.rewards.rot_reward_delta
+args: 
+  - object_rot
+  - target_rot
+  - prev_rot_reward
+scale: -1.0

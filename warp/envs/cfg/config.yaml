@@ -1,0 +1,10 @@
+defaults:
+  - _self_
+  - task: repose
+  - alg: control_test
+  # - override hydra/launcher: submitit_local
+
+
+# global defaults 
+num_envs: 1 
+num_steps: 500

@@ -1,11 +1,13 @@
 import numpy as np
 import torch
+
 import warp as wp
-import builder_utils as bu
-from hand_env import HandObjectTask
-from warp.envs.common import run_env, collect_rollout, ObjectType
-from environment import RenderMode
 from warp.optim import Adam
+
+from .environment import RenderMode
+from .hand_env import HandObjectTask
+from .utils import builder as bu
+from .utils.common import ObjectType, collect_rollout, run_env
 
 
 def main():

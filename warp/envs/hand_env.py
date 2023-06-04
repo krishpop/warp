@@ -1,13 +1,11 @@
 import os
 import numpy as np
 import warp as wp
-from trimesh.util import is_pathlib
-from typing import Tuple, Optional, List
-from gym.spaces import flatten_space
-from warp.envs import ObjectTask
-from warp.envs import builder_utils as bu
-from warp.envs.rewards import l1_dist
-from warp.envs.common import (
+from typing import Tuple, Optional
+from .obj_env import ObjectTask
+from .utils import builder as bu
+from .utils.rewards import l1_dist
+from .utils.common import (
     HandType,
     ObjectType,
     ActionType,
@@ -16,7 +14,7 @@ from warp.envs.common import (
     supported_joint_types,
     run_env,
 )
-from warp.envs.environment import RenderMode
+from .environment import RenderMode
 
 
 class HandObjectTask(ObjectTask):
@@ -73,7 +71,7 @@ class HandObjectTask(ObjectTask):
         super().__init__(
             num_envs=num_envs,
             num_obs=num_obs,
-            num_act=HAND_ACT_COUNT[hand_type.value][action_type.value],
+            num_act=HAND_ACT_COUNT[(hand_type, action_type)],
             episode_length=episode_length,
             action_type=action_type,
             seed=seed,
@@ -142,13 +140,16 @@ class HandObjectTask(ObjectTask):
     def get_stochastic_init(self, env_ids, joint_q, joint_qd):
         # need to set the base joint of each env to sampled grasp xform
         # then set each joint target pos to grasp.
-        joint_q, joint_qd = super().get_stochastic_init()
+        try:
+            joint_q[env_ids], joint_qd[env_ids] = super().get_stochastic_init(env_ids, joint_q, joint_qd)
+        except:
+            pass
         if self.grasps is not None:
             assert joint_q.shape[-1] == self.hand_init_q.shape[-1]
             joint_q[env_ids, self.env_joint_target_indices] = self.hand_init_q.copy()
             self._set_hand_base_xform(env_ids, self.hand_init_xform)
 
-        return joint_q, joint_qd
+        return joint_q[env_ids], joint_qd[env_ids]
 
     def _set_hand_base_xform(self, env_ids, xform):
         joint_X_p = wp.to_torch(self.model.joint_X_p).view(self.num_envs, -1, 7)
@@ -158,7 +159,7 @@ class HandObjectTask(ObjectTask):
     def reset(self, env_ids=None, force_reset=True):
         if self.grasps is not None:
             self.sample_grasps()
-        super().reset(env_ids=env_ids, force_reset=force_reset)
+        return super().reset(env_ids=env_ids, force_reset=force_reset)
 
     def create_articulation(self, builder):
         if self.hand_type == HandType.ALLEGRO:
@@ -185,20 +186,6 @@ class HandObjectTask(ObjectTask):
             raise NotImplementedError("Hand type not supported:", self.hand_type)
 
         self.hand_joint_names = builder.joint_name
-        valid_joint_types = supported_joint_types[self.action_type.value]
-        self.env_joint_mask = list(
-            map(lambda x: x[0], filter(lambda x: x[1] in valid_joint_types, enumerate(builder.joint_type)))
-        )
-
-        if len(self.env_joint_mask) > 0:
-            joint_indices = []
-            for i in self.env_joint_mask:
-                joint_start, axis_count = builder.joint_axis_start[i], joint_coord_map[builder.joint_type[i]]
-                joint_indices.append(np.arange(joint_start, joint_start + axis_count))
-            joint_indices = np.concatenate(joint_indices)
-        else:
-            joint_indices = []
-
         self.hand_num_joint_axis = builder.joint_axis_count
         self.num_joint_q += len(builder.joint_q)
         self.num_joint_qd += len(builder.joint_qd)
@@ -211,6 +198,20 @@ class HandObjectTask(ObjectTask):
             self.object_joint_type = object_articulation_builder.joint_type
             self.object_num_joint_axis = object_articulation_builder.joint_axis_count
             self.asset_builders.insert(0, object_articulation_builder)
+
+        valid_joint_types = supported_joint_types[self.action_type]
+        self.env_joint_mask = list(
+            map(lambda x: x[0], filter(lambda x: x[1] in valid_joint_types, enumerate(builder.joint_type)))
+        )
+
+        if len(self.env_joint_mask) > 0:
+            joint_indices = []
+            for i in self.env_joint_mask:
+                joint_start, axis_count = builder.joint_axis_start[i], joint_coord_map[builder.joint_type[i]]
+                joint_indices.append(np.arange(joint_start, joint_start + axis_count))
+            joint_indices = np.concatenate(joint_indices)
+        else:
+            joint_indices = []
 
         self.env_joint_target_indices = joint_indices
         assert self.num_acts == len(joint_indices), "num_act must match number of joint control indices"
@@ -272,8 +273,8 @@ if __name__ == "__main__":
         rew_params=rew_params,
     )
     if args.headless and args.render:
-        from warp.envs.wrappers import Monitor
+        from .wrappers import Monitor
 
         env = Monitor(env, "outputs/videos")
-    run_env(env, num_states=10)
+    run_env(env, num_states=50)
     env.close()

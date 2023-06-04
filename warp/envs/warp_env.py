@@ -1,14 +1,18 @@
-from gym import spaces
-import torch
-import numpy as np
-import warp as wp
-import warp.sim  # pyright: ignore
-import warp.sim.render
+import os
 import random
-from .autograd_utils import get_compute_graph, forward_ag
+
+from gym import spaces
+import numpy as np
+import torch
+
+import warp as wp
+import warp.sim
+import warp.sim.render
+
 from .environment import Environment, RenderMode
-from . import params
-from warp_utils import integrate_body_f
+from .utils import dr_params
+from .utils.autograd import forward_ag, get_compute_graph
+from .utils.warp_utils import integrate_body_f
 
 
 def set_seed(seed):
@@ -260,7 +264,7 @@ class WarpEnv(Environment):
         """
         Get the rand initial state for the environment
         """
-        raise NotImplementedError
+        pass
 
     def reset(self, env_ids=None, force_reset=True):
         self.render_time = 0.0
@@ -435,13 +439,18 @@ class WarpEnv(Environment):
         raise NotImplementedError
 
     def render(self, mode="human"):
+        if mode == "rgb_array":
+            pixels = wp.zeros((self.renderer.screen_height, self.renderer.screen_width, 3), dtype=np.float)
         if self.visualize and self.renderer:
             with wp.ScopedTimer("render", False):
                 self.render_time += self.frame_dt
                 self.renderer.begin_frame(self.render_time)
-                # render state 1 (swapped with state 0 just before)
+                # render next_state (swapped with state 0 in update())
                 self.renderer.render(self.state_0)
                 self.renderer.end_frame()
+                if mode == "rgb_array":
+                    self.renderer.get_pixels(pixels, split_up_tiles=False)
+                    return pixels.numpy()
 
     def get_checkpoint(self, save_path=None):
         checkpoint = {}
@@ -499,6 +508,26 @@ class WarpEnv(Environment):
         if self.render_mode is RenderMode.USD:
             self.renderer.app.window.set_request_exit()
 
+    def save_camera_params(self, path=None):
+        if path is None:
+            path = "default_camera_params.npz"
+        params = {
+            "model": self.renderer._model_matrix,
+            "projection": self.renderer._projection_matrix,
+            "view": self.renderer._view_matrix,
+        }
+        np.savez(path, **params)
+
+    def load_camera_params(self, params=None):
+        if params is None:
+            if os.path.exists("default_camera_params.npz"):
+                params = np.load("default_camera_params.npz")
+        else:
+            return
+        self.renderer._model_matrix = params["model"]
+        self.renderer._projection_matrix = params["projection"]
+        self.renderer._view_matrix = params["view"]
+
 
 class DRWarpEnv(WarpEnv):
     def __init__(
@@ -515,7 +544,7 @@ class DRWarpEnv(WarpEnv):
         env_name="warp_env",
         render_mode=RenderMode.OPENGL,
         stage_path=None,
-        randomization_params=params.RandomizationParams(),
+        randomization_params=dr_params.RandomizationParams(),
         randomize=True,
     ):
         super().__init__(
@@ -537,6 +566,7 @@ class DRWarpEnv(WarpEnv):
         self.rng = np.random.RandomState(seed)
 
     def get_stochastic_init(self, env_ids, joint_q, joint_qd):
+        """Get stochastic initializations for the environment."""
         dr_params = self.randomization_params.sample_params()
         randomized_values = self.apply_randomizations(dr_params, env_ids)
         if "joint_q" in randomized_values:
