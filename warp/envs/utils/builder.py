@@ -531,18 +531,6 @@ class OperableObjectModel(ObjectModel):
         self.builder = builder
         return builder
 
-    def get_body_pos_vel(self, model, body_name=None, return_vel=False, return_quat=False):
-        if body_name is None:
-            body_name = self.base_body_name
-        body_index = np.array([idx for idx, bname in enumerate(model.body_names) if bname == body_name])
-        assert len(body_index) == self.num_envs, f"body name {body_name} not found in model"
-        end = 7 if return_quat else 3
-        body_pos = self.body_q[body_index, :end].view(self.num_envs, end)
-        if return_vel:
-            body_vel = self.body_qd[body_index].view(self.num_envs, 6)
-            return body_pos, body_vel
-        return body_pos
-
 
 def object_generator(object_type, **kwargs):
     class __DexObj__(ObjectModel):
