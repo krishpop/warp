@@ -29,6 +29,7 @@ def parse_mjcf(
     contact_restitution=0.5,
     limit_ke=100.0,
     limit_kd=10.0,
+    scale=1.0,
     armature=0.0,
     armature_scale=1.0,
     parse_meshes=True,
@@ -106,6 +107,8 @@ def parse_mjcf(
         xform = wp.transform(xform.p, wp.quat(0.0, 0.0, -sqh, sqh) * xform.q)
     elif up_axis == 2:
         xform = wp.transform(xform.p, wp.quat(sqh, 0.0, 0.0, -sqh) * xform.q)
+    # do not apply scaling to the root transform
+    xform = wp.transform(np.array(xform.p) / scale, xform.q)
 
     def parse_float(attrib, key, default):
         if key in attrib:
@@ -160,7 +163,7 @@ def parse_mjcf(
         m = trimesh.load(stl_file)
 
         for v in m.vertices:
-            vertices.append(np.array(v))
+            vertices.append(np.array(v) * scale)
 
         for f in m.faces:
             faces.append(int(f[0]))
@@ -187,6 +190,7 @@ def parse_mjcf(
         if parent == -1:
             body_pos = wp.transform_point(xform, body_pos)
             body_ori = xform.q * body_ori
+        body_pos *= scale
 
         joint_armature = []
         joint_name = []
@@ -207,12 +211,15 @@ def parse_mjcf(
             joint_type_str = joint_attrib.get("type", "hinge")
 
             joint_name.append(joint_attrib["name"])
-            joint_pos.append(parse_vec(joint_attrib, "pos", (0.0, 0.0, 0.0)))
+            joint_pos.append(parse_vec(joint_attrib, "pos", (0.0, 0.0, 0.0)) * scale)
             joint_range = parse_vec(joint_attrib, "range", (-3.0, 3.0))
             joint_armature.append(parse_float(joint_attrib, "armature", armature) * armature_scale)
 
             if joint_type_str == "free":
                 joint_type = wp.sim.JOINT_FREE
+                break
+            if joint_type_str == "fixed":
+                joint_type = wp.sim.JOINT_FIXED
                 break
             is_angular = joint_type_str == "hinge"
             mode = wp.sim.JOINT_MODE_LIMIT
@@ -247,13 +254,17 @@ def parse_mjcf(
                 elif len(angular_axes) == 1:
                     joint_type = wp.sim.JOINT_REVOLUTE
                 elif len(angular_axes) == 2:
-                    joint_type = wp.sim.JOINT_UNIVERSAL
+                    # joint_type = wp.sim.JOINT_UNIVERSAL
+                    joint_type = wp.sim.JOINT_D6
                 elif len(angular_axes) == 3:
-                    joint_type = wp.sim.JOINT_COMPOUND
+                    # joint_type = wp.sim.JOINT_COMPOUND
+                    joint_type = wp.sim.JOINT_D6
             elif len(linear_axes) == 1 and len(angular_axes) == 0:
                 joint_type = wp.sim.JOINT_PRISMATIC
             else:
                 joint_type = wp.sim.JOINT_D6
+
+        # joint_type = wp.sim.JOINT_DISTANCE
 
         joint_pos = joint_pos[0] if len(joint_pos) > 0 else (0.0, 0.0, 0.0)
         builder.add_joint(
@@ -293,8 +304,8 @@ def parse_mjcf(
             if "mesh" in geom_attrib:
                 geom_type = "mesh"
 
-            geom_size = parse_vec(geom_attrib, "size", [1.0, 1.0, 1.0])
-            geom_pos = parse_vec(geom_attrib, "pos", (0.0, 0.0, 0.0))
+            geom_size = parse_vec(geom_attrib, "size", [1.0, 1.0, 1.0]) * scale
+            geom_pos = parse_vec(geom_attrib, "pos", (0.0, 0.0, 0.0)) * scale
             geom_rot = parse_orientation(geom_attrib)
             geom_density = parse_float(geom_attrib, "density", density)
 
@@ -329,7 +340,7 @@ def parse_mjcf(
                 )
 
             elif geom_type == "mesh" and parse_meshes:
-                mesh, scale = parse_mesh(geom_attrib)
+                mesh, _ = parse_mesh(geom_attrib)
                 if "mesh" in defaults:
                     mesh_scale = parse_vec(defaults["mesh"], "scale", [1.0, 1.0, 1.0])
                 else:
@@ -353,8 +364,8 @@ def parse_mjcf(
                 if "fromto" in geom_attrib:
                     geom_fromto = parse_vec(geom_attrib, "fromto", (0.0, 0.0, 0.0, 1.0, 0.0, 0.0))
 
-                    start = geom_fromto[0:3]
-                    end = geom_fromto[3:6]
+                    start = geom_fromto[0:3] * scale
+                    end = geom_fromto[3:6] * scale
 
                     # compute rotation to align the Warp capsule (along x-axis), with mjcf fromto direction
                     axis = wp.normalize(end - start)
