@@ -310,24 +310,18 @@ def profile(env):
 
 def run_env(env, pi=None, num_steps=600, log_runs=False):
     if pi is None:
-        # env.reset()
         joint_target_indices = env.env_joint_target_indices
 
         upper = env.model.joint_limit_upper.numpy().reshape(env.num_envs, -1)[0, joint_target_indices]
         lower = env.model.joint_limit_lower.numpy().reshape(env.num_envs, -1)[0, joint_target_indices]
         joint_start = env.start_joint_q.cpu().numpy()[:, joint_target_indices]
 
-        n_dof = env.num_acts
-
-        # for each degree of freedom, collect a rollout controlling joint target
-
         def pi(obs, t):
             del obs
-            joint_q_targets = (
-                np.sin(np.linspace(0, 4 * np.pi, 600))[:, None] * (upper - lower) / 2 + (upper + lower) / 2
-            ) * 0.8
+            act = np.sin(np.ones_like(upper) * t / 150) * 0.8  # [-1, 1]
+            joint_q_targets = act * (upper - lower) / 2 + (upper - lower) / 2
             action = joint_start.copy()
-            action[:, :] = joint_q_targets[t % 500]
+            action[:, :] = joint_q_targets
             return torch.tensor(action, device=str(env.device))
 
     actions, states, rewards, _ = collect_rollout(env, num_steps, pi)

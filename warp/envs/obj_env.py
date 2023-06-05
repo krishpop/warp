@@ -15,19 +15,20 @@ from .utils.common import (
     supported_joint_types,
 )
 from .utils import builder as bu
-from .utils.rewards import action_penalty, l1_dist
+from .utils.rewards import action_penalty, l1_dist, parse_reward_params
 from .utils.warp_utils import assign_act
+from .utils.torch_utils import to_torch
 from .warp_env import WarpEnv
 
 
 class ObjectTask(WarpEnv):
-    obs_keys = ["object_joint_pos", "object_joint_vel"]
+    obs_keys = ["object_joint_pos", "object_joint_vel", "goal_joint_pos"]
 
     def __init__(
         self,
         num_envs,
-        num_obs,
-        num_act,
+        num_obs=1,
+        num_act=1,
         action_type: ActionType = ActionType.TORQUE,
         episode_length: int = 200,
         seed=0,
@@ -41,9 +42,10 @@ class ObjectTask(WarpEnv):
         object_id=0,
         stiffness=0.0,
         damping=0.5,
-        rew_params=None,
+        reward_params=None,
         env_name=None,
         use_autograd=False,
+        goal_joint_pos=None,
     ):
         if not env_name:
             if object_type:
@@ -67,6 +69,7 @@ class ObjectTask(WarpEnv):
             render_mode,
             stage_path,
         )
+
         self.use_autograd = use_autograd
 
         self.object_type = object_type
@@ -74,7 +77,7 @@ class ObjectTask(WarpEnv):
         self.action_type = ActionType.POSITION
 
         if self.object_type:
-            obj_generator = bu.OBJ_MODELS[self.object_type.value]
+            obj_generator = bu.OBJ_MODELS[self.object_type]
         else:
             obj_generator = None
         try:
@@ -89,31 +92,41 @@ class ObjectTask(WarpEnv):
 
         self.stiffness = stiffness
         self.damping = damping
-        if rew_params is None:
-            rew_params = {
-                "action_penalty": (action_penalty, ["actions"], 1e-3),
+        if reward_params is None:
+            reward_params = {
+                "action_penalty": (action_penalty, ["action"], 1e-3),
                 "object_pos_err": (l1_dist, ["object_pos", "target_pos"], -1),
             }
         else:
-            rew_params = self.parse_rew_params(rew_params)
-        self.rew_params = rew_params
-        self.rew_extras = {}
+            reward_params = parse_reward_params(reward_params)
+        self.reward_params = reward_params
+        self.reward_extras = {}
 
         self.init_sim()  # sets up renderer, model, etc.
+
+        # initialize goal_joint_pos after creating model
+        self.set_goal_joint_pos(goal_joint_pos)
+
         self.simulate_params["ag_return_body"] = self.ag_return_body
 
-    def parse_rew_params(self, rew_params_dict):
-        rew_params = {}
-        for key, value in rew_params_dict.items():
-            if isinstance(value, dict):
-                function = value["reward_fn_partial"]
-                # function = instantiate(function_name)
-                arguments = value["args"]
-                coefficient = value["scale"]
-            else:
-                function, arguments, coefficient = value
-            rew_params[key] = (function, arguments, coefficient)
-        return rew_params
+    def set_goal_joint_pos(self, goal_joint_pos):
+        if goal_joint_pos is None:
+            goal_joint_pos = np.ones(self.object_num_joint_axis) * 0.9  # controls joint 90% of the way
+        else:
+            assert (
+                len(goal_joint_pos) == self.object_num_joint_axis
+            ), "Goal joint pos must match number of object joints"
+            goal_joint_pos = np.array(goal_joint_pos)
+
+        joint_upper = self.model.joint_limit_upper.numpy().reshape(self.num_envs, -1)
+        joint_lower = self.model.joint_limit_lower.numpy().reshape(self.num_envs, -1)
+        goal_joint_pos = (
+            goal_joint_pos
+            * (joint_upper[:, self.object_joint_target_indices] - joint_lower[:, self.object_joint_target_indices])
+            + joint_lower[:, self.object_joint_target_indices]
+        )
+
+        self.goal_joint_pos = to_torch(goal_joint_pos, device=str(self.device)).view(1, -1).repeat(self.num_envs, 1)
 
     def init_sim(self):
         super().init_sim()
@@ -182,11 +195,11 @@ class ObjectTask(WarpEnv):
 
     def _get_rew_dict(self):
         rew_dict = {}
-        for k, (cost_fn, rew_terms, rew_scale) in self.rew_params.items():
+        for k, (cost_fn, rew_terms, rew_scale) in self.reward_params.items():
             rew_args = []
             for arg in rew_terms:
-                if isinstance(arg, str) and arg in self.rew_extras:
-                    rew_args.append(self.rew_extras[arg])
+                if isinstance(arg, str) and arg in self.reward_extras:
+                    rew_args.append(self.reward_extras[arg])
                 elif isinstance(arg, str) and arg in self.extras:
                     rew_args.append(self.extras[arg])
                 else:
@@ -206,13 +219,17 @@ class ObjectTask(WarpEnv):
             "object_joint_vel": joint_qd,
             "object_pos": joint_q[:, self.env_joint_target_indices],
             "target_pos": self.actions.view(self.num_envs, -1),
+            "action": self.actions.view(self.num_envs, -1),
+            "goal_joint_pos": self.goal_joint_pos.view(self.num_envs, -1),
         }
         self.extras.update(obs_dict)
         return obs_dict
 
     def calculateReward(self):
         rew_dict = self._get_rew_dict()
-        self.rew_buf = torch.sum(torch.cat([v for v in rew_dict.values()]), dim=-1).view(self.num_envs)
+        self.rew_buf = torch.sum(torch.cat([v.view(self.num_envs, 1) for v in rew_dict.values()], dim=1), dim=-1).view(
+            self.num_envs
+        )
         return self.rew_buf
 
     def calculateObservations(self):
@@ -222,14 +239,19 @@ class ObjectTask(WarpEnv):
 
     def create_articulation(self, builder):
         self.object_model = self.object_cls(stiffness=self.stiffness, damping=self.damping)
+        num_joints_before = len(builder.joint_type)
+        num_joint_axis_before = builder.joint_axis_count
         self.object_model.create_articulation(builder)
-        self.num_joint_q += len(builder.joint_q)
-        self.num_joint_qd += len(builder.joint_qd)
+        self.num_joint_q += builder.joint_axis_count - num_joint_axis_before
+        self.num_joint_qd += builder.joint_axis_count - num_joint_axis_before
 
         valid_joint_types = supported_joint_types[self.action_type]
-        self.env_joint_mask = list(
-            map(lambda x: x[0], filter(lambda x: x[1] in valid_joint_types, enumerate(builder.joint_type)))
-        )
+        self.env_joint_mask = [
+            i + num_joints_before
+            for i, joint_type in enumerate(builder.joint_type[num_joints_before:])
+            if joint_type in valid_joint_types
+        ]
+
         if len(self.env_joint_mask) > 0:
             joint_indices = []
             for i in self.env_joint_mask:
@@ -239,8 +261,12 @@ class ObjectTask(WarpEnv):
         else:
             joint_indices = []
 
-        self.env_num_joints = len(joint_indices)
-        self.env_joint_target_indices = joint_indices
+        self.env_num_joints = self.object_num_joint_axis = len(joint_indices)
+        self.env_joint_target_indices = self.object_joint_target_indices = joint_indices
+        if len(self.env_joint_mask) > 0:
+            self.object_joint_start = self.env_joint_mask[0]
+        else:
+            self.object_joint_start = num_joint_axis_before
 
         self.start_pos = self.object_model.base_pos
         self.start_ori = self.object_model.base_ori
@@ -260,9 +286,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     object_type = ObjectType[args.object_type.upper()]
 
-    run_env(
-        ObjectTask(
-            5, 1, 1, 1000, object_type=object_type, stiffness=args.stiffness, damping=args.damping, render=args.render
-        ),
-        log_runs=args.log,
+    env = ObjectTask(
+        5, 13, 1, 1000, object_type=object_type, stiffness=args.stiffness, damping=args.damping, render=args.render
     )
+    run_env(env, log_runs=args.log)

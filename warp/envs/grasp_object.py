@@ -25,6 +25,7 @@ import warp.sim
 import numpy as np
 import matplotlib.pyplot as plt
 import plotly.graph_objects as go
+import json
 
 from scipy.spatial.transform import Rotation as R
 from localscope import localscope
@@ -35,18 +36,75 @@ from pyglet.math import Vec3 as PyVec3
 
 wp.init()
 
+
 # %%
-object_type = 'spray_bottle'
+def construct_model(object_name, object_id=None):
+    builder = wp.sim.ModelBuilder()
+    object_type = ObjectType[object_name.upper()]
+    model = bu.OBJ_MODELS.get(object_type)
+    print(object_type, )
+    if object_id:
+        model = model.get(object_id)
+    model().create_articulation(builder)
+    print("object_name", object_name, "object_id", object_id, "num_joints", builder.joint_count, "joint_types", builder.joint_type)
+    return builder, model
+
+
+# %%
+obj2model = {}
+for dirname in filter(lambda x: os.path.isdir(os.path.join("assets", x)), os.listdir("assets/")):
+    if "mobility.urdf" in os.listdir(f"assets/{dirname}"):
+        obj2model[f"{dirname}"] = construct_model(dirname)
+    else:
+        for nested_dirname in filter(lambda x: os.path.isdir(os.path.join(f"assets/{dirname}", x)), os.listdir(f"assets/{dirname}")):
+            if "mobility.urdf" in os.listdir(f"assets/{dirname}/{nested_dirname}"):
+                obj2model[f"{dirname}/{nested_dirname}"] = construct_model(dirname, nested_dirname)
+
+# %%
+allegro_grasps = "/scr-ssd/ksrini/tyler-DexGraspNet/grasp_generation/graspdata_allegro"
+shadow_grasps = "/scr-ssd/ksrini/tyler-DexGraspNet/grasp_generation/graspdata_shadow"
+print("allegro grasps:", f"{allegro_grasps}/")
+# !ls {allegro_grasps}
+print("shadow grasps:", f"{shadow_grasps}/")
+# !ls {shadow_grasps}
+
+# %%
+grasps = json.loads(open("/scr-ssd/ksrini/tyler-DexGraspNet/grasp_generation/good_grasps.txt").read())
+
+# %%
+grasps
+
+
+# %%
+def get_object_type_id(object_code):
+    object_type = "_".join(filter(lambda x: not( x == "merged" or x.isdigit()), object_code.split('_')))
+    object_id = object_code.rstrip('_merged').split('_')[-1]
+    if not object_id.isdigit():
+        object_id = None
+    return object_type, object_id
+
+for grasp_dict in grasps['grasps']:
+    object_code = grasp_dict['object_code']
+    object_type, object_id = get_object_type_id(object_code)
+    grasp_dict.update(dict(object_type=object_type, object_id=object_id))
+    grasp_npy = os.path.join(allegro_grasps,f"{object_code}.npy")
+    grasp_params = map(lambda x: x[1], filter(lambda x: x[0] in grasp_dict['grasp_ids'], enumerate(load_grasps_npy(grasp_npy))))
+    grasp_dict['params'] = list(grasp_params)
+
+# %%
+g = [g for g in grasps['grasps'] if g['object_code'] == "spray_bottle_merged"][0]
+
+# %%
+g
+
+# %%
+object_type = g['object_type']
 object_id = None
 
-if object_id is not None:
-    grasp_file = f"{object_type}_{object_id}_merged.npy"
-else:
-    grasp_file = f"{object_type}_merged.npy"
-grasp_dir = "/scr-ssd/ksrini/tyler-DexGraspNet/grasp_generation/graspdata_allegro/"
-grasps = load_grasps_npy(os.path.join(grasp_dir, grasp_file))
+gparams = g['params']
 
-env = HandObjectTask(1, 1, 100, object_type=ObjectType[object_type.upper()])
+env = HandObjectTask(len(gparams), 1, episode_length=100, object_type=ObjectType[object_type.upper()], object_id=object_id, stochastic_init=True)
+env.grasps = gparams
 obs = env.reset()
 
 # %%

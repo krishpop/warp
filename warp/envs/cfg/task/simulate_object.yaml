@@ -15,3 +15,5 @@ env:
   rew_params: 
     action_penalty: ${...rewards.action_penalty}
     object_pos_err: ${...rewards.object_pos_err}
+  object_type: ${object:spray_bottle}
+

@@ -21,6 +21,7 @@ class HandObjectTask(ObjectTask):
     obs_keys = ["hand_joint_pos", "hand_joint_vel"]
     fix_position: bool = True
     fix_orientation: bool = True
+    collapse_joints: bool = True
 
     def __init__(
         self,
@@ -39,13 +40,14 @@ class HandObjectTask(ObjectTask):
         object_id=0,
         stiffness=1000.0,
         damping=0.5,
-        rew_params=None,
+        reward_params=None,
         hand_type: HandType = HandType.ALLEGRO,
-        hand_start_position: Tuple = (0.0, 0.3, -0.6),
+        hand_start_position: Tuple = (0.1, 0.3, -0.6),
         hand_start_orientation: Tuple = (-np.pi / 2 * 3, np.pi * 1.25, np.pi / 2 * 3),
         grasp_file: str = "",
         grasp_id: int = None,
         use_autograd: bool = False,
+        goal_joint_pos=None,
     ):
         env_name = hand_type.name + "Env"
         self.hand_start_position = hand_start_position
@@ -85,9 +87,10 @@ class HandObjectTask(ObjectTask):
             object_id=object_id,
             stiffness=0.0,
             damping=damping,
-            rew_params=rew_params,
+            reward_params=reward_params,
             env_name=env_name,
             use_autograd=use_autograd,
+            goal_joint_pos=goal_joint_pos,
         )
 
         print("gravity", self.model.gravity, self.gravity)
@@ -148,6 +151,7 @@ class HandObjectTask(ObjectTask):
             assert joint_q.shape[-1] == self.hand_init_q.shape[-1]
             joint_q[env_ids, self.env_joint_target_indices] = self.hand_init_q.copy()
             self._set_hand_base_xform(env_ids, self.hand_init_xform)
+            __import__("ipdb").set_trace()
 
         return joint_q[env_ids], joint_qd[env_ids]
 
@@ -155,6 +159,7 @@ class HandObjectTask(ObjectTask):
         joint_X_p = wp.to_torch(self.model.joint_X_p).view(self.num_envs, -1, 7)
         joint_X_p[env_ids, self.hand_joint_start] = xform
         self.model.joint_X_p.assign(wp.from_torch(joint_X_p.view(-1, 7), dtype=wp.transform)),
+        # eval_fk should be run after this in reset, do not call this function directly
 
     def reset(self, env_ids=None, force_reset=True):
         if self.grasps is not None:
@@ -171,6 +176,7 @@ class HandObjectTask(ObjectTask):
                 base_joint=self.base_joint,
                 hand_start_position=self.hand_start_position,
                 hand_start_orientation=self.hand_start_orientation,
+                collapse_joints=self.collapse_joints,
             )
         elif self.hand_type == HandType.SHADOW:
             bu.create_shadow_hand(
@@ -181,39 +187,39 @@ class HandObjectTask(ObjectTask):
                 base_joint=self.base_joint,
                 hand_start_position=self.hand_start_position,
                 hand_start_orientation=self.hand_start_orientation,
+                collapse_joints=self.collapse_joints,
             )
         else:
             raise NotImplementedError("Hand type not supported:", self.hand_type)
 
-        self.hand_joint_names = builder.joint_name
+        self.hand_joint_names = builder.joint_name[:]
         self.hand_num_joint_axis = builder.joint_axis_count
         self.num_joint_q += len(builder.joint_q)
         self.num_joint_qd += len(builder.joint_qd)
-
-        if self.object_type:
-            object_articulation_builder = wp.sim.ModelBuilder()
-            super().create_articulation(object_articulation_builder)
-            self.object_num_joint_axis = object_articulation_builder.joint_axis_count
-            self.object_joint_start = object_articulation_builder.joint_axis_start[0] + self.hand_num_joint_axis
-            self.object_joint_type = object_articulation_builder.joint_type
-            self.object_num_joint_axis = object_articulation_builder.joint_axis_count
-            self.asset_builders.insert(0, object_articulation_builder)
-
         valid_joint_types = supported_joint_types[self.action_type]
-        self.env_joint_mask = list(
+        hand_env_joint_mask = list(
             map(lambda x: x[0], filter(lambda x: x[1] in valid_joint_types, enumerate(builder.joint_type)))
         )
-
-        if len(self.env_joint_mask) > 0:
+        if len(hand_env_joint_mask) > 0:
             joint_indices = []
-            for i in self.env_joint_mask:
+            for i in hand_env_joint_mask:
                 joint_start, axis_count = builder.joint_axis_start[i], joint_coord_map[builder.joint_type[i]]
                 joint_indices.append(np.arange(joint_start, joint_start + axis_count))
             joint_indices = np.concatenate(joint_indices)
         else:
             joint_indices = []
 
+        if self.object_type:
+            object_articulation_builder = builder  # wp.sim.ModelBuilder()
+            super().create_articulation(object_articulation_builder)
+            # self.object_num_joint_axis = object_articulation_builder.joint_axis_count - self.hand_num_joint_axis
+            # self.object_num_joint_axis = object_articulation_builder.joint_axis_count
+            # self.object_joint_start = self.hand_num_joint_axis
+            # self.asset_builders.insert(0, object_articulation_builder)
+
+        self.env_joint_mask = hand_env_joint_mask
         self.env_joint_target_indices = joint_indices
+        self.hand_joint_start = joint_indices[0]
         assert self.num_acts == len(joint_indices), "num_act must match number of joint control indices"
         self.env_num_joints = len(joint_indices)
 
@@ -270,11 +276,11 @@ if __name__ == "__main__":
         grasp_id=args.grasp_id,
         stiffness=args.stiffness,
         damping=args.damping,
-        rew_params=rew_params,
+        reward_params=rew_params,
     )
     if args.headless and args.render:
         from .wrappers import Monitor
 
         env = Monitor(env, "outputs/videos")
-    run_env(env, num_states=50)
+    run_env(env, num_steps=50)
     env.close()
