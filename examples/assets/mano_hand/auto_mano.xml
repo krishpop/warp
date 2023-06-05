@@ -1,0 +1,76 @@
+<mujoco model="hand_capsule">
+  <statistic extent="2" center="0 0 1" />
+  <option timestep="0.00555" />
+  <worldbody>
+    <geom name="floor" type="plane" conaffinity="1" size="100 100 .2" />
+    <body name="palm" pos="0 0 0.1" quat="1 0 0 0">
+      <joint name="root" armature="1" damping="10" limited="false" margin="0.01" pos="0 0 0" type="free" />
+      <geom name="palm" type="sphere" size="0.005" pos="0 0 0" />
+      <body name="f0j0_1" quat="1 0 0 0" pos="-0.0881 -0.0052 0.0207">
+        <geom name="f0j0_1" type="capsule" size="0.005" fromto=" 0 0 0 -0.0327 0.0040 0.0022" />
+        <joint name="f0j0_1_y" armature="1.0" damping="10" limited="true" axis="0 1 0" range="-45 45" margin="0.01" pos="0 0 0" />
+        <joint name="f0j0_1_z" armature="1.0" damping="10" limited="true" axis="0 0 1" range="-20 90" margin="0.01" pos="0 0 0" />
+        <body name="f0j1_2" quat="1 0 0 0" pos="-0.0327 0.0040 0.0022">
+          <geom name="f0j1_2" type="capsule" size="0.005" fromto=" 0 0 0 -0.0222 -0.0013 -0.0001" />
+          <joint name="f0j1_2_z" armature="1.0" damping="10" limited="true" axis="0 0 1" range="0 90" margin="0.01" pos="0 0 0" />
+          <body name="f0j2_3" quat="1 0 0 0" pos="-0.0222 -0.0013 -0.0001">
+            <geom name="f0j2_3" type="capsule" size="0.005" fromto=" 0 0 0 -0.0233 0.0007 0.0040" />
+            <joint name="f0j2_3_z" armature="1.0" damping="10" limited="true" axis="0 0 1" range="0 90" margin="0.01" pos="0 0 0" />
+          </body>
+        </body>
+      </body>
+      <body name="f1j0_4" quat="1 0 0 0" pos="-0.0947 -0.0015 -0.0034">
+        <geom name="f1j0_4" type="capsule" size="0.005" fromto=" 0 0 0 -0.0312 0.0019 -0.0056" />
+        <joint name="f1j0_4_y" armature="1.0" damping="10" limited="true" axis="0 1 0" range="-45 45" margin="0.01" pos="0 0 0" />
+        <joint name="f1j0_4_z" armature="1.0" damping="10" limited="true" axis="0 0 1" range="-20 90" margin="0.01" pos="0 0 0" />
+        <body name="f1j1_5" quat="1 0 0 0" pos="-0.0312 0.0019 -0.0056">
+          <geom name="f1j1_5" type="capsule" size="0.005" fromto=" 0 0 0 -0.0229 -0.0013 -0.0039" />
+          <joint name="f1j1_5_z" armature="1.0" damping="10" limited="true" axis="0 0 1" range="0 90" margin="0.01" pos="0 0 0" />
+          <body name="f1j2_6" quat="1 0 0 0" pos="-0.0229 -0.0013 -0.0039">
+            <geom name="f1j2_6" type="capsule" size="0.005" fromto=" 0 0 0 -0.0259 0.0006 -0.0053" />
+            <joint name="f1j2_6_z" armature="1.0" damping="10" limited="true" axis="0 0 1" range="0 90" margin="0.01" pos="0 0 0" />
+          </body>
+        </body>
+      </body>
+      <body name="f2j0_7" quat="1 0 0 0" pos="-0.0688 -0.0099 -0.0432">
+        <geom name="f2j0_7" type="capsule" size="0.005" fromto=" 0 0 0 -0.0170 0.0001 -0.0125" />
+        <joint name="f2j0_7_y" armature="1.0" damping="10" limited="true" axis="0 1 0" range="-45 45" margin="0.01"  pos="0 0 0" />
+        <joint name="f2j0_7_z" armature="1.0" damping="10" limited="true" axis="0 0 1" range="-20 90" margin="0.01" pos="0 0 0" />
+        <body name="f2j1_8" quat="1 0 0 0" pos="-0.0170 0.0001 -0.0125">
+          <geom name="f2j1_8" type="capsule" size="0.005" fromto=" 0 0 0 -0.0159 -0.0007 -0.0103" />
+          <joint name="f2j1_8_z" armature="1.0" damping="10" limited="true" axis="0 0 1" range="0 90" margin="0.01" pos="0 0 0" />
+          <body name="f2j2_9" quat="1 0 0 0" pos="-0.0159 -0.0007 -0.0103">
+            <geom name="f2j2_9" type="capsule" size="0.005" fromto=" 0 0 0 -0.0159 0.0026 -0.0103" />
+            <joint name="f2j2_9_z" armature="1.0" damping="10" limited="true" axis="0 0 1" range="0 90" margin="0.01" pos="0 0 0" />
+          </body>
+        </body>
+      </body>
+      <body name="f3j0_10" quat="1 0 0 0" pos="-0.0817 -0.0040 -0.0267">
+        <geom name="f3j0_10" type="capsule" size="0.005" fromto=" 0 0 0 -0.0283 0.0021 -0.0051" />
+        <joint name="f3j0_10_y" armature="1.0" damping="10" limited="true" axis="0 1 0" range="-45 45" margin="0.01" pos="0 0 0" />
+        <joint name="f3j0_10_z" armature="1.0" damping="10" limited="true" axis="0 0 1" range="-20 90" margin="0.01" pos="0 0 0" />
+        <body name="f3j1_11" quat="1 0 0 0" pos="-0.0283 0.0021 -0.0051">
+          <geom name="f3j1_11" type="capsule" size="0.005" fromto=" 0 0 0 -0.0235 -0.0017 -0.0076" />
+          <joint name="f3j1_11_z" armature="1.0" damping="10" limited="true" axis="0 0 1" range="0 90" margin="0.01" pos="0 0 0" />
+          <body name="f3j2_12" quat="1 0 0 0" pos="-0.0235 -0.0017 -0.0076">
+            <geom name="f3j2_12" type="capsule" size="0.005" fromto=" 0 0 0 -0.0229 0.0045 -0.0070" />
+            <joint name="f3j2_12_z" armature="1.0" damping="10" limited="true" axis="0 0 1" range="0 90" margin="0.01" pos="0 0 0" />
+          </body>
+        </body>
+      </body>
+      <body name="f4j0_13" quat="1 0 0 0" pos="-0.0241 -0.0155 0.0258">
+        <geom name="f4j0_13" type="capsule" size="0.005" fromto=" 0 0 0 -0.0196 0.0009 0.0237" />
+        <joint name="f4j0_13_y" armature="1.0" damping="10" limited="true" axis="0 1 0" range="-45 45" margin="0.01" pos="0 0 0" />
+        <joint name="f4j0_13_xz" armature="1.0" damping="10" limited="true" axis="1 0 1" range="-20 90" margin="0.01" pos="0 0 0" />
+        <body name="f4j1_14" quat="1 0 0 0" pos="-0.0196 0.0009 0.0237">
+          <geom name="f4j1_14" type="capsule" size="0.005" fromto=" 0 0 0 -0.0222 -0.0054 0.0145" />
+          <joint name="f4j1_14_y" armature="1.0" damping="10" limited="true" axis="0 -1 0" range="0 90" margin="0.01" pos="0 0 0" />
+          <body name="f4j2_15" quat="1 0 0 0" pos="-0.0222 -0.0054 0.0145">
+            <geom name="f4j2_15" type="capsule" size="0.005" fromto=" 0 0 0 -0.0275 -0.0044 0.0207" />
+            <joint name="f4j2_15_y" armature="1.0" damping="10" limited="true" axis="0 -1 0" range="0 90" margin="0.01" pos="0 0 0" />
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+</mujoco>
