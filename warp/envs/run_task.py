@@ -1,5 +1,4 @@
 import hydra
-import torch
 import yaml
 
 from omegaconf import OmegaConf, DictConfig
@@ -9,7 +8,16 @@ from warp.envs import ObjectTask, HandObjectTask, ReposeTask
 from warp.envs.utils.common import run_env
 
 OmegaConf.register_new_resolver("resolve_default", lambda default, arg: default if arg in ["", None] else arg)
-OmegaConf.register_new_resolver("eval", eval)
+
+
+def custom_eval(x):
+    import numpy as np
+    import torch
+
+    return eval(x)
+
+
+OmegaConf.register_new_resolver("eval", custom_eval)
 
 
 @hydra.main(config_path="cfg", config_name="config.yaml")

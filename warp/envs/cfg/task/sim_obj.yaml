@@ -3,16 +3,15 @@ defaults:
   - rewards:
     - action_penalty
     - object_pos_err
+    - object_joint_pos_err
 
 name: repose_task
 
 env:
-  _target_: warp.envs.ReposeTask
+  _target_: warp.envs.ObjectTask
   num_envs: ${resolve_default:1,${...num_envs}}
   episode_length: 500
   render: ${render}
   rew_params: 
     action_penalty: ${...rewards.action_penalty}
     object_pos_err: ${...rewards.object_pos_err}
-  hand_start_orientation: ${eval:'(-np.pi / 2 * 3, np.pi * 0.75, np.pi / 2 * 3)'}
-  hand_start_position: ${eval:'(0.0, 0.3, 0.0)'}

@@ -8,3 +8,4 @@ defaults:
 # global defaults 
 num_envs: 1 
 num_steps: 500
+render: true
