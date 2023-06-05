@@ -243,8 +243,8 @@ def CreateSimRenderer(renderer):
                             continue
                         tf = joint_tf[i]
                         body = int(joint_parent[i])
-                        if body == -1:
-                            continue
+                        # if body == -1:
+                        #     continue
                         num_linear_axes = int(joint_axis_dim[i][0])
                         num_angular_axes = int(joint_axis_dim[i][1])
 
