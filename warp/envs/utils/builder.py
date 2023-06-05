@@ -277,6 +277,7 @@ def create_shadow_hand(
     hand_start_position=(0.01, 0.30, 0.125),
     hand_start_orientation=(0, 0, 0),
     base_joint=None,
+    collapse_joints=True,
 ):
     stiffness, damping = 0.0, 0.0
     if action_type is ActionType.POSITION or action_type is ActionType.VARIABLE_STIFFNESS:
@@ -315,7 +316,8 @@ def create_shadow_hand(
         limit_kd=1.0e1,
         enable_self_collisions=False,
     )
-    builder.collapse_fixed_joints()
+    if collapse_joints:
+        builder.collapse_fixed_joints()
 
     # ensure all joint positions are within limits
     q_offset = 7 if floating_base else 0
@@ -355,6 +357,7 @@ def create_allegro_hand(
     hand_start_orientation=(-np.pi / 2, np.pi * 0.75, np.pi / 2),
     # (np.pi * 0.0, np.pi * 1.0, np.pi * -0.25),
     base_joint=None,
+    collapse_joints=True,
 ):
     if action_type is ActionType.POSITION or action_type is ActionType.VARIABLE_STIFFNESS:
         stiffness, damping = stiffness, damping
@@ -382,7 +385,8 @@ def create_allegro_hand(
         limit_kd=1.0e1,
         enable_self_collisions=False,
     )
-    builder.collapse_fixed_joints()
+    if collapse_joints:
+        builder.collapse_fixed_joints()
 
     # ensure all joint positions are within limits
     q_offset = 7 if floating_base else 0
@@ -409,6 +413,7 @@ class ObjectModel:
         scale=0.4,
         stiffness=0.0,
         damping=0.5,
+        base_body_name="base",
     ):
         self.object_type = object_type
         self.object_name = object_type.name.lower()
@@ -424,6 +429,7 @@ class ObjectModel:
         self.stiffness = stiffness
         self.damping = damping
         self.model_path = TCDM_MESH_PATHS.get(self.object_type)
+        self.base_joint_name = base_body_name + "_joint"
         if self.model_path is not None:
             self.tcdm_trajectory, self.dex_trajectory = get_tcdm_trajectory(self.object_type)
         else:
@@ -480,6 +486,7 @@ class OperableObjectModel(ObjectModel):
         damping=0.0,
         model_path: str = "",
         base_joint=None,
+        base_body_name="base",
         floating=False,
     ):
         super().__init__(
@@ -491,6 +498,7 @@ class OperableObjectModel(ObjectModel):
             scale=scale,
             stiffness=stiffness,
             damping=damping,
+            base_body_name=base_body_name,
         )
         self.floating = floating
         self.base_joint = base_joint
@@ -520,7 +528,20 @@ class OperableObjectModel(ObjectModel):
             parse_visuals_as_colliders=False,
             collapse_fixed_joints=True,
         )
-        return
+        self.builder = builder
+        return builder
+
+    def get_body_pos_vel(self, model, body_name=None, return_vel=False, return_quat=False):
+        if body_name is None:
+            body_name = self.base_body_name
+        body_index = np.array([idx for idx, bname in enumerate(model.body_names) if bname == body_name])
+        assert len(body_index) == self.num_envs, f"body name {body_name} not found in model"
+        end = 7 if return_quat else 3
+        body_pos = self.body_q[body_index, :end].view(self.num_envs, end)
+        if return_vel:
+            body_vel = self.body_qd[body_index].view(self.num_envs, 6)
+            return body_pos, body_vel
+        return body_pos
 
 
 def object_generator(object_type, **kwargs):
@@ -545,7 +566,7 @@ OctprismObject = object_generator(ObjectType.OCTPRISM, scale=1.0)
 
 ReposeCubeObject = operable_object_generator(
     ObjectType.REPOSE_CUBE,
-    base_pos=(0.0, 0.1, 0.0),
+    base_pos=(0.0, 0.32, 0.0),
     base_ori=(0.0, 0.0, 0.0),
     scale=1.0,
     density=1e2,
@@ -699,17 +720,17 @@ USBObjects = {
 
 
 OBJ_MODELS = {}
-OBJ_MODELS[ObjectType.TCDM_STAPLER.value] = StaplerObject
-OBJ_MODELS[ObjectType.OCTPRISM.value] = OctprismObject
-OBJ_MODELS[ObjectType.SPRAY_BOTTLE.value] = SprayBottleObject
-OBJ_MODELS[ObjectType.PILL_BOTTLE.value] = PillBottleObject
-OBJ_MODELS[ObjectType.BOTTLE.value] = BottleObjects
-OBJ_MODELS[ObjectType.DISPENSER.value] = DispenserObjects
-OBJ_MODELS[ObjectType.EYEGLASSES.value] = EyeglassesObjects
-OBJ_MODELS[ObjectType.FAUCET.value] = FaucetObjects
-OBJ_MODELS[ObjectType.PLIERS.value] = PliersObjects
-OBJ_MODELS[ObjectType.SCISSORS.value] = ScissorsObjects
-OBJ_MODELS[ObjectType.STAPLER.value] = StaplerObjects
-OBJ_MODELS[ObjectType.SWITCH.value] = SwitchObjects
-OBJ_MODELS[ObjectType.USB.value] = USBObjects
-OBJ_MODELS[ObjectType.REPOSE_CUBE.value] = ReposeCubeObject
+OBJ_MODELS[ObjectType.TCDM_STAPLER] = StaplerObject
+OBJ_MODELS[ObjectType.OCTPRISM] = OctprismObject
+OBJ_MODELS[ObjectType.SPRAY_BOTTLE] = SprayBottleObject
+OBJ_MODELS[ObjectType.PILL_BOTTLE] = PillBottleObject
+OBJ_MODELS[ObjectType.BOTTLE] = BottleObjects
+OBJ_MODELS[ObjectType.DISPENSER] = DispenserObjects
+OBJ_MODELS[ObjectType.EYEGLASSES] = EyeglassesObjects
+OBJ_MODELS[ObjectType.FAUCET] = FaucetObjects
+OBJ_MODELS[ObjectType.PLIERS] = PliersObjects
+OBJ_MODELS[ObjectType.SCISSORS] = ScissorsObjects
+OBJ_MODELS[ObjectType.STAPLER] = StaplerObjects
+OBJ_MODELS[ObjectType.SWITCH] = SwitchObjects
+OBJ_MODELS[ObjectType.USB] = USBObjects
+OBJ_MODELS[ObjectType.REPOSE_CUBE] = ReposeCubeObject

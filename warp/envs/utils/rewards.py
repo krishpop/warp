@@ -26,3 +26,17 @@ def rot_reward_delta(object_rot, target_rot, prev_rot_reward):
 @torch.jit.script
 def reach_bonus(pose_err, threshold: float = 0.1):
     return torch.where(pose_err < threshold, torch.ones_like(pose_err), torch.zeros_like(pose_err))
+
+
+def parse_reward_params(reward_params_dict):
+    rew_params = {}
+    for key, value in reward_params_dict.items():
+        if isinstance(value, dict):
+            function = value["reward_fn_partial"]
+            # function = instantiate(function_name)
+            arguments = value["args"]
+            coefficient = value["scale"]
+        else:
+            function, arguments, coefficient = value
+        rew_params[key] = (function, arguments, coefficient)
+    return rew_params

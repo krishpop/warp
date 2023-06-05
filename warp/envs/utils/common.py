@@ -188,15 +188,6 @@ class ObjectType(Enum):
     REPOSE_CUBE = 21
 
 
-@dataclass
-class GraspParams:
-    xform: np.ndarray = np.array([0, 0, 0, 0, 0, 0, 1], dtype=np.float32)
-    hand_type: HandType = HandType.ALLEGRO
-    joint_pos: np.ndarray = None
-    stiffness: Optional[float] = None
-    damping: Optional[float] = None
-
-
 SHADOW_HAND_JOINTS = [
     "THJ5",
     "THJ4",
@@ -223,6 +214,15 @@ SHADOW_HAND_JOINTS = [
 ]
 
 
+@dataclass
+class GraspParams:
+    xform: np.ndarray = np.array([0, 0, 0, 0, 0, 0, 1], dtype=np.float32)
+    hand_type: HandType = HandType.ALLEGRO
+    joint_pos: np.ndarray = None
+    stiffness: Optional[float] = None
+    damping: Optional[float] = None
+
+
 def parse_grasp_data(grasp):
     if len(grasp["qpos"]) == 22:
         hand_type = HandType.ALLEGRO
@@ -236,16 +236,17 @@ def parse_grasp_data(grasp):
     pose_r = [grasp["qpos"][f"WRJR{d}"] for d in "xyz"]
     pose_t = [grasp["qpos"][f"WRJT{d}"] for d in "xyz"]
     pose_r = R.from_euler("xyz", pose_r).as_quat()
-    return np.concatenate([pose_t, pose_r]), qpos, hand_type
+    return dict(xform=np.concatenate([pose_t, pose_r]), joint_pos=qpos, hand_type=hand_type)
 
 
-def load_grasps_npy(path) -> List[GraspParams]:
+def load_grasps_npy(path, defaults={}) -> List[GraspParams]:
     data = np.load(path, allow_pickle=True)
 
     params = []
     for grasp in data:
-        hand_pose, qpos, hand_type = parse_grasp_data(grasp)
-        params.append(GraspParams(hand_type=hand_type, xform=hand_pose, joint_pos=qpos))
+        gparams = defaults.copy()
+        gparams.update(parse_grasp_data(grasp))
+        params.append(GraspParams(**gparams))
     return params
 
 
@@ -307,7 +308,7 @@ def profile(env):
     plt.show()
 
 
-def run_env(env, pi=None, num_steps=50, log_runs=False):
+def run_env(env, pi=None, num_steps=600, log_runs=False):
     if pi is None:
         # env.reset()
         joint_target_indices = env.env_joint_target_indices
@@ -323,13 +324,12 @@ def run_env(env, pi=None, num_steps=50, log_runs=False):
         def pi(obs, t):
             del obs
             joint_q_targets = (
-                np.sin(np.linspace(0, 3 * np.pi, num_steps))[:, None] * (upper - lower) / 2 + (upper + lower) / 2
-            )
+                np.sin(np.linspace(0, 4 * np.pi, 600))[:, None] * (upper - lower) / 2 + (upper + lower) / 2
+            ) * 0.8
             action = joint_start.copy()
-            action[:, :] = joint_q_targets[t % num_steps]
+            action[:, :] = joint_q_targets[t % 500]
             return torch.tensor(action, device=str(env.device))
 
-    num_steps = num_steps * n_dof
     actions, states, rewards, _ = collect_rollout(env, num_steps, pi)
     if log_runs:
         np.savez(
