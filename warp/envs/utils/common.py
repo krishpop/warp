@@ -11,7 +11,7 @@ from tqdm import trange
 from scipy.spatial.transform import Rotation as R
 from typing import Optional, List
 from inspect import getmembers
-from enum import Enum
+from enum import Enum, auto
 from dataclasses import dataclass
 from .rewards import l1_dist
 
@@ -111,26 +111,26 @@ def to_warp(input, dtype=float, device="cuda"):
 
 
 class ActionType(Enum):
-    POSITION = 0
-    TORQUE = 1
-    VARIABLE_STIFFNESS = 2
+    POSITION = auto()
+    TORQUE = auto()
+    VARIABLE_STIFFNESS = auto()
 
 
 class GoalType(Enum):
-    POSITION = 0
-    ORIENTATION = 1
-    POSE = 2
-    TRAJECTORY_POSITION = 3
-    TRAJECTORY_ORIENTATION = 4
-    TRAJECTORY_POSITION_FORCE = 5
-    TRAJECTORY_ORIENTATION_TORQUE = 6
-    TRAJECTORY_POSE_WRENCH = 7
+    POSITION = auto()
+    ORIENTATION = auto()
+    POSE = auto()
+    TRAJECTORY_POSITION = auto()
+    TRAJECTORY_ORIENTATION = auto()
+    TRAJECTORY_POSITION_FORCE = auto()
+    TRAJECTORY_ORIENTATION_TORQUE = auto()
+    TRAJECTORY_POSE_WRENCH = auto()
 
 
 class RewardType(Enum):
-    DELTA = 0
-    EXP = 1
-    L2 = 2
+    DELTA = auto()
+    EXP = auto()
+    L2 = auto()
 
 
 # Add 3d equivalents for goal type/create 2d or 3d boolean
@@ -150,8 +150,8 @@ ORIENTATION_GOAL_TYPES = [
 
 
 class HandType(Enum):
-    ALLEGRO = 0
-    SHADOW = 1
+    ALLEGRO = auto()
+    SHADOW = auto()
 
 
 HAND_ACT_COUNT = {
@@ -164,28 +164,29 @@ HAND_ACT_COUNT = {
 
 
 class ObjectType(Enum):
-    CYLINDER_MESH = 0
-    CUBE_MESH = 1
-    OCTPRISM_MESH = 2
-    ELLIPSOID_MESH = 3
-    RECTANGULAR_PRISM_FLAT = 4
-    RECTANGULAR_PRISM = 5
-    SPHERE = 6
-    CUBE = 7
-    OCTPRISM = 8
-    TCDM_STAPLER = 9
-    SPRAY_BOTTLE = 10
-    PILL_BOTTLE = 11
-    BOTTLE = 12
-    PLIERS = 13
-    SCISSORS = 14
-    DISPENSER = 15
-    EYEGLASSES = 16
-    FAUCET = 17
-    STAPLER = 18
-    SWITCH = 19
-    USB = 20
-    REPOSE_CUBE = 21
+    CYLINDER_MESH = auto()
+    CUBE_MESH = auto()
+    OCTPRISM_MESH = auto()
+    ELLIPSOID_MESH = auto()
+    RECTANGULAR_PRISM_FLAT = auto()
+    RECTANGULAR_PRISM = auto()
+    SPHERE = auto()
+    CUBE = auto()
+    OCTPRISM = auto()
+    TCDM_STAPLER = auto()
+    SPRAY_BOTTLE = auto()
+    PILL_BOTTLE = auto()
+    BOTTLE = auto()
+    PLIERS = auto()
+    SCISSORS = auto()
+    DISPENSER = auto()
+    SOAP_DISPENSER = auto()
+    EYEGLASSES = auto()
+    FAUCET = auto()
+    STAPLER = auto()
+    SWITCH = auto()
+    USB = auto()
+    REPOSE_CUBE = auto()
 
 
 SHADOW_HAND_JOINTS = [
@@ -318,7 +319,7 @@ def run_env(env, pi=None, num_steps=600, log_runs=False):
 
         def pi(obs, t):
             del obs
-            act = np.sin(np.ones_like(upper) * t / 150) * 0.8  # [-1, 1]
+            act = np.sin(np.ones_like(upper) * t / 150) * 0.9  # [-1, 1]
             joint_q_targets = act * (upper - lower) / 2 + (upper - lower) / 2
             action = joint_start.copy()
             action[:, :] = joint_q_targets

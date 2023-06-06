@@ -1,5 +1,6 @@
-import os.path as osp
 import os
+
+import trimesh
 import warp as wp
 import math
 import numpy as np
@@ -185,7 +186,7 @@ def add_object(
 
 
 def add_mesh(builder, link, obj_path, ke=2.0e5, kd=1e4, density=100.0):
-    obj_path = str(Path(osp.dirname(__file__)).parent / "envs" / "assets" / obj_path)
+    obj_path = str(Path(os.path.dirname(__file__)).parent / "envs" / "assets" / obj_path)
     mesh, scale = parse_mesh(obj_path)
     geom_size = (0.5, 0.5, 0.5)
 
@@ -489,6 +490,10 @@ class OperableObjectModel(ObjectModel):
         base_body_name="base",
         floating=False,
     ):
+        if isinstance(stiffness, int):
+            stiffness = float(stiffness)
+        if isinstance(damping, int):
+            damping = float(damping)
         super().__init__(
             object_type,
             base_pos=base_pos,
@@ -506,9 +511,29 @@ class OperableObjectModel(ObjectModel):
         assert model_path and os.path.splitext(model_path)[1] == ".urdf"
         self.model_path = model_path
 
+    def get_object_extents(self, asset_dir):
+        obj_dir = os.path.split(self.model_path)[0]
+        obj_filepath = os.path.join(asset_dir, obj_dir, "merged.obj")
+        if os.path.split(obj_dir)[1].isdigit():
+            obj_filepath = os.path.join(asset_dir, obj_dir, os.path.split(obj_dir)[1] + "_merged.obj")
+
+        # TODO: fix getting correct obj path for all objects
+        if not os.path.exists(obj_filepath):
+            return
+
+        obj_mesh = trimesh.load(obj_filepath)
+        self.object_bounds = obj_mesh.extents * self.scale
+        print("extents: ", self.object_bounds)
+
+        if self.object_bounds[1] / 2 > self.base_pos[1]:
+            print("object too tall, adjusting base position")
+            self.base_pos = (self.base_pos[0], max(self.base_pos[1], self.object_bounds[1] / 2), self.base_pos[2])
+
     def create_articulation(self, builder):
-        wp.sim.parse_urdf(
-            os.path.join(os.path.dirname(__file__), "../assets", self.model_path),
+        asset_dir = os.path.join(os.path.dirname(__file__), "../assets")
+        self.get_object_extents(asset_dir)
+        wp.sim.parse_partnet_urdf(
+            os.path.join(asset_dir, self.model_path),
             builder,
             xform=wp.transform(self.base_pos, self.base_ori),
             floating=self.floating,
@@ -554,9 +579,9 @@ OctprismObject = object_generator(ObjectType.OCTPRISM, scale=1.0)
 
 ReposeCubeObject = operable_object_generator(
     ObjectType.REPOSE_CUBE,
-    base_pos=(0.0, 0.32, 0.0),
+    base_pos=(0.0, 0.34, 0.0),
     base_ori=(0.0, 0.0, 0.0),
-    scale=1.0,
+    scale=1.4,
     density=1e2,
     stiffness=0.0,
     damping=0.0,
@@ -581,9 +606,11 @@ SprayBottleObject = operable_object_generator(
 
 PillBottleObject = operable_object_generator(
     ObjectType.PILL_BOTTLE,
-    base_pos=(0.0, 0.3, 0.0),
+    base_pos=(0.0, 0.18, 0.0),
     base_ori=(-np.pi / 2, 0.0, 0.0),
     scale=0.2,
+    stiffness=[11, 11],
+    damping=[0.0, 0.0],
     # base_ori=(np.pi / 17, 0.0, 0.0),
     model_path="pill_bottle/mobility.urdf",
 )
@@ -596,23 +623,38 @@ BottleObjects = {
         base_ori=(-0.5 * np.pi, 0.0, 0.0),
         scale=0.4,
         # base_ori=(np.pi / 17, 0.0, 0.0),
+        stiffness=[12, 12],
+        damping=[2.0, 0.2],
         model_path=f"Bottle/{bottle_id}/mobility.urdf",
     )
     for bottle_id in bottle_ids
 }
 
-dispenser_ids = ("101417", "101490", "101517", "101539", "101540", "103405", "103619")
+dispenser_ids1, dispenser_ids2 = ("101539", "101417", "101540", "103405", "103619"), ("101517",)
 DispenserObjects = {
     dispenser_id: operable_object_generator(
         ObjectType.DISPENSER,
         base_pos=(0.0, 0.01756801, 0.0),
         base_ori=(-0.5 * np.pi, 0.0, 0.0),
         scale=0.4,
+        stiffness=[10.0, 10.0],
+        damping=[0.5, 0.5],
         # base_ori=(np.pi / 17, 0.0, 0.0),
         model_path=f"Dispenser/{dispenser_id}/mobility.urdf",
     )
-    for dispenser_id in dispenser_ids
+    for dispenser_id in dispenser_ids1
 }
+
+SoapDispenserObject = operable_object_generator(
+    ObjectType.SOAP_DISPENSER,
+    base_pos=(0.0, 0.01756801, 0.0),
+    base_ori=(-0.5 * np.pi, 0.0, 0.0),
+    scale=0.4,
+    # base_ori=(np.pi / 17, 0.0, 0.0),
+    stiffness=[100, 100],
+    damping=[2.0, 0.2],
+    model_path=f"Dispenser/101490/mobility.urdf",
+)
 
 eyeglasses_ids = ("101284", "102586", "103189")
 EyeglassesObjects = {
@@ -708,17 +750,41 @@ USBObjects = {
 
 
 OBJ_MODELS = {}
+OBJ_NUM_JOINTS = {}
 OBJ_MODELS[ObjectType.TCDM_STAPLER] = StaplerObject
+OBJ_NUM_JOINTS[ObjectType.TCDM_STAPLER] = 7
 OBJ_MODELS[ObjectType.OCTPRISM] = OctprismObject
+OBJ_NUM_JOINTS[ObjectType.OCTPRISM] = 7
 OBJ_MODELS[ObjectType.SPRAY_BOTTLE] = SprayBottleObject
+OBJ_NUM_JOINTS[ObjectType.SPRAY_BOTTLE] = 1
 OBJ_MODELS[ObjectType.PILL_BOTTLE] = PillBottleObject
+OBJ_NUM_JOINTS[ObjectType.PILL_BOTTLE] = 2
 OBJ_MODELS[ObjectType.BOTTLE] = BottleObjects
+OBJ_NUM_JOINTS[ObjectType.BOTTLE] = 2
 OBJ_MODELS[ObjectType.DISPENSER] = DispenserObjects
+OBJ_NUM_JOINTS[ObjectType.DISPENSER] = 2
+
+OBJ_MODELS[ObjectType.SOAP_DISPENSER] = SoapDispenserObject
+OBJ_NUM_JOINTS[ObjectType.SOAP_DISPENSER] = 1
+
+
 OBJ_MODELS[ObjectType.EYEGLASSES] = EyeglassesObjects
+OBJ_NUM_JOINTS[ObjectType.EYEGLASSES] = 2
 OBJ_MODELS[ObjectType.FAUCET] = FaucetObjects
+OBJ_NUM_JOINTS[ObjectType.FAUCET] = 2
 OBJ_MODELS[ObjectType.PLIERS] = PliersObjects
+OBJ_NUM_JOINTS[ObjectType.PLIERS] = 1
 OBJ_MODELS[ObjectType.SCISSORS] = ScissorsObjects
+OBJ_NUM_JOINTS[ObjectType.SCISSORS] = 1
 OBJ_MODELS[ObjectType.STAPLER] = StaplerObjects
+OBJ_NUM_JOINTS[ObjectType.STAPLER] = 1
 OBJ_MODELS[ObjectType.SWITCH] = SwitchObjects
+OBJ_NUM_JOINTS[ObjectType.SWITCH] = 1
 OBJ_MODELS[ObjectType.USB] = USBObjects
+OBJ_NUM_JOINTS[ObjectType.USB] = 1
 OBJ_MODELS[ObjectType.REPOSE_CUBE] = ReposeCubeObject
+OBJ_NUM_JOINTS[ObjectType.REPOSE_CUBE] = 6
+
+
+def get_num_acts(object_type):
+    return OBJ_NUM_JOINTS.get(object_type, 1)

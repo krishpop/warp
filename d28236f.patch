@@ -1,0 +1,877 @@
+diff --git a/.flake8 b/.flake8
+new file mode 100644
+index 0000000..3e6c4fc
+--- /dev/null
++++ b/.flake8
+@@ -0,0 +1,105 @@
++[flake8]
++max-line-length = 120
++docstring-convention = google
++select =
++    # pycodestyle
++    E,W,
++    # flake8-docstrings
++    D3,
++    # pyflakes
++    F,
++    # pep8-naming
++    N,
++    # pycodestyle
++    A,
++    # flake8-bugbear
++    B,
++    # flake8-comprehensions
++    C,
++    # flake8-return
++    R,
++    # flake8-pep3101
++    S001,
++    # flake8-pylint
++    PL,
++    # flake8-simplify
++    SIM,
++
++ignore =
++    # line break before/after binary operator. Black formats it differently: https://stackoverflow.com/a/57074422
++    W503,
++    W504,
++
++; Omniverse ignores
++;
++;     # do not assign a lambda expression, use a def
++;     E731,
++    # whitespace before ':' - considered good style
++    # https://www.python.org/dev/peps/pep-0008/#whitespace-in-expressions-and-statements
++    E203,
++    # line too long (134 > 120 characters) - Black will take care of most of these. Any it cannot handle will
++    # be spurious warnings so they can be turned off by default
++    E501,
++;     # 'from module import *' used; unable to detect undefined names
++;     F403,
++;     # Name may be undefined, or defined from star imports: module (F405)
++    F405,
++;     # Import outside toplevel (import-outside-toplevel). We want that to save on import times sometimes.
++;     PLC0415,
++;     # Formatting a regular string which could be a f-string (consider-using-f-string)
++;     # (anov): I don't know, I feel "".format() is some times more applicable. Open to reconsider.
++;     PLC0209,
++;     # Constant name "_autoload_exts" doesn't conform to UPPER_CASE naming style (invalid-name)
++;     PLC0103,
++;     # Unnecessary variable assignment before return statement. Doesn't work correctly when `global` is used.
++;     R504,
++;     # ignore multiple with statements (for omni.ui)
++;     SIM117,
++;     # Missing function or method docstring (missing-function-docstring)
++;     PLC0116,
++;     # Method could be a function (no-self-use)
++;     PLR0201,
++;     # Line too long (107/100) (line-too-long) # we already have another plugin that check that
++;     PLC0301,
++;     # Unable to import
++;     PLE0401,
++;     # Use 'from omni import ui' instead (consider-using-from-import)
++;     PLR0402,
++;     # Missing module docstring (missing-module-docstring)
++;     PLC0114,
++;     # Unused argument 'item' (unused-argument) # we already have another plugin that check that
++;     PLW0613,
++;     # Too few public method, too many....
++;     PLR09,
++;     # Using the global statement (global-statement)
++;     PLW0603,
++;     # Unnecessary pass statement (unnecessary-pass)
++;     # PLW0107,
++;     # Missing class docstring (missing-class-docstring)
++;     PLC0115,
++;     # ignore todo
++;     PLW0511,
++;     # No name 'RiggedVehicleCore' in module 'core.core' (no-name-in-module)
++;     PLE0611,
++;     # Anomalous backslash in string: '\S'.
++;     # PLW1401,
++;     # Attribute 'bla' defined outside __init__
++;     # PLW0201,
++;     # Access to member 'bla' before its definition line
++;     # PLE0203,
++;     # Instance of 'SetupUI' has no '' member (no-member)
++;     # PLE1101,
++;     # Unused private member `ContentItem.__background_image` (unused-private-member)
++;     # PLW0238,
++;     # Method should have "self" as first argument (no-self-argument)  # we already have N805
++;     PLE0213,
++;     # Import "import omni.ui as ui" should be placed at the top of the module (wrong-import-position) (with use isort)
++;     PLC0413,
++;     # Unused import asyncio (unused-import), we use F401
++;     PLW0611,
++;     # No value for argument 'is_item_expanded_fn' in constructor call (no-value-for-parameter)
++;     # PLE1120
++
++per-file-ignores =
++    */__init__.py: F401,
++    */stubs.py: F401
+\ No newline at end of file
+diff --git a/examples/env/env_allegro.py b/examples/env/env_allegro.py
+index 4f2b70a..b694245 100644
+--- a/examples/env/env_allegro.py
++++ b/examples/env/env_allegro.py
+@@ -50,6 +50,8 @@ class AllegroEnvironment(Environment):
+ 
+     # render_mode = RenderMode.USD
+ 
++    rigid_mesh_contact_max = 1000
++
+     def create_articulation(self, builder):
+         wp.sim.parse_urdf(
+             os.path.join(
+diff --git a/examples/env/environment.py b/examples/env/environment.py
+index 761e1ca..761f4b6 100644
+--- a/examples/env/environment.py
++++ b/examples/env/environment.py
+@@ -125,6 +125,9 @@ class Environment:
+     # distance threshold at which contacts are generated
+     rigid_contact_margin: float = 0.05
+ 
++    # maximum number of contacts per rigid body mesh
++    rigid_mesh_contact_max = 10000
++
+     # whether each environment should have its own collision group
+     # to avoid collisions between environments
+     separate_collision_group_per_env: bool = True
+@@ -196,7 +199,7 @@ class Environment:
+             self.setup(builder)
+             self.bodies_per_env = len(builder.body_q)
+ 
+-        self.model = builder.finalize()
++        self.model = builder.finalize(rigid_mesh_contact_max=self.rigid_mesh_contact_max)
+         self.device = self.model.device
+         if not self.device.is_cuda:
+             self.use_graph_capture = False
+diff --git a/warp/builtins.py b/warp/builtins.py
+index 2ac7d8e..223af76 100644
+--- a/warp/builtins.py
++++ b/warp/builtins.py
+@@ -2850,3 +2850,6 @@ for t in int_types:
+ 
+ 
+ add_builtin("unot", input_types={"a": array(dtype=Any)}, value_type=bool, doc="", group="Operators")
++
++add_builtin("inc_index", input_types={"counts": array(dtype=int), "count_index": int, "tids": array(dtype=int), "tid": int, "limit": int}, value_type=int,
++            doc="Atomically increment index array ``counts`` at the given `count_index` and keep track of the given thread ID `tid` mapping to this index in the `tids` array, so that the backward pass can reuse the same index. If the index is greater than ``idx_limit`` then the returned index will be -1.", group="Utility", skip_replay=False)
+diff --git a/warp/codegen.py b/warp/codegen.py
+index c34a5f7..2adcceb 100644
+--- a/warp/codegen.py
++++ b/warp/codegen.py
+@@ -1605,6 +1605,7 @@ class Adjoint:
+ # code generation
+ 
+ cpu_module_header = """
++bool WARP_FORWARD_MODE = true;
+ #define WP_NO_CRT
+ #include "../native/builtin.h"
+ 
+@@ -1620,6 +1621,7 @@ using namespace wp;
+ """
+ 
+ cuda_module_header = """
++__device__ bool WARP_FORWARD_MODE = true;
+ #define WP_NO_CRT
+ #include "../native/builtin.h"
+ 
+@@ -1701,6 +1703,7 @@ cuda_kernel_template = """
+ extern "C" __global__ void {name}_cuda_kernel_forward(
+     {forward_args})
+ {{
++    WARP_FORWARD_MODE = true;
+     size_t _idx = grid_index();
+     if (_idx >= dim.size)
+         return;
+@@ -1713,6 +1716,7 @@ extern "C" __global__ void {name}_cuda_kernel_forward(
+ extern "C" __global__ void {name}_cuda_kernel_backward(
+     {reverse_args})
+ {{
++    WARP_FORWARD_MODE = false;
+     size_t _idx = grid_index();
+     if (_idx >= dim.size)
+         return;
+@@ -1729,12 +1733,14 @@ cpu_kernel_template = """
+ void {name}_cpu_kernel_forward(
+     {forward_args})
+ {{
++    WARP_FORWARD_MODE = true;
+ {forward_body}
+ }}
+ 
+ void {name}_cpu_kernel_backward(
+     {reverse_args})
+ {{
++    WARP_FORWARD_MODE = false;
+ {reverse_body}
+ }}
+ 
+diff --git a/warp/native/array.h b/warp/native/array.h
+index bf90f7b..e6c6080 100644
+--- a/warp/native/array.h
++++ b/warp/native/array.h
+@@ -913,4 +913,21 @@ inline CUDA_CALLABLE void adj_atomic_max(const A1<T>& buf, int i, int j, int k,
+ template<template<typename> class A1, template<typename> class A2, typename T>
+ inline CUDA_CALLABLE void adj_atomic_max(const A1<T>& buf, int i, int j, int k, int l, T value, const A2<T>& adj_buf, int& adj_i, int& adj_j, int& adj_k, int& adj_l, T& adj_value, const T& adj_ret) {}
+ 
++template<typename T> inline CUDA_CALLABLE T inc_index(const array_t<T>& buf, T buf_index, const array_t<T>& tids, int tid, T idx_limit) {
++    if (WARP_FORWARD_MODE) {
++        T next = atomic_add(buf, buf_index, T(1));
++        if (idx_limit < 0 || next < idx_limit) {
++            store(tids, tid, next);
++            return next;
++        }
++        store(tids, tid, T(-1));
++        return T(-1);
++    }
++    return index(tids, tid);
++}
++
++template<typename T> inline CUDA_CALLABLE void adj_inc_index(const array_t<T>& buf, T buf_index, const array_t<T>& tids, int tid, T idx_limit, const array_t<T>& adj_buf, T& adj_buf_index, const array_t<T>& adj_tids, int& adj_tid, T& adj_idx_limit, const T& adj_ret) {
++
++}
++
+ } // namespace wp
+\ No newline at end of file
+diff --git a/warp/native/cuda_util.cpp b/warp/native/cuda_util.cpp
+index 3b07043..84fb5af 100644
+--- a/warp/native/cuda_util.cpp
++++ b/warp/native/cuda_util.cpp
+@@ -8,6 +8,11 @@
+ 
+ #if WP_ENABLE_CUDA
+ 
++namespace wp
++{
++    static bool WARP_FORWARD_MODE = true;
++}
++
+ #include "cuda_util.h"
+ 
+ #if defined(_WIN32)
+diff --git a/warp/native/cutlass_gemm.cpp b/warp/native/cutlass_gemm.cpp
+index 744e956..592027c 100644
+--- a/warp/native/cutlass_gemm.cpp
++++ b/warp/native/cutlass_gemm.cpp
+@@ -6,6 +6,11 @@
+  * license agreement from NVIDIA CORPORATION is strictly prohibited.
+  */
+ 
++namespace wp
++{
++    static bool WARP_FORWARD_MODE = true;
++}
++
+ #include "builtin.h"
+ 
+ // stubs for platforms where there is no CUDA
+diff --git a/warp/native/hashgrid.cpp b/warp/native/hashgrid.cpp
+index 3003aab..66ef3a8 100644
+--- a/warp/native/hashgrid.cpp
++++ b/warp/native/hashgrid.cpp
+@@ -6,6 +6,11 @@
+  * license agreement from NVIDIA CORPORATION is strictly prohibited.
+  */
+ 
++namespace wp
++{
++    static bool WARP_FORWARD_MODE = true;
++}
++
+ #include "warp.h"
+ #include "cuda_util.h"
+ #include "hashgrid.h"
+diff --git a/warp/native/mesh.cpp b/warp/native/mesh.cpp
+index 97633f6..4409e21 100644
+--- a/warp/native/mesh.cpp
++++ b/warp/native/mesh.cpp
+@@ -6,6 +6,11 @@
+  * license agreement from NVIDIA CORPORATION is strictly prohibited.
+  */
+ 
++namespace wp
++{
++    static bool WARP_FORWARD_MODE = true;
++}
++
+ #include "mesh.h"
+ #include "bvh.h"
+ #include "warp.h"
+diff --git a/warp/native/volume.cpp b/warp/native/volume.cpp
+index 68c3c55..7a2ae4b 100644
+--- a/warp/native/volume.cpp
++++ b/warp/native/volume.cpp
+@@ -6,6 +6,11 @@
+  * license agreement from NVIDIA CORPORATION is strictly prohibited.
+  */
+ 
++namespace wp
++{
++    static bool WARP_FORWARD_MODE = true;
++}
++
+ #include "volume.h"
+ #include "volume_builder.h"
+ #include "warp.h"
+diff --git a/warp/native/warp.cpp b/warp/native/warp.cpp
+index 4410685..2f745a3 100644
+--- a/warp/native/warp.cpp
++++ b/warp/native/warp.cpp
+@@ -6,6 +6,11 @@
+  * license agreement from NVIDIA CORPORATION is strictly prohibited.
+  */
+ 
++namespace wp
++{
++    static bool WARP_FORWARD_MODE = true;
++}
++
+ #include "warp.h"
+ #include "scan.h"
+ #include "array.h"
+diff --git a/warp/native/warp.cu b/warp/native/warp.cu
+index 98e68af..4a0fc61 100644
+--- a/warp/native/warp.cu
++++ b/warp/native/warp.cu
+@@ -6,6 +6,11 @@
+  * license agreement from NVIDIA CORPORATION is strictly prohibited.
+  */
+ 
++namespace wp
++{
++    static __device__ bool WARP_FORWARD_MODE = true;
++}
++
+ #include "warp.h"
+ #include "scan.h"
+ #include "cuda_util.h"
+diff --git a/warp/sim/collide.py b/warp/sim/collide.py
+index a63ea77..47e58d5 100644
+--- a/warp/sim/collide.py
++++ b/warp/sim/collide.py
+@@ -586,6 +586,7 @@ def create_soft_contacts(
+ def count_contact_points(
+     contact_pairs: wp.array(dtype=int, ndim=2),
+     geo: ModelShapeGeometry,
++    mesh_contact_max: int,
+     # outputs
+     contact_count: wp.array(dtype=int),
+ ):
+@@ -614,34 +615,44 @@ def count_contact_points(
+ 
+     # determine how many contact points need to be evaluated
+     num_contacts = 0
++    num_actual_contacts = 0
+     if actual_type_a == wp.sim.GEO_SPHERE:
+         num_contacts = 1
++        num_actual_contacts = 1
+     elif actual_type_a == wp.sim.GEO_CAPSULE:
+         if actual_type_b == wp.sim.GEO_PLANE:
+             if geo.scale[actual_shape_b][0] == 0.0 and geo.scale[actual_shape_b][1] == 0.0:
+                 num_contacts = 2  # vertex-based collision for infinite plane
++                num_actual_contacts = 2
+             else:
+                 num_contacts = 2 + 4  # vertex-based collision + plane edges
++                num_actual_contacts = 2 + 4
+         elif actual_type_b == wp.sim.GEO_MESH:
+             num_contacts_a = 2
+             mesh_b = wp.mesh_get(geo.source[actual_shape_b])
+             num_contacts_b = mesh_b.points.shape[0]
+             num_contacts = num_contacts_a + num_contacts_b
++            num_actual_contacts = num_contacts_a + wp.min(mesh_contact_max, num_contacts_b)
+         else:
+             num_contacts = 2
++            num_actual_contacts = 2
+     elif actual_type_a == wp.sim.GEO_BOX:
+         if actual_type_b == wp.sim.GEO_BOX:
+             num_contacts = 24
++            num_actual_contacts = 24
+         elif actual_type_b == wp.sim.GEO_MESH:
+             num_contacts_a = 8
+             mesh_b = wp.mesh_get(geo.source[actual_shape_b])
+             num_contacts_b = mesh_b.points.shape[0]
+             num_contacts = num_contacts_a + num_contacts_b
++            num_actual_contacts = num_contacts_a + wp.min(mesh_contact_max, num_contacts_b)
+         elif actual_type_b == wp.sim.GEO_PLANE:
+             if geo.scale[actual_shape_b][0] == 0.0 and geo.scale[actual_shape_b][1] == 0.0:
+                 num_contacts = 8  # vertex-based collision
++                num_actual_contacts = 8
+             else:
+                 num_contacts = 8 + 4  # vertex-based collision + plane edges
++                num_actual_contacts = 8 + 4
+         else:
+             num_contacts = 8
+     elif actual_type_a == wp.sim.GEO_MESH:
+@@ -650,8 +661,11 @@ def count_contact_points(
+         if actual_type_b == wp.sim.GEO_MESH:
+             mesh_b = wp.mesh_get(geo.source[actual_shape_b])
+             num_contacts_b = mesh_b.points.shape[0]
++            num_contacts = num_contacts_a + num_contacts_b
++            num_actual_contacts = wp.min(mesh_contact_max, num_contacts_a) + wp.min(mesh_contact_max, num_contacts_b)
+         else:
+             num_contacts_b = 0
++            num_actual_contacts = 0
+         num_contacts = num_contacts_a + num_contacts_b
+     elif actual_type_a == wp.sim.GEO_PLANE:
+         return  # no plane-plane contacts
+@@ -659,6 +673,7 @@ def count_contact_points(
+         wp.printf("count_contact_points: unsupported geometry type combination %d and %d\n", actual_type_a, actual_type_b)
+ 
+     wp.atomic_add(contact_count, 0, num_contacts)
++    wp.atomic_add(contact_count, 1, num_actual_contacts)
+ 
+ 
+ @wp.kernel
+@@ -667,15 +682,18 @@ def broadphase_collision_pairs(
+     body_q: wp.array(dtype=wp.transform),
+     shape_X_bs: wp.array(dtype=wp.transform),
+     shape_body: wp.array(dtype=int),
++    num_shapes: int,
+     geo: ModelShapeGeometry,
+     collision_radius: wp.array(dtype=float),
+     rigid_contact_max: int,
+     rigid_contact_margin: float,
++    mesh_contact_max: int,
+     # outputs
+     contact_count: wp.array(dtype=int),
+     contact_shape0: wp.array(dtype=int),
+     contact_shape1: wp.array(dtype=int),
+     contact_point_id: wp.array(dtype=int),
++    contact_point_limit: wp.array(dtype=int),
+ ):
+     tid = wp.tid()
+     shape_a = contact_pairs[tid, 0]
+@@ -729,6 +747,9 @@ def broadphase_collision_pairs(
+         if d > r_a + r_b + rigid_contact_margin:
+             return
+ 
++    pair_index_ab = actual_shape_a * num_shapes + actual_shape_b
++    pair_index_ba = actual_shape_b * num_shapes + actual_shape_a
++
+     # determine how many contact points need to be evaluated
+     num_contacts = 0
+     if actual_type_a == wp.sim.GEO_SPHERE:
+@@ -758,6 +779,8 @@ def broadphase_collision_pairs(
+                 contact_shape0[index + num_contacts_a + i] = actual_shape_b
+                 contact_shape1[index + num_contacts_a + i] = actual_shape_a
+                 contact_point_id[index + num_contacts_a + i] = i
++            contact_point_limit[pair_index_ab] = 2
++            contact_point_limit[pair_index_ba] = wp.min(mesh_contact_max, num_contacts_b)
+             return
+         else:
+             num_contacts = 2
+@@ -777,6 +800,8 @@ def broadphase_collision_pairs(
+                 contact_shape0[index + 12 + i] = shape_b
+                 contact_shape1[index + 12 + i] = shape_a
+                 contact_point_id[index + 12 + i] = i
++            contact_point_limit[pair_index_ab] = 12
++            contact_point_limit[pair_index_ba] = 12
+             return
+         elif actual_type_b == wp.sim.GEO_MESH:
+             num_contacts_a = 8
+@@ -797,6 +822,9 @@ def broadphase_collision_pairs(
+                 contact_shape0[index + num_contacts_a + i] = actual_shape_b
+                 contact_shape1[index + num_contacts_a + i] = actual_shape_a
+                 contact_point_id[index + num_contacts_a + i] = i
++
++            contact_point_limit[pair_index_ab] = 8
++            contact_point_limit[pair_index_ba] = wp.min(mesh_contact_max, num_contacts_b)
+             return
+         elif actual_type_b == wp.sim.GEO_PLANE:
+             if geo.scale[actual_shape_b][0] == 0.0 and geo.scale[actual_shape_b][1] == 0.0:
+@@ -831,6 +859,9 @@ def broadphase_collision_pairs(
+                 contact_shape0[index + num_contacts_a + i] = actual_shape_b
+                 contact_shape1[index + num_contacts_a + i] = actual_shape_a
+                 contact_point_id[index + num_contacts_a + i] = i
++
++            contact_point_limit[pair_index_ab] = wp.min(mesh_contact_max, num_contacts_a)
++            contact_point_limit[pair_index_ba] = wp.min(mesh_contact_max, num_contacts_b)
+         return
+     elif actual_type_a == wp.sim.GEO_PLANE:
+         return  # no plane-plane contacts
+@@ -847,6 +878,7 @@ def broadphase_collision_pairs(
+             contact_shape0[index + i] = actual_shape_a
+             contact_shape1[index + i] = actual_shape_b
+             contact_point_id[index + i] = i
++        contact_point_limit[pair_index_ab] = num_contacts
+ 
+ 
+ @wp.kernel
+@@ -857,12 +889,16 @@ def handle_contact_pairs(
+     geo: ModelShapeGeometry,
+     rigid_contact_margin: float,
+     body_com: wp.array(dtype=wp.vec3),
+-    contact_shape0: wp.array(dtype=int),
+-    contact_shape1: wp.array(dtype=int),
++    contact_broad_shape0: wp.array(dtype=int),
++    contact_broad_shape1: wp.array(dtype=int),
++    num_shapes: int,
+     contact_point_id: wp.array(dtype=int),
+-    rigid_contact_count: wp.array(dtype=int),
++    contact_point_limit: wp.array(dtype=int),
+     edge_sdf_iter: int,
+     # outputs
++    contact_count: wp.array(dtype=int),
++    contact_shape0: wp.array(dtype=int),
++    contact_shape1: wp.array(dtype=int),
+     contact_body0: wp.array(dtype=int),
+     contact_body1: wp.array(dtype=int),
+     contact_point0: wp.array(dtype=wp.vec3),
+@@ -871,16 +907,22 @@ def handle_contact_pairs(
+     contact_offset1: wp.array(dtype=wp.vec3),
+     contact_normal: wp.array(dtype=wp.vec3),
+     contact_thickness: wp.array(dtype=float),
++    contact_pairwise_counter: wp.array(dtype=int),
++    contact_tids: wp.array(dtype=int),
+ ):
++
+     tid = wp.tid()
+-    if tid >= rigid_contact_count[0]:
+-        return
+-    shape_a = contact_shape0[tid]
+-    shape_b = contact_shape1[tid]
++    shape_a = contact_broad_shape0[tid]
++    shape_b = contact_broad_shape1[tid]
+     if shape_a == shape_b:
+         return
+ 
+     point_id = contact_point_id[tid]
++    pair_index = shape_a * num_shapes + shape_b
++    contact_limit = contact_point_limit[pair_index]
++    if contact_pairwise_counter[pair_index] >= contact_limit:
++        # reached limit of contact points per contact pair
++        return
+ 
+     rigid_a = shape_body[shape_a]
+     X_wb_a = wp.transform_identity()
+@@ -910,10 +952,6 @@ def handle_contact_pairs(
+     thickness_b = geo.thickness[shape_b]
+     # is_solid_b = geo.is_solid[shape_b]
+ 
+-    # fill in contact rigid body ids
+-    contact_body0[tid] = rigid_a
+-    contact_body1[tid] = rigid_b
+-
+     distance = 1.0e6
+     u = float(0.0)
+     thickness = thickness_a + thickness_b
+@@ -1294,14 +1332,25 @@ def handle_contact_pairs(
+ 
+     d = distance - thickness
+     if d < rigid_contact_margin:
++        pair_contact_id = wp.inc_index(contact_pairwise_counter, pair_index, contact_tids, tid, contact_limit)
++        if pair_contact_id == -1:
++            # wp.printf("Reached contact point limit %d >= %d for shape pair %d and %d\n",
++            #           contact_pairwise_counter[pair_index], contact_limit, shape_a, shape_b)
++            # reached contact point limit
++            return
++        index = wp.inc_index(contact_count, 0, contact_tids, tid, -1)
++        contact_shape0[index] = shape_a
++        contact_shape1[index] = shape_b
+         # transform from world into body frame (so the contact point includes the shape transform)
+-        contact_point0[tid] = wp.transform_point(X_bw_a, p_a_world)
+-        contact_point1[tid] = wp.transform_point(X_bw_b, p_b_world)
+-        contact_offset0[tid] = wp.transform_vector(X_bw_a, -thickness_a * normal)
+-        contact_offset1[tid] = wp.transform_vector(X_bw_b, thickness_b * normal)
+-        contact_normal[tid] = normal
+-        contact_thickness[tid] = thickness
+-        # wp.printf("distance: %f\tnormal: %.3f %.3f %.3f\tp_a_world: %.3f %.3f %.3f\tp_b_world: %.3f %.3f %.3f\n", distance, normal[0], normal[1], normal[2], p_a_world[0], p_a_world[1], p_a_world[2], p_b_world[0], p_b_world[1], p_b_world[2])
++        contact_point0[index] = wp.transform_point(X_bw_a, p_a_world)
++        contact_point1[index] = wp.transform_point(X_bw_b, p_b_world)
++        contact_offset0[index] = wp.transform_vector(X_bw_a, -thickness_a * normal)
++        contact_offset1[index] = wp.transform_vector(X_bw_b, thickness_b * normal)
++        contact_normal[index] = normal
++        contact_thickness[index] = thickness
++        # fill in contact rigid body ids
++        contact_body0[index] = rigid_a
++        contact_body1[index] = rigid_b
+     else:
+         contact_shape0[tid] = -1
+         contact_shape1[tid] = -1
+@@ -1359,16 +1408,19 @@ def collide(model, state, edge_sdf_iter: int = 10):
+                 state.body_q,
+                 model.shape_transform,
+                 model.shape_body,
++                model.shape_count,
+                 model.shape_geo,
+                 model.shape_collision_radius,
+                 model.rigid_contact_max,
+                 model.rigid_contact_margin,
++                model.rigid_mesh_contact_max,
+             ],
+             outputs=[
+                 model.rigid_contact_count,
+-                model.rigid_contact_shape0,
+-                model.rigid_contact_shape1,
++                model.rigid_contact_broad_shape0,
++                model.rigid_contact_broad_shape1,
+                 model.rigid_contact_point_id,
++                model.rigid_contact_point_limit,
+             ],
+             device=model.device,
+             record_tape=False,
+@@ -1383,22 +1435,30 @@ def collide(model, state, edge_sdf_iter: int = 10):
+                 state.body_q,
+                 model.shape_transform,
+                 model.shape_body,
++                model.shape_count,
+                 model.shape_geo,
+                 model.shape_collision_radius,
+                 model.rigid_contact_max,
+                 model.rigid_contact_margin,
++                model.rigid_mesh_contact_max,
+             ],
+             outputs=[
+                 model.rigid_contact_count,
+-                model.rigid_contact_shape0,
+-                model.rigid_contact_shape1,
++                model.rigid_contact_broad_shape0,
++                model.rigid_contact_broad_shape1,
+                 model.rigid_contact_point_id,
++                model.rigid_contact_point_limit,
+             ],
+             device=model.device,
+-            record_tape=False,
+-        )
++            record_tape=False)
+ 
+     if model.shape_contact_pair_count or model.ground and model.shape_ground_contact_pair_count:
++
++        model.rigid_contact_count.zero_()
++        model.rigid_contact_pairwise_counter.zero_()
++        model.rigid_contact_shape0.fill_(-1)
++        model.rigid_contact_shape1.fill_(-1)
++
+         wp.launch(
+             kernel=handle_contact_pairs,
+             dim=model.rigid_contact_max,
+@@ -1409,13 +1469,17 @@ def collide(model, state, edge_sdf_iter: int = 10):
+                 model.shape_geo,
+                 model.rigid_contact_margin,
+                 model.body_com,
+-                model.rigid_contact_shape0,
+-                model.rigid_contact_shape1,
++                model.rigid_contact_broad_shape0,
++                model.rigid_contact_broad_shape1,
++                model.shape_count,
+                 model.rigid_contact_point_id,
+-                model.rigid_contact_count,
++                model.rigid_contact_point_limit,
+                 edge_sdf_iter,
+             ],
+             outputs=[
++                model.rigid_contact_count,
++                model.rigid_contact_shape0,
++                model.rigid_contact_shape1,
+                 model.rigid_contact_body0,
+                 model.rigid_contact_body1,
+                 model.rigid_contact_point0,
+@@ -1424,6 +1488,8 @@ def collide(model, state, edge_sdf_iter: int = 10):
+                 model.rigid_contact_offset1,
+                 model.rigid_contact_normal,
+                 model.rigid_contact_thickness,
++                model.rigid_contact_pairwise_counter,
++                model.rigid_contact_tids,
+             ],
+             device=model.device)
+         
+diff --git a/warp/sim/model.py b/warp/sim/model.py
+index 0ac3510..dcc27d5 100644
+--- a/warp/sim/model.py
++++ b/warp/sim/model.py
+@@ -547,6 +547,9 @@ class Model:
+         self.rigid_contact_torsional_friction = None
+         self.rigid_contact_rolling_friction = None
+ 
++        # maximum number of contact points to generate per mesh shape
++        self.rigid_mesh_contact_max = 10000
++
+         # toggles ground contact for all shapes
+         self.ground = True
+         self.ground_plane = None
+@@ -675,13 +678,14 @@ class Model:
+         from .collide import count_contact_points
+ 
+         # calculate the potential number of shape pair contact points
+-        contact_count = wp.zeros(1, dtype=wp.int32, device=self.device)
++        contact_count = wp.zeros(2, dtype=wp.int32, device=self.device)
+         wp.launch(
+             kernel=count_contact_points,
+             dim=self.shape_contact_pair_count,
+             inputs=[
+                 self.shape_contact_pairs,
+                 self.shape_geo,
++                self.rigid_mesh_contact_max,
+             ],
+             outputs=[contact_count],
+             device=self.device,
+@@ -694,78 +698,82 @@ class Model:
+             inputs=[
+                 self.shape_ground_contact_pairs,
+                 self.shape_geo,
++                self.rigid_mesh_contact_max,
+             ],
+             outputs=[contact_count],
+             device=self.device,
+             record_tape=False,
+         )
+-        count = contact_count.numpy()[0]
+-        return int(count)
+-
+-    def allocate_rigid_contacts(self, count=None, requires_grad=False):
+-        if count is not None:
+-            self.rigid_contact_max = count
++        counts = contact_count.numpy()
++        potential_count = int(counts[0])
++        actual_count = int(counts[1])
++        return potential_count, actual_count
++
++    def allocate_rigid_contacts(self, potential_contact_count=None, actual_contact_count=None, requires_grad=False):
++        if potential_contact_count is not None:
++            self.rigid_contact_max = potential_contact_count
++            self.rigid_contact_max_actual = actual_contact_count
+         # serves as counter of the number of active contact points
+         self.rigid_contact_count = wp.zeros(1, dtype=wp.int32, device=self.device)
+         # contact point ID within the (shape_a, shape_b) contact pair
+         self.rigid_contact_point_id = wp.zeros(self.rigid_contact_max, dtype=wp.int32, device=self.device)
+         # ID of first rigid body
+-        self.rigid_contact_body0 = wp.zeros(self.rigid_contact_max, dtype=wp.int32, device=self.device)
++        self.rigid_contact_body0 = wp.zeros(self.rigid_contact_max_actual, dtype=wp.int32, device=self.device)
+         # ID of second rigid body
+-        self.rigid_contact_body1 = wp.zeros(self.rigid_contact_max, dtype=wp.int32, device=self.device)
++        self.rigid_contact_body1 = wp.zeros(self.rigid_contact_max_actual, dtype=wp.int32, device=self.device)
+         # position of contact point in body 0's frame before the integration step
+         self.rigid_contact_point0 = wp.zeros(
+-            self.rigid_contact_max, dtype=wp.vec3, device=self.device, requires_grad=requires_grad
++            self.rigid_contact_max_actual, dtype=wp.vec3, device=self.device, requires_grad=requires_grad
+         )
+         # position of contact point in body 1's frame before the integration step
+         self.rigid_contact_point1 = wp.zeros(
+-            self.rigid_contact_max, dtype=wp.vec3, device=self.device, requires_grad=requires_grad
++            self.rigid_contact_max_actual, dtype=wp.vec3, device=self.device, requires_grad=requires_grad
+         )
+         # moment arm before the integration step resulting from thickness displacement added to contact point 0 in body 0's frame (used in XPBD contact friction handling)
+         self.rigid_contact_offset0 = wp.zeros(
+-            self.rigid_contact_max, dtype=wp.vec3, device=self.device, requires_grad=requires_grad
++            self.rigid_contact_max_actual, dtype=wp.vec3, device=self.device, requires_grad=requires_grad
+         )
+         # moment arm before the integration step resulting from thickness displacement added to contact point 1 in body 1's frame (used in XPBD contact friction handling)
+         self.rigid_contact_offset1 = wp.zeros(
+-            self.rigid_contact_max, dtype=wp.vec3, device=self.device, requires_grad=requires_grad
++            self.rigid_contact_max_actual, dtype=wp.vec3, device=self.device, requires_grad=requires_grad
+         )
+         # contact normal in world frame
+         self.rigid_contact_normal = wp.zeros(
+-            self.rigid_contact_max, dtype=wp.vec3, device=self.device, requires_grad=requires_grad
++            self.rigid_contact_max_actual, dtype=wp.vec3, device=self.device, requires_grad=requires_grad
+         )
+         # combined thickness of both shapes
+         self.rigid_contact_thickness = wp.zeros(
+-            self.rigid_contact_max, dtype=wp.float32, device=self.device, requires_grad=requires_grad
++            self.rigid_contact_max_actual, dtype=wp.float32, device=self.device, requires_grad=requires_grad
+         )
+         # ID of the first shape in the contact pair
+-        self.rigid_contact_shape0 = wp.zeros(self.rigid_contact_max, dtype=wp.int32, device=self.device)
++        self.rigid_contact_shape0 = wp.zeros(self.rigid_contact_max_actual, dtype=wp.int32, device=self.device)
+         # ID of the second shape in the contact pair
+-        self.rigid_contact_shape1 = wp.zeros(self.rigid_contact_max, dtype=wp.int32, device=self.device)
++        self.rigid_contact_shape1 = wp.zeros(self.rigid_contact_max_actual, dtype=wp.int32, device=self.device)
+ 
+         # temporary variables used during the XPBD solver iterations:
+         # world space position of contact point resulting from applying current body 0 transform to its point0
+         self.rigid_active_contact_point0 = wp.zeros(
+-            self.rigid_contact_max, dtype=wp.vec3, device=self.device, requires_grad=requires_grad
++            self.rigid_contact_max_actual, dtype=wp.vec3, device=self.device, requires_grad=requires_grad
+         )
+         # world space position of contact point resulting from applying current body 1 transform to its point1
+         self.rigid_active_contact_point1 = wp.zeros(
+-            self.rigid_contact_max, dtype=wp.vec3, device=self.device, requires_grad=requires_grad
++            self.rigid_contact_max_actual, dtype=wp.vec3, device=self.device, requires_grad=requires_grad
+         )
+         # current contact distance (negative penetration depth)
+         self.rigid_active_contact_distance = wp.zeros(
+-            self.rigid_contact_max, dtype=wp.float32, device=self.device, requires_grad=requires_grad
++            self.rigid_contact_max_actual, dtype=wp.float32, device=self.device, requires_grad=requires_grad
+         )
+         # contact distance before the solver iterations
+         self.rigid_active_contact_distance_prev = wp.zeros(
+-            self.rigid_contact_max, dtype=wp.float32, device=self.device, requires_grad=requires_grad
++            self.rigid_contact_max_actual, dtype=wp.float32, device=self.device, requires_grad=requires_grad
+         )
+         # world space position of point0 before the solver iterations
+         self.rigid_active_contact_point0_prev = wp.zeros(
+-            self.rigid_contact_max, dtype=wp.vec3, device=self.device, requires_grad=requires_grad
++            self.rigid_contact_max_actual, dtype=wp.vec3, device=self.device, requires_grad=requires_grad
+         )
+         # world space position of point1 before the solver iterations
+         self.rigid_active_contact_point1_prev = wp.zeros(
+-            self.rigid_contact_max, dtype=wp.vec3, device=self.device, requires_grad=requires_grad
++            self.rigid_contact_max_actual, dtype=wp.vec3, device=self.device, requires_grad=requires_grad
+         )
+         # number of contact constraints per rigid body (used for scaling the constraint contributions, a basic version of mass splitting)
+         self.rigid_contact_inv_weight = wp.zeros(
+@@ -776,6 +784,18 @@ class Model:
+             len(self.body_q), dtype=wp.float32, device=self.device, requires_grad=requires_grad
+         )
+ 
++        # shape IDs of potential contact pairs found during broadphase
++        self.rigid_contact_broad_shape0 = wp.zeros(self.rigid_contact_max, dtype=wp.int32, device=self.device)
++        self.rigid_contact_broad_shape1 = wp.zeros(self.rigid_contact_max, dtype=wp.int32, device=self.device)
++
++        max_pair_count = self.shape_count * self.shape_count
++        # maximum number of contact points per contact pair
++        self.rigid_contact_point_limit = wp.zeros(max_pair_count, dtype=wp.int32, device=self.device)
++        # currently found contacts per contact pair
++        self.rigid_contact_pairwise_counter = wp.zeros(max_pair_count, dtype=wp.int32, device=self.device)
++        # ID of thread that found the current contact point
++        self.rigid_contact_tids = wp.zeros(self.rigid_contact_max, dtype=wp.int32, device=self.device)
++
+     def flatten(self):
+         """Returns a list of Tensors stored by the model
+ 
+@@ -3576,7 +3596,7 @@ class ModelBuilder:
+         for i in range(self.shape_count - 1):
+             self.shape_collision_filter_pairs.add((i, ground_id))
+ 
+-    def finalize(self, device=None, requires_grad=False) -> Model:
++    def finalize(self, device=None, requires_grad=False, rigid_mesh_contact_max=None) -> Model:
+         """Convert this builder object to a concrete model for simulation.
+ 
+         After building simulation elements this method should be called to transfer
+@@ -3585,6 +3605,7 @@ class ModelBuilder:
+         Args:
+             device: The simulation device to use, e.g.: 'cpu', 'cuda'
+             requires_grad: Whether to enable gradient computation for the model
++            rigid_mesh_contact_max: The maximum number of contact points to generate per rigid mesh
+ 
+         Returns:
+ 
+@@ -3616,6 +3637,9 @@ class ModelBuilder:
+ 
+             m.num_envs = self.num_envs
+ 
++            if rigid_mesh_contact_max is not None:
++                m.rigid_mesh_contact_max = rigid_mesh_contact_max
++
+             # ---------------------
+             # particles
+ 
+@@ -3797,12 +3821,12 @@ class ModelBuilder:
+                 m.allocate_soft_contacts(self.soft_contact_max, requires_grad=requires_grad)
+             m.find_shape_contact_pairs()
+             if self.num_rigid_contacts_per_env is None:
+-                contact_count = m.count_contact_points()
++                potential_contact_count, actual_contact_count = m.count_contact_points()
+             else:
+-                contact_count = self.num_rigid_contacts_per_env * self.num_envs
++                potential_contact_count = actual_contact_count = self.num_rigid_contacts_per_env * self.num_envs
+             if wp.config.verbose:
+-                print(f"Allocating {contact_count} rigid contacts.")
+-            m.allocate_rigid_contacts(contact_count, requires_grad=requires_grad)
++                print(f"Allocating {actual_contact_count} rigid contacts ({potential_contact_count} potential contacts).")
++            m.allocate_rigid_contacts(potential_contact_count, actual_contact_count, requires_grad=requires_grad)
+             m.rigid_contact_margin = self.rigid_contact_margin
+             m.rigid_contact_torsional_friction = self.rigid_contact_torsional_friction
+             m.rigid_contact_rolling_friction = self.rigid_contact_rolling_friction
