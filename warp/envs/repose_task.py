@@ -13,12 +13,12 @@ from .utils.rewards import action_penalty, l2_dist, reach_bonus, rot_dist, rot_r
 class ReposeTask(HandObjectTask):
     obs_keys = ["hand_joint_pos", "hand_joint_vel", "object_pos", "target_pos"]
     debug_visualization = False
-    use_graph_capture: bool = True
+    drop_height: float = 0.1
 
     def __init__(
         self,
         num_envs,
-        num_obs=1,
+        num_obs=38,
         episode_length=500,
         action_type: ActionType = ActionType.POSITION,
         seed=0,
@@ -30,19 +30,20 @@ class ReposeTask(HandObjectTask):
         stage_path=None,
         stiffness=0.0,
         damping=0.5,
-        rew_params=None,
+        reward_params=None,
         hand_type: HandType = HandType.ALLEGRO,
         hand_start_position: Tuple = (0.1, 0.3, 0.0),
         hand_start_orientation: Tuple = (-np.pi / 2, np.pi * 0.75, np.pi / 2),
-        use_autograd: bool = False,
+        use_autograd: bool = True,
+        use_graph_capture: bool = True,
         reach_threshold: float = 0.1,
         reach_bonus: float = 100.0,
     ):
         object_type = ObjectType.REPOSE_CUBE
         object_id = 0
-        reward_params_dict = {k: v for k, v in rew_params.items() if k != "reach_bonus"}
-        if "reach_bonus" not in rew_params:
-            rew_params["reach_bonus"] = (lambda x: torch.zeros_like(x), ("object_pose_err",), reach_bonus)
+        reward_params_dict = {k: v for k, v in reward_params.items() if k != "reach_bonus"}
+        if "reach_bonus" not in reward_params:
+            reward_params["reach_bonus"] = (lambda x: torch.zeros_like(x), ("object_pose_err",), reach_bonus)
         super().__init__(
             num_envs=num_envs,
             num_obs=num_obs,
@@ -66,11 +67,12 @@ class ReposeTask(HandObjectTask):
             grasp_file="",
             grasp_id=None,
             use_autograd=use_autograd,
+            use_graph_capture=use_graph_capture,
         )
         self.reward_extras["reach_threshold"] = reach_threshold
         # stay in center of hand
-        self.goal_pos = torch.as_tensor([0.0, 0.32, 0.0], dtype=float, device=str(self.device))
-        self.goal_rot = torch.as_tensor([0.0, 0.0, 0.0, 1.0], dtype=float, device=str(self.device))
+        self.goal_pos = tu.to_torch([0.0, 0.32, 0.0], device=self.device).view(1, 3).repeat(self.num_envs, 1)
+        self.goal_rot = tu.to_torch([0.0, 0.0, 0.0, 1.0], device=self.device).view(1, 4).repeat(self.num_envs, 1)
 
     def _get_object_pose(self):
         joint_q = self.joint_q.view(self.num_envs, -1)
@@ -80,7 +82,8 @@ class ReposeTask(HandObjectTask):
             object_joint_pos = joint_q[:, self.object_joint_start : self.object_joint_start + 3]
             object_joint_quat = joint_q[:, self.object_joint_start + 3 : self.object_joint_start + 7]
             pose["position"] = object_joint_pos + tu.to_torch(self.object_model.base_pos).view(1, 3)
-            pose["orientation"] = tu.quat_mul(object_joint_quat, tu.to_torch(self.object_model.base_quat).view(1, 4))
+            start_quat = tu.to_torch(self.object_model.base_ori).view(1, 4).repeat(self.num_envs, 1)
+            pose["orientation"] = tu.quat_mul(object_joint_quat, start_quat)
         elif self.object_model.base_joint == "px, py, px":
             pose["position"] = joint_q[:, self.object_joint_start : self.object_joint_start + 3]
         elif self.object_model.base_joint == "rx, ry, rx":
@@ -90,33 +93,28 @@ class ReposeTask(HandObjectTask):
             pose["orientation"] = joint_q[:, self.object_joint_start + 3 : self.object_joint_start + 6]
         return pose
 
+    def _pre_step(self):
+        if "prev_rot_dist" not in self.extras:
+            self.extras["prev_rot_dist"] = torch.zeros_like(self.rew_buf)
+
+    def _check_early_termination(self, obs_dict):
+        # check if object is dropped
+        object_body_pos = obs_dict["object_body_pos"]
+        self.reset_buf = self.reset_buf | object_body_pos[:, 2] < self.drop_height
+
     def _get_obs_dict(self):
         obs_dict = super()._get_obs_dict()
-        obs_dict["target_pos"] = self.goal_pos.view(1, 3).repeat(self.num_envs, 1)
-        obs_dict["target_quat"] = self.goal_rot.view(1, 4).repeat(self.num_envs, 1)
+        obs_dict["target_pos"] = self.goal_pos
+        obs_dict["target_quat"] = self.goal_rot
         object_pose = self._get_object_pose()
         obs_dict["object_pos"] = object_pose["position"]
-        # obs_dict["object_rot"] = object_pose['orientation']
-        obs_dict["object_pose_err"] = l2_dist(obs_dict["object_pos"], obs_dict["target_pos"]).view(self.num_envs)
-        # obj_dict["object_pose_err"] += rot_dist(
-        #     object_pos["orientation"], self.goal_rot.view(1, 3).repeat(self.num_envs, 1)
-        # )
+        obs_dict["object_rot"] = object_pose["orientation"]
+        obs_dict["object_pose_err"] = l2_dist(obs_dict["object_pos"], obs_dict["target_pos"]).view(self.num_envs, 1)
+        obs_dict["rot_dist"] = rot_dist(object_pose["orientation"], obs_dict["target_quat"])
         obs_dict["action"] = self.actions.view(self.num_envs, -1)
         self.extras.update(obs_dict)
+        self._check_early_termination(obs_dict)
         return obs_dict
-
-    def _get_rew_dict(self):
-        rew_dict = super()._get_rew_dict()
-        # cost_fn, rew_args, rew_scale = self.reach_bonus
-        # args = []
-        # for arg in rew_args:
-        #     if arg in self.extras:
-        #         args.append(self.extras[arg])
-        #     elif arg in rew_dict:
-        #         args.append(rew_dict[arg])
-        #
-        # rew_dict["reach_bonus"] = cost_fn(*args) * rew_scale
-        return rew_dict
 
     def render(self, **kwargs):
         super().render(**kwargs)
@@ -146,7 +144,7 @@ if __name__ == "__main__":
     else:
         render_mode = RenderMode.OPENGL
     env = ReposeTask(
-        num_envs=args.num_envs, num_obs=38, episode_length=1000, rew_params=rew_params, render_mode=render_mode
+        num_envs=args.num_envs, num_obs=38, episode_length=1000, reward_params=rew_params, render_mode=render_mode
     )
     if args.profile:
         profile(env)

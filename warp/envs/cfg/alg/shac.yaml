@@ -30,10 +30,10 @@ params:
     max_epochs: ${env.shac.max_epochs}
     steps_num: 32
     grad_norm: 1.0
-    truncate_grads: True
+    truncate_grads: False
     num_actors: ${env.config.num_envs} # ${resolve_default:64,${..env.config.num_envs}}
     save_interval: 400 # ${resolve_default:400,${..env.save_interval}}
-    contact_truncation: False
+    contact_truncation: True
 
     player:
       determenistic: True

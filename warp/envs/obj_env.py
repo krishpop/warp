@@ -46,7 +46,8 @@ class ObjectTask(WarpEnv):
         damping=1.0,
         reward_params=None,
         env_name=None,
-        use_autograd=False,
+        use_autograd=True,
+        use_graph_capture=True,
         goal_joint_pos=None,
     ):
         if not env_name:
@@ -75,6 +76,7 @@ class ObjectTask(WarpEnv):
         )
 
         self.use_autograd = use_autograd
+        self.use_graph_capture = use_graph_capture
 
         self.object_type = object_type
         self.object_id = object_id
@@ -96,6 +98,7 @@ class ObjectTask(WarpEnv):
 
         self.stiffness = stiffness
         self.damping = damping
+
         if reward_params is None:
             reward_params = {
                 "action_penalty": (action_penalty, ["action"], 1e-3),
@@ -109,7 +112,8 @@ class ObjectTask(WarpEnv):
         self.init_sim()  # sets up renderer, model, etc.
 
         # initialize goal_joint_pos after creating model
-        self.set_goal_joint_pos(goal_joint_pos)
+        if self.object_type is not None:
+            self.set_goal_joint_pos(goal_joint_pos)
 
         self.simulate_params["ag_return_body"] = self.ag_return_body
 
@@ -130,7 +134,7 @@ class ObjectTask(WarpEnv):
             + joint_lower[:, self.object_joint_target_indices]
         )
 
-        self.goal_joint_pos = to_torch(goal_joint_pos, device=str(self.device)).view(1, -1).repeat(self.num_envs, 1)
+        self.goal_joint_pos = to_torch(goal_joint_pos, device=self.device).view(1, -1).repeat(self.num_envs, 1)
 
     def init_sim(self):
         super().init_sim()
@@ -141,7 +145,7 @@ class ObjectTask(WarpEnv):
                 self.env_num_joints == self.num_actions
             ), f"Number of actions {self.num_actions} must match number of joints, {self.env_num_joints}"
         self.warp_actions = wp.zeros(
-            self.num_envs * self.num_actions, device=self.device, requires_grad=self.requires_grad
+            self.num_envs * self.num_actions, device=self._device, requires_grad=self.requires_grad
         )
         joint_axis_start = (
             self.model.joint_axis_start.numpy().reshape(self.num_envs, -1)[:, self.env_joint_mask].flatten()
@@ -153,7 +157,7 @@ class ObjectTask(WarpEnv):
                 for joint_idx, joint_type in zip(joint_axis_start, joint_types)
             ]
         )
-        self.joint_target_indices = wp.array(joint_target_indices, device=self.device, dtype=int)
+        self.joint_target_indices = wp.array(joint_target_indices, device=self._device, dtype=int)
         if not isinstance(self.stiffness, float):
             target_ke = self.model.joint_target_ke.numpy().reshape(self.num_envs, -1)
             target_kd = self.model.joint_target_kd.numpy().reshape(self.num_envs, -1)
@@ -185,8 +189,9 @@ class ObjectTask(WarpEnv):
     def step(self, actions):
         self.actions = actions
         actions = actions.flatten()
-        del self.extras
+        prev_extras = self.extras
         self.extras = OrderedDict(actions=self.actions)
+        self.extras.update({f"prev_{k}": v for k, v in prev_extras.items()})
         self.assign_actions(actions)
         self._pre_step()
         if self.requires_grad and self.use_autograd:
@@ -217,12 +222,10 @@ class ObjectTask(WarpEnv):
                     rew_args.append(self.extras[arg])
                 else:
                     raise TypeError("Invalid argument for reward function {}, ('{}')".format(k, arg))
-            v = self.extras.get(k, cost_fn(*rew_args) * rew_scale)  # if pre-computed, use that
-
-            assert np.prod(v.shape) == self.num_envs
+            v = cost_fn(*rew_args) * rew_scale
             rew_dict[k] = v.view(self.num_envs)
 
-        self.extras.update({f"prev_{k}": v for k, v in rew_dict.items()})
+        self.extras.update(rew_dict)
         return rew_dict
 
     def _get_obs_dict(self):

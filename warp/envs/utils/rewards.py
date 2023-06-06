@@ -1,4 +1,5 @@
 import torch
+from hydra.utils import instantiate
 from .torch_utils import quat_conjugate, quat_mul
 
 action_penalty = lambda act: torch.linalg.norm(act, dim=-1)
@@ -19,8 +20,8 @@ def rot_reward(object_rot, target_rot):
 
 
 @torch.jit.script
-def rot_reward_delta(object_rot, target_rot, prev_rot_reward):
-    return prev_rot_reward - rot_reward(object_rot, target_rot)
+def rot_dist_delta(object_rot, target_rot, prev_rot_reward):
+    return prev_rot_reward - rot_dist(object_rot, target_rot)
 
 
 @torch.jit.script
@@ -32,6 +33,8 @@ def parse_reward_params(reward_params_dict):
     rew_params = {}
     for key, value in reward_params_dict.items():
         if isinstance(value, dict):
+            if "_partial_" in value["reward_fn_partial"]:
+                value = instantiate(value)
             function = value["reward_fn_partial"]
             # function = instantiate(function_name)
             arguments = value["args"]

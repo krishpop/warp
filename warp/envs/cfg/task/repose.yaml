@@ -3,19 +3,27 @@ defaults:
   - rewards:
     - action_penalty
     - object_pos_err
+    - hand_joint_pos_err
+    - reach_bonus
 
 name: repose_task
 
 env:
   _target_: warp.envs.ReposeTask
-  num_envs: ${resolve_default:256,${...num_envs}}
+  num_envs: ${resolve_default:256,${num_envs}}
   episode_length: 500
   render: ${render}
-  rew_params: 
+  reward_params: 
     action_penalty: ${...rewards.action_penalty}
     object_pos_err: ${...rewards.object_pos_err}
+    hand_joint_pos_err: ${...rewards.hand_joint_pos_err}
+    reach_bonus: ${...rewards.reach_bonus}
   hand_start_orientation: ${eval:'(-np.pi / 2 * 3, np.pi * 0.75, np.pi / 2 * 3)'}
   hand_start_position: ${eval:'(0.0, 0.3, 0.0)'}
+  stochastic_init: true
+  render_mode: ${render:none}
+  use_autograd: false
+  use_graph_capture: true
 
 
 ppo:
@@ -29,6 +37,6 @@ ppo:
     units: [512, 256, 128]
 
 player:
-  deterministic: True
+  deterministic: true
   games_num: 100000
-  print_stats: True
+  print_stats: true

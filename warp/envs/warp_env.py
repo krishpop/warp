@@ -15,6 +15,9 @@ from .utils.autograd import forward_ag, get_compute_graph
 from .utils.warp_utils import integrate_body_f
 
 
+torch.set_default_dtype(torch.float32)
+
+
 def set_seed(seed):
     torch.manual_seed(seed)
     if torch.cuda.is_available():
@@ -60,7 +63,7 @@ class WarpEnv(Environment):
     ):
         self.seed = seed
         self.requires_grad = not no_grad
-        self.device = str(device)
+        self._device = device
         self.visualize = render
         if not self.visualize:
             self.render_mode = RenderMode.NONE
@@ -121,6 +124,14 @@ class WarpEnv(Environment):
 
         self.extras = {}
         self._model = None
+
+    @property
+    def device(self):
+        return str(self._device)
+
+    @device.setter
+    def device(self, device):
+        self._device = device
 
     @property
     def model(self):

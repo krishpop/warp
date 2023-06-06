@@ -28,8 +28,8 @@ try:
 except ModuleNotFoundError:
     print("No pxr package")
 
-from . import torch_utils as tu
-from .autograd_utils import IntegratorSimulate, assign_act
+from .utils import torch_utils as tu
+from .utils.autograd import IntegratorSimulate, assign_act
 
 
 class AntEnv(WarpEnv):

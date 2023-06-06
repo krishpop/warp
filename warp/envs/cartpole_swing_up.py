@@ -5,8 +5,8 @@ import numpy as np
 
 from .warp_env import WarpEnv
 from .environment import RenderMode, IntegratorType
-from . import torch_utils as tu
-from .autograd_utils import forward_ag, assign_act, clear_grads
+from .utils import torch_utils as tu
+from .utils.autograd import forward_ag, assign_act, clear_grads
 
 
 class CartPoleSwingUpEnv(WarpEnv):
@@ -138,10 +138,7 @@ class CartPoleSwingUpEnv(WarpEnv):
                     body_qd,
                 )
                 # swap states so start from correct next state
-                (
-                    self.simulate_params["state_in"],
-                    self.simulate_params["state_out"],
-                ) = (
+                (self.simulate_params["state_in"], self.simulate_params["state_out"],) = (
                     self.state_1,
                     self.state_0,
                 )

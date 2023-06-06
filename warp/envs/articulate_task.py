@@ -23,7 +23,6 @@ class ArticulateTask(HandObjectTask):
         # "object_pos_err",  # 3
     ]
     collapse_joints: bool = True
-    drop_height: float = 0.1
 
     def __init__(
         self,
@@ -48,7 +47,7 @@ class ArticulateTask(HandObjectTask):
         hand_start_orientation: Tuple = (-np.pi / 2 * 3, np.pi * 0.75, np.pi / 2 * 3),
         grasp_file: str = "",
         grasp_id: int = 0,
-        use_autograd: bool = False,
+        use_autograd: bool = True,
         reach_threshold=0.1,
         goal_joint_pos=None,
     ):
@@ -56,6 +55,7 @@ class ArticulateTask(HandObjectTask):
         self.reach_bonus = reward_params.get(
             "reach_bonus", (lambda x: torch.zeros_like(x), ("object_joint_pos_err",), 100.0)
         )
+        assert object_type is not None, "object_type must be specified for articulate_task"
         super().__init__(
             num_envs=num_envs,
             num_obs=num_obs,
@@ -117,11 +117,6 @@ class ArticulateTask(HandObjectTask):
         # returns angular, linear vel
         body_f = self.to_torch(self.warp_body_f)[body_index, :].reshape(self.num_envs, -1)
         return body_f
-
-    def _check_early_termination(self, obs_dict):
-        # check if object is dropped
-        object_body_pos = obs_dict["object_body_pos"]
-        return object_body_pos[:, 2] < self.drop_height
 
     def _get_obs_dict(self):
         obs_dict = super()._get_obs_dict()

@@ -43,10 +43,10 @@ class HandObjectTask(ObjectTask):
         reward_params=None,
         hand_type: HandType = HandType.ALLEGRO,
         hand_start_position: Tuple = (0.1, 0.3, -0.6),
-        hand_start_orientation: Tuple = (-np.pi / 2 * 3, np.pi * 1.25, np.pi / 2 * 3),
+        hand_start_orientation: Tuple = (-np.pi / 2 * 3, np.pi * 1.75, np.pi / 2 * 4),
         grasp_file: str = "",
         grasp_id: int = None,
-        use_autograd: bool = False,
+        use_autograd: bool = True,
         goal_joint_pos=None,
     ):
         env_name = hand_type.name + "Env"
@@ -132,6 +132,7 @@ class HandObjectTask(ObjectTask):
             obs_dict["object_joint_vel"] = joint_qd[
                 :, self.object_joint_start : self.object_joint_start + self.object_num_joint_axis
             ]
+            obs_dict["goal_joint_pos"] = self.goal_joint_pos.view(self.num_envs, -1)
         self.extras.update(obs_dict)
         return obs_dict
 
@@ -244,6 +245,7 @@ if __name__ == "__main__":
     parser.add_argument("--grasp_file", type=str, default="")
     parser.add_argument("--grasp_id", type=int, default=None)
     parser.add_argument("--headless", action="store_true")
+    parser.add_argument("--num_steps", default=100, type=int)
     parser.set_defaults(render=True)
 
     args = parser.parse_args()
@@ -282,5 +284,5 @@ if __name__ == "__main__":
         from .wrappers import Monitor
 
         env = Monitor(env, "outputs/videos")
-    run_env(env, num_steps=50)
+    run_env(env, num_steps=args.num_steps)
     env.close()

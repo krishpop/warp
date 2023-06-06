@@ -212,7 +212,7 @@ class Environment:
 
         self.model = builder.finalize(requires_grad=self.requires_grad)
         self.device = self.model.device
-        if not self.device.is_cuda:
+        if not self._device.is_cuda:
             self.use_graph_capture = False
         self.model.ground = self.activate_ground_plane
 

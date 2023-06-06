@@ -587,8 +587,8 @@ ReposeCubeObject = operable_object_generator(
     damping=0.0,
     contact_ke=1e3,
     contact_kd=1e2,
-    # floating=True,
-    base_joint="px, py, pz, rx, ry, rz",
+    floating=True,
+    # base_joint="px, py, pz, rx, ry, rz",
     model_path="isaacgymenvs/objects/cube_multicolor.urdf",
 )
 

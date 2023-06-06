@@ -1,26 +1,26 @@
 import traceback
-import hydra, os, wandb, yaml
+import hydra, os, wandb, yaml, torch
 from omegaconf import DictConfig, OmegaConf
 from hydra.core.hydra_config import HydraConfig
-from shac.utils import hydra_utils
 from shac.algorithms.shac import SHAC
-from shac.algorithms.shac2 import SHAC as SHAC2
 from shac.utils.common import *
-from shac.utils.rlgames_utils import RLGPUEnvAlgoObserver, RLGPUEnv, parse_diff_env_kwargs
-from shac import envs
+from shac.utils.rlgames_utils import RLGPUEnvAlgoObserver, RLGPUEnv
+from warp import envs
 from gym import wrappers
 from rl_games.torch_runner import Runner
 from rl_games.common import env_configurations, vecenv
+from warp.envs.utils import hydra_resolvers
 
 
-def register_envs(cfg_train):
+def register_envs(cfg_train, env_name):
     def create_warp_env(**kwargs):
-        env_fn = getattr(envs, cfg_train["params"]["diff_env"]["name"])
-        env_kwargs = parse_diff_env_kwargs(cfg_train["params"]["diff_env"])
-
+        env_fn = getattr(envs, cfg_train["params"]["diff_env"]["_target_"].split(".")[-1])
+        env_kwargs = kwargs
+        skip_keys = ["_target_", "num_envs", "render", "seed", "episode_length", "no_grad", "stochastic_init", "name"]
+        env_kwargs.update({k: v for k, v in cfg_train["params"]["diff_env"].items() if k not in skip_keys})
         env = env_fn(
             num_envs=cfg_train["params"]["config"]["num_actors"],
-            render=cfg_train["params"]["general"]["render"],
+            render=cfg_train["params"]["render"],
             seed=cfg_train["params"]["general"]["seed"],
             episode_length=cfg_train["params"]["diff_env"].get("episode_length", 1000),
             no_grad=True,
@@ -43,7 +43,7 @@ def register_envs(cfg_train):
         lambda config_name, num_actors, **kwargs: RLGPUEnv(config_name, num_actors, **kwargs),
     )
     env_configurations.register(
-        "warp",
+        env_name,
         {"env_creator": lambda **kwargs: create_warp_env(**kwargs), "vecenv_type": "WARP"},
     )
 
@@ -77,14 +77,16 @@ cfg_path = os.path.join(cfg_path, "cfg")
 
 @hydra.main(config_path="cfg", config_name="train.yaml")
 def train(cfg: DictConfig):
+
+    torch.set_default_dtype(torch.float32)
     try:
         cfg_full = OmegaConf.to_container(cfg, resolve=True)
         cfg_yaml = yaml.dump(cfg_full["alg"])
 
         resume_model = cfg.resume_model
         if os.path.exists("exp_config.yaml"):
-            old_config = yaml.load(open("exp_config.yaml", "r"))
-            params, wandb_id = old_config["params"], old_config["wandb_id"]
+            loaded_config = yaml.load(open("exp_config.yaml", "r"))
+            params, wandb_id = loaded_config["params"], loaded_config["wandb_id"]
             run = create_wandb_run(cfg.wandb, params, wandb_id, run_wandb=cfg.general.run_wandb)
             resume_model = "restore_checkpoint.zip"
             assert os.path.exists(resume_model), "restore_checkpoint.zip does not exist!"
@@ -98,8 +100,10 @@ def train(cfg: DictConfig):
             # wandb_id = run.id if run != None else None
             save_dict = dict(wandb_id=run.id if run != None else None, params=params)
             yaml.dump(save_dict, open("exp_config.yaml", "w"))
-            print("Config:")
+            print("Alg Config:")
             print(cfg_yaml)
+            print("Task Config:")
+            print(yaml.dump(cfg_full["task"]))
 
         if "shac" in cfg.alg.name:
             if cfg.alg.name == "shac":
@@ -112,13 +116,16 @@ def train(cfg: DictConfig):
                     cfg.general.logdir = os.path.join(cfg.general.logdir, get_time_stamp())
 
                 cfg_train["params"]["general"] = cfg_full["general"]
-                cfg_train["params"]["diff_env"] = cfg_full["env"]["config"]
+                cfg_train["params"]["render"] = cfg_full["render"]
+                cfg_train["params"]["diff_env"] = cfg_full["task"]["env"]
                 env_name = cfg_train["params"]["diff_env"].pop("_target_")
                 cfg_train["params"]["diff_env"]["name"] = env_name.split(".")[-1]
+                cfg_train["params"]["diff_env"]["no_grad"] = False
+                # TODO: Comment to disable autograd/graph capture for diffsim
+                cfg_train["params"]["diff_env"]["use_graph_capture"] = True
+                cfg_train["params"]["diff_env"]["use_autograd"] = True
                 print(cfg_train["params"]["general"])
                 traj_optimizer = SHAC(cfg_train)
-            elif cfg.alg.name == "shac2":
-                traj_optimizer = SHAC2(cfg)
             if not cfg.general.play:
                 traj_optimizer.train()
             else:
@@ -127,12 +134,12 @@ def train(cfg: DictConfig):
         elif cfg.alg.name == "ppo":
             cfg_train = cfg_full["alg"]
             cfg_train["params"]["general"] = cfg_full["general"]
+            cfg_train["params"]["render"] = cfg_full["render"]
             env_name = cfg_train["params"]["config"]["env_name"]
-            cfg_train["params"]["diff_env"] = cfg_full["env"]["config"]
-            if env_name.split("_")[0] == "warp":
-                cfg_train["params"]["config"]["env_name"] = "warp"
-            env_name = cfg_train["params"]["diff_env"].pop("_target_")
-            cfg_train["params"]["diff_env"]["name"] = env_name.split(".")[-1]
+            cfg_train["params"]["diff_env"] = cfg_full["task"]["env"]
+            assert cfg_train["params"]["diff_env"].get("no_grad", True), "diffsim should be disabled for ppo"
+            # env_name = cfg_train["params"]["diff_env"].pop("_target_").split(".")[-1]
+            cfg_train["params"]["diff_env"]["name"] = env_name
 
             # save config
             if cfg_train["params"]["general"]["train"]:
@@ -142,7 +149,7 @@ def train(cfg: DictConfig):
                 yaml.dump(cfg_train, open(os.path.join(log_dir, "cfg.yaml"), "w"))
 
             # register envs
-            register_envs(cfg_train)
+            register_envs(cfg_train, env_name)
 
             # add observer to score keys
             if cfg_train["params"]["config"].get("score_keys"):
