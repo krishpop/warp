@@ -47,6 +47,7 @@ class HandObjectTask(ObjectTask):
         grasp_file: str = "",
         grasp_id: int = None,
         use_autograd: bool = True,
+        use_graph_capture: bool = True,
         goal_joint_pos=None,
     ):
         env_name = hand_type.name + "Env"
@@ -90,6 +91,7 @@ class HandObjectTask(ObjectTask):
             reward_params=reward_params,
             env_name=env_name,
             use_autograd=use_autograd,
+            use_graph_capture=use_graph_capture,
             goal_joint_pos=goal_joint_pos,
         )
 
