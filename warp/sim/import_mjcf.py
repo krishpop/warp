@@ -254,17 +254,13 @@ def parse_mjcf(
                 elif len(angular_axes) == 1:
                     joint_type = wp.sim.JOINT_REVOLUTE
                 elif len(angular_axes) == 2:
-                    # joint_type = wp.sim.JOINT_UNIVERSAL
-                    joint_type = wp.sim.JOINT_D6
+                    joint_type = wp.sim.JOINT_UNIVERSAL
                 elif len(angular_axes) == 3:
-                    # joint_type = wp.sim.JOINT_COMPOUND
-                    joint_type = wp.sim.JOINT_D6
+                    joint_type = wp.sim.JOINT_COMPOUND
             elif len(linear_axes) == 1 and len(angular_axes) == 0:
                 joint_type = wp.sim.JOINT_PRISMATIC
             else:
                 joint_type = wp.sim.JOINT_D6
-
-        # joint_type = wp.sim.JOINT_DISTANCE
 
         joint_pos = joint_pos[0] if len(joint_pos) > 0 else (0.0, 0.0, 0.0)
         builder.add_joint(
