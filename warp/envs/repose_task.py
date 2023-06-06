@@ -100,10 +100,30 @@ class ReposeTask(HandObjectTask):
     def _check_early_termination(self, obs_dict):
         # check if object is dropped
         object_body_pos = obs_dict["object_body_pos"]
-        self.reset_buf = self.reset_buf | object_body_pos[:, 2] < self.drop_height
+        self.reset_buf = self.reset_buf | (object_body_pos[:, 2] < self.drop_height)
+
+    def get_body_pos_vel(self, body_name, return_vel=False, return_quat=False):
+        """Warning: adds extra stacking dimension to body_pos and body_vel"""
+        body_index = self.body_name_to_idx[body_name]
+        assert len(body_index) == self.num_envs
+        end = 7 if return_quat else 3
+        body_pos = self.body_q[body_index, :end].view(self.num_envs, end)
+        if return_vel:
+            body_vel = self.body_qd[body_index].view(self.num_envs, 6)
+            return body_pos, body_vel
+        return body_pos
+
+    def get_body_f(self, body_name):
+        body_index = self.body_name_to_idx[body_name]
+        # returns angular, linear vel
+        body_f = self.to_torch(self.simulate_params['body_f'])[body_index, :].reshape(self.num_envs, -1)
+        return body_f
 
     def _get_obs_dict(self):
         obs_dict = super()._get_obs_dict()
+        object_pose, object_vel = self.get_body_pos_vel("object", return_vel=True)
+        obs_dict["object_body_pos"] = object_pose[:, :3]
+        obs_dict["object_body_vel"] = object_vel
         obs_dict["target_pos"] = self.goal_pos
         obs_dict["target_quat"] = self.goal_rot
         object_pose = self._get_object_pose()

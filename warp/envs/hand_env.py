@@ -117,6 +117,24 @@ class HandObjectTask(ObjectTask):
             self.floating_base = True
         return base_joint
 
+    def init_sim(self):
+        super().init_sim()
+        # create mapping from body name to index
+        self.body_name_to_idx, self.joint_name_to_idx = {}, {}
+        for i, body_name in enumerate(self.model.body_name):
+            body_ind = self.body_name_to_idx.get(body_name, [])
+            body_ind.append(i)
+            self.body_name_to_idx[body_name] = body_ind
+
+        # create mapping from joint name to index
+        for i, joint_name in enumerate(self.model.joint_name):
+            joint_ind = self.joint_name_to_idx.get(joint_name, [])
+            joint_ind.append(i)
+            self.joint_name_to_idx[joint_name] = joint_ind
+
+        self.body_name_to_idx = {k: np.array(v) for k, v in self.body_name_to_idx.items()}
+        self.joint_name_to_idx = {k: np.array(v) for k, v in self.joint_name_to_idx.items()}
+
     def _post_step(self):
         self.extras["target_qpos"] = self.actions.view(self.num_envs, -1)
         self.extras["hand_qpos"] = self.joint_q.view(self.num_envs, -1)[:, self.env_joint_target_indices]

@@ -83,24 +83,6 @@ class ArticulateTask(HandObjectTask):
         )
         self.reward_extras["reach_threshold"] = reach_threshold
 
-    def init_sim(self):
-        super().init_sim()
-        # create mapping from body name to index
-        self.body_name_to_idx, self.joint_name_to_idx = {}, {}
-        for i, body_name in enumerate(self.model.body_name):
-            body_ind = self.body_name_to_idx.get(body_name, [])
-            body_ind.append(i)
-            self.body_name_to_idx[body_name] = body_ind
-
-        # create mapping from joint name to index
-        for i, joint_name in enumerate(self.model.joint_name):
-            joint_ind = self.joint_name_to_idx.get(joint_name, [])
-            joint_ind.append(i)
-            self.joint_name_to_idx[joint_name] = joint_ind
-
-        self.body_name_to_idx = {k: np.array(v) for k, v in self.body_name_to_idx.items()}
-        self.joint_name_to_idx = {k: np.array(v) for k, v in self.joint_name_to_idx.items()}
-
     def get_body_pos_vel(self, body_name, return_vel=False, return_quat=False):
         """Warning: adds extra stacking dimension to body_pos and body_vel"""
         body_index = self.body_name_to_idx[body_name]
