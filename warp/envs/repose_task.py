@@ -148,6 +148,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_envs", type=int, default=1)
+    parser.add_argument("--num_episodes", "-ne", type=int, default=1)
     parser.add_argument("--profile", action="store_true")
     parser.add_argument("--norender", action="store_true")
     args = parser.parse_args()
@@ -169,4 +170,4 @@ if __name__ == "__main__":
     if args.profile:
         profile(env)
     else:
-        run_env(env, pi=None)
+        run_env(env, pi=None, num_episodes=args.num_episodes)

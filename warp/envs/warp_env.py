@@ -318,6 +318,7 @@ class WarpEnv(Environment):
             # reset progress buffer (i.e. episode done flag)
             self.progress_buf[env_ids] = 0
             self.num_frames = 0
+            self.extras = {}
             self.calculateObservations()
 
         return self.obs_buf

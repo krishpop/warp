@@ -191,7 +191,7 @@ class ObjectTask(WarpEnv):
         actions = actions.flatten()
         prev_extras = self.extras
         self.extras = OrderedDict(actions=self.actions)
-        self.extras.update({f"prev_{k}": v for k, v in prev_extras.items()})
+        self.extras.update({f"prev_{k}": v for k, v in prev_extras.items() if "prev_" not in k})
         self.assign_actions(actions)
         self._pre_step()
         if self.requires_grad and self.use_autograd:

@@ -84,6 +84,6 @@ task:
   shac2: ${.shac}
 
 wandb:
-  project: shac
+  project: warp-envs
   group: ${exp_name}
   sweep_name_prefix: ${task.name}_${alg.name}-run
