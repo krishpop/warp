@@ -119,7 +119,7 @@ class Environment:
     env_offset: Tuple[float, float, float] = (1.0, 0.0, 1.0)
 
     # stiffness and damping for joint attachment dynamics used by Euler
-    joint_attach_ke: float = 32000.0
+    joint_attach_ke: float = 1e5
     joint_attach_kd: float = 50.0
 
     # distance threshold at which contacts are generated
@@ -296,13 +296,13 @@ class Environment:
             self.integrator.simulate(self.model, self.state_0, self.state_1, self.sim_dt)
             self.state_0, self.state_1 = self.state_1, self.state_0
 
-    def render(self, state=None):
+    def render(self):
         if self.renderer is not None:
             with wp.ScopedTimer("render", False):
                 self.render_time += self.frame_dt
                 self.renderer.begin_frame(self.render_time)
                 # render state 1 (swapped with state 0 just before)
-                self.renderer.render(state or self.state_1)
+                self.renderer.render(self.state_0)
                 self.renderer.end_frame()
 
     def run(self):
@@ -320,10 +320,10 @@ class Environment:
         self.before_simulate()
 
         if self.renderer is not None:
-            self.render(self.state_0)
+            self.render()
 
             if self.render_mode == RenderMode.OPENGL:
-                self.renderer.paused = True
+                self.renderer.paused = False
 
         profiler = {}
 

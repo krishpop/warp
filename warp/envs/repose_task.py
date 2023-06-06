@@ -6,7 +6,7 @@ import torch
 from .utils import torch_utils as tu
 from .environment import RenderMode
 from .hand_env import HandObjectTask
-from .utils.common import ActionType, HandType, ObjectType, run_env
+from .utils.common import ActionType, HandType, ObjectType, run_env, profile
 from .utils.rewards import action_penalty, l2_dist, reach_bonus, rot_dist, rot_reward
 
 
@@ -125,6 +125,12 @@ class ReposeTask(HandObjectTask):
 
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--profile", action="store_true")
+    args = parser.parse_args()
+
     reach_bonus = lambda x, y: torch.where(x < y, torch.ones_like(x), torch.zeros_like(x))
     rew_params = {
         "object_pos_err": (l2_dist, ("target_pos", "object_pos"), -10.0),
@@ -132,5 +138,12 @@ if __name__ == "__main__":
         "action_penalty": (action_penalty, ("action",), -0.0002),
         "reach_bonus": (reach_bonus, ("object_pose_err", "reach_threshold"), 250.0),
     }
-
-    run_env(ReposeTask(num_envs=1, num_obs=38, episode_length=1000, rew_params=rew_params), pi=None)
+    if args.profile:
+        render_mode = RenderMode.NONE
+    else:
+        render_mode = RenderMode.OPENGL
+    env = ReposeTask(num_envs=1, num_obs=38, episode_length=1000, rew_params=rew_params, render_mode=render_mode)
+    if args.profile:
+        profile(env)
+    else:
+        run_env(env, pi=None)

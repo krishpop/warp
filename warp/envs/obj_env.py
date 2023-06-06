@@ -23,12 +23,14 @@ from .warp_env import WarpEnv
 
 class ObjectTask(WarpEnv):
     obs_keys = ["object_joint_pos", "object_joint_vel", "goal_joint_pos"]
+    opengl_render_settings = {"draw_axis": False}
+    # show_joints = True
 
     def __init__(
         self,
         num_envs,
         num_obs=1,
-        num_act=1,
+        num_act=None,
         action_type: ActionType = ActionType.TORQUE,
         episode_length: int = 200,
         seed=0,
@@ -40,8 +42,8 @@ class ObjectTask(WarpEnv):
         stage_path=None,
         object_type: ObjectType = ObjectType.SPRAY_BOTTLE,
         object_id=0,
-        stiffness=0.0,
-        damping=0.5,
+        stiffness=10.0,
+        damping=1.0,
         reward_params=None,
         env_name=None,
         use_autograd=False,
@@ -55,6 +57,8 @@ class ObjectTask(WarpEnv):
         self.num_joint_q = 0
         self.num_joint_qd = 0
         self.action_type = action_type
+        if num_act is None:
+            num_act = bu.get_num_acts(object_type)
         super().__init__(
             num_envs,
             num_obs,
@@ -111,7 +115,7 @@ class ObjectTask(WarpEnv):
 
     def set_goal_joint_pos(self, goal_joint_pos):
         if goal_joint_pos is None:
-            goal_joint_pos = np.ones(self.object_num_joint_axis) * 0.9  # controls joint 90% of the way
+            goal_joint_pos = np.ones((self.num_envs, self.object_num_joint_axis)) * 0.9  # controls joint 90% of the way
         else:
             assert (
                 len(goal_joint_pos) == self.object_num_joint_axis
@@ -130,10 +134,12 @@ class ObjectTask(WarpEnv):
 
     def init_sim(self):
         super().init_sim()
-        if not hasattr(self, "num_actions"):
+        if not hasattr(self, "num_actions") or self.num_actions is None:
             self.num_actions = self.env_num_joints  # number of actions that set joint target
         else:
-            assert self.env_num_joints == self.num_actions, "Number of actions must match number of joints"
+            assert (
+                self.env_num_joints == self.num_actions
+            ), f"Number of actions {self.num_actions} must match number of joints, {self.env_num_joints}"
         self.warp_actions = wp.zeros(
             self.num_envs * self.num_actions, device=self.device, requires_grad=self.requires_grad
         )
@@ -148,6 +154,13 @@ class ObjectTask(WarpEnv):
             ]
         )
         self.joint_target_indices = wp.array(joint_target_indices, device=self.device, dtype=int)
+        if not isinstance(self.stiffness, float):
+            target_ke = self.model.joint_target_ke.numpy().reshape(self.num_envs, -1)
+            target_kd = self.model.joint_target_kd.numpy().reshape(self.num_envs, -1)
+            target_ke[:, self.object_joint_target_indices] = self.stiffness
+            target_kd[:, self.object_joint_target_indices] = self.damping
+            self.model.joint_target_ke.assign(target_ke.flatten())
+            self.model.joint_target_kd.assign(target_kd.flatten())
 
         self.setup_autograd_vars()
         if self.use_graph_capture:
@@ -238,7 +251,11 @@ class ObjectTask(WarpEnv):
         return obs_buf
 
     def create_articulation(self, builder):
-        self.object_model = self.object_cls(stiffness=self.stiffness, damping=self.damping)
+        if self.stiffness is None:
+            self.object_model = self.object_cls()
+        else:
+            stiffness, damping = self.stiffness, self.damping
+            self.object_model = self.object_cls(stiffness=stiffness, damping=damping)
         num_joints_before = len(builder.joint_type)
         num_joint_axis_before = builder.joint_axis_count
         self.object_model.create_articulation(builder)
@@ -278,7 +295,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--object_type", type=str, default="spray_bottle")
-    parser.add_argument("--object_id", type=int, default=0)
+    parser.add_argument("--object_id", type=str, default=0)
     parser.add_argument("--stiffness", type=float, default=10.0)
     parser.add_argument("--damping", type=float, default=0.5)
     parser.add_argument("--render", action="store_true")
@@ -287,6 +304,14 @@ if __name__ == "__main__":
     object_type = ObjectType[args.object_type.upper()]
 
     env = ObjectTask(
-        5, 13, 1, 1000, object_type=object_type, stiffness=args.stiffness, damping=args.damping, render=args.render
+        5,
+        13,
+        bu.get_num_acts(object_type),
+        1000,
+        object_type=object_type,
+        object_id=args.object_id,
+        stiffness=args.stiffness,
+        damping=args.damping,
+        render=args.render,
     )
     run_env(env, log_runs=args.log)

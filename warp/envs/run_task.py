@@ -11,7 +11,7 @@ from warp.envs.utils.common import run_env
 import warp.envs.utils.hydra_resolvers
 
 
-@hydra.main(config_path="cfg", config_name="config.yaml")
+@hydra.main(config_path="cfg", config_name="run_task.yaml")
 def run(cfg: DictConfig):
     cfg_full = OmegaConf.to_container(cfg, resolve=True)
     cfg_yaml = yaml.dump(cfg_full)
