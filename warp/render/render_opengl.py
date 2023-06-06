@@ -1506,28 +1506,28 @@ class OpenGLRenderer:
         self._last_time = self.clock_time
         self._frame_speed = update_duration * 100.0
 
-        self.app.event_loop.idle()
-        self.app.platform_event_loop.step(self._frame_dt)
-
-        self._skip_frame_counter += 1
-        if self._skip_frame_counter > 100:
-            self._skip_frame_counter = 0
-
-        if frame_duration > 0.0:
-            if self._fps_update is None:
-                self._fps_update = 1.0 / frame_duration
-            else:
-                update = 1.0 / frame_duration
-                self._fps_update = (1.0 - self._fps_alpha) * self._fps_update + self._fps_alpha * update
-        if update_duration > 0.0:
-            if self._fps_render is None:
-                self._fps_render = 1.0 / update_duration
-            else:
-                update = 1.0 / update_duration
-                self._fps_render = (1.0 - self._fps_alpha) * self._fps_render + self._fps_alpha * update
+        # self.app.event_loop.idle()
+        self.app.platform_event_loop.step(self._frame_dt*1e-3)
 
         if not self.skip_rendering:
-            self.app.event_loop._redraw_windows(self._frame_dt)
+            self._skip_frame_counter += 1
+            if self._skip_frame_counter > 100:
+                self._skip_frame_counter = 0
+
+            if frame_duration > 0.0:
+                if self._fps_update is None:
+                    self._fps_update = 1.0 / frame_duration
+                else:
+                    update = 1.0 / frame_duration
+                    self._fps_update = (1.0 - self._fps_alpha) * self._fps_update + self._fps_alpha * update
+            if update_duration > 0.0:
+                if self._fps_render is None:
+                    self._fps_render = 1.0 / update_duration
+                else:
+                    update = 1.0 / update_duration
+                    self._fps_render = (1.0 - self._fps_alpha) * self._fps_render + self._fps_alpha * update
+
+            self.app.event_loop._redraw_windows(self._frame_dt*1e-3)
 
     def _draw(self):
         from pyglet import gl
