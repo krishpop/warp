@@ -3,10 +3,10 @@ import warp as wp
 import torch
 from tcdm.envs import suite
 from tcdm.envs import traj_abspath
-from dmanip.utils.common import ObjectType
-from dmanip.utils.warp_utils import integrate_body_f_kernel
+from .common import ObjectType
+from .warp_utils import integrate_body_f_kernel
 import scipy.ndimage as filters
-from dmanip.utils.rotation3d import (
+from .rotation3d import (
     quat_identity_like,
     quat_mul_norm,
     quat_inverse,
