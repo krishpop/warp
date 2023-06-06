@@ -367,12 +367,12 @@ def collect_rollout(env, n_steps, pi, loss_fn=None, plot_body_coords=False, plot
             if plot_joint_coords:
                 joint_q_history.append(env.state_0.joint_q.numpy().copy())
 
-            rew = rew.sum().cpu().detach().item()
+            rew = rew.mean(dim=0).cpu().detach().item()
             if loss_fn is not None:
                 loss_fn()
 
             net_cost += rew
-            pbar.set_description(f"cost={net_cost:.2f}, body_f_max={info['body_f_max']:.2f}")
+            pbar.set_description(f"mean_per_env_cost={net_cost:.2f}, body_f_max={info['body_f_max']:.2f}")
             states.append(o.cpu().detach().numpy())
             rewards.append(rew)
     history = {}

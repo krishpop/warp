@@ -163,7 +163,7 @@ class ObjectTask(WarpEnv):
             self.model.joint_target_kd.assign(target_kd.flatten())
 
         self.setup_autograd_vars()
-        if self.use_graph_capture:
+        if self.use_graph_capture and self.use_autograd:
             self.graph_capture_params["bwd_model"].joint_attach_ke = self.joint_attach_ke
             self.graph_capture_params["bwd_model"].joint_attach_kd = self.joint_attach_kd
 

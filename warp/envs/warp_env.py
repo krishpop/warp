@@ -385,9 +385,6 @@ class WarpEnv(Environment):
             # wp.sim.eval_ik(self.model, self.state_0, self.state_0.joint_q, self.state_0.joint_qd)
             # self._joint_q.assign(self.state_0.joint_q)
             # self._joint_qd.assign(self.state_0.joint_qd)
-            self.body_q = wp.to_torch(self.state_0.body_q)
-            self.body_qd = wp.to_torch(self.state_0.body_qd)
-            self.body_f = wp.to_torch(self.simulate_params["body_f"])
 
         if self.use_graph_capture:
             if self.forward_sim_graph is None:
@@ -396,7 +393,11 @@ class WarpEnv(Environment):
         else:
             forward()
 
+        self.body_q = wp.to_torch(self.state_0.body_q)
+        self.body_qd = wp.to_torch(self.state_0.body_qd)
+        self.body_f = wp.to_torch(self.simulate_params["body_f"])
         self.update_joints()
+        return self.forward_sim_graph
 
     def clear_grad(self, checkpoint=None):
         """

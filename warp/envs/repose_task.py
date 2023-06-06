@@ -13,6 +13,7 @@ from .utils.rewards import action_penalty, l2_dist, reach_bonus, rot_dist, rot_r
 class ReposeTask(HandObjectTask):
     obs_keys = ["hand_joint_pos", "hand_joint_vel", "object_pos", "target_pos"]
     debug_visualization = False
+    use_graph_capture: bool = True
 
     def __init__(
         self,
@@ -128,7 +129,9 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
+    parser.add_argument("--num_envs", type=int, default=1)
     parser.add_argument("--profile", action="store_true")
+    parser.add_argument("--norender", action="store_true")
     args = parser.parse_args()
 
     reach_bonus = lambda x, y: torch.where(x < y, torch.ones_like(x), torch.zeros_like(x))
@@ -138,11 +141,13 @@ if __name__ == "__main__":
         "action_penalty": (action_penalty, ("action",), -0.0002),
         "reach_bonus": (reach_bonus, ("object_pose_err", "reach_threshold"), 250.0),
     }
-    if args.profile:
+    if args.profile or args.norender:
         render_mode = RenderMode.NONE
     else:
         render_mode = RenderMode.OPENGL
-    env = ReposeTask(num_envs=1, num_obs=38, episode_length=1000, rew_params=rew_params, render_mode=render_mode)
+    env = ReposeTask(
+        num_envs=args.num_envs, num_obs=38, episode_length=1000, rew_params=rew_params, render_mode=render_mode
+    )
     if args.profile:
         profile(env)
     else:

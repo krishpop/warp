@@ -289,12 +289,18 @@ class Environment:
         return self.state_0
 
     def update(self):
+        if self.use_graph_capture:
+            wp.capture_begin()
         for i in range(self.sim_substeps):
             self.state_0.clear_forces()
             self.custom_update()
             wp.sim.collide(self.model, self.state_0)
             self.integrator.simulate(self.model, self.state_0, self.state_1, self.sim_dt)
             self.state_0, self.state_1 = self.state_1, self.state_0
+
+        if self.use_graph_capture:
+            graph = wp.capture_end()
+            return graph
 
     def render(self):
         if self.renderer is not None:
@@ -328,13 +334,8 @@ class Environment:
         profiler = {}
 
         if self.use_graph_capture:
-            # create update graph
-            wp.capture_begin()
-
             # simulate
-            self.update()
-
-            graph = wp.capture_end()
+            graph = self.update()
 
         if self.plot_body_coords:
             q_history = []
