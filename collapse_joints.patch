@@ -1,0 +1,155 @@
+diff --git a/external/llvm-project b/external/llvm-project
+new file mode 160000
+index 0000000..8dfdcc7
+--- /dev/null
++++ b/external/llvm-project
+@@ -0,0 +1 @@
++Subproject commit 8dfdcc7b7bf66834a761bd8de445840ef68e4d1a-dirty
+diff --git a/warp/sim/import_urdf.py b/warp/sim/import_urdf.py
+index 09e38cb..2226a98 100644
+--- a/warp/sim/import_urdf.py
++++ b/warp/sim/import_urdf.py
+@@ -21,7 +21,7 @@ def parse_urdf(
+         builder,
+         xform=wp.transform(),
+         floating=False,
+-        fixed_base_joint: Union[dict, str] = None,
++        base_joint: Union[dict, str] = None,
+         density=1000.0,
+         stiffness=100.0,
+         damping=10.0,
+@@ -311,13 +311,13 @@ def parse_urdf(
+     else:
+         base_link_name = next(iter(link_index.keys()))
+     root = link_index[base_link_name]
+-    # in case of the fixed joint, the position is applied first, the rotation only
+-    # after the fixed joint itself to not rotate its axis
+-    fixed_parent_xform = wp.transform(xform.p, wp.quat_identity())
+-    fixed_child_xform = wp.transform((0.0, 0.0, 0.0), wp.quat_inverse(xform.q))
+-    if fixed_base_joint is not None:
+-        if isinstance(fixed_base_joint, str):
+-            axes = fixed_base_joint.lower().split(",")
++    if base_joint is not None:
++        # in case of a given base joint, the position is applied first, the rotation only
++        # after the base joint itself to not rotate its axis
++        base_parent_xform = wp.transform(xform.p, wp.quat_identity())
++        base_child_xform = wp.transform((0.0, 0.0, 0.0), wp.quat_inverse(xform.q))
++        if isinstance(base_joint, str):
++            axes = base_joint.lower().split(",")
+             axes = [ax.strip() for ax in axes]
+             linear_axes = [ax[-1] for ax in axes if ax[0] in {"l", "p"}]
+             angular_axes = [ax[-1] for ax in axes if ax[0] in {"a", "r"}]
+@@ -329,21 +329,21 @@ def parse_urdf(
+             builder.add_joint_d6(
+                 linear_axes=[wp.sim.JointAxis(axes[a]) for a in linear_axes],
+                 angular_axes=[wp.sim.JointAxis(axes[a]) for a in angular_axes],
+-                parent_xform=fixed_parent_xform,
+-                child_xform=fixed_child_xform,
++                parent_xform=base_parent_xform,
++                child_xform=base_child_xform,
+                 parent=-1,
+                 child=root,
+-                name="fixed_base")
+-        elif isinstance(fixed_base_joint, dict):
+-            fixed_base_joint["parent"] = -1
+-            fixed_base_joint["child"] = root
+-            fixed_base_joint["parent_xform"] = fixed_parent_xform
+-            fixed_base_joint["child_xform"] = fixed_child_xform
+-            fixed_base_joint["name"] = "fixed_base"
+-            builder.add_joint(**fixed_base_joint)
++                name="base_joint")
++        elif isinstance(base_joint, dict):
++            base_joint["parent"] = -1
++            base_joint["child"] = root
++            base_joint["parent_xform"] = base_parent_xform
++            base_joint["child_xform"] = base_child_xform
++            base_joint["name"] = "base_joint"
++            builder.add_joint(**base_joint)
+         else:
+             raise ValueError(
+-                "fixed_base_joint must be a comma-separated string of joint axes or a dict with joint parameters")
++                "base_joint must be a comma-separated string of joint axes or a dict with joint parameters")
+     elif floating:
+         builder.add_joint_free(root, name="floating_base")
+ 
+@@ -359,7 +359,7 @@ def parse_urdf(
+         builder.joint_q[start + 5] = xform.q[2]
+         builder.joint_q[start + 6] = xform.q[3]
+     else:
+-        builder.add_joint_fixed(-1, root, parent_xform=fixed_parent_xform, child_xform=fixed_child_xform, name="fixed_base")
++        builder.add_joint_fixed(-1, root, parent_xform=xform, name="fixed_base")
+ 
+     # add joints, in topological order starting from root body
+     for joint in sorted_joints:
+diff --git a/warp/sim/model.py b/warp/sim/model.py
+index 149467f..082636b 100644
+--- a/warp/sim/model.py
++++ b/warp/sim/model.py
+@@ -1128,7 +1128,17 @@ class ModelBuilder:
+ 
+         start_body_idx = self.body_count
+         start_shape_idx = self.shape_count
+-        self.shape_body.extend([b + start_body_idx for b in articulation.shape_body])
++        for s, b in enumerate(articulation.shape_body):
++            if b > -1:
++                new_b = b + start_body_idx
++                self.shape_body.append(new_b)
++                self.shape_transform.append(articulation.shape_transform[s])
++            else:
++                self.shape_body.append(-1)
++                # apply offset transform to root bodies
++                if xform is not None:
++                    self.shape_transform.append(xform * articulation.shape_transform[s])
++
+         for b, shapes in articulation.body_shapes.items():
+             self.body_shapes[b + start_body_idx] = [s + start_shape_idx for s in shapes]
+ 
+@@ -1221,7 +1231,6 @@ class ModelBuilder:
+             "joint_target_kd",
+             "joint_linear_compliance",
+             "joint_angular_compliance",
+-            "shape_transform",
+             "shape_geo_type",
+             "shape_geo_scale",
+             "shape_geo_src",
+@@ -1890,7 +1899,7 @@ class ModelBuilder:
+             edges.append((len(self.body_name) + i + 1, self.shape_body[i] + 1))
+         wp.sim.plot_graph(vertices, edges, edge_labels=edge_labels)
+ 
+-    def collapse_fixed_joints(self):
++    def collapse_fixed_joints(self, verbose=wp.config.verbose):
+         """Removes fixed joints from the model and merges the bodies they connect."""
+ 
+         body_data = {}
+@@ -1990,21 +1999,20 @@ class ModelBuilder:
+                 parent_name = self.body_name[parent_body] if parent_body > -1 else "world"
+                 child_name = self.body_name[child_body]
+                 last_dynamic_body_name = self.body_name[last_dynamic_body] if last_dynamic_body > -1 else "world"
+-                print(
+-                    f'Remove fixed joint {joint["name"]} between {parent_name} and {child_name}, merging {child_name} into {last_dynamic_body_name}'
+-                )
++                if verbose:
++                    print(
++                        f'Remove fixed joint {joint["name"]} between {parent_name} and {child_name}, '
++                        f'merging {child_name} into {last_dynamic_body_name}'
++                    )
+                 child_id = body_data[child_body]["original_id"]
+                 for shape in self.body_shapes[child_id]:
+                     self.shape_transform[shape] = incoming_xform * self.shape_transform[shape]
+-                    if last_dynamic_body < 0: 
+-                        self.shape_body[shape] = -1
+-                    else:
+-                        self.shape_body[shape] = body_data[last_dynamic_body]["id"]
+-                    print(
+-                        f"  Shape {shape} moved to body {last_dynamic_body_name} with transform {self.shape_transform[shape]}"
+-                    )
++                    if verbose:
++                        print(
++                            f"  Shape {shape} moved to body {last_dynamic_body_name} with transform {self.shape_transform[shape]}"
++                        )
+                     if last_dynamic_body > -1:
+-                        # self.body_shapes[last_dynamic_body].append(shape)
++                        self.shape_body[shape] = body_data[last_dynamic_body]["id"]
+                         # add inertia to last_dynamic_body
+                         m = body_data[child_body]["mass"]
+                         com = body_data[child_body]["com"]

@@ -12,8 +12,9 @@ env:
   num_envs: ${resolve_default:1,${...num_envs}}
   episode_length: 500
   render: ${render}
-  rew_params: 
+  reward_params: 
     action_penalty: ${...rewards.action_penalty}
     object_pos_err: ${...rewards.object_pos_err}
   object_type: ${object:spray_bottle}
+  object_id: 0
 
