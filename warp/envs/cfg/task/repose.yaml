@@ -18,6 +18,7 @@ env:
     action_penalty: ${...rewards.action_penalty}
     object_pos_err: ${...rewards.object_pos_err}
     hand_joint_pos_err: ${...rewards.hand_joint_pos_err}
+    rot_reward_delta: ${...rewards.rot_reward_delta}
     reach_bonus: ${...rewards.reach_bonus}
   hand_start_orientation: ${eval:'(-np.pi / 2 * 3, np.pi * 0.75, np.pi / 2 * 3)'}
   hand_start_position: ${eval:'(0.0, 0.3, 0.0)'}

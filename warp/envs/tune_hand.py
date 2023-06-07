@@ -31,7 +31,7 @@ def run(cfg: DictConfig):
     elif cfg.task.name.lower() == "hand_object_task":
         env = instantiate(cfg.task.env, no_grad=False, use_autograd=False, _convert_="partial")
     elif cfg.task.name.lower() == "object_task":
-        env = instantiate(cfg.task.env, no_grad=False, use_autograd=False)
+        env = instantiate(cfg.task.env, no_grad=False, use_autograd=False, _convert_="partial")
     optimize_actions(env, cfg)
 
 

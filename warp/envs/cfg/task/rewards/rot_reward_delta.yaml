@@ -1,9 +1,9 @@
 rot_reward_delta:
   reward_fn_partial: 
     _partial_: true
-    _target_: warp.envs.utils.rewards.rot_reward_delta
+    _target_: warp.envs.utils.rewards.rot_dist_delta
   args: 
     - object_rot
     - target_rot
-    - prev_rot_reward
-  scale: -1.0
+    - prev_rot_dist
+  scale: 1.0

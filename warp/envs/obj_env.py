@@ -81,7 +81,7 @@ class ObjectTask(WarpEnv):
 
         self.object_type = object_type
         self.object_id = object_id
-        self.action_type = ActionType.POSITION
+        self.action_type = action_type
 
         if self.object_type:
             obj_generator = bu.OBJ_MODELS[self.object_type]
@@ -184,8 +184,8 @@ class ObjectTask(WarpEnv):
 
     def assign_actions(self, actions):
         # first scale actions to bounds
-        _, _, mid = self.action_bounds
-        actions = torch.clamp(actions, -1, 1).view(self.num_envs, -1) * mid + mid
+        lower, _, mid = self.action_bounds
+        actions = torch.clamp(actions, -1, 1).view(self.num_envs, -1) * mid + lower
         self.warp_actions.zero_()
         self.warp_actions.assign(wp.from_torch(actions.flatten()))
         self.model.joint_target.zero_()

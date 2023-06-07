@@ -109,12 +109,12 @@ class ReposeTask(HandObjectTask):
     def _get_obs_dict(self):
         obs_dict = super()._get_obs_dict()
         obs_dict["target_pos"] = self.goal_pos
-        obs_dict["target_quat"] = self.goal_rot
+        obs_dict["target_rot"] = self.goal_rot
         object_pose = self._get_object_pose()
         obs_dict["object_pos"] = object_pose["position"]
         obs_dict["object_rot"] = object_pose["orientation"]
         obs_dict["object_pose_err"] = l2_dist(obs_dict["object_pos"], obs_dict["target_pos"]).view(self.num_envs, 1)
-        obs_dict["rot_dist"] = rot_dist(object_pose["orientation"], obs_dict["target_quat"])
+        obs_dict["rot_dist"] = rot_dist(object_pose["orientation"], obs_dict["target_rot"])
         obs_dict["action"] = self.actions.view(self.num_envs, -1)
         self.extras["obs_dict"] = obs_dict
         self._check_early_termination(obs_dict)
