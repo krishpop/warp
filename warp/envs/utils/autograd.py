@@ -5,7 +5,7 @@ from typing import Union
 from inspect import getmembers
 from warp.sim.model import State, Model
 from torch.cuda.amp import custom_fwd, custom_bwd
-from .warp_utils import integrate_body_f
+from .warp_utils import integrate_body_f, assign_act
 
 # from warp.tests.grad_utils import check_kernel_jacobian, check_backward_pass, plot_jacobian_comparison
 
@@ -46,21 +46,6 @@ def count_contact_copy(
 
 
 @wp.kernel
-def assign_act_kernel(
-    act: wp.array(dtype=float),  # unflattened shape (n, 4)
-    num_acts: int,
-    dof_count: int,
-    q_offset: int,
-    # outputs
-    joint_act: wp.array(dtype=float),  # unflattened shape (n, 6)
-):
-    i, j = wp.tid()
-    joint_act_idx = i * dof_count + j + q_offset  # skip object joint
-    act_idx = i * num_acts + j
-    wp.atomic_add(joint_act, joint_act_idx, act[act_idx])
-
-
-@wp.kernel
 def assign_zero_kernel_float(arr: wp.array(dtype=float)):
     i = wp.tid()
     arr[i] = 0.0
@@ -97,26 +82,6 @@ assign_zero_kernel = {
     wp.spatial_vector: assign_zero_kernel_spatial_vector,
     wp.vec3: assign_zero_kernel_vec3,
 }
-
-
-def assign_act(
-    act,
-    joint_act,
-    num_acts,
-    num_envs,
-    dof_count,
-    q_offset,
-):
-    assert np.prod(act.shape) == num_envs * num_acts, f"act shape {act.shape} is not {num_envs} x {num_acts}"
-    act_count = num_acts
-    wp.launch(
-        kernel=assign_act_kernel,
-        dim=(num_envs, act_count),
-        device=joint_act.device,
-        inputs=[act, num_acts, dof_count, q_offset],
-        outputs=[joint_act],
-    )
-    return
 
 
 def get_compute_graph(func, kwargs={}, tape=None, grads={}, back_grads={}):
@@ -206,18 +171,14 @@ def forward_simulate(ctx, forward=False, requires_grad=False):
         joint_act = ctx.bwd_joint_act
 
     num_envs = ctx.act_params["num_envs"]
-    dof_count = ctx.act_params["dof_count"]
-    q_offset = ctx.act_params["q_offset"]
+    num_acts = ctx.act_params["num_acts"]
     num_acts = ctx.act_params["num_acts"]  # ctx.act.size // num_envs
+    action_type = ctx.act_params["action_type"]
+    joint_stiffness = ctx.act_params["joint_stiffness"]
+    joint_indices = ctx.act_params["joint_target_indices"]
 
-    assign_act(
-        ctx.act,
-        joint_act,
-        num_acts=num_acts,
-        num_envs=num_envs,
-        dof_count=dof_count,
-        q_offset=q_offset,
-    )
+    joint_act.zero_()
+    assign_act(ctx.act, joint_act, joint_stiffness, action_type, num_acts, num_envs, joint_indices=joint_indices)
     for step in range(ctx.substeps):
         state_in = state_temp
         state_in.clear_forces()
@@ -275,7 +236,7 @@ class IntegratorSimulate(torch.autograd.Function):
         ctx.act = act_params["act"]
         ctx.joint_act = act_params["joint_act"]
         ctx.act_pt = action
-        ctx.act.assign(wp.from_torch(ctx.act_pt))
+        ctx.act.assign(wp.from_torch(ctx.act_pt.flatten()))
         ctx.body_q_pt = body_q.clone()
         ctx.body_qd_pt = body_qd.clone()
         ctx.joint_q_end = graph_capture_params["joint_q_end"]

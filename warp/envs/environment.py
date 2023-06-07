@@ -211,6 +211,7 @@ class Environment:
             self.bodies_per_env = len(builder.body_q)
 
         self.model = builder.finalize(requires_grad=self.requires_grad)
+        self.builder = builder
         self.device = self.model.device
         if not self._device.is_cuda:
             self.use_graph_capture = False

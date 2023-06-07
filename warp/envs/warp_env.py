@@ -203,7 +203,7 @@ class WarpEnv(Environment):
             else:
                 backward_model = self.builder.finalize(
                     device=self.device,
-                    rigid_mesh_contact_max=self.rigid_mesh_contact_max,
+                    # rigid_mesh_contact_max=self.rigid_mesh_contact_max,
                     requires_grad=self.requires_grad,
                 )
             backward_model.joint_q.requires_grad = True
@@ -284,8 +284,13 @@ class WarpEnv(Environment):
                 env_ids = np.arange(self.num_envs, dtype=int)
         if env_ids is not None:
             # fixed start state
-            joint_q = self.start_joint_q.clone()
-            joint_qd = self.start_joint_qd.clone()
+            if self.joint_q is not None:
+                joint_q = self.joint_q.clone().view(self.num_envs, -1)
+                joint_qd = self.joint_qd.clone().view(self.num_envs, -1)
+                joint_q[env_ids, :] = self.start_joint_q.clone()[env_ids, :]
+                joint_qd[env_ids, :] = self.start_joint_qd.clone()[env_ids, :]
+            else:
+                joint_q, joint_qd = self.start_joint_q.clone(), self.start_joint_qd.clone()
 
             with torch.no_grad():
                 if self.stochastic_init:
@@ -354,6 +359,7 @@ class WarpEnv(Environment):
         else:
             self.joint_q, self.joint_qd, self.body_q, self.body_qd = ret
 
+        __import__("ipdb").set_trace()
         self.body_f = wp.to_torch(self.simulate_params["body_f"])
 
     def _pre_step(self):
@@ -489,10 +495,10 @@ class WarpEnv(Environment):
         if ckpt_path is not None:
             print("loading checkpoint from {}".format(ckpt_path))
             checkpoint_data = torch.load(ckpt_path)
-        joint_q = checkpoint_data["joint_q"].view(-1, self.num_joint_q)
-        joint_qd = checkpoint_data["joint_qd"].view(-1, self.num_joint_qd)
-        self.joint_q = joint_q[: self.num_envs].flatten().requires_grad_(self.requires_grad)
-        self.joint_qd = joint_qd[: self.num_envs].flatten().requires_grad_(self.requires_grad)
+        joint_q = checkpoint_data["joint_q"]
+        joint_qd = checkpoint_data["joint_qd"]
+        self.joint_q = joint_q.flatten().requires_grad_(self.requires_grad)
+        self.joint_qd = joint_qd.flatten().requires_grad_(self.requires_grad)
         self._joint_q.assign(wp.from_torch(self.joint_q))
         self._joint_qd.assign(wp.from_torch(self.joint_qd))
         num_bodies_per_env = int(self.model.body_count / self.num_envs)

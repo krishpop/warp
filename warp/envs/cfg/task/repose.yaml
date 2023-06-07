@@ -5,6 +5,7 @@ defaults:
     - object_pos_err
     - hand_joint_pos_err
     - reach_bonus
+    - rot_reward_delta
 
 name: repose_task
 

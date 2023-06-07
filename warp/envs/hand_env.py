@@ -99,8 +99,6 @@ class HandObjectTask(ObjectTask):
         self.hand_target_ke = self.model.joint_target_ke
         self.hand_target_kd = self.model.joint_target_kd
 
-        self.setup_autograd_vars()
-
         self.simulate_params["ag_return_body"] = True
 
     @property

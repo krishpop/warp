@@ -3,6 +3,7 @@ import hydra, os, wandb, yaml, torch
 from omegaconf import DictConfig, OmegaConf
 from hydra.core.hydra_config import HydraConfig
 from shac.algorithms.shac import SHAC
+from shac.algorithms.shac2 import SHAC as SHAC2
 from shac.utils.common import *
 from shac.utils.rlgames_utils import RLGPUEnvAlgoObserver, RLGPUEnv
 from warp import envs
@@ -106,7 +107,9 @@ def train(cfg: DictConfig):
             print(yaml.dump(cfg_full["task"]))
 
         if "shac" in cfg.alg.name:
-            if cfg.alg.name == "shac":
+            if cfg.alg.name == "shac2":
+                traj_optimizer = SHAC2(cfg)
+            elif cfg.alg.name == "shac":
                 cfg_train = cfg_full["alg"]
                 if cfg.general.play:
                     cfg_train["params"]["config"]["num_actors"] = (
@@ -117,6 +120,7 @@ def train(cfg: DictConfig):
 
                 cfg_train["params"]["general"] = cfg_full["general"]
                 cfg_train["params"]["render"] = cfg_full["render"]
+                cfg_train["params"]["general"]["render"] = cfg_full["render"]
                 cfg_train["params"]["diff_env"] = cfg_full["task"]["env"]
                 env_name = cfg_train["params"]["diff_env"].pop("_target_")
                 cfg_train["params"]["diff_env"]["name"] = env_name.split(".")[-1]

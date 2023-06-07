@@ -172,6 +172,12 @@ class ObjectTask(WarpEnv):
             self.model.joint_target_kd.assign(target_kd.flatten())
 
         self.setup_autograd_vars()
+        self.act_params["act"] = self.warp_actions
+        self.act_params["joint_target_indices"] = self.joint_target_indices
+        self.act_params["action_type"] = self.action_type
+        if self.action_type in [ActionType.POSITION, ActionType.VARIABLE_STIFFNESS]:
+            self.act_params["joint_act"] = self.model.joint_target
+            self.act_params["joint_stiffness"] = self.model.joint_target_ke
         if self.use_graph_capture and self.use_autograd:
             self.graph_capture_params["bwd_model"].joint_attach_ke = self.joint_attach_ke
             self.graph_capture_params["bwd_model"].joint_attach_kd = self.joint_attach_kd
@@ -214,6 +220,8 @@ class ObjectTask(WarpEnv):
         self.reset_buf = self.reset_buf | (self.progress_buf >= self.episode_length)
         env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
         if len(env_ids) > 0:
+            self.obs_buf_before_reset = self.obs_buf.clone()
+            self.extras = {"obs_before_reset": self.obs_buf_before_reset, "episode_end": self.termination_buf}
             self.reset(env_ids)
         if self.visualize:
             self.render()

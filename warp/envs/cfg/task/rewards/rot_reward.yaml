@@ -5,4 +5,4 @@ rot_reward:
   args: 
     - object_rot
     - target_rot
-  scale: -1.0
+  scale: 1.0
