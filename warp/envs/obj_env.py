@@ -178,7 +178,7 @@ class ObjectTask(WarpEnv):
 
     def assign_actions(self, actions):
         # first scale actions to bounds
-        lower, upper, mid = self.action_bounds
+        _, _, mid = self.action_bounds
         actions = torch.clamp(actions, -1, 1).view(self.num_envs, -1) * mid + mid
         self.warp_actions.zero_()
         self.warp_actions.assign(wp.from_torch(actions.flatten()))

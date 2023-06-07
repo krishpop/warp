@@ -21,7 +21,7 @@ def register_envs(cfg_train, env_name):
         env = env_fn(
             num_envs=cfg_train["params"]["config"]["num_actors"],
             render=cfg_train["params"]["render"],
-            seed=cfg_train["params"]["general"]["seed"],
+            seed=cfg_train["params"]["seed"],
             episode_length=cfg_train["params"]["diff_env"].get("episode_length", 1000),
             no_grad=True,
             stochastic_init=cfg_train["params"]["diff_env"]["stochastic_init"],
@@ -134,10 +134,13 @@ def train(cfg: DictConfig):
         elif cfg.alg.name == "ppo":
             cfg_train = cfg_full["alg"]
             cfg_train["params"]["general"] = cfg_full["general"]
+            cfg_train["params"]["seed"] = cfg_full["general"]["seed"]
             cfg_train["params"]["render"] = cfg_full["render"]
             env_name = cfg_train["params"]["config"]["env_name"]
             cfg_train["params"]["diff_env"] = cfg_full["task"]["env"]
             assert cfg_train["params"]["diff_env"].get("no_grad", True), "diffsim should be disabled for ppo"
+            cfg_train["params"]["diff_env"]["use_graph_capture"] = True
+            cfg_train["params"]["diff_env"]["use_autograd"] = True
             # env_name = cfg_train["params"]["diff_env"].pop("_target_").split(".")[-1]
             cfg_train["params"]["diff_env"]["name"] = env_name
 

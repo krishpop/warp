@@ -20,9 +20,9 @@ env:
     reach_bonus: ${...rewards.reach_bonus}
   hand_start_orientation: ${eval:'(-np.pi / 2 * 3, np.pi * 0.75, np.pi / 2 * 3)'}
   hand_start_position: ${eval:'(0.0, 0.3, 0.0)'}
-  stochastic_init: true
+  stochastic_init: false
   render_mode: ${render:none}
-  use_autograd: false
+  use_autograd: true
   use_graph_capture: true
 
 
@@ -34,7 +34,7 @@ ppo:
   minibatch_size: 16384
   steps_num: 32
   actor_mlp:
-    units: [512, 256, 128]
+    units: [64, 64]
 
 player:
   deterministic: true

@@ -35,7 +35,7 @@ class ReposeTask(HandObjectTask):
         hand_start_position: Tuple = (0.1, 0.3, 0.0),
         hand_start_orientation: Tuple = (-np.pi / 2, np.pi * 0.75, np.pi / 2),
         use_autograd: bool = True,
-        use_graph_capture: bool = False,
+        use_graph_capture: bool = True,
         reach_threshold: float = 0.1,
         reach_bonus: float = 100.0,
     ):
@@ -94,14 +94,12 @@ class ReposeTask(HandObjectTask):
         return pose
 
     def _pre_step(self):
-        if self._prev_obs is not None:
-            self.extras["prev_rot_dist"] = torch.where(
-                self.progress_buf == 0,
-                torch.zeros_like(self._prev_obs["rot_dist"]),
-                self._prev_obs["rot_dist"],
-            )
-        else:
-            self.extras["prev_rot_dist"] = torch.zeros_like(self.rew_buf)
+        rot_dist = torch.zeros_like(self.rew_buf) if self._prev_obs is None else self._prev_obs["rot_dist"]
+        self.reward_extras["prev_rot_dist"] = torch.where(
+            self.progress_buf == 0,
+            torch.zeros_like(rot_dist),
+            rot_dist,
+        )
 
     def _check_early_termination(self, obs_dict):
         # check if object is dropped
@@ -156,4 +154,4 @@ if __name__ == "__main__":
     if args.profile:
         profile(env)
     else:
-        run_env(env, pi=None, num_episodes=args.num_episodes)
+        run_env(env, pi=None, num_episodes=args.num_episodes, logdir="outputs/")

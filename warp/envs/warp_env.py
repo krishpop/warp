@@ -372,7 +372,6 @@ class WarpEnv(Environment):
         def forward():
             for _ in range(self.sim_substeps):
                 self.state_0.clear_forces()
-                self._pre_step()  # replace custom_update to _pre_step
                 if self.activate_ground_plane:
                     wp.sim.collide(self.model, self.state_0)
                 if not self.use_graph_capture:
