@@ -20,10 +20,10 @@ env:
     hand_joint_pos_err: ${...rewards.hand_joint_pos_err}
     rot_reward_delta: ${...rewards.rot_reward_delta}
     reach_bonus: ${...rewards.reach_bonus}
-  hand_start_orientation: ${eval:'(-np.pi / 2 * 3, np.pi * 0.75, np.pi / 2 * 3)'}
+  hand_type: ${hand:allegro}
+  hand_start_orientation: ${eval:'(-np.pi / 2, np.pi * 0.75, np.pi / 2)'}
   hand_start_position: ${eval:'(0.0, 0.3, 0.0)'}
   stochastic_init: false
-  render_mode: ${render:none}
   use_autograd: true
   use_graph_capture: true
 

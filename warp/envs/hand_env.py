@@ -1,10 +1,12 @@
 import os
 import numpy as np
 import warp as wp
+import torch
 from typing import Tuple, Optional
 from .obj_env import ObjectTask
 from .utils import builder as bu
 from .utils.rewards import l1_dist
+from .utils.warp_utils import assign_act
 from .utils.common import (
     HandType,
     ObjectType,
@@ -133,6 +135,37 @@ class HandObjectTask(ObjectTask):
         self.body_name_to_idx = {k: np.array(v) for k, v in self.body_name_to_idx.items()}
         self.joint_name_to_idx = {k: np.array(v) for k, v in self.joint_name_to_idx.items()}
 
+    def assign_actions(self, actions):
+        # overrides ObjectTask.assign_actions
+        if self.action_type == ActionType.POSITION:
+            hand_pos = self.joint_q.view(self.num_envs, -1)[:, :self.hand_num_joint_axis]
+            actions = actions.reshape(self.num_envs, -1)
+            lower, upper, _  =self.action_bounds
+            action_scale = 0.1 * (upper-lower)
+            actions = torch.clamp(hand_pos + actions * action_scale, lower, upper)  # TODO: parameterize action_scale in config
+            self.reward_extras['target_qpos'] = actions
+            self.model.joint_target.zero_()
+
+        if self.action_type == ActionType.TORQUE:
+            self.model.joint_act.zero_()
+            joint_target = self.model.joint_act
+        else:
+            joint_target = self.model.joint_target
+
+        self.warp_actions.assign(wp.from_torch(actions.flatten()))
+        if self.use_autograd and self.requires_grad:
+            # env manages grad tape, and action setting happens with autograd utils
+            return
+        assign_act(
+            self.warp_actions,
+            joint_target,
+            self.model.joint_target_ke,
+            self.action_type,
+            self.num_actions,
+            self.num_envs,
+            joint_indices=self.joint_target_indices,
+        )
+
     def _get_obs_dict(self):
         joint_q, joint_qd = self.joint_q.view(self.num_envs, -1), self.joint_qd.view(self.num_envs, -1)
         obs_dict = {}
@@ -147,7 +180,7 @@ class HandObjectTask(ObjectTask):
             ]
             obs_dict["goal_joint_pos"] = self.goal_joint_pos.view(self.num_envs, -1)
 
-        obs_dict["target_qpos"] = self.actions.view(self.num_envs, -1)
+        # obs_dict["target_qpos"] = self.actions # self.start_joint_q[:, self.env_joint_target_indices]
         obs_dict["hand_qpos"] = self.joint_q.view(self.num_envs, -1)[:, self.env_joint_target_indices]
         self.extras["obs_dict"] = obs_dict
         return obs_dict

@@ -171,7 +171,6 @@ def forward_simulate(ctx, forward=False, requires_grad=False):
         joint_act = ctx.bwd_joint_act
 
     num_envs = ctx.act_params["num_envs"]
-    num_acts = ctx.act_params["num_acts"]
     num_acts = ctx.act_params["num_acts"]  # ctx.act.size // num_envs
     action_type = ctx.act_params["action_type"]
     joint_stiffness = ctx.act_params["joint_stiffness"]

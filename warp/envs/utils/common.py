@@ -376,7 +376,7 @@ def collect_rollout(env, n_steps, pi, loss_fn=None, plot_body_coords=False, plot
                 loss_fn()
 
             net_cost += rew
-            pbar.set_description(f"mean_cost_per_env={net_cost:.2f}, body_f_max={info['body_f_max']:.2f}")
+            pbar.set_description(f"mean_cost_per_env={net_cost:.2f}")
             states.append(o.cpu().detach().numpy())
             rewards.append(rew)
     history = {}

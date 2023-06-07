@@ -10,8 +10,13 @@ num_envs: 1
 num_steps: 500
 render: true
 
-# ppo defaults
+# task defaults
 task:
+  gamma: 0.99
+  player:
+    games_num: 12
+    num_actors: 4
+
   ppo:
     max_epochs: 2000 
     minibatch_size: 1920
@@ -50,4 +55,6 @@ task:
     betas: 
       - 0.7
       - 0.95
+
+  shac2: ${.shac}
 

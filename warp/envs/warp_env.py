@@ -198,14 +198,14 @@ class WarpEnv(Environment):
         self.graph_capture_params["joint_qd_end"] = self._joint_qd
 
         if self.use_graph_capture and self.requires_grad:
-            if not self.activate_ground_plane:  # ie no contact
-                backward_model = self.builder.finalize(device=self.device)
-            else:
-                backward_model = self.builder.finalize(
-                    device=self.device,
+            # if not self.activate_ground_plane:  # ie no contact
+            backward_model = self.builder.finalize(device=self.device)
+            # else:
+                # backward_model = self.builder.finalize(
+                #     device=self.device,
                     # rigid_mesh_contact_max=self.rigid_mesh_contact_max,
-                    requires_grad=self.requires_grad,
-                )
+                    # requires_grad=self.requires_grad,
+                # )
             backward_model.joint_q.requires_grad = True
             backward_model.joint_qd.requires_grad = True
             backward_model.joint_act.requires_grad = True
@@ -348,10 +348,11 @@ class WarpEnv(Environment):
             body_qd,
         )
         # swap states so start from correct next state
-        (self.simulate_params["state_in"], self.simulate_params["state_out"],) = (
-            self.state_1,
-            self.state_0,
-        )
+        if not self.use_graph_capture:
+            (self.simulate_params["state_in"], self.simulate_params["state_out"],) = (
+                self.state_1,
+                self.state_0,
+            )
         if not self.simulate_params["ag_return_body"]:
             self.joint_q, self.joint_qd = ret
             self.body_q = wp.to_torch(self.simulate_params["state_in"].body_q)
@@ -359,7 +360,6 @@ class WarpEnv(Environment):
         else:
             self.joint_q, self.joint_qd, self.body_q, self.body_qd = ret
 
-        __import__("ipdb").set_trace()
         self.body_f = wp.to_torch(self.simulate_params["body_f"])
 
     def _pre_step(self):

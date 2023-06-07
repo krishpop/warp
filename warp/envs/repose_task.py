@@ -71,7 +71,7 @@ class ReposeTask(HandObjectTask):
         )
         self.reward_extras["reach_threshold"] = reach_threshold
         # stay in center of hand
-        self.goal_pos = tu.to_torch([0.0, 0.32, 0.0], device=self.device).view(1, 3).repeat(self.num_envs, 1)
+        self.goal_pos = tu.to_torch([-0.1, 0.32, 0.0], device=self.device).view(1, 3).repeat(self.num_envs, 1)
         self.goal_rot = tu.to_torch([0.0, 0.0, 0.0, 1.0], device=self.device).view(1, 4).repeat(self.num_envs, 1)
 
     def _get_object_pose(self):
