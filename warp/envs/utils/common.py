@@ -309,7 +309,7 @@ def profile(env):
     plt.show()
 
 
-def run_env(env, pi=None, num_steps=600,  num_episodes=1, logdir=None):
+def run_env(env, pi=None, num_steps=600, num_episodes=1, logdir=None):
     if pi is None:
         joint_target_indices = env.env_joint_target_indices
 
@@ -320,19 +320,22 @@ def run_env(env, pi=None, num_steps=600,  num_episodes=1, logdir=None):
         def pi(obs, t):
             del obs
             act = np.sin(np.ones_like(upper) * t / 150) * 0.9  # [-1, 1]
-            joint_q_targets = act * (upper - lower) / 2 + (upper - lower) / 2
+            # joint_q_targets = act * (upper - lower) / 2 + (upper - lower) / 2
             action = joint_start.copy()
-            action[:, :] = joint_q_targets
+            action[:, :] = act
             return torch.tensor(action, device=str(env.device))
 
-    for ep in num_episodes:
+    for ep in range(num_episodes):
         actions, states, rewards, _ = collect_rollout(env, num_steps, pi)
         if logdir:
+            logdir = logdir.rstrip("/")
             np.savez(
-                f"{env.env_name}_rollout_ep_{ep}",
+                f"{logdir}/{env.env_name}_rollout_ep_{ep}",
                 actions=np.asarray(actions),
                 states=np.asarray(states),
                 rewards=np.asarray(rewards),
+                upper=upper,
+                lower=lower,
             )
 
 

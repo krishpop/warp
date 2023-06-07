@@ -74,6 +74,7 @@ class ObjectTask(WarpEnv):
             render_mode,
             stage_path,
         )
+        self._prev_obs = None
 
         self.use_autograd = use_autograd
         self.use_graph_capture = use_graph_capture
@@ -157,6 +158,10 @@ class ObjectTask(WarpEnv):
                 for joint_idx, joint_type in zip(joint_axis_start, joint_types)
             ]
         )
+        assert joint_target_indices.size == self.num_envs * self.num_actions
+        upper = self.model.joint_limit_upper.numpy().reshape(self.num_envs, -1)[0:1, self.env_joint_target_indices]
+        lower = self.model.joint_limit_lower.numpy().reshape(self.num_envs, -1)[0:1, self.env_joint_target_indices]
+        self.action_bounds = (to_torch(lower), to_torch(upper), to_torch(0.5 * (upper - lower)))
         self.joint_target_indices = wp.array(joint_target_indices, device=self._device, dtype=int)
         if not isinstance(self.stiffness, float):
             target_ke = self.model.joint_target_ke.numpy().reshape(self.num_envs, -1)
@@ -172,8 +177,11 @@ class ObjectTask(WarpEnv):
             self.graph_capture_params["bwd_model"].joint_attach_kd = self.joint_attach_kd
 
     def assign_actions(self, actions):
+        # first scale actions to bounds
+        lower, upper, mid = self.action_bounds
+        actions = torch.clamp(actions, -1, 1).view(self.num_envs, -1) * mid + mid
         self.warp_actions.zero_()
-        self.warp_actions.assign(wp.from_torch(actions))
+        self.warp_actions.assign(wp.from_torch(actions.flatten()))
         self.model.joint_target.zero_()
         assign_act(
             self.warp_actions,
@@ -184,14 +192,14 @@ class ObjectTask(WarpEnv):
             self.num_envs,
             joint_indices=self.joint_target_indices,
         )
-        # self.model.joint_target.assign(wp.from_torch(actions))
 
     def step(self, actions):
+        self.reset_buf = torch.zeros_like(self.reset_buf)
         self.actions = actions
         actions = actions.flatten()
-        prev_extras = self.extras
+        self._prev_obs = self.extras.get("obs_dict", None)
+        del self.extras
         self.extras = OrderedDict(actions=self.actions)
-        self.extras.update({f"prev_{k}": v for k, v in prev_extras.items() if "prev_" not in k})
         self.assign_actions(actions)
         self._pre_step()
         if self.requires_grad and self.use_autograd:
@@ -204,6 +212,9 @@ class ObjectTask(WarpEnv):
         self.progress_buf += 1
         self.num_frames += 1
         self.reset_buf = self.reset_buf | (self.progress_buf >= self.episode_length)
+        env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
+        if len(env_ids) > 0:
+            self.reset(env_ids)
         if self.visualize:
             self.render()
         return self.obs_buf, self.rew_buf, self.reset_buf, self.extras
@@ -218,11 +229,14 @@ class ObjectTask(WarpEnv):
             for arg in rew_terms:
                 if isinstance(arg, str) and arg in self.reward_extras:
                     rew_args.append(self.reward_extras[arg])
-                elif isinstance(arg, str) and arg in self.extras:
-                    rew_args.append(self.extras[arg])
+                elif isinstance(arg, str) and arg in self.extras["obs_dict"]:
+                    rew_args.append(self.extras["obs_dict"][arg])
                 else:
                     raise TypeError("Invalid argument for reward function {}, ('{}')".format(k, arg))
-            v = cost_fn(*rew_args) * rew_scale
+            if k in self.extras["obs_dict"]:
+                v = self.extras["obs_dict"][k]
+            else:
+                v = cost_fn(*rew_args) * rew_scale
             rew_dict[k] = v.view(self.num_envs)
 
         self.extras.update(rew_dict)
@@ -238,7 +252,7 @@ class ObjectTask(WarpEnv):
             "action": self.actions.view(self.num_envs, -1),
             "goal_joint_pos": self.goal_joint_pos.view(self.num_envs, -1),
         }
-        self.extras.update(obs_dict)
+        self.extras["obs_dict"] = obs_dict
         return obs_dict
 
     def calculateReward(self):

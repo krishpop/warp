@@ -27,7 +27,7 @@ def log(s):
 # torch quat/vector utils
 
 
-def to_torch(x, dtype=torch.float32, device="cuda:0", requires_grad=False):
+def to_torch(x, dtype=torch.float, device="cuda:0", requires_grad=False):
     return torch.tensor(x, dtype=dtype, device=device, requires_grad=requires_grad)
 
 

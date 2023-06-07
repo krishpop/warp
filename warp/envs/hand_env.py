@@ -42,8 +42,8 @@ class HandObjectTask(ObjectTask):
         damping=0.5,
         reward_params=None,
         hand_type: HandType = HandType.ALLEGRO,
-        hand_start_position: Tuple = (0.1, 0.3, -0.6),
-        hand_start_orientation: Tuple = (-np.pi / 2 * 3, np.pi * 1.75, np.pi / 2 * 4),
+        hand_start_position: Tuple = (0.1, 0.3, 0.0),
+        hand_start_orientation: Tuple = (-np.pi / 2 * 3, np.pi * 1.25, np.pi / 2 * 3),
         grasp_file: str = "",
         grasp_id: int = None,
         use_autograd: bool = True,
@@ -135,11 +135,6 @@ class HandObjectTask(ObjectTask):
         self.body_name_to_idx = {k: np.array(v) for k, v in self.body_name_to_idx.items()}
         self.joint_name_to_idx = {k: np.array(v) for k, v in self.joint_name_to_idx.items()}
 
-    def _post_step(self):
-        self.extras["target_qpos"] = self.actions.view(self.num_envs, -1)
-        self.extras["hand_qpos"] = self.joint_q.view(self.num_envs, -1)[:, self.env_joint_target_indices]
-        self.extras["body_f_max"] = self.body_f.max().item()
-
     def _get_obs_dict(self):
         joint_q, joint_qd = self.joint_q.view(self.num_envs, -1), self.joint_qd.view(self.num_envs, -1)
         obs_dict = {}
@@ -153,7 +148,10 @@ class HandObjectTask(ObjectTask):
                 :, self.object_joint_start : self.object_joint_start + self.object_num_joint_axis
             ]
             obs_dict["goal_joint_pos"] = self.goal_joint_pos.view(self.num_envs, -1)
-        self.extras.update(obs_dict)
+
+        obs_dict["target_qpos"] = self.actions.view(self.num_envs, -1)
+        obs_dict["hand_qpos"] = self.joint_q.view(self.num_envs, -1)[:, self.env_joint_target_indices]
+        self.extras["obs_dict"] = obs_dict
         return obs_dict
 
     def sample_grasps(self, num_envs):

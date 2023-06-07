@@ -105,16 +105,16 @@ class ArticulateTask(HandObjectTask):
         object_pose, object_vel = self.get_body_pos_vel("base", return_vel=True)
         obs_dict["object_body_pos"] = object_pose[:, :3]
         obs_dict["object_body_vel"] = object_vel
-        obs_dict["fingertip_pos"] = self.get_fingertip_pos()
+        obs_dict["fingertip_pos"] = self._get_fingertip_pos()
         object_joint_pos = self.joint_q.view(self.num_envs, -1)[:, self.object_joint_target_indices]
         obs_dict["object_joint_pos_err"] = object_joint_pos - self.goal_joint_pos
 
-        self.extras.update(obs_dict)
+        self.extras["obs_dict"] = obs_dict
         early_termination = self._check_early_termination(obs_dict)
         self.reset_buf = self.reset_buf | early_termination
         return obs_dict
 
-    def get_fingertip_pos(self):
+    def _get_fingertip_pos(self):
         fingertip_xform1 = self.get_body_pos_vel("index_link_3", return_quat=True)
         fingertip_xform2 = self.get_body_pos_vel("middle_link_3", return_quat=True)
         fingertip_xform3 = self.get_body_pos_vel("ring_link_3", return_quat=True)

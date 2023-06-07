@@ -579,7 +579,7 @@ OctprismObject = object_generator(ObjectType.OCTPRISM, scale=1.0)
 
 ReposeCubeObject = operable_object_generator(
     ObjectType.REPOSE_CUBE,
-    base_pos=(0.0, 0.34, 0.0),
+    base_pos=(0.0, 0.35, 0.0),
     base_ori=(0.0, 0.0, 0.0),
     scale=1.4,
     density=1e2,

@@ -13,7 +13,7 @@ from .utils.rewards import action_penalty, l2_dist, reach_bonus, rot_dist, rot_r
 class ReposeTask(HandObjectTask):
     obs_keys = ["hand_joint_pos", "hand_joint_vel", "object_pos", "target_pos"]
     debug_visualization = False
-    drop_height: float = 0.1
+    drop_height: float = 0.25
 
     def __init__(
         self,
@@ -28,14 +28,14 @@ class ReposeTask(HandObjectTask):
         device="cuda",
         render_mode=RenderMode.OPENGL,
         stage_path=None,
-        stiffness=0.0,
-        damping=0.5,
+        stiffness=5000.0,
+        damping=10.0,
         reward_params=None,
         hand_type: HandType = HandType.ALLEGRO,
         hand_start_position: Tuple = (0.1, 0.3, 0.0),
         hand_start_orientation: Tuple = (-np.pi / 2, np.pi * 0.75, np.pi / 2),
         use_autograd: bool = True,
-        use_graph_capture: bool = True,
+        use_graph_capture: bool = False,
         reach_threshold: float = 0.1,
         reach_bonus: float = 100.0,
     ):
@@ -81,7 +81,7 @@ class ReposeTask(HandObjectTask):
         if self.object_model.floating:
             object_joint_pos = joint_q[:, self.object_joint_start : self.object_joint_start + 3]
             object_joint_quat = joint_q[:, self.object_joint_start + 3 : self.object_joint_start + 7]
-            pose["position"] = object_joint_pos + tu.to_torch(self.object_model.base_pos).view(1, 3)
+            pose["position"] = object_joint_pos  # + tu.to_torch(self.object_model.base_pos).view(1, 3)
             start_quat = tu.to_torch(self.object_model.base_ori).view(1, 4).repeat(self.num_envs, 1)
             pose["orientation"] = tu.quat_mul(object_joint_quat, start_quat)
         elif self.object_model.base_joint == "px, py, px":
@@ -94,36 +94,22 @@ class ReposeTask(HandObjectTask):
         return pose
 
     def _pre_step(self):
-        if "prev_rot_dist" not in self.extras:
+        if self._prev_obs is not None:
+            self.extras["prev_rot_dist"] = torch.where(
+                self.progress_buf == 0,
+                torch.zeros_like(self._prev_obs["rot_dist"]),
+                self._prev_obs["rot_dist"],
+            )
+        else:
             self.extras["prev_rot_dist"] = torch.zeros_like(self.rew_buf)
 
     def _check_early_termination(self, obs_dict):
         # check if object is dropped
-        object_body_pos = obs_dict["object_body_pos"]
-        self.reset_buf = self.reset_buf | (object_body_pos[:, 2] < self.drop_height)
-
-    def get_body_pos_vel(self, body_name, return_vel=False, return_quat=False):
-        """Warning: adds extra stacking dimension to body_pos and body_vel"""
-        body_index = self.body_name_to_idx[body_name]
-        assert len(body_index) == self.num_envs
-        end = 7 if return_quat else 3
-        body_pos = self.body_q[body_index, :end].view(self.num_envs, end)
-        if return_vel:
-            body_vel = self.body_qd[body_index].view(self.num_envs, 6)
-            return body_pos, body_vel
-        return body_pos
-
-    def get_body_f(self, body_name):
-        body_index = self.body_name_to_idx[body_name]
-        # returns angular, linear vel
-        body_f = self.to_torch(self.simulate_params['body_f'])[body_index, :].reshape(self.num_envs, -1)
-        return body_f
+        object_body_pos = obs_dict["object_pos"]
+        self.reset_buf = self.reset_buf | (object_body_pos[:, 1] < self.drop_height)
 
     def _get_obs_dict(self):
         obs_dict = super()._get_obs_dict()
-        object_pose, object_vel = self.get_body_pos_vel("object", return_vel=True)
-        obs_dict["object_body_pos"] = object_pose[:, :3]
-        obs_dict["object_body_vel"] = object_vel
         obs_dict["target_pos"] = self.goal_pos
         obs_dict["target_quat"] = self.goal_rot
         object_pose = self._get_object_pose()
@@ -132,7 +118,7 @@ class ReposeTask(HandObjectTask):
         obs_dict["object_pose_err"] = l2_dist(obs_dict["object_pos"], obs_dict["target_pos"]).view(self.num_envs, 1)
         obs_dict["rot_dist"] = rot_dist(object_pose["orientation"], obs_dict["target_quat"])
         obs_dict["action"] = self.actions.view(self.num_envs, -1)
-        self.extras.update(obs_dict)
+        self.extras["obs_dict"] = obs_dict
         self._check_early_termination(obs_dict)
         return obs_dict
 

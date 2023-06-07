@@ -117,12 +117,12 @@ class WarpEnv(Environment):
             requires_grad=self.requires_grad,
         )
 
+        self.extras = {}
         self.reset_buf = torch.ones(self.num_envs, device=self.device, dtype=torch.long, requires_grad=False)
         # end of the episode
         self.termination_buf = torch.zeros(self.num_envs, device=self.device, dtype=torch.long, requires_grad=False)
         self.progress_buf = torch.zeros(self.num_envs, device=self.device, dtype=torch.long, requires_grad=False)
 
-        self.extras = {}
         self._model = None
 
     @property
@@ -318,8 +318,8 @@ class WarpEnv(Environment):
             # reset progress buffer (i.e. episode done flag)
             self.progress_buf[env_ids] = 0
             self.num_frames = 0
-            self.extras = {}
             self.calculateObservations()
+            self.reset_buf[env_ids] = 0.0
 
         return self.obs_buf
 
