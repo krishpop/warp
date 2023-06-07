@@ -319,7 +319,6 @@ class WarpEnv(Environment):
             self.progress_buf[env_ids] = 0
             self.num_frames = 0
             self.calculateObservations()
-            self.reset_buf[env_ids] = 0.0
 
         return self.obs_buf
 
