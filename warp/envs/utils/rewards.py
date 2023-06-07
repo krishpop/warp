@@ -33,8 +33,8 @@ def parse_reward_params(reward_params_dict):
     rew_params = {}
     for key, value in reward_params_dict.items():
         if isinstance(value, dict):
-            # if "_partial_" in value["reward_fn_partial"]:
-            #     value = instantiate(value)
+            if not callable(value["reward_fn_partial"]) and "_partial_" in value["reward_fn_partial"]:
+                value = instantiate(value)
             function = value["reward_fn_partial"]
             # function = instantiate(function_name)
             arguments = value["args"]
