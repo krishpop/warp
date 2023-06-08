@@ -1,4 +1,5 @@
 name: shac2
+num_envs: 128
 params:
   network:
     actor: 
@@ -38,7 +39,7 @@ params:
     save_interval: ${resolve_default:400,${task.shac2.save_interval}}
     early_stopping_patience: ${task.shac2.max_epochs}
     rew_scale: 1.0
-    score_keys: []
+    score_keys: ${resolve_default:[],${task.score_keys}}
 
     player:
       determenistic: True

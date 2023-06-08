@@ -78,6 +78,11 @@ cfg_path = os.path.join(cfg_path, "cfg")
 
 @hydra.main(config_path="cfg", config_name="train.yaml")
 def train(cfg: DictConfig):
+    if cfg.debug:
+        import warp as wp
+        wp.config.mode = "debug"
+        wp.config.verify_cuda = True
+        wp.config.print_launches=True
 
     torch.set_default_dtype(torch.float32)
     try:
@@ -124,10 +129,9 @@ def train(cfg: DictConfig):
                 cfg_train["params"]["diff_env"] = cfg_full["task"]["env"]
                 env_name = cfg_train["params"]["diff_env"].pop("_target_")
                 cfg_train["params"]["diff_env"]["name"] = env_name.split(".")[-1]
-                # cfg_train["params"]["diff_env"]["no_grad"] = False
                 # TODO: Comment to disable autograd/graph capture for diffsim
-                cfg_train["params"]["diff_env"]["use_graph_capture"] = True
-                cfg_train["params"]["diff_env"]["use_autograd"] = True
+                # cfg_train["params"]["diff_env"]["use_graph_capture"] = False
+                # cfg_train["params"]["diff_env"]["use_autograd"] = True
                 print(cfg_train["params"]["general"])
                 traj_optimizer = SHAC(cfg_train)
             if not cfg.general.play:

@@ -182,11 +182,14 @@ def forward_simulate(ctx, forward=False, requires_grad=False):
         state_in = state_temp
         state_in.clear_forces()
         if forward or step == ctx.substeps - 1:
+            # reuse state_out for last substep
             state_temp = state_out
+        elif not ctx.capture_graph:
+            state_temp = model.state()
         else:
             state_temp = ctx.state_list[step]
         if model.ground:
-            if not forward:
+            if not forward and step == 0:
                 model.allocate_rigid_contacts()
             wp.sim.collide(model, state_in)
         state_temp = ctx.integrator.simulate(
@@ -321,7 +324,7 @@ class IntegratorSimulate(torch.autograd.Function):
             #     __import__("ipdb").set_trace()
             ctx.bwd_forward_graph = ctx.graph_capture_params["bwd_forward_graph"]
             wp.capture_launch(ctx.bwd_forward_graph)
-            for s in ctx.simulate_params.get("state_list"):
+            for s in ctx.simulate_params.get("state_list", []):
                 clear_grads(s)
             clear_grads(state_in)
             clear_grads(state_out)
@@ -340,7 +343,7 @@ class IntegratorSimulate(torch.autograd.Function):
             body_q_grad = wp.to_torch(ctx.graph_capture_params["adj_bqp"]).clone()
             body_qd_grad = wp.to_torch(ctx.graph_capture_params["adj_bqdp"]).clone()
             ctx.tape.zero()
-            for s in ctx.simulate_params.get("state_list"):
+            for s in ctx.simulate_params.get("state_list", []):
                 clear_grads(s)
             clear_grads(ctx.simulate_params.get("state_in"))
             clear_grads(ctx.simulate_params.get("state_out"))

@@ -13,7 +13,7 @@ from .utils.rewards import action_penalty, l2_dist, reach_bonus, rot_dist, rot_r
 class ReposeTask(HandObjectTask):
     obs_keys = ["hand_joint_pos", "hand_joint_vel", "object_pos", "target_pos"]
     debug_visualization = False
-    drop_height: float = 0.25
+    drop_height: float = 0.23
 
     def __init__(
         self,
@@ -71,8 +71,17 @@ class ReposeTask(HandObjectTask):
         )
         self.reward_extras["reach_threshold"] = reach_threshold
         # stay in center of hand
-        self.goal_pos = tu.to_torch([-0.1, 0.32, 0.0], device=self.device).view(1, 3).repeat(self.num_envs, 1)
-        self.goal_rot = tu.to_torch([0.0, 0.0, 0.0, 1.0], device=self.device).view(1, 4).repeat(self.num_envs, 1)
+        self.goal_pos = self.default_goal_pos = tu.to_torch([-0.1, 0.32, 0.0], device=self.device).view(1, 3).repeat(self.num_envs, 1)
+        self.goal_rot = self.default_goal_rot = tu.to_torch([0.0, 0.0, 0.0, 1.0], device=self.device).view(1, 4).repeat(self.num_envs, 1)
+
+    def get_stochastic_init(self, env_ids, joint_q, joint_qd):
+        goal_pos = self.goal_pos[env_ids]
+        sample_rot = tu.torch_rand_float(-1., 1., (len(env_ids), 2), device=self.device)
+        x, _, z = torch.eye(3, device=self.device)
+        goal_rot_x = tu.quat_from_angle_axis(sample_rot[:, 0], x)
+        goal_rot_z = tu.quat_from_angle_axis(sample_rot[:, 0], z)
+        self.goal_rot[env_ids] = tu.quat_mul(goal_rot_x, goal_rot_z)
+        return joint_q[env_ids], joint_qd[env_ids]
 
     def _get_object_pose(self):
         joint_q = self.joint_q.view(self.num_envs, -1)
@@ -116,7 +125,16 @@ class ReposeTask(HandObjectTask):
         obs_dict["object_pose_err"] = l2_dist(obs_dict["object_pos"], obs_dict["target_pos"]).view(self.num_envs, 1)
         obs_dict["rot_dist"] = rot_dist(object_pose["orientation"], obs_dict["target_rot"])
         obs_dict["action"] = self.actions.view(self.num_envs, -1)
+
         self.extras["obs_dict"] = obs_dict
+
+        # log score keys
+        self.extras['object_pose_err'] = obs_dict['object_pose_err'].view(self.num_envs)
+        self.extras['object_rot_err'] = obs_dict['rot_dist'].view(self.num_envs)
+        if self.action_type is ActionType.TORQUE:
+            self.extras['net_energy'] = torch.bmm(obs_dict['hand_joint_vel'].unsqueeze(1), self.actions.unsqueeze(2)).squeeze()
+        else:
+            self.extras['net_energy'] = torch.zeros_like(self.rew_buf)
         self._check_early_termination(obs_dict)
         return obs_dict
 

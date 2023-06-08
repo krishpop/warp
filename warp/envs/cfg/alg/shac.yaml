@@ -1,4 +1,5 @@
 name: shac
+num_envs: 256
 params:
   network:
     actor: ActorStochasticMLP # ActorDeterministicMLP
@@ -34,6 +35,7 @@ params:
     num_actors: ${num_envs} # ${resolve_default:64,${..env.config.num_envs}}
     save_interval: 400 # ${resolve_default:400,${..env.save_interval}}
     contact_truncation: True
+    score_keys: ${resolve_default:[],${task.score_keys}}
 
     player:
       determenistic: True

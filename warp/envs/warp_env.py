@@ -44,7 +44,7 @@ class WarpEnv(Environment):
         rigid_contact_con_weighting=True,
     )
     activate_ground_plane: bool = True
-    ag_return_body: bool = True
+    ag_return_body: bool = False
 
     def __init__(
         self,
@@ -227,17 +227,22 @@ class WarpEnv(Environment):
             self.simulate_params["bwd_state_out"].body_qd.requires_grad = True
             self.simulate_params["bwd_state_out"].body_f.requires_grad = True
             self.simulate_params["state_list"] = [
-                backward_model.state(requires_grad=True) for _ in range(self.sim_substeps - 1)
+                backward_model.state() for _ in range(self.sim_substeps - 1)
             ]
         elif self.requires_grad:
             self.simulate_params["state_list"] = [
-                self.model.state(requires_grad=True) for _ in range(self.sim_substeps - 1)
+                self.model.state() for _ in range(self.sim_substeps - 1)
             ]
+
+        for state in self.simulate_params.get("state_list", []):
+            state.body_q.requires_grad = True
+            state.body_qd.requires_grad = True
+            state.body_f.requires_grad = True
 
     def init_sim(self):
         self.init()
-        self.state_0 = self.model.state(requires_grad=self.requires_grad)
-        self.state_1 = self.model.state(requires_grad=self.requires_grad)
+        self.state_0 = self.model.state()
+        self.state_1 = self.model.state()
         self._joint_q = wp.zeros_like(self.model.joint_q)
         self._joint_qd = wp.zeros_like(self.model.joint_qd)
         if self.requires_grad:
@@ -355,8 +360,8 @@ class WarpEnv(Environment):
             )
         if not self.simulate_params["ag_return_body"]:
             self.joint_q, self.joint_qd = ret
-            self.body_q = wp.to_torch(self.simulate_params["state_in"].body_q)
-            self.body_qd = wp.to_torch(self.simulate_params["state_in"].body_qd)
+            self.body_q = wp.to_torch(self.simulate_params["state_out"].body_q)
+            self.body_qd = wp.to_torch(self.simulate_params["state_out"].body_qd)
         else:
             self.joint_q, self.joint_qd, self.body_q, self.body_qd = ret
 

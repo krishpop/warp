@@ -49,6 +49,9 @@ def construct_model(object_name, object_id=None):
     print("object_name", object_name, "object_id", object_id, "num_joints", builder.joint_count, "joint_types", builder.joint_type)
     return builder, model
 
+# %%
+# mv '/scr-ssd/ksrini/diff_manip/external/warp/warp/envs/assets/Scissors/10449/images' 
+
 
 # %%
 obj2model = {}
@@ -92,20 +95,23 @@ for grasp_dict in grasps['grasps']:
     grasp_dict['params'] = list(grasp_params)
 
 # %%
-g = [g for g in grasps['grasps'] if g['object_code'] == "spray_bottle_merged"][0]
+g = [g for g in grasps['grasps'] if g['object_code'] == "Pliers_100142_merged"][0]
 
 # %%
 g
 
 # %%
 object_type = g['object_type']
-object_id = None
+object_id = g.get("object_id", None)
 
 gparams = g['params']
 
 env = HandObjectTask(len(gparams), 1, episode_length=100, object_type=ObjectType[object_type.upper()], object_id=object_id, stochastic_init=True)
 env.grasps = gparams
 obs = env.reset()
+
+# %%
+np.stack([g.joint_pos for g in gparams], axis=0).shape
 
 # %%
 env.load_camera_params()

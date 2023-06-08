@@ -280,9 +280,8 @@ def create_shadow_hand(
     base_joint=None,
     collapse_joints=True,
 ):
-    stiffness, damping = 0.0, 0.0
-    if action_type is ActionType.POSITION or action_type is ActionType.VARIABLE_STIFFNESS:
-        stiffness, damping = stiffness, damping
+    if action_type is ActionType.TORQUE:
+        stiffness, damping = 0.0, 0.0
     if floating_base:
         if len(hand_start_orientation) == 3:
             hand_start_orientation = wp.quat_rpy(*hand_start_orientation)
@@ -327,12 +326,12 @@ def create_shadow_hand(
         builder.joint_q[i + q_offset] = x * (builder.joint_limit_lower[i]) + y * (builder.joint_limit_upper[i])
         builder.joint_target[i] = builder.joint_q[i + q_offset]
 
-        if action_type is ActionType.POSITION or action_type is ActionType.VARIABLE_STIFFNESS:
-            builder.joint_target_ke[i] = 5000.0
-            builder.joint_target_kd[i] = 10.0
-        else:
+        if action_type is ActionType.TORQUE:
             builder.joint_target_ke[i] = 0.0
             builder.joint_target_kd[i] = 0.0
+        else:
+            builder.joint_target_ke[i] = 5000.0
+            builder.joint_target_kd[i] = 10.0
 
 
 ########### Allegro Hand poses (base orientation)
@@ -360,9 +359,7 @@ def create_allegro_hand(
     base_joint=None,
     collapse_joints=True,
 ):
-    if action_type is ActionType.POSITION or action_type is ActionType.VARIABLE_STIFFNESS:
-        stiffness, damping = stiffness, damping
-    else:
+    if action_type is ActionType.TORQUE:
         stiffness, damping = 0.0, 0.0
     xform = wp.transform(hand_start_position, wp.quat_rpy(*hand_start_orientation))
     wp.sim.parse_urdf(
@@ -409,8 +406,8 @@ class ObjectModel:
         base_pos=(0.0, 0.075, 0.0),
         base_ori=(np.pi / 2, 0.0, 0.0),
         joint_type=wp.sim.JOINT_FREE,
-        contact_ke=1.0e3,
-        contact_kd=100.0,
+        contact_ke=1e3,
+        contact_kd=1e2,
         scale=0.4,
         stiffness=0.0,
         damping=0.5,

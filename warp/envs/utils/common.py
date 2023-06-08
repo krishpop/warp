@@ -112,6 +112,7 @@ def to_warp(input, dtype=float, device="cuda"):
 
 class ActionType(Enum):
     POSITION = auto()
+    POSITION_DELTA = auto()
     TORQUE = auto()
     VARIABLE_STIFFNESS = auto()
 
@@ -156,9 +157,11 @@ class HandType(Enum):
 
 HAND_ACT_COUNT = {
     (HandType.ALLEGRO, ActionType.POSITION): 16,
+    (HandType.ALLEGRO, ActionType.POSITION_DELTA): 16,
     (HandType.ALLEGRO, ActionType.TORQUE): 16,
     (HandType.ALLEGRO, ActionType.VARIABLE_STIFFNESS): 32,
     (HandType.SHADOW, ActionType.POSITION): 24,
+    (HandType.SHADOW, ActionType.POSITION_DELTA): 24,
     (HandType.SHADOW, ActionType.TORQUE): 24,
 }
 
@@ -272,6 +275,11 @@ joint_coord_map = {
 
 supported_joint_types = {
     ActionType.POSITION: [
+        wp.sim.JOINT_PRISMATIC,
+        wp.sim.JOINT_REVOLUTE,
+        wp.sim.JOINT_BALL,
+    ],
+    ActionType.POSITION_DELTA: [
         wp.sim.JOINT_PRISMATIC,
         wp.sim.JOINT_REVOLUTE,
         wp.sim.JOINT_BALL,

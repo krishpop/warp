@@ -4,10 +4,10 @@ defaults:
     - action_penalty
     - object_pos_err
 
-name: repose_task
+name: articulate_task
 
 env:
-  _target_: warp.envs.ReposeTask
+  _target_: warp.envs.ArticulateTask
   num_envs: ${resolve_default:256,${...num_envs}}
   episode_length: 500
   render: ${render}

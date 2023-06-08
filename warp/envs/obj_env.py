@@ -17,7 +17,7 @@ from .utils.common import (
 from .utils import builder as bu
 from .utils.rewards import action_penalty, l1_dist, parse_reward_params
 from .utils.warp_utils import assign_act
-from .utils.torch_utils import to_torch
+from .utils.torch_utils import to_torch, scale
 from .warp_env import WarpEnv
 
 
@@ -159,10 +159,14 @@ class ObjectTask(WarpEnv):
             ]
         )
         assert joint_target_indices.size == self.num_envs * self.num_actions
+        self.joint_target_indices = wp.array(joint_target_indices, device=self._device, dtype=int)
+
         upper = self.model.joint_limit_upper.numpy().reshape(self.num_envs, -1)[0:1, self.env_joint_target_indices]
         lower = self.model.joint_limit_lower.numpy().reshape(self.num_envs, -1)[0:1, self.env_joint_target_indices]
-        self.action_bounds = (to_torch(lower), to_torch(upper), to_torch(0.5 * (upper - lower)))
-        self.joint_target_indices = wp.array(joint_target_indices, device=self._device, dtype=int)
+        if self.action_type == ActionType.TORQUE:
+            self.action_bounds = (torch.ones_like(to_torch(lower))*-100., torch.ones_like(to_torch(upper))*100)
+        else:
+            self.action_bounds = (to_torch(lower), to_torch(upper))
         if not isinstance(self.stiffness, float):
             target_ke = self.model.joint_target_ke.numpy().reshape(self.num_envs, -1)
             target_kd = self.model.joint_target_kd.numpy().reshape(self.num_envs, -1)
@@ -175,7 +179,7 @@ class ObjectTask(WarpEnv):
         self.act_params["act"] = self.warp_actions
         self.act_params["joint_target_indices"] = self.joint_target_indices
         self.act_params["action_type"] = self.action_type
-        if self.action_type in [ActionType.POSITION, ActionType.VARIABLE_STIFFNESS]:
+        if self.action_type is not ActionType.TORQUE:
             self.act_params["joint_act"] = self.model.joint_target
             self.act_params["joint_stiffness"] = self.model.joint_target_ke
         if self.use_graph_capture and self.use_autograd:
@@ -184,11 +188,18 @@ class ObjectTask(WarpEnv):
 
     def assign_actions(self, actions):
         # first scale actions to bounds
-        lower, _, mid = self.action_bounds
-        actions = torch.clamp(actions, -1, 1).view(self.num_envs, -1) * mid + lower
+        lower, upper = self.action_bounds
+        actions = scale(actions.clamp(-1, 1), lower, upper)
         self.warp_actions.zero_()
         self.warp_actions.assign(wp.from_torch(actions.flatten()))
-        self.model.joint_target.zero_()
+        if self.action_type is ActionType.TORQUE:
+            self.model.joint_act.zero_()
+        else:
+            self.model.joint_target.zero_()
+
+        # env manages grad tape, and action setting happens with autograd utils
+        if self.use_autograd and self.requires_grad:
+            return
         assign_act(
             self.warp_actions,
             self.model.joint_target,
@@ -221,14 +232,11 @@ class ObjectTask(WarpEnv):
         env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
         if len(env_ids) > 0:
             self.obs_buf_before_reset = self.obs_buf.clone()
-            self.extras = {"obs_before_reset": self.obs_buf_before_reset, "episode_end": self.termination_buf}
+            self.extras.update({"obs_before_reset": self.obs_buf_before_reset, "episode_end": self.termination_buf})
             self.reset(env_ids)
         if self.visualize:
             self.render()
         return self.obs_buf, self.rew_buf, self.reset_buf, self.extras
-
-    def _post_step(self):
-        self.extras["body_f_max"] = self.body_f.max().item()
 
     def _get_rew_dict(self):
         rew_dict = {}

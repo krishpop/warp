@@ -16,6 +16,7 @@ from .utils.common import (
     supported_joint_types,
     run_env,
 )
+from .utils.torch_utils import to_torch, torch_rand_float, scale
 from .environment import RenderMode
 
 
@@ -137,14 +138,19 @@ class HandObjectTask(ObjectTask):
 
     def assign_actions(self, actions):
         # overrides ObjectTask.assign_actions
-        if self.action_type == ActionType.POSITION:
+        actions = actions.reshape(self.num_envs, -1)
+        if self.action_type == ActionType.POSITION_DELTA:
             hand_pos = self.joint_q.view(self.num_envs, -1)[:, :self.hand_num_joint_axis]
-            actions = actions.reshape(self.num_envs, -1)
-            lower, upper, _  =self.action_bounds
-            action_scale = 0.1 * (upper-lower)
-            actions = torch.clamp(hand_pos + actions * action_scale, lower, upper)  # TODO: parameterize action_scale in config
-            self.reward_extras['target_qpos'] = actions
-            self.model.joint_target.zero_()
+            lower, upper = self.action_bounds
+            actions = 0.1 * actions.clamp(-1, 1) * (upper - lower)
+            actions = torch.clamp(hand_pos + actions, lower, upper)  # TODO: parameterize action_scale in config
+            # self.reward_extras['target_qpos'] = actions
+        else:
+            lower, upper = self.action_bounds
+            actions = scale(actions.clamp(-1, 1), lower, upper)
+            # self.reward_extras['target_qpos'] = actions
+
+        actions = actions.flatten()
 
         if self.action_type == ActionType.TORQUE:
             self.model.joint_act.zero_()
@@ -152,9 +158,11 @@ class HandObjectTask(ObjectTask):
         else:
             joint_target = self.model.joint_target
 
+        joint_target.zero_()
+        # assigns act
         self.warp_actions.assign(wp.from_torch(actions.flatten()))
+        # env manages grad tape, and action setting happens with autograd utils
         if self.use_autograd and self.requires_grad:
-            # env manages grad tape, and action setting happens with autograd utils
             return
         assign_act(
             self.warp_actions,
@@ -180,15 +188,15 @@ class HandObjectTask(ObjectTask):
             ]
             obs_dict["goal_joint_pos"] = self.goal_joint_pos.view(self.num_envs, -1)
 
-        # obs_dict["target_qpos"] = self.actions # self.start_joint_q[:, self.env_joint_target_indices]
+        obs_dict["target_qpos"] = self.start_joint_q[:, self.env_joint_target_indices]
         obs_dict["hand_qpos"] = self.joint_q.view(self.num_envs, -1)[:, self.env_joint_target_indices]
         self.extras["obs_dict"] = obs_dict
         return obs_dict
 
     def sample_grasps(self, num_envs):
-        self.grasp = self.grasps[np.random.randint(len(self.grasps), size=num_envs)]
+        self.grasp = [self.grasps[i] for i in np.random.randint(len(self.grasps), size=num_envs)]
         self.hand_init_xform = np.stack([g.xform for g in self.grasp], axis=0)
-        self.hand_init_q = np.stack([g.q for g in self.grasp], axis=0)
+        self.hand_init_q = np.stack([g.joint_pos for g in self.grasp], axis=0)
 
     def get_stochastic_init(self, env_ids, joint_q, joint_qd):
         # need to set the base joint of each env to sampled grasp xform
@@ -201,7 +209,6 @@ class HandObjectTask(ObjectTask):
             assert joint_q.shape[-1] == self.hand_init_q.shape[-1]
             joint_q[env_ids, self.env_joint_target_indices] = self.hand_init_q.copy()
             self._set_hand_base_xform(env_ids, self.hand_init_xform)
-            __import__("ipdb").set_trace()
 
         return joint_q[env_ids], joint_qd[env_ids]
 
@@ -212,8 +219,12 @@ class HandObjectTask(ObjectTask):
         # eval_fk should be run after this in reset, do not call this function directly
 
     def reset(self, env_ids=None, force_reset=True):
-        if self.grasps is not None:
-            self.sample_grasps()
+        if self.grasps is not None and self.stochastic_init:
+            if env_ids:
+                num_grasps = len(env_ids)
+            else:
+                num_grasps  = self.num_envs
+            self.sample_grasps(num_grasps)
         return super().reset(env_ids=env_ids, force_reset=force_reset)
 
     def create_articulation(self, builder):
@@ -267,7 +278,7 @@ class HandObjectTask(ObjectTask):
             # self.object_joint_start = self.hand_num_joint_axis
             # self.asset_builders.insert(0, object_articulation_builder)
 
-        self.env_joint_mask = hand_env_joint_mask
+        self.env_joint_mask = np.array(hand_env_joint_mask)
         self.env_joint_target_indices = joint_indices
         self.hand_joint_start = joint_indices[0]
         assert self.num_acts == len(joint_indices), "num_act must match number of joint control indices"
