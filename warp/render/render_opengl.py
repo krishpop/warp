@@ -784,6 +784,7 @@ class OpenGLRenderer:
         axis_scale=1.0,
         vsync=False,
         headless=False,
+        fixed_view=False
     ):
 
         try:
@@ -797,6 +798,7 @@ class OpenGLRenderer:
         self.camera_near_plane = near_plane
         self.camera_far_plane = far_plane
         self.camera_fov = camera_fov
+        self.fixed_view = False # intially for setup of camera matrices
 
         self.background_color = background_color
         self.draw_grid = draw_grid
@@ -1111,6 +1113,7 @@ class OpenGLRenderer:
 
         # start event loop
         self.app.event_loop.dispatch_event("on_enter")
+        self.fixed_view = fixed_view
 
     @property
     def paused(self):
@@ -1407,6 +1410,8 @@ class OpenGLRenderer:
         return np.array(PyMat4.perspective_projection(aspect_ratio, near_plane, far_plane, fov))
 
     def update_projection_matrix(self):
+        if self.fixed_view:
+            return
         if self.screen_height == 0:
             return
         aspect_ratio = self.screen_width / self.screen_height
@@ -1415,11 +1420,15 @@ class OpenGLRenderer:
         )
 
     def update_view_matrix(self):
+        if self.fixed_view:
+            return
         from pyglet.math import Mat4 as PyMat4
         cam_pos = self._camera_pos
         self._view_matrix = np.array(PyMat4.look_at(cam_pos, cam_pos + self._camera_front, self._camera_up))
 
     def update_model_matrix(self):
+        if self.fixed_view:
+            return
         from pyglet import gl
         # fmt: off
         if self._camera_axis == 0:

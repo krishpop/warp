@@ -24,7 +24,7 @@ from .warp_env import WarpEnv
 
 class ObjectTask(WarpEnv):
     obs_keys = ["object_joint_pos", "object_joint_vel", "goal_joint_pos"]
-    opengl_render_settings = {"draw_axis": False}
+    opengl_render_settings = {"draw_axis": False, "fixed_view": True}
     # show_joints = True
 
     def __init__(
@@ -336,13 +336,14 @@ def run_object_task(object_type, object_id, args):
         damping=args.damping,
         render=args.render,
     )
-    __import__("ipdb").set_trace()
+    env.load_camera_params("camera_params_closeup.npz")
     logdir = f"./outputs/{object_type.name}_runs"
     if object_id is not None:
         logdir = os.path.join(logdir, object_id)
     if not os.path.exists(logdir):
         os.makedirs(logdir)
     run_env(env, logdir=logdir)
+    env.close()
 
 
 if __name__ == "__main__":

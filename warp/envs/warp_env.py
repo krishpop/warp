@@ -201,11 +201,11 @@ class WarpEnv(Environment):
             # if not self.activate_ground_plane:  # ie no contact
             backward_model = self.builder.finalize(device=self.device)
             # else:
-                # backward_model = self.builder.finalize(
-                #     device=self.device,
-                    # rigid_mesh_contact_max=self.rigid_mesh_contact_max,
-                    # requires_grad=self.requires_grad,
-                # )
+            # backward_model = self.builder.finalize(
+            #     device=self.device,
+            # rigid_mesh_contact_max=self.rigid_mesh_contact_max,
+            # requires_grad=self.requires_grad,
+            # )
             backward_model.joint_q.requires_grad = True
             backward_model.joint_qd.requires_grad = True
             backward_model.joint_act.requires_grad = True
@@ -226,13 +226,9 @@ class WarpEnv(Environment):
             self.simulate_params["bwd_state_out"].body_q.requires_grad = True
             self.simulate_params["bwd_state_out"].body_qd.requires_grad = True
             self.simulate_params["bwd_state_out"].body_f.requires_grad = True
-            self.simulate_params["state_list"] = [
-                backward_model.state() for _ in range(self.sim_substeps - 1)
-            ]
+            self.simulate_params["state_list"] = [backward_model.state() for _ in range(self.sim_substeps - 1)]
         elif self.requires_grad:
-            self.simulate_params["state_list"] = [
-                self.model.state() for _ in range(self.sim_substeps - 1)
-            ]
+            self.simulate_params["state_list"] = [self.model.state() for _ in range(self.sim_substeps - 1)]
 
         for state in self.simulate_params.get("state_list", []):
             state.body_q.requires_grad = True
@@ -280,7 +276,6 @@ class WarpEnv(Environment):
         """
         Get the rand initial state for the environment
         """
-        __import__('ipdb').set_trace()
         pass
 
     def reset(self, env_ids=None, force_reset=True):
@@ -545,6 +540,10 @@ class WarpEnv(Environment):
         if params is None:
             if os.path.exists("default_camera_params.npz"):
                 params = np.load("default_camera_params.npz")
+            self.save_params = params
+        elif isinstance(params, str):
+            if os.path.exists(params):
+                params = np.load(params)
         else:
             return
         self.renderer._model_matrix = params["model"]

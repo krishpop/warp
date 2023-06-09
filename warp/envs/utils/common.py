@@ -329,8 +329,9 @@ def run_env(env, pi=None, num_steps=600, num_episodes=1, logdir=None):
             del obs
             act = np.sin(np.ones_like(upper) * t / 150) * 0.9  # [-1, 1]
             # joint_q_targets = act * (upper - lower) / 2 + (upper - lower) / 2
+            i = (t // 300) % len(joint_target_indices)
             action = joint_start.copy()
-            action[:, :] = act
+            action[:, i] = act.reshape(1, -1).repeat(env.num_envs, axis=0)[:, i]
             return torch.tensor(action, device=str(env.device))
 
     for ep in range(num_episodes):
