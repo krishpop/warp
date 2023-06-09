@@ -183,6 +183,7 @@ class ObjectType(Enum):
     PLIERS = auto()
     SCISSORS = auto()
     DISPENSER = auto()
+    DISPENSER_3DOF = auto()
     SOAP_DISPENSER = auto()
     EYEGLASSES = auto()
     FAUCET = auto()

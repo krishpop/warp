@@ -574,6 +574,7 @@ def operable_object_generator(object_type, **kwargs):
 
     return __OpDexObj__
 
+
 def get_object_xform(object_type, object_id=None, **obj_kwargs):
     model = OBJ_MODELS.get(object_type)
     if object_id:
@@ -581,6 +582,7 @@ def get_object_xform(object_type, object_id=None, **obj_kwargs):
     else:
         model = model(**obj_kwargs)
     return model.base_pos, model.base_ori
+
 
 StaplerObject = object_generator(ObjectType.TCDM_STAPLER, base_pos=(0.0, 0.01756801, 0.0), scale=1.3)
 OctprismObject = object_generator(ObjectType.OCTPRISM, scale=1.0)
@@ -638,7 +640,7 @@ BottleObjects = {
     for bottle_id in bottle_ids
 }
 
-dispenser_ids1, dispenser_ids2 = ("101539", "101417", "101540", "103405", "103619"), ("101517",)
+dispenser_ids1, dispenser_ids2 = ("101539", "101417"), ("101517", "101540", "103405", "103619")
 DispenserObjects = {
     dispenser_id: operable_object_generator(
         ObjectType.DISPENSER,
@@ -647,10 +649,26 @@ DispenserObjects = {
         scale=0.4,
         stiffness=[10.0, 10.0],
         damping=[0.5, 0.5],
+        use_mesh_extents=True,
         # base_ori=(np.pi / 17, 0.0, 0.0),
         model_path=f"Dispenser/{dispenser_id}/mobility.urdf",
     )
     for dispenser_id in dispenser_ids1
+}
+
+DispenserObjects3Dof = {
+    dispenser_id: operable_object_generator(
+        ObjectType.DISPENSER_3DOF,
+        base_pos=(0.0, 0.01756801, 0.0),
+        base_ori=(-0.5 * np.pi, 0.0, 0.0),
+        scale=0.4,
+        stiffness=[10.0, 10.0],
+        damping=[0.5, 0.5],
+        use_mesh_extents=True,
+        # base_ori=(np.pi / 17, 0.0, 0.0),
+        model_path=f"Dispenser/{dispenser_id}/mobility.urdf",
+    )
+    for dispenser_id in dispenser_ids2
 }
 
 SoapDispenserObject = operable_object_generator(
@@ -658,6 +676,7 @@ SoapDispenserObject = operable_object_generator(
     base_pos=(0.0, 0.01756801, 0.0),
     base_ori=(-0.5 * np.pi, 0.0, 0.0),
     scale=0.4,
+    use_mesh_extents=True,
     # base_ori=(np.pi / 17, 0.0, 0.0),
     stiffness=[100, 100],
     damping=[2.0, 0.2],
@@ -671,6 +690,7 @@ EyeglassesObjects = {
         base_pos=(0.0, 0.01756801, 0.0),
         base_ori=(-np.pi / 2, 0.0, 0.0),
         scale=0.2,
+        use_mesh_extents=True,
         # base_ori=(np.pi / 17, 0.0, 0.0),
         model_path=f"Eyeglasses/{eyeglasses_id}/mobility.urdf",
     )
@@ -711,7 +731,7 @@ ScissorsObjects = {
         base_ori=(-np.pi / 2, 0.0, 0.0),
         scale=0.2,
         # base_ori=(np.pi / 17, 0.0, 0.0),
-        base_joint='px, py, pz',
+        base_joint="px, py, pz",
         model_path=f"Scissors/{scissors_id}/mobility.urdf",
     )
     for scissors_id in scissors_ids
@@ -730,7 +750,7 @@ StaplerObjects = {
     for stapler_id in stapler_ids
 }
 
-switch_ids = ("100866", "100883", "100901", "102812")
+switch_ids = ("100866", "100901", "102812")  # "100883"
 SwitchObjects = {
     switch_id: operable_object_generator(
         ObjectType.SWITCH,
@@ -744,7 +764,7 @@ SwitchObjects = {
     for switch_id in switch_ids
 }
 
-usb_ids = ("100061", "100065", "100109", "102052")
+usb_ids = ("100061", "100065", "100109")  # , "102052")
 USBObjects = {
     usb_id: operable_object_generator(
         ObjectType.USB,
@@ -752,6 +772,7 @@ USBObjects = {
         base_ori=(-np.pi / 2, 0.0, 0.0),
         scale=0.4,
         # base_ori=(np.pi / 17, 0.0, 0.0),
+        use_mesh_extents=True,
         model_path=f"USB/{usb_id}/mobility.urdf",
     )
     for usb_id in usb_ids
@@ -772,6 +793,8 @@ OBJ_MODELS[ObjectType.BOTTLE] = BottleObjects
 OBJ_NUM_JOINTS[ObjectType.BOTTLE] = 2
 OBJ_MODELS[ObjectType.DISPENSER] = DispenserObjects
 OBJ_NUM_JOINTS[ObjectType.DISPENSER] = 2
+OBJ_MODELS[ObjectType.DISPENSER_3DOF] = DispenserObjects3Dof
+OBJ_NUM_JOINTS[ObjectType.DISPENSER_3DOF] = 3
 
 OBJ_MODELS[ObjectType.SOAP_DISPENSER] = SoapDispenserObject
 OBJ_NUM_JOINTS[ObjectType.SOAP_DISPENSER] = 1
@@ -786,7 +809,7 @@ OBJ_NUM_JOINTS[ObjectType.PLIERS] = 1
 OBJ_MODELS[ObjectType.SCISSORS] = ScissorsObjects
 OBJ_NUM_JOINTS[ObjectType.SCISSORS] = 1
 OBJ_MODELS[ObjectType.STAPLER] = StaplerObjects
-OBJ_NUM_JOINTS[ObjectType.STAPLER] = 1
+OBJ_NUM_JOINTS[ObjectType.STAPLER] = 2
 OBJ_MODELS[ObjectType.SWITCH] = SwitchObjects
 OBJ_NUM_JOINTS[ObjectType.SWITCH] = 1
 OBJ_MODELS[ObjectType.USB] = USBObjects

@@ -359,14 +359,20 @@ if __name__ == "__main__":
     parser.add_argument("--log", action="store_true")
     parser.add_argument("--all", action="store_true")
     args = parser.parse_args()
+    object_type = ObjectType[args.object_type.upper()]
     if args.all:
-        for i in range(11, 24):
+        for i in range(object_type.value, 24):
             object_type = ObjectType(i)
             if isinstance(bu.OBJ_MODELS[object_type], dict):
                 obj_ids = list(bu.OBJ_MODELS[object_type].keys())
             else:
                 obj_ids = [None]
             for object_id in obj_ids:
-                run_object_task(object_type, object_id, args)
+                try:
+                    run_object_task(object_type, object_id, args)
+                except Exception as e:
+                    print(f"Failed to run {object_type.name} {object_id}")
+                    print(e)
+
     else:
         run_object_task(args.object_type, args.object_id, args)
