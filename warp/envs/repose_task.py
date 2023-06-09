@@ -71,7 +71,7 @@ class ReposeTask(HandObjectTask):
         )
         self.reward_extras["reach_threshold"] = reach_threshold
         # stay in center of hand
-        self.goal_pos = self.default_goal_pos = tu.to_torch([-0.1, 0.32, 0.0], device=self.device).view(1, 3).repeat(self.num_envs, 1)
+        self.goal_pos = self.default_goal_pos = tu.to_torch([0.0, 0.32, 0.0], device=self.device).view(1, 3).repeat(self.num_envs, 1)
         self.goal_rot = self.default_goal_rot = tu.to_torch([0.0, 0.0, 0.0, 1.0], device=self.device).view(1, 4).repeat(self.num_envs, 1)
 
     def get_stochastic_init(self, env_ids, joint_q, joint_qd):
@@ -124,7 +124,6 @@ class ReposeTask(HandObjectTask):
         obs_dict["object_rot"] = object_pose["orientation"]
         obs_dict["object_pose_err"] = l2_dist(obs_dict["object_pos"], obs_dict["target_pos"]).view(self.num_envs, 1)
         obs_dict["rot_dist"] = rot_dist(object_pose["orientation"], obs_dict["target_rot"])
-        obs_dict["action"] = self.actions.view(self.num_envs, -1)
 
         self.extras["obs_dict"] = obs_dict
 

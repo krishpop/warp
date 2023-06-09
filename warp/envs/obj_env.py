@@ -1,6 +1,7 @@
 from collections import OrderedDict
 
 import numpy as np
+import os
 import torch
 from torch.nn.modules import activation
 
@@ -31,7 +32,7 @@ class ObjectTask(WarpEnv):
         num_envs,
         num_obs=1,
         num_act=None,
-        action_type: ActionType = ActionType.TORQUE,
+        action_type: ActionType = ActionType.POSITION,
         episode_length: int = 200,
         seed=0,
         no_grad=True,
@@ -164,7 +165,7 @@ class ObjectTask(WarpEnv):
         upper = self.model.joint_limit_upper.numpy().reshape(self.num_envs, -1)[0:1, self.env_joint_target_indices]
         lower = self.model.joint_limit_lower.numpy().reshape(self.num_envs, -1)[0:1, self.env_joint_target_indices]
         if self.action_type == ActionType.TORQUE:
-            self.action_bounds = (torch.ones_like(to_torch(lower))*-100., torch.ones_like(to_torch(upper))*100)
+            self.action_bounds = (torch.ones_like(to_torch(lower)) * -100.0, torch.ones_like(to_torch(upper)) * 100)
         else:
             self.action_bounds = (to_torch(lower), to_torch(upper))
         if not isinstance(self.stiffness, float):
@@ -189,7 +190,7 @@ class ObjectTask(WarpEnv):
     def assign_actions(self, actions):
         # first scale actions to bounds
         lower, upper = self.action_bounds
-        actions = scale(actions.clamp(-1, 1), lower, upper)
+        actions = scale(actions.clamp(-1, 1).view(self.num_envs, -1), lower, upper)
         self.warp_actions.zero_()
         self.warp_actions.assign(wp.from_torch(actions.flatten()))
         if self.action_type is ActionType.TORQUE:
@@ -283,12 +284,12 @@ class ObjectTask(WarpEnv):
         self.obs_buf = obs_buf = torch.cat([obs_dict[k] for k in self.obs_keys], axis=1)
         return obs_buf
 
-    def create_articulation(self, builder):
+    def create_articulation(self, builder, **obj_kwargs):
         if self.stiffness is None:
-            self.object_model = self.object_cls()
+            self.object_model = self.object_cls(**obj_kwargs)
         else:
             stiffness, damping = self.stiffness, self.damping
-            self.object_model = self.object_cls(stiffness=stiffness, damping=damping)
+            self.object_model = self.object_cls(stiffness=stiffness, damping=damping, **obj_kwargs)
         num_joints_before = len(builder.joint_type)
         num_joint_axis_before = builder.joint_axis_count
         self.object_model.create_articulation(builder)
@@ -322,29 +323,49 @@ class ObjectTask(WarpEnv):
         self.start_ori = self.object_model.base_ori
 
 
+def run_object_task(object_type, object_id, args):
+    env = ObjectTask(
+        num_envs=5,
+        num_obs=13,
+        num_act=bu.get_num_acts(object_type),
+        action_type=ActionType.POSITION,
+        episode_length=1000,
+        object_type=object_type,
+        object_id=object_id,
+        stiffness=args.stiffness,
+        damping=args.damping,
+        render=args.render,
+    )
+    __import__("ipdb").set_trace()
+    logdir = f"./outputs/{object_type.name}_runs"
+    if object_id is not None:
+        logdir = os.path.join(logdir, object_id)
+    if not os.path.exists(logdir):
+        os.makedirs(logdir)
+    run_env(env, logdir=logdir)
+
+
 if __name__ == "__main__":
     # parse command line arguments for object_type and turn it unto the ObjectType enum
     import argparse
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--object_type", type=str, default="spray_bottle")
-    parser.add_argument("--object_id", type=str, default=0)
+    parser.add_argument("--object_id", type=str, default=None)
     parser.add_argument("--stiffness", type=float, default=10.0)
     parser.add_argument("--damping", type=float, default=0.5)
     parser.add_argument("--render", action="store_true")
     parser.add_argument("--log", action="store_true")
+    parser.add_argument("--all", action="store_true")
     args = parser.parse_args()
-    object_type = ObjectType[args.object_type.upper()]
-
-    env = ObjectTask(
-        5,
-        13,
-        bu.get_num_acts(object_type),
-        1000,
-        object_type=object_type,
-        object_id=args.object_id,
-        stiffness=args.stiffness,
-        damping=args.damping,
-        render=args.render,
-    )
-    run_env(env, log_runs=args.log)
+    if args.all:
+        for i in range(11, 24):
+            object_type = ObjectType(i)
+            if isinstance(bu.OBJ_MODELS[object_type], dict):
+                obj_ids = list(bu.OBJ_MODELS[object_type].keys())
+            else:
+                obj_ids = [None]
+            for object_id in obj_ids:
+                run_object_task(object_type, object_id, args)
+    else:
+        run_object_task(args.object_type, args.object_id, args)

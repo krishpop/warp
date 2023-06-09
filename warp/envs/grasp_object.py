@@ -31,37 +31,14 @@ from scipy.spatial.transform import Rotation as R
 from localscope import localscope
 from warp.envs.utils import builder as bu
 from warp.envs.hand_env import HandObjectTask
-from warp.envs.utils.common import HandType, ObjectType, ActionType, GraspParams, load_grasps_npy
+from warp.envs.utils import torch_utils as tu
+from warp.envs.utils.common import HandType, ObjectType, ActionType, GraspParams, load_grasps_npy, run_env
 from pyglet.math import Vec3 as PyVec3
 
 wp.init()
 
-
 # %%
-def construct_model(object_name, object_id=None):
-    builder = wp.sim.ModelBuilder()
-    object_type = ObjectType[object_name.upper()]
-    model = bu.OBJ_MODELS.get(object_type)
-    print(object_type, )
-    if object_id:
-        model = model.get(object_id)
-    model().create_articulation(builder)
-    print("object_name", object_name, "object_id", object_id, "num_joints", builder.joint_count, "joint_types", builder.joint_type)
-    return builder, model
-
-# %%
-# mv '/scr-ssd/ksrini/diff_manip/external/warp/warp/envs/assets/Scissors/10449/images' 
-
-
-# %%
-obj2model = {}
-for dirname in filter(lambda x: os.path.isdir(os.path.join("assets", x)), os.listdir("assets/")):
-    if "mobility.urdf" in os.listdir(f"assets/{dirname}"):
-        obj2model[f"{dirname}"] = construct_model(dirname)
-    else:
-        for nested_dirname in filter(lambda x: os.path.isdir(os.path.join(f"assets/{dirname}", x)), os.listdir(f"assets/{dirname}")):
-            if "mobility.urdf" in os.listdir(f"assets/{dirname}/{nested_dirname}"):
-                obj2model[f"{dirname}/{nested_dirname}"] = construct_model(dirname, nested_dirname)
+bu.OBJ_MODELS.get(ObjectType["DISPENSER"])
 
 # %%
 allegro_grasps = "/scr-ssd/ksrini/tyler-DexGraspNet/grasp_generation/graspdata_allegro"
@@ -72,10 +49,7 @@ print("shadow grasps:", f"{shadow_grasps}/")
 # !ls {shadow_grasps}
 
 # %%
-grasps = json.loads(open("/scr-ssd/ksrini/tyler-DexGraspNet/grasp_generation/good_grasps.txt").read())
-
-# %%
-grasps
+grasps = json.loads(open("/scr-ssd/ksrini/diff_manip/external/warp/warp/envs/graspdata/good_grasps.txt").read())
 
 
 # %%
@@ -91,27 +65,54 @@ for grasp_dict in grasps['grasps']:
     object_type, object_id = get_object_type_id(object_code)
     grasp_dict.update(dict(object_type=object_type, object_id=object_id))
     grasp_npy = os.path.join(allegro_grasps,f"{object_code}.npy")
+    grasp_dict['grasp_file'] = grasp_npy
     grasp_params = map(lambda x: x[1], filter(lambda x: x[0] in grasp_dict['grasp_ids'], enumerate(load_grasps_npy(grasp_npy))))
     grasp_dict['params'] = list(grasp_params)
 
 # %%
-g = [g for g in grasps['grasps'] if g['object_code'] == "Pliers_100142_merged"][0]
-
-# %%
-g
+g = [g for g in grasps['grasps'] if g['object_code'] == "Stapler_102990_merged"][0]
 
 # %%
 object_type = g['object_type']
 object_id = g.get("object_id", None)
 
 gparams = g['params']
-
-env = HandObjectTask(len(gparams), 1, episode_length=100, object_type=ObjectType[object_type.upper()], object_id=object_id, stochastic_init=True)
-env.grasps = gparams
-obs = env.reset()
+from warp.envs.utils.rewards import l1_dist
+rew_params = {"hand_joint_pos_err": (l1_dist, ("target_qpos", "hand_qpos"), 1.0)}
+env = HandObjectTask(len(gparams), 1, episode_length=1000, object_type=ObjectType[object_type.upper()], object_id=object_id, stochastic_init=True,
+                    reward_params=rew_params, grasp_file=g['grasp_file'], grasp_id=2, hand_start_position=(0.1,0.11485*2,0), hand_start_orientation=(0,0,0), 
+                    action_type=ActionType["POSITION"])
+# env.grasp_joint_q = None
+# env.grasps = gparams
+pi = lambda x, t: tu.unscale(env.hand_init_q, env.action_bounds[0], env.action_bounds[1])
+run_env(env, pi, num_steps=1000)
 
 # %%
-np.stack([g.joint_pos for g in gparams], axis=0).shape
+(lower <= env.grasp.joint_pos) ^ (env.grasp.joint_pos <= upper)
+
+# %%
+lower = env.model.joint_limit_lower.numpy().reshape(env.num_envs, -1)[0, :16]
+upper = env.model.joint_limit_upper.numpy().reshape(env.num_envs, -1)[0, :16]
+
+# %%
+env.model.joint_limit_upper.numpy().reshape(env.num_envs, -1)[0]
+
+# %%
+tu.unscale(env.hand_init_q, env.action_bounds[0], env.action_bounds[1]).min()
+
+# %%
+tu.unscale(env.hand_init_q, env.action_bounds[0], env.action_bounds[1]).min()
+
+# %%
+env.assign_actions(tu.unscale(env.hand_init_q, env.action_bounds[0], env.action_bounds[1]))
+
+# %%
+
+# %%
+env.model.joint_target.numpy().reshape(env.num_envs,-1)[:, :16] - env.hand_init_q.cpu().numpy()
+
+# %%
+env.render()
 
 # %%
 env.load_camera_params()

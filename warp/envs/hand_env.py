@@ -13,17 +13,17 @@ from .utils.common import (
     ActionType,
     HAND_ACT_COUNT,
     joint_coord_map,
+    load_grasps_npy,
     supported_joint_types,
     run_env,
 )
 from .utils.torch_utils import to_torch, torch_rand_float, scale
+from .utils import torch_utils as tu
 from .environment import RenderMode
 
 
 class HandObjectTask(ObjectTask):
     obs_keys = ["hand_joint_pos", "hand_joint_vel"]
-    fix_position: bool = True
-    fix_orientation: bool = True
     collapse_joints: bool = True
 
     def __init__(
@@ -48,28 +48,37 @@ class HandObjectTask(ObjectTask):
         hand_start_position: Tuple = (0.1, 0.3, 0.0),
         hand_start_orientation: Tuple = (-np.pi / 2 * 3, np.pi * 1.25, np.pi / 2 * 3),
         grasp_file: str = "",
-        grasp_id: int = None,
+        grasp_id: int = -1,
         use_autograd: bool = True,
         use_graph_capture: bool = True,
         goal_joint_pos=None,
+        fix_position: bool = True,
+        fix_orientation: bool = True
     ):
+        self.fix_position = fix_position
+        self.fix_orientation = fix_orientation
         env_name = hand_type.name + "Env"
         self.hand_start_position = hand_start_position
         self.hand_start_orientation = hand_start_orientation
         self.hand_type = hand_type
+        self.grasp_joint_q = None
 
-        if os.path.exists(grasp_file):
-            all_grasps = np.load(grasp_file, allow_pickle=False)
-            if grasp_id != None:
-                self.grasps = all_grasps[grasp_id]
-            else:
-                self.grasps = all_grasps[np.random.randint(0, all_grasps.shape[0])]
+        if grasp_file:
+            self.grasp = load_grasps_npy(grasp_file)[grasp_id]
+            pos, ori = bu.get_object_xform(object_type, object_id)
+            # ori, pos = tu.tf_combine(*[to_torch(x) for x in [ori, pos, self.grasp.xform[3:], self.grasp.xform[:3]]])
+            ori = self.grasp.xform[3:]
+            # ori = tu.quat_mul(to_torch(tuple(wp.quat_rpy(*self.hand_start_orientation))), to_torch(ori))
+            pos = tu.tf_apply(*[to_torch(x) for x in [ori, self.hand_start_position, self.grasp.xform[:3]]])
+
+            self.hand_start_position = (pos[0], pos[1], pos[2])
+            self.hand_start_orientation = (ori[0], ori[1], ori[2], ori[3])
         else:
-            self.grasps = None
+            self.grasp = None
             if grasp_file != "":
                 print(f"Grasp file {grasp_file} not found")
 
-        stochastic_init = stochastic_init or (self.grasps is not None)
+        stochastic_init = stochastic_init or (self.grasp is not None)
         self.hand_stiffness = stiffness
         self.hand_damping = damping
         # self.gravity = 0.0
@@ -115,8 +124,10 @@ class HandObjectTask(ObjectTask):
             base_joint = "px, py, pz"
         else:
             base_joint = ""
-            self.floating_base = True
-        return base_joint
+        if base_joint:
+            return base_joint
+        else:
+            return None
 
     def init_sim(self):
         super().init_sim()
@@ -188,43 +199,51 @@ class HandObjectTask(ObjectTask):
             ]
             obs_dict["goal_joint_pos"] = self.goal_joint_pos.view(self.num_envs, -1)
 
-        obs_dict["target_qpos"] = self.start_joint_q[:, self.env_joint_target_indices]
+        if self.grasp is not None:
+            obs_dict['target_qpos'] = to_torch(self.grasp.joint_pos).view(1, -1).repeat(self.num_envs, 1)
+        else:
+            obs_dict["target_qpos"] = self.start_joint_q[:, self.env_joint_target_indices]
         obs_dict["hand_qpos"] = self.joint_q.view(self.num_envs, -1)[:, self.env_joint_target_indices]
+        obs_dict["action"] = self.actions.view(self.num_envs, -1)
         self.extras["obs_dict"] = obs_dict
         return obs_dict
 
-    def sample_grasps(self, num_envs):
-        self.grasp = [self.grasps[i] for i in np.random.randint(len(self.grasps), size=num_envs)]
-        self.hand_init_xform = np.stack([g.xform for g in self.grasp], axis=0)
-        self.hand_init_q = np.stack([g.joint_pos for g in self.grasp], axis=0)
+    def sample_grasps(self, env_ids=None):
+        if env_ids is not None:
+            num_envs = len(env_ids)
+        else:
+            env_ids = np.arange(self.num_envs)
+            num_envs  = self.num_envs
+        # sampled_grasp = [self.grasps[i] for i in np.random.randint(len(self.grasps), size=num_envs)]
+        sampled_grasp = self.grasp
+        self.hand_init_xform = to_torch(np.stack([sampled_grasp.xform for _ in range(num_envs)], axis=0), device=self.device)
+        self.hand_init_q = to_torch(np.stack([sampled_grasp.joint_pos for _ in range(num_envs)], axis=0), device=self.device)
+        if self.grasp_joint_q is None:
+            self.grasp_joint_q = self.start_joint_q[:, self.env_joint_target_indices].clone()
+        self.grasp_joint_q[env_ids] = self.hand_init_q
 
     def get_stochastic_init(self, env_ids, joint_q, joint_qd):
         # need to set the base joint of each env to sampled grasp xform
         # then set each joint target pos to grasp.
-        try:
-            joint_q[env_ids], joint_qd[env_ids] = super().get_stochastic_init(env_ids, joint_q, joint_qd)
-        except:
-            pass
-        if self.grasps is not None:
-            assert joint_q.shape[-1] == self.hand_init_q.shape[-1]
-            joint_q[env_ids, self.env_joint_target_indices] = self.hand_init_q.copy()
-            self._set_hand_base_xform(env_ids, self.hand_init_xform)
 
-        return joint_q[env_ids], joint_qd[env_ids]
+        joint_q, joint_qd = joint_q[env_ids], joint_qd[env_ids]
+        self.sample_grasps(env_ids)
+        joint_q[:, self.env_joint_target_indices] = self.hand_init_q
+        # self._set_hand_base_xform(joint_q, self.hand_init_xform)
 
-    def _set_hand_base_xform(self, env_ids, xform):
-        joint_X_p = wp.to_torch(self.model.joint_X_p).view(self.num_envs, -1, 7)
-        joint_X_p[env_ids, self.hand_joint_start] = xform
-        self.model.joint_X_p.assign(wp.from_torch(joint_X_p.view(-1, 7), dtype=wp.transform)),
+        return joint_q, joint_qd
+
+    def _set_hand_base_xform(self, joint_q, xform):
+        base_pos = joint_q[:, self.hand_joint_start:self.hand_joint_start+3]
+        base_pos = tu.tf_apply(xform[:, 3:], xform[:, :3], base_pos)
+        joint_q[:, self.hand_joint_start:self.hand_joint_start+3] = base_pos
+        joint_q[:, self.hand_joint_start+3:self.hand_joint_start+7] = xform[:, 3:]
+        # self.model.joint_X_p.assign(wp.from_torch(joint_X_p.view(-1, 7), dtype=wp.transform)),
         # eval_fk should be run after this in reset, do not call this function directly
 
     def reset(self, env_ids=None, force_reset=True):
-        if self.grasps is not None and self.stochastic_init:
-            if env_ids:
-                num_grasps = len(env_ids)
-            else:
-                num_grasps  = self.num_envs
-            self.sample_grasps(num_grasps)
+        # if self.grasps is not None and self.stochastic_init:
+        #     self.sample_grasps(env_ids)
         return super().reset(env_ids=env_ids, force_reset=force_reset)
 
     def create_articulation(self, builder):
@@ -238,6 +257,7 @@ class HandObjectTask(ObjectTask):
                 hand_start_position=self.hand_start_position,
                 hand_start_orientation=self.hand_start_orientation,
                 collapse_joints=self.collapse_joints,
+                floating_base=not (self.fix_position and self.fix_orientation),
             )
         elif self.hand_type == HandType.SHADOW:
             bu.create_shadow_hand(
@@ -249,6 +269,7 @@ class HandObjectTask(ObjectTask):
                 hand_start_position=self.hand_start_position,
                 hand_start_orientation=self.hand_start_orientation,
                 collapse_joints=self.collapse_joints,
+                floating_base=not (self.fix_position and self.fix_orientation),
             )
         else:
             raise NotImplementedError("Hand type not supported:", self.hand_type)
@@ -271,8 +292,12 @@ class HandObjectTask(ObjectTask):
             joint_indices = []
 
         if self.object_type:
+            object_kwargs = dict()
+            if self.grasp:
+                object_kwargs["base_joint"] = "rx, ry, rz"
             object_articulation_builder = builder  # wp.sim.ModelBuilder()
-            super().create_articulation(object_articulation_builder)
+            object_kwargs["use_mesh_extents"] = not (self.object_type in [ObjectType.SPRAY_BOTTLE])
+            super().create_articulation(object_articulation_builder, **object_kwargs)
             # self.object_num_joint_axis = object_articulation_builder.joint_axis_count - self.hand_num_joint_axis
             # self.object_num_joint_axis = object_articulation_builder.joint_axis_count
             # self.object_joint_start = self.hand_num_joint_axis
@@ -303,7 +328,7 @@ if __name__ == "__main__":
     parser.add_argument("--profile", action="store_true")
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--grasp_file", type=str, default="")
-    parser.add_argument("--grasp_id", type=int, default=None)
+    parser.add_argument("--grasp_id", type=int, default=-1)
     parser.add_argument("--headless", action="store_true")
     parser.add_argument("--num_steps", default=100, type=int)
     parser.set_defaults(render=True)

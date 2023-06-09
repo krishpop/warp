@@ -280,6 +280,7 @@ class WarpEnv(Environment):
         """
         Get the rand initial state for the environment
         """
+        __import__('ipdb').set_trace()
         pass
 
     def reset(self, env_ids=None, force_reset=True):

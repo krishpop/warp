@@ -486,6 +486,7 @@ class OperableObjectModel(ObjectModel):
         base_joint=None,
         base_body_name="base",
         floating=False,
+        use_mesh_extents=False,
     ):
         if isinstance(stiffness, int):
             stiffness = float(stiffness)
@@ -502,13 +503,15 @@ class OperableObjectModel(ObjectModel):
             damping=damping,
             base_body_name=base_body_name,
         )
+        self.use_mesh_extents = use_mesh_extents
         self.floating = floating
         self.base_joint = base_joint
         self.density = density
         assert model_path and os.path.splitext(model_path)[1] == ".urdf"
         self.model_path = model_path
 
-    def get_object_extents(self, asset_dir):
+    def get_object_extents(self):
+        asset_dir = os.path.join(os.path.dirname(__file__), "../assets")
         obj_dir = os.path.split(self.model_path)[0]
         obj_filepath = os.path.join(asset_dir, obj_dir, "merged.obj")
         if os.path.split(obj_dir)[1].isdigit():
@@ -528,7 +531,8 @@ class OperableObjectModel(ObjectModel):
 
     def create_articulation(self, builder):
         asset_dir = os.path.join(os.path.dirname(__file__), "../assets")
-        self.get_object_extents(asset_dir)
+        if self.use_mesh_extents:
+            self.get_object_extents()
         wp.sim.parse_partnet_urdf(
             os.path.join(asset_dir, self.model_path),
             builder,
@@ -570,13 +574,20 @@ def operable_object_generator(object_type, **kwargs):
 
     return __OpDexObj__
 
+def get_object_xform(object_type, object_id=None, **obj_kwargs):
+    model = OBJ_MODELS.get(object_type)
+    if object_id:
+        model = model.get(object_id)(**obj_kwargs)
+    else:
+        model = model(**obj_kwargs)
+    return model.base_pos, model.base_ori
 
 StaplerObject = object_generator(ObjectType.TCDM_STAPLER, base_pos=(0.0, 0.01756801, 0.0), scale=1.3)
 OctprismObject = object_generator(ObjectType.OCTPRISM, scale=1.0)
 
 ReposeCubeObject = operable_object_generator(
     ObjectType.REPOSE_CUBE,
-    base_pos=(-0.1, 0.35, 0.0),
+    base_pos=(0.0, 0.35, 0.0),
     base_ori=(0.0, 0.0, 0.0),
     scale=1.4,
     density=5e2,
@@ -685,7 +696,7 @@ PliersObjects = {
         ObjectType.PLIERS,
         base_pos=(0.0, 0.01756801, 0.0),
         base_ori=(-np.pi / 2, 0.0, 0.0),
-        scale=0.4,
+        scale=0.24,
         # base_ori=(np.pi / 17, 0.0, 0.0),
         model_path=f"Pliers/{pliers_id}/mobility.urdf",
     )
@@ -698,8 +709,9 @@ ScissorsObjects = {
         ObjectType.SCISSORS,
         base_pos=(0.0, 0.01756801, 0.0),
         base_ori=(-np.pi / 2, 0.0, 0.0),
-        scale=0.4,
+        scale=0.2,
         # base_ori=(np.pi / 17, 0.0, 0.0),
+        base_joint='px, py, pz',
         model_path=f"Scissors/{scissors_id}/mobility.urdf",
     )
     for scissors_id in scissors_ids
@@ -710,8 +722,8 @@ StaplerObjects = {
     stapler_id: operable_object_generator(
         ObjectType.STAPLER,
         base_pos=(0.0, 0.01756801, 0.0),
-        base_ori=(-np.pi / 2, 0.0, 0.0),
-        scale=0.4,
+        base_ori=(0, 0.0, 0.0),
+        scale=0.14,
         # base_ori=(np.pi / 17, 0.0, 0.0),
         model_path=f"Stapler/{stapler_id}/mobility.urdf",
     )
