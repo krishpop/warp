@@ -1,4 +1,4 @@
-    {
+{
     "grasps": [
         {"object_code": "spray_bottle_merged", "grasp_ids": [6, 31, 59, 66, 151], "comments": ""},
         {"object_code": "Bottle_3558_merged", "grasp_ids": [3, 58, 77, 105, 213], "comments": ""},
@@ -9,7 +9,7 @@
         {"object_code": "Stapler_102990_merged", "grasp_ids": [2, 44, 126, 134, 138], "comments": "Good grasps are near both the top and bottom half of the scissors."},
         {"object_code": "Switch_100866_merged", "grasp_ids": [23, 28, 39, 96, 134], "comments": "A good grasp has to come from the face of the plate that actually has the knob, a lot of the time bad grasps would try to grab the whole plate or do it from the wrong side"},
         {"object_code": "USB_100061_merged", "grasp_ids": [12, 122, 155, 190, 199], "comments": "USB grasps are kinda bad tbh, need a lot of adjusting"},
-        {"object_code": "pill_bottle_merged", "grasp_ids": [38, 78, 110, 135, 233], "comments": "i picked grasps that are already inline with the twist action but a lot of grasps also tried to grasp from the top or bottom"}
+        {"object_code": "pill_bottle_merged", "grasp_ids": [38, 78, 110, 135, 233], "comments": "i picked grasps that are already inline with the twist action but a lot of grasps also tried to grasp from the top or bottom"},
         {"object_code": "Bottle_3574_merged", "grasp_ids": [73, 116, 124, 305, 493], "comments": ""},
         {"object_code": "Bottle_3616_merged", "grasp_ids": [], "comments": "for some reason the grasps are always intersecting the object"},
         {"object_code": "Dispenser_103405_merged", "grasp_ids": [36, 60, 146, 167, 329], "comments": "for some reason the grasps are always intersecting the object"},
@@ -21,6 +21,6 @@
         {"object_code": "Scissors_11100_merged", "grasp_ids": [89], "comments": ""},
         {"object_code": "Scissors_11080_merged", "grasp_ids": [55], "comments": ""},
         {"object_code": "Stapler_103271_merged", "grasp_ids": [9], "comments": ""},
-        {"object_code": "Stapler_103792_merged", "grasp_ids": [216], "comments": ""},
+        {"object_code": "Stapler_103792_merged", "grasp_ids": [216], "comments": ""}
     ]
 }
