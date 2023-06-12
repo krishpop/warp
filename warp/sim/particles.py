@@ -89,7 +89,7 @@ def eval_particle_forces_kernel(
 
 
 def eval_particle_forces(model, state, forces):
-    if model.particle_max_radius > 0.0:
+    if model.particle_count > 1 and model.particle_max_radius > 0.0:
         wp.launch(
             kernel=eval_particle_forces_kernel,
             dim=model.particle_count,
