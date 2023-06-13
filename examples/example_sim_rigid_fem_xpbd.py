@@ -36,8 +36,8 @@ class Example:
         self.sim_fps = 60.0
         self.sim_substeps = 5
         self.sim_duration = 5.0
-        self.sim_frames = int(self.sim_duration*self.sim_fps)
-        self.sim_dt = (1.0/self.sim_fps)/self.sim_substeps
+        self.sim_frames = int(self.sim_duration * self.sim_fps)
+        self.sim_dt = (1.0 / self.sim_fps) / self.sim_substeps
         self.sim_time = 0.0
         self.sim_iterations = 1
         self.sim_relaxation = 1.0
@@ -45,24 +45,24 @@ class Example:
         builder = wp.sim.ModelBuilder()
 
         builder.add_soft_grid(
-            pos=(0.0, 0.1, 0.0), 
-            rot=wp.quat_identity(), 
-            vel=(0.0, 0.0, 0.0), 
-            dim_x=20, 
-            dim_y=10, 
+            pos=(0.0, 0.1, 0.0),
+            rot=wp.quat_identity(),
+            vel=(0.0, 0.0, 0.0),
+            dim_x=20,
+            dim_y=10,
             dim_z=10,
-            cell_x=0.1, 
+            cell_x=0.1,
             cell_y=0.1,
             cell_z=0.1,
-            density=100.0, 
-            k_mu=50000.0, 
+            density=100.0,
+            k_mu=50000.0,
             k_lambda=20000.0,
             k_damp=0.0,
             fix_left=False)
 
         for _ in range(500):
             xyz = np.random.randn(3)
-            builder.add_particle(pos=(xyz[0]*0.25, 3.5 + xyz[1], xyz[2]*0.25), vel=(0.0, 0.0, 0.0), mass=1.0)
+            builder.add_particle(pos=(xyz[0] * 0.25, 3.5 + xyz[1], xyz[2] * 0.25), vel=(0.0, 0.0, 0.0), mass=1.0)
 
         builder.add_body(origin=wp.transform((0.5, 2.0, 0.5), wp.quat_identity()))
         builder.add_shape_sphere(body=0, radius=0.75, density=0.1)
@@ -75,12 +75,12 @@ class Example:
         self.model.soft_contact_kd = 0.0
         self.model.soft_contact_kf = 1.e+1
 
-        self.integrator = wp.sim.XPBDIntegrator(iterations=60, soft_body_relaxation=0.4)
+        self.integrator = wp.sim.XPBDIntegrator(iterations=60, soft_body_relaxation=0.001)
 
         self.state_0 = self.model.state()
         self.state_1 = self.model.state()
 
-        self.renderer = wp.sim.render.SimRenderer(self.model, stage, scaling=100.0)
+        self.renderer = wp.sim.render.SimRendererOpenGL(self.model, stage, scaling=1.0)
 
     def update(self):
 
@@ -100,7 +100,7 @@ class Example:
 
     def render(self, is_live=False):
 
-        with wp.ScopedTimer("render", active=False): 
+        with wp.ScopedTimer("render", active=False):
             time = 0.0 if is_live else self.sim_time
 
             self.renderer.begin_frame(time)
