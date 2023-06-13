@@ -1863,11 +1863,11 @@ class XPBDIntegrator:
             particle_qd = None
 
             if model.particle_count:
-                if requires_grad:
-                    particle_q = wp.zeros_like(state_in.particle_q)
-                    particle_qd = wp.zeros_like(state_in.particle_qd)
+                particle_q = state_out.particle_q
+                if self.enable_restitution and requires_grad:
+                    # make a copy of qd as a temp array since we correct the final qd from the restitution kernel
+                    particle_qd = wp.clone(state_out.particle_qd)
                 else:
-                    particle_q = state_out.particle_q
                     particle_qd = state_out.particle_qd
                 wp.launch(
                     kernel=integrate_particles,
@@ -2011,7 +2011,7 @@ class XPBDIntegrator:
                             outputs=[deltas, state_out.body_deltas],
                             device=model.device,
                         )
-                        
+
                     if model.particle_max_radius > 0.0:
                         wp.launch(
                             kernel=solve_particle_particle_contacts,
@@ -2307,10 +2307,6 @@ class XPBDIntegrator:
 
             if self.enable_restitution:
                 if model.particle_count:
-                    if requires_grad:
-                        new_particle_qd = wp.clone(particle_qd)
-                    else:
-                        new_particle_qd = particle_qd
 
                     wp.launch(
                         kernel=apply_soft_restitution_ground,
@@ -2328,14 +2324,9 @@ class XPBDIntegrator:
                             dt,
                             self.soft_contact_relaxation,
                         ],
-                        outputs=[new_particle_qd],
+                        outputs=[state_out.particle_qd],
                         device=model.device,
                     )
-
-                    if requires_grad:
-                        particle_qd.assign(new_particle_qd)
-                    else:
-                        particle_qd = new_particle_qd
 
                 if model.body_count:
                     if requires_grad:
@@ -2383,10 +2374,5 @@ class XPBDIntegrator:
                         outputs=[state_out.body_qd],
                         device=model.device,
                     )
-
-            if model.particle_count:
-                # update particle state
-                state_out.particle_q.assign(particle_q)
-                state_out.particle_qd.assign(particle_qd)
 
             return state_out
