@@ -27,6 +27,7 @@ general:
 # global defaults 
 num_envs: ${task.player.num_actors}
 num_steps: ${task.env.episode_length}
+num_rollouts: 5
 render: true
 
 # task defaults

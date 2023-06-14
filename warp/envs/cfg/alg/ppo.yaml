@@ -32,7 +32,7 @@ params:
       regularizer:
         name: None
 
-  load_checkpoint: False
+  load_checkpoint: ${general.play}
   load_path: nn/${task.name}_ppo.pth
 
   config:
@@ -52,7 +52,7 @@ params:
     lr_schedule: adaptive
     lr_threshold: 0.008
     kl_threshold: 0.008
-    score_to_win: 20000
+    score_to_win: 100000
     max_epochs: ${resolve_default:5000,${task.ppo.max_epochs}}
     save_best_after: ${resolve_default:100,${task.ppo.save_best_after}}
     save_frequency: ${resolve_default:400,${task.ppo.save_interval}}
