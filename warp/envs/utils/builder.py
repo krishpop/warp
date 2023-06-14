@@ -487,6 +487,8 @@ class OperableObjectModel(ObjectModel):
         base_body_name="base",
         floating=False,
         use_mesh_extents=False,
+        continuous_joint_type="screw",
+        joint_limits=None,
     ):
         if isinstance(stiffness, int):
             stiffness = float(stiffness)
@@ -509,6 +511,8 @@ class OperableObjectModel(ObjectModel):
         self.density = density
         assert model_path and os.path.splitext(model_path)[1] == ".urdf"
         self.model_path = model_path
+        self.continuous_joint_type = continuous_joint_type
+        self.joint_limits = None # joint_limits
 
     def get_object_extents(self):
         asset_dir = os.path.join(os.path.dirname(__file__), "../assets")
@@ -533,6 +537,7 @@ class OperableObjectModel(ObjectModel):
         asset_dir = os.path.join(os.path.dirname(__file__), "../assets")
         if self.use_mesh_extents:
             self.get_object_extents()
+        joint_count_before = builder.joint_axis_count
         wp.sim.parse_partnet_urdf(
             os.path.join(asset_dir, self.model_path),
             builder,
@@ -553,8 +558,13 @@ class OperableObjectModel(ObjectModel):
             enable_self_collisions=False,
             parse_visuals_as_colliders=False,
             collapse_fixed_joints=True,
+            continuous_joint_type=self.continuous_joint_type,
         )
         self.builder = builder
+        if self.joint_limits is not None:
+            joint_count_after = builder.joint_axis_count
+            self.builder.joint_limit_lower[joint_count_before:joint_count_after] = self.joint_limits[0]
+            self.builder.joint_limit_upper[joint_count_before:joint_count_after] = self.joint_limits[1]
         return builder
 
 
@@ -591,12 +601,12 @@ ReposeCubeObject = operable_object_generator(
     ObjectType.REPOSE_CUBE,
     base_pos=(0.0, 0.35, 0.0),
     base_ori=(0.0, 0.0, 0.0),
-    scale=1.4,
-    density=5e2,
+    scale=1.25,
+    density=1e2,
     stiffness=0.0,
     damping=0.0,
-    contact_ke=1e4,
-    contact_kd=1e2,
+    contact_ke=1e6,
+    contact_kd=1e3,
     floating=True,
     # base_joint="px, py, pz, rx, ry, rz",
     model_path="isaacgymenvs/objects/cube_multicolor.urdf",
@@ -697,18 +707,18 @@ EyeglassesObjects = {
     for eyeglasses_id in eyeglasses_ids
 }
 
-faucet_ids = ("152", "1556", "156", "2170")
-FaucetObjects = {
-    faucet_id: operable_object_generator(
-        ObjectType.FAUCET,
-        base_pos=(0.0, 0.01756801, 0.0),
-        base_ori=(-np.pi / 2, 0.0, 0.0),
-        scale=0.4,
-        # base_ori=(np.pi / 17, 0.0, 0.0),
-        model_path=f"Faucet/{faucet_id}/mobility.urdf",
-    )
-    for faucet_id in faucet_ids
-}
+# faucet_ids = ("152", "1556", "156", "2170")
+# FaucetObjects = {
+#     faucet_id: operable_object_generator(
+#         ObjectType.FAUCET,
+#         base_pos=(0.0, 0.01756801, 0.0),
+#         base_ori=(-np.pi / 2, 0.0, 0.0),
+#         scale=0.4,
+#         # base_ori=(np.pi / 17, 0.0, 0.0),
+#         model_path=f"Faucet/{faucet_id}/mobility.urdf",
+#     )
+#     for faucet_id in faucet_ids
+# }
 
 pliers_ids = ("100142", "100182", "100705", "102074")
 PliersObjects = {
@@ -738,45 +748,51 @@ ScissorsObjects = {
 }
 
 stapler_ids = ("102990", "103271", "103792")
+stapler_joint_limits = (([0.0, 0.0486 ],[0.0530, 0.0486]), ([-0.0503, 0.0], [0.2630, 0.0]), ([0.0503, 0.0], [0.1710, 0.0]))
+stapler_start_y = (0.036582, 0.01819, 0.01819)
+stapler_base_ori = (-np.pi / 2, np.pi, -np.pi / 2)
 StaplerObjects = {
     stapler_id: operable_object_generator(
         ObjectType.STAPLER,
-        base_pos=(0.0, 0.01756801, 0.0),
-        base_ori=(0, 0.0, 0.0),
-        scale=0.14,
+        # use_mesh_extents=True,
+        base_pos=(0.0, start_y, 0.0),
+        base_ori=(start_ori, 0.0, 0.0),
         # base_ori=(np.pi / 17, 0.0, 0.0),
+        scale=0.14,
+        joint_limits=joint_limits,
         model_path=f"Stapler/{stapler_id}/mobility.urdf",
     )
-    for stapler_id in stapler_ids
+    for stapler_id, joint_limits, start_y, start_ori in 
+    zip(stapler_ids, stapler_joint_limits, stapler_start_y, stapler_base_ori)
 }
-
-switch_ids = ("100866", "100901", "102812")  # "100883"
-SwitchObjects = {
-    switch_id: operable_object_generator(
-        ObjectType.SWITCH,
-        base_pos=(0.0, 0.15, 0.0),
-        base_ori=(0.0, 0.0, 0.0),
-        scale=0.1,
-        base_joint=None,
-        # base_ori=(np.pi / 17, 0.0, 0.0),
-        model_path=f"Switch/{switch_id}/mobility.urdf",
-    )
-    for switch_id in switch_ids
-}
-
-usb_ids = ("100061", "100065", "100109")  # , "102052")
-USBObjects = {
-    usb_id: operable_object_generator(
-        ObjectType.USB,
-        base_pos=(0.0, 0.01756801, 0.0),
-        base_ori=(-np.pi / 2, 0.0, 0.0),
-        scale=0.4,
-        # base_ori=(np.pi / 17, 0.0, 0.0),
-        use_mesh_extents=True,
-        model_path=f"USB/{usb_id}/mobility.urdf",
-    )
-    for usb_id in usb_ids
-}
+#
+# switch_ids = ("100866", "100901", "102812")  # "100883"
+# SwitchObjects = {
+#     switch_id: operable_object_generator(
+#         ObjectType.SWITCH,
+#         base_pos=(0.0, 0.15, 0.0),
+#         base_ori=(0.0, 0.0, 0.0),
+#         scale=0.1,
+#         base_joint=None,
+#         # base_ori=(np.pi / 17, 0.0, 0.0),
+#         model_path=f"Switch/{switch_id}/mobility.urdf",
+#     )
+#     for switch_id in switch_ids
+# }
+#
+# usb_ids = ("100061", "100065", "100109")  # , "102052")
+# USBObjects = {
+#     usb_id: operable_object_generator(
+#         ObjectType.USB,
+#         base_pos=(0.0, 0.01756801, 0.0),
+#         base_ori=(-np.pi / 2, 0.0, 0.0),
+#         scale=0.4,
+#         # base_ori=(np.pi / 17, 0.0, 0.0),
+#         use_mesh_extents=True,
+#         model_path=f"USB/{usb_id}/mobility.urdf",
+#     )
+#     for usb_id in usb_ids
+# }
 
 
 OBJ_MODELS = {}
@@ -790,7 +806,7 @@ OBJ_NUM_JOINTS[ObjectType.SPRAY_BOTTLE] = 1
 OBJ_MODELS[ObjectType.PILL_BOTTLE] = PillBottleObject
 OBJ_NUM_JOINTS[ObjectType.PILL_BOTTLE] = 2
 OBJ_MODELS[ObjectType.BOTTLE] = BottleObjects
-OBJ_NUM_JOINTS[ObjectType.BOTTLE] = 2
+OBJ_NUM_JOINTS[ObjectType.BOTTLE] = 1
 OBJ_MODELS[ObjectType.DISPENSER] = DispenserObjects
 OBJ_NUM_JOINTS[ObjectType.DISPENSER] = 2
 OBJ_MODELS[ObjectType.DISPENSER_3DOF] = DispenserObjects3Dof
@@ -802,18 +818,18 @@ OBJ_NUM_JOINTS[ObjectType.SOAP_DISPENSER] = 1
 
 OBJ_MODELS[ObjectType.EYEGLASSES] = EyeglassesObjects
 OBJ_NUM_JOINTS[ObjectType.EYEGLASSES] = 2
-OBJ_MODELS[ObjectType.FAUCET] = FaucetObjects
-OBJ_NUM_JOINTS[ObjectType.FAUCET] = 2
+# OBJ_MODELS[ObjectType.FAUCET] = FaucetObjects
+# OBJ_NUM_JOINTS[ObjectType.FAUCET] = 2
 OBJ_MODELS[ObjectType.PLIERS] = PliersObjects
 OBJ_NUM_JOINTS[ObjectType.PLIERS] = 1
 OBJ_MODELS[ObjectType.SCISSORS] = ScissorsObjects
 OBJ_NUM_JOINTS[ObjectType.SCISSORS] = 1
 OBJ_MODELS[ObjectType.STAPLER] = StaplerObjects
-OBJ_NUM_JOINTS[ObjectType.STAPLER] = 2
-OBJ_MODELS[ObjectType.SWITCH] = SwitchObjects
-OBJ_NUM_JOINTS[ObjectType.SWITCH] = 1
-OBJ_MODELS[ObjectType.USB] = USBObjects
-OBJ_NUM_JOINTS[ObjectType.USB] = 1
+OBJ_NUM_JOINTS[ObjectType.STAPLER] = 1
+# OBJ_MODELS[ObjectType.SWITCH] = SwitchObjects
+# OBJ_NUM_JOINTS[ObjectType.SWITCH] = 1
+# OBJ_MODELS[ObjectType.USB] = USBObjects
+# OBJ_NUM_JOINTS[ObjectType.USB] = 1
 OBJ_MODELS[ObjectType.REPOSE_CUBE] = ReposeCubeObject
 OBJ_NUM_JOINTS[ObjectType.REPOSE_CUBE] = 6
 

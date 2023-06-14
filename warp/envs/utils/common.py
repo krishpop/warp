@@ -7,6 +7,7 @@ import warp as wp
 import warp.sim
 import matplotlib.pyplot as plt
 
+from datetime import datetime
 from tqdm import trange
 from scipy.spatial.transform import Rotation as R
 from typing import Optional, List
@@ -110,6 +111,17 @@ def to_warp(input, dtype=float, device="cuda"):
         return input
 
 
+def get_time_stamp():
+    now = datetime.now()
+    year = now.strftime('%Y')
+    month = now.strftime('%m')
+    day = now.strftime('%d')
+    hour = now.strftime('%H')
+    minute = now.strftime('%M')
+    second = now.strftime('%S')
+    return '{}-{}-{}-{}-{}-{}'.format(month, day, year, hour, minute, second)
+
+
 class ActionType(Enum):
     POSITION = auto()
     POSITION_DELTA = auto()
@@ -188,8 +200,8 @@ class ObjectType(Enum):
     EYEGLASSES = auto()
     FAUCET = auto()
     STAPLER = auto()
-    SWITCH = auto()
-    USB = auto()
+    # SWITCH = auto()
+    # USB = auto()
     REPOSE_CUBE = auto()
 
 
@@ -318,24 +330,23 @@ def profile(env):
     plt.show()
 
 
-def run_env(env, pi=None, num_steps=600, num_episodes=1, logdir=None):
+def run_env(env, pi=None, num_steps=600, num_rollouts=1, logdir=None):
     if pi is None:
         joint_target_indices = env.env_joint_target_indices
 
         upper = env.model.joint_limit_upper.numpy().reshape(env.num_envs, -1)[0, joint_target_indices]
-        lower = env.model.joint_limit_lower.numpy().reshape(env.num_envs, -1)[0, joint_target_indices]
         joint_start = env.start_joint_q.cpu().numpy()[:, joint_target_indices]
 
         def pi(obs, t):
             del obs
-            act = np.sin(np.ones_like(upper) * t / 150) * 0.9  # [-1, 1]
+            act = np.sin(np.ones((env.num_envs, env.num_act)) * t / 150) * 0.9  # [-1, 1]
             # joint_q_targets = act * (upper - lower) / 2 + (upper - lower) / 2
             i = (t // 300) % len(joint_target_indices)
             action = joint_start.copy()
             action[:, i] = act.reshape(1, -1).repeat(env.num_envs, axis=0)[:, i]
             return torch.tensor(action, device=str(env.device))
 
-    for ep in range(num_episodes):
+    for ep in range(num_rollouts):
         actions, states, rewards, _ = collect_rollout(env, num_steps, pi)
         if logdir:
             logdir = logdir.rstrip("/")
@@ -344,8 +355,6 @@ def run_env(env, pi=None, num_steps=600, num_episodes=1, logdir=None):
                 actions=np.asarray(actions),
                 states=np.asarray(states),
                 rewards=np.asarray(rewards),
-                upper=upper,
-                lower=lower,
             )
 
 
@@ -372,7 +381,11 @@ def collect_rollout(env, n_steps, pi, loss_fn=None, plot_body_coords=False, plot
         for t in pbar:
             ac = pi(o, t)
             actions.append(ac.cpu().detach().numpy())
-            o, rew, _, info = env.step(ac)
+            o, rew, done, info = env.step(ac)
+            if done.sum() > 0 and not env.self_reset:
+                env_ids = done.nonzero(as_tuple=False).squeeze(-1)
+                env.reset(env_ids)
+
             if plot_body_coords:
                 q_history.append(env.state_0.body_q.numpy().copy())
                 qd_history.append(env.state_0.body_qd.numpy().copy())

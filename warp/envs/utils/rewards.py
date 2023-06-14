@@ -11,6 +11,7 @@ l1_dist = lambda x, y: torch.abs(x - y).sum(dim=-1)
 def l2_dist_exp(x, y, eps: float = 1e-1):
     return torch.exp(-torch.linalg.norm(x - y, dim=-1) / eps)
 
+
 @torch.jit.script
 def rot_dist(object_rot, target_rot):
     quat_diff = quat_mul(object_rot, quat_conjugate(target_rot))
@@ -19,7 +20,7 @@ def rot_dist(object_rot, target_rot):
 
 
 @torch.jit.script
-def rot_reward(object_rot, target_rot, rot_eps:float = 0.1):
+def rot_reward(object_rot, target_rot, rot_eps: float = 0.1):
     return 1.0 / torch.abs(rot_dist(object_rot, target_rot) + rot_eps)
 
 
