@@ -27,7 +27,7 @@
 			</geometry>
 		</collision>
 	</link>
-	<joint name="joint_0" type="revolute">
+	<joint name="joint_0" type="fixed">
 		<origin xyz="0.0 0.018658453469988484 0.3295206648576805"/>
 		<axis xyz="1.0 -0.0 -0.0"/>
 		<child link="link_0"/>

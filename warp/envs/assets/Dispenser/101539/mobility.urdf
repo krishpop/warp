@@ -27,11 +27,12 @@
 			</geometry>
 		</collision>
 	</link>
-	<joint name="joint_0" type="continuous">
+	<joint name="joint_0" type="prismatic">
 		<origin xyz="0.0 0 0.0"/>
 		<axis xyz="0 1 0"/>
 		<child link="link_0"/>
 		<parent link="link_0_helper"/>
+        <limit lower="-0.05" upper="0.2"/>
 	</joint>
 	<link name="link_1">
 		<visual name="base_body-2">
