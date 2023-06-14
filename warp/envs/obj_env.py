@@ -24,8 +24,9 @@ from .warp_env import WarpEnv
 
 class ObjectTask(WarpEnv):
     obs_keys = ["object_joint_pos", "object_joint_vel", "goal_joint_pos"]
-    opengl_render_settings = {"draw_axis": False, "fixed_view": True}
-    # show_joints = True
+    opengl_render_settings = {"draw_axis": True}
+    self_reset = True
+    show_joints = True
 
     def __init__(
         self,
@@ -50,12 +51,18 @@ class ObjectTask(WarpEnv):
         use_autograd=True,
         use_graph_capture=True,
         goal_joint_pos=None,
+        headless=False,
     ):
+
         if not env_name:
             if object_type:
                 env_name = object_type.name + "Env"
             else:
                 env_name = "ObjectEnv"
+
+        if headless:
+            self.opengl_render_settings['headless'] = True
+
         self.num_joint_q = 0
         self.num_joint_qd = 0
         self.action_type = action_type
@@ -231,7 +238,7 @@ class ObjectTask(WarpEnv):
         self.num_frames += 1
         self.reset_buf = self.reset_buf | (self.progress_buf >= self.episode_length)
         env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
-        if len(env_ids) > 0:
+        if len(env_ids) > 0 and self.self_reset:
             self.obs_buf_before_reset = self.obs_buf.clone()
             self.extras.update({"obs_before_reset": self.obs_buf_before_reset, "episode_end": self.termination_buf})
             self.reset(env_ids)
@@ -250,10 +257,7 @@ class ObjectTask(WarpEnv):
                     rew_args.append(self.extras["obs_dict"][arg])
                 else:
                     raise TypeError("Invalid argument for reward function {}, ('{}')".format(k, arg))
-            if k in self.extras["obs_dict"]:
-                v = self.extras["obs_dict"][k]
-            else:
-                v = cost_fn(*rew_args) * rew_scale
+            v = cost_fn(*rew_args) * rew_scale
             rew_dict[k] = v.view(self.num_envs)
 
         self.extras.update(rew_dict)
@@ -334,7 +338,7 @@ def run_object_task(object_type, object_id, args):
         object_id=object_id,
         stiffness=args.stiffness,
         damping=args.damping,
-        render=args.render,
+        render=not args.norender,
     )
     env.load_camera_params("camera_params_closeup.npz")
     logdir = f"./outputs/{object_type.name}_runs"
@@ -355,13 +359,15 @@ if __name__ == "__main__":
     parser.add_argument("--object_id", type=str, default=None)
     parser.add_argument("--stiffness", type=float, default=10.0)
     parser.add_argument("--damping", type=float, default=0.5)
-    parser.add_argument("--render", action="store_true")
+    parser.add_argument("--norender", action="store_true")
     parser.add_argument("--log", action="store_true")
     parser.add_argument("--all", action="store_true")
     args = parser.parse_args()
     object_type = ObjectType[args.object_type.upper()]
     if args.all:
-        for i in range(object_type.value, 24):
+        ObjectTask.show_joints = True
+        ObjectTask.opengl_render_settings["fixed_view"] = True
+        for i in range(object_type.value, ObjectType["REPOSE_CUBE"].value):
             object_type = ObjectType(i)
             if isinstance(bu.OBJ_MODELS[object_type], dict):
                 obj_ids = list(bu.OBJ_MODELS[object_type].keys())
@@ -375,4 +381,4 @@ if __name__ == "__main__":
                     print(e)
 
     else:
-        run_object_task(args.object_type, args.object_id, args)
+        run_object_task(object_type, args.object_id, args)

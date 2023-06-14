@@ -6,6 +6,7 @@
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
 import warp as wp
+from warp.envs.utils.torch_utils import to_torch
 import warp.sim
 import warp.sim.render
 
@@ -123,7 +124,7 @@ class Environment:
     joint_attach_kd: float = 50.0
 
     # distance threshold at which contacts are generated
-    rigid_contact_margin: float = 0.05
+    rigid_contact_margin: float = 0.15
 
     # whether each environment should have its own collision group
     # to avoid collisions between environments
@@ -209,6 +210,8 @@ class Environment:
             # custom simulation setup where something other than an articulation is used
             self.setup(builder)
             self.bodies_per_env = len(builder.body_q)
+
+        self.env_offsets = to_torch(env_offsets, device=self.device)
 
         self.model = builder.finalize(requires_grad=self.requires_grad)
         self.builder = builder

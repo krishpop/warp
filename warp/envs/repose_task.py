@@ -37,13 +37,10 @@ class ReposeTask(HandObjectTask):
         use_autograd: bool = True,
         use_graph_capture: bool = True,
         reach_threshold: float = 0.1,
-        reach_bonus: float = 100.0,
+        headless=False
     ):
         object_type = ObjectType.REPOSE_CUBE
         object_id = 0
-        reward_params_dict = {k: v for k, v in reward_params.items() if k != "reach_bonus"}
-        if "reach_bonus" not in reward_params:
-            reward_params["reach_bonus"] = (lambda x: torch.zeros_like(x), ("object_pose_err",), reach_bonus)
         super().__init__(
             num_envs=num_envs,
             num_obs=num_obs,
@@ -60,7 +57,7 @@ class ReposeTask(HandObjectTask):
             object_id=object_id,
             stiffness=stiffness,
             damping=damping,
-            reward_params=reward_params_dict,
+            reward_params=reward_params,
             hand_type=hand_type,
             hand_start_position=hand_start_position,
             hand_start_orientation=hand_start_orientation,
@@ -68,15 +65,20 @@ class ReposeTask(HandObjectTask):
             grasp_id=None,
             use_autograd=use_autograd,
             use_graph_capture=use_graph_capture,
+            headless=headless
         )
         self.reward_extras["reach_threshold"] = reach_threshold
         # stay in center of hand
-        self.goal_pos = self.default_goal_pos = tu.to_torch([0.0, 0.32, 0.0], device=self.device).view(1, 3).repeat(self.num_envs, 1)
-        self.goal_rot = self.default_goal_rot = tu.to_torch([0.0, 0.0, 0.0, 1.0], device=self.device).view(1, 4).repeat(self.num_envs, 1)
+        self.goal_pos = self.default_goal_pos = (
+            tu.to_torch([0.0, 0.32, 0.0], device=self.device).view(1, 3).repeat(self.num_envs, 1)
+        )
+        self.goal_rot = self.default_goal_rot = (
+            tu.to_torch([0.0, 0.0, 0.0, 1.0], device=self.device).view(1, 4).repeat(self.num_envs, 1)
+        )
 
     def get_stochastic_init(self, env_ids, joint_q, joint_qd):
         goal_pos = self.goal_pos[env_ids]
-        sample_rot = tu.torch_rand_float(-1., 1., (len(env_ids), 2), device=self.device)
+        sample_rot = tu.torch_rand_float(-1.0, 1.0, (len(env_ids), 2), device=self.device)
         x, _, z = torch.eye(3, device=self.device)
         goal_rot_x = tu.quat_from_angle_axis(sample_rot[:, 0], x)
         goal_rot_z = tu.quat_from_angle_axis(sample_rot[:, 0], z)
@@ -90,7 +92,10 @@ class ReposeTask(HandObjectTask):
         if self.object_model.floating:
             object_joint_pos = joint_q[:, self.object_joint_start : self.object_joint_start + 3]
             object_joint_quat = joint_q[:, self.object_joint_start + 3 : self.object_joint_start + 7]
-            pose["position"] = object_joint_pos  # + tu.to_torch(self.object_model.base_pos).view(1, 3)
+            if self.use_tiled_rendering:
+                pose["position"] = object_joint_pos  #  + tu.to_torch(self.object_model.base_pos).view(1, 3)
+            else:
+                pose["position"] = object_joint_pos - self.env_offsets
             start_quat = tu.to_torch(self.object_model.base_ori).view(1, 4).repeat(self.num_envs, 1)
             pose["orientation"] = tu.quat_mul(object_joint_quat, start_quat)
         elif self.object_model.base_joint == "px, py, px":
@@ -128,12 +133,14 @@ class ReposeTask(HandObjectTask):
         self.extras["obs_dict"] = obs_dict
 
         # log score keys
-        self.extras['object_pose_err'] = obs_dict['object_pose_err'].view(self.num_envs)
-        self.extras['object_rot_err'] = obs_dict['rot_dist'].view(self.num_envs)
+        self.extras["object_pose_err"] = obs_dict["object_pose_err"].view(self.num_envs)
+        self.extras["object_rot_err"] = obs_dict["rot_dist"].view(self.num_envs)
         if self.action_type is ActionType.TORQUE:
-            self.extras['net_energy'] = torch.bmm(obs_dict['hand_joint_vel'].unsqueeze(1), self.actions.unsqueeze(2)).squeeze()
+            self.extras["net_energy"] = torch.bmm(
+                obs_dict["hand_joint_vel"].unsqueeze(1), self.actions.unsqueeze(2)
+            ).squeeze()
         else:
-            self.extras['net_energy'] = torch.zeros_like(self.rew_buf)
+            self.extras["net_energy"] = torch.zeros_like(self.rew_buf)
         self._check_early_termination(obs_dict)
         return obs_dict
 
@@ -155,7 +162,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     reach_bonus = lambda x, y: torch.where(x < y, torch.ones_like(x), torch.zeros_like(x))
-    rew_params = {
+    reward_params = {
         "object_pos_err": (l2_dist, ("target_pos", "object_pos"), -10.0),
         # "rot_reward": (rot_reward, ("object_rot", "target_rot"), 1.0),
         "action_penalty": (action_penalty, ("action",), -0.0002),
@@ -166,9 +173,10 @@ if __name__ == "__main__":
     else:
         render_mode = RenderMode.OPENGL
     env = ReposeTask(
-        num_envs=args.num_envs, num_obs=38, episode_length=1000, reward_params=rew_params, render_mode=render_mode
+        num_envs=args.num_envs, num_obs=38, episode_length=1000, reward_params=reward_params, render_mode=render_mode
     )
     if args.profile:
         profile(env)
     else:
-        run_env(env, pi=None, num_episodes=args.num_episodes, logdir="outputs/")
+        env.load_camera_params()
+        run_env(env, pi=None, num_rollouts=args.num_rollouts, logdir="outputs/")

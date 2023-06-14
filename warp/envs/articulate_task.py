@@ -50,6 +50,7 @@ class ArticulateTask(HandObjectTask):
         use_autograd: bool = True,
         reach_threshold=0.1,
         goal_joint_pos=None,
+        headless=False
     ):
         reward_params_dict = {k: v for k, v in reward_params.items() if k != "reach_bonus"}
         self.reach_bonus = reward_params.get(
@@ -80,6 +81,7 @@ class ArticulateTask(HandObjectTask):
             grasp_id=grasp_id,
             use_autograd=use_autograd,
             goal_joint_pos=goal_joint_pos,
+            headless=headless
         )
         self.reward_extras["reach_threshold"] = reach_threshold
 
@@ -152,6 +154,8 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     if args.debug:
+        import warp as wp
+
         wp.config.mode = "debug"
         wp.config.print_launches = True
         wp.config.verify_cuda = True

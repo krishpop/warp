@@ -32,3 +32,6 @@ warp/envs/partnet-mobility-dataset/
 
 **.ipynb_checkpoints/
 **outputs/
+
+warp/envs/checkpoints
+*.ipynb

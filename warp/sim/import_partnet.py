@@ -41,6 +41,7 @@ def parse_partnet_urdf(
     ensure_nonstatic_links=True,
     static_link_mass=1e-2,
     collapse_fixed_joints=False,
+    continuous_joint_type="screw",
 ):
 
     file = ET.parse(urdf_filename)
@@ -401,12 +402,28 @@ def parse_partnet_urdf(
             child_xform=child_xform,
             name=joint["name"],
         )
-
-        if joint["type"] == "revolute" or joint["type"] == "continuous":
-            if joint["type"] == "continuous":
+        if joint["type"] == "continuous":
+            if continuous_joint_type == "screw":  # sets up a screw joint
                 print("setting continuous upper/lower to +/-pi")
                 upper = 2 * np.pi
                 lower = -2 * np.pi
+                axes = ["rz", "pz"]
+            elif continuous_joint_type == "prismatic":
+                axes = ["pz"]
+            axes = [ax.strip() for ax in axes]
+            linear_axes = [ax[-1] for ax in axes if ax[0] in {"l", "p"}]
+            angular_axes = [ax[-1] for ax in axes if ax[0] in {"a", "r"}]
+            axes = {
+                "x": [1.0, 0.0, 0.0],
+                "y": [0.0, 1.0, 0.0],
+                "z": [0.0, 0.0, 1.0],
+            }
+            builder.add_joint_d6(
+                linear_axes=[wp.sim.JointAxis(axes[a], limit_lower=0.0) for a in linear_axes],
+                angular_axes=[wp.sim.JointAxis(axes[a], limit_lower=lower, limit_upper=upper) for a in angular_axes],
+                **joint_params,
+            )
+        elif joint["type"] == "revolute":
             builder.add_joint_revolute(
                 axis=joint["axis"],
                 target_ke=stiffness,

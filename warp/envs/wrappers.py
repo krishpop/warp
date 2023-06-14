@@ -1,5 +1,6 @@
 import os
 import numpy as np
+from warp.envs.environment import RenderMode
 from imageio import get_writer
 
 
@@ -9,6 +10,7 @@ class Monitor:
         __import__("ipdb").set_trace()
         self.writer = None
         self.save_dir = save_dir or "./videos/"
+        print("saving videos to", self.save_dir)
         os.makedirs(self.save_dir, exist_ok=True)
         self.ep_filter = ep_filter
         self.num_episodes = 0

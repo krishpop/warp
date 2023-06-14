@@ -74,15 +74,21 @@ for grasp_dict in grasps['grasps']:
 # %%
 # ls {allegro_grasps}
 
+# %% [markdown]
+# ## Create HandObjectEnv
+# sets grasp pose to what is contained in grasps dict
+
 # %%
-object_codes = list(map(lambda x: x.rstrip(".npy"), filter(lambda x: 'Stapler' in x, os.listdir(allegro_grasps))))
+object_codes = list(map(lambda x: x.rstrip(".npy"), filter(lambda x: 'Dispenser' in x, os.listdir(allegro_grasps))))
 object_codes
 
 # %%
 # object_code = "Stapler_102990_merged"
-object_codes = list(map(lambda x: x.rstrip(".npy"), filter(lambda x: 'Stapler' in x, os.listdir(allegro_grasps))))
+object_codes = list(map(lambda x: x.rstrip(".npy"), filter(lambda x: 'Eyeglasses' in x, os.listdir(allegro_grasps))))
+print(object_codes)
 for object_code in object_codes:
-
+    #print(grasps['grasps'])
+    #input()
     g = [g for g in grasps['grasps'] if g['object_code'] == object_code][0]
 
     object_type = ObjectType[g['object_type'].upper()]
@@ -96,30 +102,34 @@ for object_code in object_codes:
     print("object_code", object_code, "base_pos", object_model.base_pos)
 
 # %%
-g = [g for g in grasps['grasps'] if g['object_id'] == "102990"][0]
+for g in grasps['grasps']:
+    print(g['object_code'], g['object_id'])
+
+# %%
+g = [g for g in grasps['grasps'] if g['object_id'] == '101284'][0]
+print(g)
 object_type = ObjectType[g['object_type'].upper()]
 object_id = g.get("object_id", None)
 
-# %% [markdown]
-# ## Test Object joints/start pose in environment
+# %%
+object_id
 
 # %%
 object_env = ObjectTask(10, object_type=object_type, object_id=object_id)
 object_env.reset()
 object_env.render()
 
+# %%
 lim_upper = object_env.model.joint_limit_upper.numpy().reshape(object_env.num_envs, -1)
 lim_lower = object_env.model.joint_limit_lower.numpy().reshape(object_env.num_envs, -1)
 print(lim_lower, lim_upper)
 object_env.start_joint_q = tu.to_torch(lim_upper) # tu.to_torch((lim_upper-lim_lower)/7+lim_lower)
 # object_env.start_joint_q[:, 0] = tu.to_torch(lim_upper[:, 0]) #  + (lim_upper[:, 1]-lim_lower[:,1])/64)
 
-print(object_env.start_joint_q)
+# %%
+object_env.start_joint_q
 
-object_env.reset()
-# object_env.load_camera_params("camera_params_closeup.npz")
-object_env.render()
-
+# %%
 import time
 
 act = tu.unscale(object_env.start_joint_q, object_env.action_bounds[0], object_env.action_bounds[1])
@@ -127,14 +137,9 @@ for _ in range(60*60):
     time.sleep(1/60)
     object_env.step(act)
 
-# %% [markdown]
-# ## Create HandObjectEnv
-# sets grasp pose to what is contained in grasps dict
-
 # %%
 gparams = g['params']
 rew_params = {"hand_joint_pos_err": (l1_dist, ("target_qpos", "hand_qpos"), 1.0)}
-
 
 # loads env with grasps for desired object_code
 env = HandObjectTask(len(gparams), 1, episode_length=1000, object_type=object_type, object_id=object_id, stochastic_init=True,
@@ -144,23 +149,6 @@ env = HandObjectTask(len(gparams), 1, episode_length=1000, object_type=object_ty
                      action_type=ActionType["POSITION"])
 
 env.reset()
-
-# %%
-env.num_joint_q
-
-# %%
-env.start_joint_q.shape
-
-# %%
-env.num_acts, env.num_joint_q, env.model.joint_type.numpy(), env.fix_position, env.fix_orientation
-
-# %%
-import time
-
-act = tu.unscale(env.start_joint_q[:, env.env_joint_target_indices], env.action_bounds[0], env.action_bounds[1])
-for _ in range(60*60):
-    time.sleep(1/60)
-    env.step(act)
 
 
 # %%

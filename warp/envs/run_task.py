@@ -1,6 +1,7 @@
 import hydra
 import torch
 import yaml
+import os
 
 from omegaconf import OmegaConf, DictConfig
 from hydra.core.hydra_config import HydraConfig
@@ -9,10 +10,10 @@ from shac.utils.rlgames_utils import RLGPUEnvAlgoObserver, RLGPUEnv
 from shac.algorithms.shac import SHAC
 from shac.algorithms.shac2 import SHAC as SHAC2
 from rl_games.torch_runner import Runner
-from rl_games.common import env_configurations, vecenv
 from warp.envs import ObjectTask, HandObjectTask, ReposeTask
-from warp.envs.utils.common import run_env, HandType
+from warp.envs.utils.common import run_env, HandType, ActionType, get_time_stamp
 from warp.envs.train import register_envs
+from warp.envs.wrappers import Monitor
 
 # register custom resolvers
 import warp.envs.utils.hydra_resolvers
@@ -23,10 +24,14 @@ def get_policy(cfg):
         return None
     if cfg.alg.name == "zero":
         num_act = 16 if cfg.task.env.hand_type == HandType.ALLEGRO else 24
-        return lambda x, t: torch.zeros((x.shape[0], num_act), device=x.device)
+        if instantiate(cfg.task.action_type) is ActionType.POSITION:
+            return lambda x, t: torch.ones((x.shape[0], num_act), device=x.device) * 0.5
+        else:
+            return lambda x, t: torch.zeros((x.shape[0], num_act), device=x.device)
     if cfg.alg.name == "random":
         num_act = 16 if cfg.task.env.hand_type == HandType.ALLEGRO else 24
         return lambda x, t: torch.rand((x.shape[0], num_act), device=x.device).clamp_(-1.0, 1.0)
+
 
 @hydra.main(config_path="cfg", config_name="run_task.yaml")
 def run(cfg: DictConfig):
@@ -44,17 +49,20 @@ def run(cfg: DictConfig):
     elif cfg.task.name.lower() == "object_task":
         env = instantiate(cfg.task.env, _convert_="partial")
 
+    if env.opengl_render_settings['headless']:
+        env = Monitor(env, "outputs/videos/{}".format(get_time_stamp()))
+
     # get a policy
-    if cfg.alg.name in ["default", "random", 'zero']:
+    if cfg.alg.name in ["default", "random", "zero"]:
         policy = get_policy(cfg)
-        run_env(env, policy, cfg_full["num_steps"])
-    elif cfg.alg.name in ["ppo", 'sac']:
+        run_env(env, policy, cfg_full["num_steps"], cfg_full["num_rollouts"])
+    elif cfg.alg.name in ["ppo", "sac"]:
         cfg_eval = cfg_full["alg"]
-        cfg_eval['params']['general'] = cfg_full['general']
-        cfg_eval['params']['seed'] = cfg_full['general']['seed']
+        cfg_eval["params"]["general"] = cfg_full["general"]
+        cfg_eval["params"]["seed"] = cfg_full["general"]["seed"]
         cfg_eval["params"]["render"] = cfg_full["render"]
-        cfg_eval['params']['diff_env'] = cfg_full['task']['env']
-        env_name = cfg_full['task']['name']
+        cfg_eval["params"]["diff_env"] = cfg_full["task"]["env"]
+        env_name = cfg_full["task"]["name"]
         register_envs(cfg_eval, env_name)
         # add observer to score keys
         if cfg_eval["params"]["config"].get("score_keys"):
@@ -65,7 +73,7 @@ def run(cfg: DictConfig):
         runner.load(cfg_eval)
         runner.reset()
         runner.run(cfg_eval["params"]["general"])
-    elif cfg.alg.name in ['shac', 'shac2']:
+    elif cfg.alg.name in ["shac", "shac2"]:
         if cfg.alg.name == "shac2":
             traj_optimizer = SHAC2(cfg)
         elif cfg.alg.name == "shac":
