@@ -21,6 +21,14 @@
         {"object_code": "Scissors_11100_merged", "grasp_ids": [89], "comments": ""},
         {"object_code": "Scissors_11080_merged", "grasp_ids": [55], "comments": ""},
         {"object_code": "Stapler_103271_merged", "grasp_ids": [9], "comments": ""},
-        {"object_code": "Stapler_103792_merged", "grasp_ids": [216], "comments": ""}
+        {"object_code": "Stapler_103792_merged", "grasp_ids": [216], "comments": ""},
+        {"object_code": "Bottle_3616_merged", "grasp_ids": [1], "comments": ""},
+        {"object_code": "Scissors_11100_merged", "grasp_ids": [6], "comments": ""},
+        {"object_code": "Dispenser_101540_merged", "grasp_ids": [26], "comments": ""},
+        {"object_code": "Scissors_10889_merged", "grasp_ids": [5], "comments": ""},
+        {"object_code": "Pliers_100705_merged", "grasp_ids": [27], "comments": ""},
+        {"object_code": "Dispenser_101517_merged", "grasp_ids": [24], "comments": ""},
+        {"object_code": "Dispenser_103619_merged", "grasp_ids": [3], "comments": ""},
+        {"object_code": "Dispenser_101539_merged", "grasp_ids": [32], "comments": ""},
     ]
 }
