@@ -193,11 +193,6 @@ class Environment:
             env_offsets = compute_env_offsets(self.num_envs, self.env_offset, self.up_axis)
             for i in range(self.num_envs):
                 xform = wp.transform(env_offsets[i], wp.quat_identity())
-                if self.render_mode == RenderMode.USD:
-                    quat_rotate = wp.quat(0, 0, 0, 1.0)
-                    if self.up_axis == "y":
-                        quat_rotate = wp.quat_from_axis_angle((1.0, 0.0, 0.0), -np.pi / 2.0)
-                    xform = wp.transform(env_offsets[i], quat_rotate)
                 for asset_builder in self.asset_builders:
                     builder.add_builder(
                         asset_builder,
