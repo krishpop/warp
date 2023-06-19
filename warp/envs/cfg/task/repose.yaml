@@ -44,6 +44,7 @@ ppo:
   steps_num: 32
   actor_mlp:
     units: [64, 64]
+  score_to_win: 60000
 
 player:
   deterministic: true
