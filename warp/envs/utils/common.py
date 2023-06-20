@@ -197,11 +197,11 @@ class ObjectType(Enum):
     DISPENSER = auto()
     SOAP_DISPENSER = auto()
     EYEGLASSES = auto()
-    FAUCET = auto()
     STAPLER = auto()
+    REPOSE_CUBE = auto()
+    # FAUCET = auto()
     # SWITCH = auto()
     # USB = auto()
-    REPOSE_CUBE = auto()
 
 
 SHADOW_HAND_JOINTS = [
