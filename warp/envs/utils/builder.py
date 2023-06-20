@@ -707,19 +707,6 @@ EyeglassesObjects = {
     for eyeglasses_id in eyeglasses_ids
 }
 
-# faucet_ids = ("152", "1556", "156", "2170")
-# FaucetObjects = {
-#     faucet_id: operable_object_generator(
-#         ObjectType.FAUCET,
-#         base_pos=(0.0, 0.01756801, 0.0),
-#         base_ori=(-np.pi / 2, 0.0, 0.0),
-#         scale=0.4,
-#         # base_ori=(np.pi / 17, 0.0, 0.0),
-#         model_path=f"Faucet/{faucet_id}/mobility.urdf",
-#     )
-#     for faucet_id in faucet_ids
-# }
-
 pliers_ids = ("100142", "100182", "100705", "102074")
 PliersObjects = {
     pliers_id: operable_object_generator(
@@ -765,6 +752,20 @@ StaplerObjects = {
     for stapler_id, joint_limits, start_y, start_ori in 
     zip(stapler_ids, stapler_joint_limits, stapler_start_y, stapler_base_ori)
 }
+
+
+# faucet_ids = ("152", "1556", "156", "2170")
+# FaucetObjects = {
+#     faucet_id: operable_object_generator(
+#         ObjectType.FAUCET,
+#         base_pos=(0.0, 0.01756801, 0.0),
+#         base_ori=(-np.pi / 2, 0.0, 0.0),
+#         scale=0.4,
+#         # base_ori=(np.pi / 17, 0.0, 0.0),
+#         model_path=f"Faucet/{faucet_id}/mobility.urdf",
+#     )
+#     for faucet_id in faucet_ids
+# }
 #
 # switch_ids = ("100866", "100901", "102812")  # "100883"
 # SwitchObjects = {
@@ -804,7 +805,7 @@ OBJ_NUM_JOINTS[ObjectType.OCTPRISM] = 7
 OBJ_MODELS[ObjectType.SPRAY_BOTTLE] = SprayBottleObject
 OBJ_NUM_JOINTS[ObjectType.SPRAY_BOTTLE] = 1
 OBJ_MODELS[ObjectType.PILL_BOTTLE] = PillBottleObject
-OBJ_NUM_JOINTS[ObjectType.PILL_BOTTLE] = 2
+OBJ_NUM_JOINTS[ObjectType.PILL_BOTTLE] = 1
 OBJ_MODELS[ObjectType.BOTTLE] = BottleObjects
 OBJ_NUM_JOINTS[ObjectType.BOTTLE] = 1
 OBJ_MODELS[ObjectType.DISPENSER] = DispenserObjects
@@ -818,20 +819,20 @@ OBJ_NUM_JOINTS[ObjectType.SOAP_DISPENSER] = 1
 
 OBJ_MODELS[ObjectType.EYEGLASSES] = EyeglassesObjects
 OBJ_NUM_JOINTS[ObjectType.EYEGLASSES] = 2
-# OBJ_MODELS[ObjectType.FAUCET] = FaucetObjects
-# OBJ_NUM_JOINTS[ObjectType.FAUCET] = 2
 OBJ_MODELS[ObjectType.PLIERS] = PliersObjects
 OBJ_NUM_JOINTS[ObjectType.PLIERS] = 1
 OBJ_MODELS[ObjectType.SCISSORS] = ScissorsObjects
 OBJ_NUM_JOINTS[ObjectType.SCISSORS] = 1
 OBJ_MODELS[ObjectType.STAPLER] = StaplerObjects
 OBJ_NUM_JOINTS[ObjectType.STAPLER] = 1
+OBJ_MODELS[ObjectType.REPOSE_CUBE] = ReposeCubeObject
+OBJ_NUM_JOINTS[ObjectType.REPOSE_CUBE] = 6
+# OBJ_MODELS[ObjectType.FAUCET] = FaucetObjects
+# OBJ_NUM_JOINTS[ObjectType.FAUCET] = 2
 # OBJ_MODELS[ObjectType.SWITCH] = SwitchObjects
 # OBJ_NUM_JOINTS[ObjectType.SWITCH] = 1
 # OBJ_MODELS[ObjectType.USB] = USBObjects
 # OBJ_NUM_JOINTS[ObjectType.USB] = 1
-OBJ_MODELS[ObjectType.REPOSE_CUBE] = ReposeCubeObject
-OBJ_NUM_JOINTS[ObjectType.REPOSE_CUBE] = 6
 
 
 def get_num_acts(object_type):

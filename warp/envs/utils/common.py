@@ -198,11 +198,11 @@ class ObjectType(Enum):
     DISPENSER_3DOF = auto()
     SOAP_DISPENSER = auto()
     EYEGLASSES = auto()
-    FAUCET = auto()
     STAPLER = auto()
+    REPOSE_CUBE = auto()
+    # FAUCET = auto()
     # SWITCH = auto()
     # USB = auto()
-    REPOSE_CUBE = auto()
 
 
 SHADOW_HAND_JOINTS = [
@@ -339,7 +339,7 @@ def run_env(env, pi=None, num_steps=600, num_rollouts=1, logdir=None):
 
         def pi(obs, t):
             del obs
-            act = np.sin(np.ones((env.num_envs, env.num_act)) * t / 150) * 0.9  # [-1, 1]
+            act = np.sin(np.ones((env.num_envs, env.num_acts)) * t / 150) * 0.9  # [-1, 1]
             # joint_q_targets = act * (upper - lower) / 2 + (upper - lower) / 2
             i = (t // 300) % len(joint_target_indices)
             action = joint_start.copy()
