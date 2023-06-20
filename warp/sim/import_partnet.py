@@ -43,7 +43,6 @@ def parse_partnet_urdf(
     collapse_fixed_joints=False,
     continuous_joint_type="screw",
 ):
-
     file = ET.parse(urdf_filename)
     root = file.getroot()
 
@@ -58,10 +57,8 @@ def parse_partnet_urdf(
         return wp.transform(xyz, wp.quat_rpy(*rpy))
 
     def parse_shapes(link, collisions, density, incoming_xform=None):
-
         # add geometry
         for collision in collisions:
-
             geo = collision.find("geometry")
             if geo is None:
                 continue
@@ -199,7 +196,6 @@ def parse_partnet_urdf(
 
     # add links
     for i, urdf_link in enumerate(root.findall("link")):
-
         if parse_visuals_as_colliders:
             colliders = urdf_link.findall("visual")
         else:
@@ -402,12 +398,14 @@ def parse_partnet_urdf(
             child_xform=child_xform,
             name=joint["name"],
         )
-        if joint["type"] == "continuous":
-            if continuous_joint_type == "screw":  # sets up a screw joint
-                print("setting continuous upper/lower to +/-pi")
+        if joint["type"] == "continuous" and continuous_joint_type in ["screw", "prismatic", "revolute"]:
+            if continuous_joint_type == "screw" or continuous_joint_type == "revolute":  # sets up a screw joint
+                print(f"setting continuous to {continuous_joint_type}, upper/lower to +/-pi")
                 upper = 2 * np.pi
                 lower = -2 * np.pi
-                axes = ["rz", "pz"]
+                axes = ["rz"]
+                if continuous_joint_type == "screw":
+                    axes += ["pz"]
             elif continuous_joint_type == "prismatic":
                 axes = ["pz"]
             axes = [ax.strip() for ax in axes]
@@ -423,7 +421,10 @@ def parse_partnet_urdf(
                 angular_axes=[wp.sim.JointAxis(axes[a], limit_lower=lower, limit_upper=upper) for a in angular_axes],
                 **joint_params,
             )
-        elif joint["type"] == "revolute":
+        elif joint["type"] == "revolute" or joint["type"] == "continuous" and continuous_joint_type == "revolute":
+            if joint["type"] == "continuous":
+                upper = 2 * np.pi
+                lower = -2 * np.pi
             builder.add_joint_revolute(
                 axis=joint["axis"],
                 target_ke=stiffness,
