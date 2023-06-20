@@ -53,7 +53,6 @@ class ObjectTask(WarpEnv):
         goal_joint_pos=None,
         headless=False,
     ):
-
         if not env_name:
             if object_type:
                 env_name = object_type.name + "Env"
@@ -61,7 +60,7 @@ class ObjectTask(WarpEnv):
                 env_name = "ObjectEnv"
 
         if headless:
-            self.opengl_render_settings['headless'] = True
+            self.opengl_render_settings["headless"] = True
 
         self.num_joint_q = 0
         self.num_joint_qd = 0
@@ -128,11 +127,9 @@ class ObjectTask(WarpEnv):
 
     def set_goal_joint_pos(self, goal_joint_pos):
         if goal_joint_pos is None:
-            goal_joint_pos = np.ones((self.num_envs, self.object_num_joint_axis)) * 0.9  # controls joint 90% of the way
+            goal_joint_pos = np.ones((self.num_envs, self.object_num_joint_q)) * 0.9  # controls joint 90% of the way
         else:
-            assert (
-                len(goal_joint_pos) == self.object_num_joint_axis
-            ), "Goal joint pos must match number of object joints"
+            assert len(goal_joint_pos) == self.object_num_joint_q, "Goal joint pos must match number of object joints"
             goal_joint_pos = np.array(goal_joint_pos)
 
         joint_upper = self.model.joint_limit_upper.numpy().reshape(self.num_envs, -1)
@@ -310,13 +307,20 @@ class ObjectTask(WarpEnv):
         if len(self.env_joint_mask) > 0:
             joint_indices = []
             for i in self.env_joint_mask:
-                joint_start, axis_count = builder.joint_axis_start[i], joint_coord_map[builder.joint_type[i]]
+                joint_start = builder.joint_q_start[i]
+                if builder.joint_type[i] == wp.sim.JOINT_D6:
+                    if i + 1 < len(builder.joint_q_start):
+                        axis_count = builder.joint_q_start[i + 1] - builder.joint_q_start[i]
+                    else:
+                        axis_count = builder.joint_q_start - builder.joint_q_start[i]
+                else:
+                    axis_count = joint_coord_map[builder.joint_type[i]]
                 joint_indices.append(np.arange(joint_start, joint_start + axis_count))
             joint_indices = np.concatenate(joint_indices)
         else:
             joint_indices = []
 
-        self.env_num_joints = self.object_num_joint_axis = len(joint_indices)
+        self.env_num_joints = self.object_num_joint_q = len(joint_indices)
         self.env_joint_target_indices = self.object_joint_target_indices = joint_indices
         if len(self.env_joint_mask) > 0:
             self.object_joint_start = self.env_joint_mask[0]
