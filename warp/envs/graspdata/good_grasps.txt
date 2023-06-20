@@ -29,6 +29,6 @@
         {"object_code": "Pliers_100705_merged", "grasp_ids": [27], "comments": ""},
         {"object_code": "Dispenser_101517_merged", "grasp_ids": [24], "comments": ""},
         {"object_code": "Dispenser_103619_merged", "grasp_ids": [3], "comments": ""},
-        {"object_code": "Dispenser_101539_merged", "grasp_ids": [32], "comments": ""},
+        {"object_code": "Dispenser_101539_merged", "grasp_ids": [32], "comments": ""}
     ]
 }
