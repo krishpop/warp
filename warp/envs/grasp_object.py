@@ -6,9 +6,9 @@
 #       extension: .py
 #       format_name: percent
 #       format_version: '1.3'
-#       jupytext_version: 1.14.5
+#       jupytext_version: 1.14.6
 #   kernelspec:
-#     display_name: Python 3 (ipykernel)
+#     display_name: Python 3
 #     language: python
 #     name: python3
 # ---
@@ -20,6 +20,7 @@
 # %%
 import warp as wp
 import os
+os.environ['DISPLAY'] = ':1'
 import warp.sim
 import numpy as np
 import matplotlib.pyplot as plt
@@ -72,13 +73,6 @@ for grasp_dict in grasps['grasps']:
     grasp_dict['params'] = list(grasp_params)
 
 # %%
-# ls {allegro_grasps}
-
-# %%
-object_codes = list(map(lambda x: x.rstrip(".npy"), filter(lambda x: 'Stapler' in x, os.listdir(allegro_grasps))))
-object_codes
-
-# %%
 # object_code = "Stapler_102990_merged"
 object_codes = list(map(lambda x: x.rstrip(".npy"), filter(lambda x: 'Stapler' in x, os.listdir(allegro_grasps))))
 for object_code in object_codes:
@@ -95,72 +89,251 @@ for object_code in object_codes:
     object_model.get_object_extents()
     print("object_code", object_code, "base_pos", object_model.base_pos)
 
+# %% [markdown]
+# ## Load in grasp for desired object type
+
 # %%
 g = [g for g in grasps['grasps'] if g['object_id'] == "102990"][0]
 object_type = ObjectType[g['object_type'].upper()]
 object_id = g.get("object_id", None)
+g
 
 # %% [markdown]
 # ## Test Object joints/start pose in environment
-
-# %%
-object_env = ObjectTask(10, object_type=object_type, object_id=object_id)
-object_env.reset()
-object_env.render()
-
-lim_upper = object_env.model.joint_limit_upper.numpy().reshape(object_env.num_envs, -1)
-lim_lower = object_env.model.joint_limit_lower.numpy().reshape(object_env.num_envs, -1)
-print(lim_lower, lim_upper)
-object_env.start_joint_q = tu.to_torch(lim_upper) # tu.to_torch((lim_upper-lim_lower)/7+lim_lower)
-# object_env.start_joint_q[:, 0] = tu.to_torch(lim_upper[:, 0]) #  + (lim_upper[:, 1]-lim_lower[:,1])/64)
-
-print(object_env.start_joint_q)
-
-object_env.reset()
-# object_env.load_camera_params("camera_params_closeup.npz")
-object_env.render()
-
-import time
-
-act = tu.unscale(object_env.start_joint_q, object_env.action_bounds[0], object_env.action_bounds[1])
-for _ in range(60*60):
-    time.sleep(1/60)
-    object_env.step(act)
+# ``` python
+# object_env = ObjectTask(10, object_type=object_type, object_id=object_id)
+# object_env.reset()
+# object_env.render()
+#
+# lim_upper = object_env.model.joint_limit_upper.numpy().reshape(object_env.num_envs, -1)
+# lim_lower = object_env.model.joint_limit_lower.numpy().reshape(object_env.num_envs, -1)
+# print(lim_lower, lim_upper)
+# object_env.start_joint_q = tu.to_torch(lim_upper) # tu.to_torch((lim_upper-lim_lower)/7+lim_lower)
+# # object_env.start_joint_q[:, 0] = tu.to_torch(lim_upper[:, 0]) #  + (lim_upper[:, 1]-lim_lower[:,1])/64)
+#
+# print(object_env.start_joint_q)
+#
+# object_env.reset()
+# # object_env.load_camera_params("camera_params_closeup.npz")
+# object_env.render()
+#
+# import time
+#
+# act = tu.unscale(object_env.start_joint_q, object_env.action_bounds[0], object_env.action_bounds[1])
+# for _ in range(60*60):
+#     time.sleep(1/60)
+#     object_env.step(act)
+# ```
 
 # %% [markdown]
 # ## Create HandObjectEnv
 # sets grasp pose to what is contained in grasps dict
 
 # %%
+object_model = bu.OBJ_MODELS.get(object_type)['102990']()
+print(object_model.base_pos, object_model.base_pos, object_model.base_joint)
+
+# %%
+from warp.envs.environment import RenderMode
+
 gparams = g['params']
 rew_params = {"hand_joint_pos_err": (l1_dist, ("target_qpos", "hand_qpos"), 1.0)}
 
+object_model = bu.OBJ_MODELS.get(object_type)
+if object_id:
+    object_model = object_model.get(object_id)
+
+object_model = object_model(use_mesh_extents=True)
 
 # loads env with grasps for desired object_code
-env = HandObjectTask(len(gparams), 1, episode_length=1000, object_type=object_type, object_id=object_id, stochastic_init=True,
-                     reward_params=rew_params, grasp_file=g['grasp_file'], grasp_id=2, 
-                     hand_start_position=object_model.base_pos, 
-                     hand_start_orientation=(0,0,0), 
-                     action_type=ActionType["POSITION"])
+env = HandObjectTask(1, 1, episode_length=1000, object_type=object_type, object_id=object_id,
+                     stochastic_init=False, reward_params=rew_params, grasp_file=g['grasp_file'],
+                     grasp_id=None, hand_start_position=(0,0,0),
+                     hand_start_orientation=(0,0,0), action_type=ActionType["POSITION"], 
+                     fix_position=True, fix_orientation=True, render_mode=RenderMode["USD"])
 
 env.reset()
 
 # %%
-env.num_joint_q
+env.body_q
 
 # %%
-env.start_joint_q.shape
+env.stochastic_init = True
+env.reset()
 
 # %%
-env.num_acts, env.num_joint_q, env.model.joint_type.numpy(), env.fix_position, env.fix_orientation
+hand_base_xform
+
+# %%
+# hand_base_xform = env.model.joint_X_p.numpy()[0]
+grasp_xform = tu.to_torch(env.grasp.xform[None])
+object_xform = tu.to_torch(env.model.joint_X_p.numpy()[env.joint_name_to_idx['base_joint']][0:1])
+
+# object_base_xform = np.concatenate([env.object_model.base_pos, env.object_model.base_ori])
+tu.tf_combine(object_xform[:,3:], object_xform[:, :3], grasp_xform[:, 3:], grasp_xform[:, :3])
+
+# %%
+env.model.shape_count
+
+# %%
+env.model.shape_body.numpy()
+
+# %%
+object_base_xform
+
+# %%
+env.joint_name_to_idx['base_joint']
+
+# %%
+
+# %%
+env.joint_q[-6:]
+
+# %%
+env.object_model.base_joint
+
+# %%
+xforms = np.stack([hand_base_xform, grasp_xform, object_base_xform])
+
+# %%
+from scipy.spatial.transform import Rotation as R
+
+
+# %%
+def get_origin_lines(xform=None, name=""):
+    if xform is None:
+        rot = np.eye(3)
+        offset = np.zeros(3)
+    else:
+        rot = R.from_quat(xform[3:]).as_matrix()
+        offset = xform[:3]
+
+    x_lines = np.array([[0.0, 0.0, 0.0], rot @ [0.1, 0.0, 0.0]])
+    y_lines = np.array([[0.0, 0.0, 0.0], rot @ [0.0, 0.1, 0.0]])
+    z_lines = np.array([[0.0, 0.0, 0.0], rot @ [0.0, 0.0, 0.1]])
+    x_lines += offset
+    y_lines += offset
+    z_lines += offset
+    lines = [
+        go.Scatter3d(
+            x=x_lines[:, 0],
+            y=x_lines[:, 1],
+            z=x_lines[:, 2],
+            mode="lines",
+            line=dict(width=2, color="red"),
+            name=f"{name} Coord X Axis",
+        ),
+        go.Scatter3d(
+            x=y_lines[:, 0],
+            y=y_lines[:, 1],
+            z=y_lines[:, 2],
+            mode="lines",
+            line=dict(width=2, color="green"),
+            name=f"{name} Coord Y Axis",
+        ),
+        go.Scatter3d(
+            x=z_lines[:, 0],
+            y=z_lines[:, 1],
+            z=z_lines[:, 2],
+            mode="lines",
+            line=dict(width=2, color="blue"),
+            name=f"{name} Coord Z Axis",
+        ),
+    ]
+    return lines
+
+
+# %%
+from plotly import graph_objects as go
+
+fig = go.Figure()
+fig.add_traces(get_origin_lines(hand_base_xform, "Hand"))
+fig.add_traces(get_origin_lines(grasp_xform, "Grasp"))
+fig.add_traces(get_origin_lines(object_base_xform, "Object"))
+fig.show()
+
+# %%
+ori, pos = tu.tf_combine(tu.to_torch((0,0,0,1.)), tu.to_torch(env.object_model.base_pos), 
+              tu.to_torch(env.grasp.xform[3:]), tu.to_torch(env.grasp.xform[:3]))
+pos, ori
+
+# %%
+env.model.joint_X_p.numpy()[0:3]
+
+# %%
+torch.tensor(env.hand_start_position), torch.tensor(env.hand_start_orientation)
+
+# %%
+env.model.joint_target_ke.numpy()
 
 # %%
 import time
 
 act = tu.unscale(env.start_joint_q[:, env.env_joint_target_indices], env.action_bounds[0], env.action_bounds[1])
-for _ in range(60*60):
-    time.sleep(1/60)
+for _ in range(100):
     env.step(act)
+
+env.renderer.save()
+
+# %%
+from pprint import pprint
+
+print("Body keys:")
+pprint(list(env.body_name_to_idx.keys()))
+print("Joint keys:")
+pprint(list(env.joint_name_to_idx.keys()))
+
+# %%
+env.model.joint_q_start.numpy()[16:19]
+
+# %%
+start_idx = env.joint_name_to_idx["base_joint"].item()
+env.joint_q[env.model.joint_q_start.numpy()[start_idx]:env.model.joint_q_start.numpy()[start_idx+1]]
+
+# %%
+env.object_model.base_pos
+
+# %%
+env.object_model.base_ori
+
+# %%
+env.model.joint_X_p.numpy()[16:]
+
+# %%
+env.model.joint_X_p.numpy()[env.model.joint_parent.numpy() == -1]
+
+# %%
+np.array(env.model.joint_name)[env.model.joint_parent.numpy() == -1]
+
+# %%
+env.body_q[env.body_name_to_idx["base"]]
+
+# %%
+print(env.model.joint_X_p)
+
+# %%
+obs_dict = env.extras['obs_dict']
+obs_dict['goal_joint_pos']
+
+# %%
+[(k, v.shape) for k, v in env.extras['obs_dict'].items()]
+
+# %%
+env._set_hand_base_xform()
+new_state = env.model.state()
+wp.sim.eval_fk(env.model, env._joint_q, env._joint_qd, env.state())
+
+# %%
+env.sample_grasps()
+
+# %%
+while True: env.render()
+
+# %%
+env.start_joint_q[:, env.env_joint_target_indices].shape
+
+# %%
+env.renderer.save()
 
 
 # %%
