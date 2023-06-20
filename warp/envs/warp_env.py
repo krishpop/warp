@@ -83,6 +83,8 @@ class WarpEnv(Environment):
         else:
             self.stage_path = stage_path
 
+        self.sim_name = self.stage_path
+
         # potential imageio writer if writing to an mp4
         self.writer = None
 
@@ -350,7 +352,10 @@ class WarpEnv(Environment):
         )
         # swap states so start from correct next state
         if not self.use_graph_capture:
-            (self.simulate_params["state_in"], self.simulate_params["state_out"],) = (
+            (
+                self.simulate_params["state_in"],
+                self.simulate_params["state_out"],
+            ) = (
                 self.state_1,
                 self.state_0,
             )

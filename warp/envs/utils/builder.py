@@ -512,7 +512,7 @@ class OperableObjectModel(ObjectModel):
         assert model_path and os.path.splitext(model_path)[1] == ".urdf"
         self.model_path = model_path
         self.continuous_joint_type = continuous_joint_type
-        self.joint_limits = None # joint_limits
+        self.joint_limits = None  # joint_limits
 
     def get_object_extents(self):
         asset_dir = os.path.join(os.path.dirname(__file__), "../assets")
@@ -591,7 +591,7 @@ def get_object_xform(object_type, object_id=None, **obj_kwargs):
         model = model.get(object_id)(**obj_kwargs)
     else:
         model = model(**obj_kwargs)
-    return model.base_pos, model.base_ori
+    return model.base_pos, (0, 0, 0, 1)
 
 
 StaplerObject = object_generator(ObjectType.TCDM_STAPLER, base_pos=(0.0, 0.01756801, 0.0), scale=1.3)
@@ -639,8 +639,9 @@ bottle_ids = ("3558", "3574", "3616")
 BottleObjects = {
     bottle_id: operable_object_generator(
         ObjectType.BOTTLE,
-        base_pos=(0.0, 0.01756801, 0.0),
+        # base_pos=(0.0, 0.01756801, 0.0),
         base_ori=(-0.5 * np.pi, 0.0, 0.0),
+        use_mesh_extents=True,
         scale=0.4,
         # base_ori=(np.pi / 17, 0.0, 0.0),
         stiffness=[12, 12],
@@ -650,7 +651,7 @@ BottleObjects = {
     for bottle_id in bottle_ids
 }
 
-dispenser_ids1, dispenser_ids2 = ("101539", "101417"), ("101517", "101540", "103405", "103619")
+dispenser_ids = ("101539", "101417", "101517", "101540", "103405", "103619")
 DispenserObjects = {
     dispenser_id: operable_object_generator(
         ObjectType.DISPENSER,
@@ -662,24 +663,11 @@ DispenserObjects = {
         use_mesh_extents=True,
         # base_ori=(np.pi / 17, 0.0, 0.0),
         model_path=f"Dispenser/{dispenser_id}/mobility.urdf",
+        continuous_joint_type="revolute",
     )
-    for dispenser_id in dispenser_ids1
+    for dispenser_id in dispenser_ids
 }
 
-DispenserObjects3Dof = {
-    dispenser_id: operable_object_generator(
-        ObjectType.DISPENSER_3DOF,
-        base_pos=(0.0, 0.01756801, 0.0),
-        base_ori=(-0.5 * np.pi, 0.0, 0.0),
-        scale=0.4,
-        stiffness=[10.0, 10.0],
-        damping=[0.5, 0.5],
-        use_mesh_extents=True,
-        # base_ori=(np.pi / 17, 0.0, 0.0),
-        model_path=f"Dispenser/{dispenser_id}/mobility.urdf",
-    )
-    for dispenser_id in dispenser_ids2
-}
 
 SoapDispenserObject = operable_object_generator(
     ObjectType.SOAP_DISPENSER,
@@ -748,7 +736,11 @@ ScissorsObjects = {
 }
 
 stapler_ids = ("102990", "103271", "103792")
-stapler_joint_limits = (([0.0, 0.0486 ],[0.0530, 0.0486]), ([-0.0503, 0.0], [0.2630, 0.0]), ([0.0503, 0.0], [0.1710, 0.0]))
+stapler_joint_limits = (
+    ([0.0, 0.0486], [0.0530, 0.0486]),
+    ([-0.0503, 0.0], [0.2630, 0.0]),
+    ([0.0503, 0.0], [0.1710, 0.0]),
+)
 stapler_start_y = (0.036582, 0.01819, 0.01819)
 stapler_base_ori = (-np.pi / 2, np.pi, -np.pi / 2)
 StaplerObjects = {
@@ -762,8 +754,9 @@ StaplerObjects = {
         joint_limits=joint_limits,
         model_path=f"Stapler/{stapler_id}/mobility.urdf",
     )
-    for stapler_id, joint_limits, start_y, start_ori in 
-    zip(stapler_ids, stapler_joint_limits, stapler_start_y, stapler_base_ori)
+    for stapler_id, joint_limits, start_y, start_ori in zip(
+        stapler_ids, stapler_joint_limits, stapler_start_y, stapler_base_ori
+    )
 }
 #
 # switch_ids = ("100866", "100901", "102812")  # "100883"
@@ -804,13 +797,11 @@ OBJ_NUM_JOINTS[ObjectType.OCTPRISM] = 7
 OBJ_MODELS[ObjectType.SPRAY_BOTTLE] = SprayBottleObject
 OBJ_NUM_JOINTS[ObjectType.SPRAY_BOTTLE] = 1
 OBJ_MODELS[ObjectType.PILL_BOTTLE] = PillBottleObject
-OBJ_NUM_JOINTS[ObjectType.PILL_BOTTLE] = 2
+OBJ_NUM_JOINTS[ObjectType.PILL_BOTTLE] = 1
 OBJ_MODELS[ObjectType.BOTTLE] = BottleObjects
 OBJ_NUM_JOINTS[ObjectType.BOTTLE] = 1
 OBJ_MODELS[ObjectType.DISPENSER] = DispenserObjects
 OBJ_NUM_JOINTS[ObjectType.DISPENSER] = 2
-OBJ_MODELS[ObjectType.DISPENSER_3DOF] = DispenserObjects3Dof
-OBJ_NUM_JOINTS[ObjectType.DISPENSER_3DOF] = 3
 
 OBJ_MODELS[ObjectType.SOAP_DISPENSER] = SoapDispenserObject
 OBJ_NUM_JOINTS[ObjectType.SOAP_DISPENSER] = 1

@@ -113,13 +113,13 @@ def to_warp(input, dtype=float, device="cuda"):
 
 def get_time_stamp():
     now = datetime.now()
-    year = now.strftime('%Y')
-    month = now.strftime('%m')
-    day = now.strftime('%d')
-    hour = now.strftime('%H')
-    minute = now.strftime('%M')
-    second = now.strftime('%S')
-    return '{}-{}-{}-{}-{}-{}'.format(month, day, year, hour, minute, second)
+    year = now.strftime("%Y")
+    month = now.strftime("%m")
+    day = now.strftime("%d")
+    hour = now.strftime("%H")
+    minute = now.strftime("%M")
+    second = now.strftime("%S")
+    return "{}-{}-{}-{}-{}-{}".format(month, day, year, hour, minute, second)
 
 
 class ActionType(Enum):
@@ -195,7 +195,6 @@ class ObjectType(Enum):
     PLIERS = auto()
     SCISSORS = auto()
     DISPENSER = auto()
-    DISPENSER_3DOF = auto()
     SOAP_DISPENSER = auto()
     EYEGLASSES = auto()
     FAUCET = auto()
@@ -287,16 +286,8 @@ joint_coord_map = {
 }
 
 supported_joint_types = {
-    ActionType.POSITION: [
-        wp.sim.JOINT_PRISMATIC,
-        wp.sim.JOINT_REVOLUTE,
-        wp.sim.JOINT_BALL,
-    ],
-    ActionType.POSITION_DELTA: [
-        wp.sim.JOINT_PRISMATIC,
-        wp.sim.JOINT_REVOLUTE,
-        wp.sim.JOINT_BALL,
-    ],
+    ActionType.POSITION: [wp.sim.JOINT_PRISMATIC, wp.sim.JOINT_REVOLUTE, wp.sim.JOINT_BALL],
+    ActionType.POSITION_DELTA: [wp.sim.JOINT_PRISMATIC, wp.sim.JOINT_REVOLUTE, wp.sim.JOINT_BALL],
     ActionType.TORQUE: [wp.sim.JOINT_PRISMATIC, wp.sim.JOINT_REVOLUTE, wp.sim.JOINT_BALL],
 }
 
@@ -339,7 +330,7 @@ def run_env(env, pi=None, num_steps=600, num_rollouts=1, logdir=None):
 
         def pi(obs, t):
             del obs
-            act = np.sin(np.ones((env.num_envs, env.num_act)) * t / 150) * 0.9  # [-1, 1]
+            act = np.sin(np.ones((env.num_envs, env.num_acts)) * t / 150) * 0.9  # [-1, 1]
             # joint_q_targets = act * (upper - lower) / 2 + (upper - lower) / 2
             i = (t // 300) % len(joint_target_indices)
             action = joint_start.copy()
