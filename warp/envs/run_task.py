@@ -2,6 +2,7 @@ import hydra
 import torch
 import yaml
 import os
+import numpy as np
 
 from omegaconf import OmegaConf, DictConfig
 from hydra.core.hydra_config import HydraConfig
@@ -22,15 +23,14 @@ import warp.envs.utils.hydra_resolvers
 def get_policy(cfg):
     if cfg.alg is None or cfg.alg.name == "default":
         return None
+    num_act = 16 if cfg.task.env.hand_type == HandType.ALLEGRO else 24
     if cfg.alg.name == "zero":
-        num_act = 16 if cfg.task.env.hand_type == HandType.ALLEGRO else 24
-        if instantiate(cfg.task.action_type) is ActionType.POSITION:
-            return lambda x, t: torch.ones((x.shape[0], num_act), device=x.device) * 0.5
-        else:
-            return lambda x, t: torch.zeros((x.shape[0], num_act), device=x.device)
+        return lambda x, t: torch.zeros((x.shape[0], num_act), device=x.device)
     if cfg.alg.name == "random":
-        num_act = 16 if cfg.task.env.hand_type == HandType.ALLEGRO else 24
         return lambda x, t: torch.rand((x.shape[0], num_act), device=x.device).clamp_(-1.0, 1.0)
+    if cfg.alg.name == "sine":
+        return lambda x, t: torch.sin(torch.ones((x.shape[0], num_act)).to(x) * t * 2 * np.pi * 0.1)
+    
 
 
 @hydra.main(config_path="cfg", config_name="run_task.yaml")
@@ -49,11 +49,11 @@ def run(cfg: DictConfig):
     elif cfg.task.name.lower() == "object_task":
         env = instantiate(cfg.task.env, _convert_="partial")
 
-    if env.opengl_render_settings['headless']:
+    if env.opengl_render_settings.get('headless', False):
         env = Monitor(env, "outputs/videos/{}".format(get_time_stamp()))
 
     # get a policy
-    if cfg.alg.name in ["default", "random", "zero"]:
+    if cfg.alg.name in ["default", "random", "zero", "sine"]:
         policy = get_policy(cfg)
         run_env(env, policy, cfg_full["num_steps"], cfg_full["num_rollouts"])
     elif cfg.alg.name in ["ppo", "sac"]:

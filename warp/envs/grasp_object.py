@@ -6,9 +6,9 @@
 #       extension: .py
 #       format_name: percent
 #       format_version: '1.3'
-#       jupytext_version: 1.14.6
+#       jupytext_version: 1.14.5
 #   kernelspec:
-#     display_name: Python 3
+#     display_name: Python 3 (ipykernel)
 #     language: python
 #     name: python3
 # ---
@@ -38,9 +38,12 @@ from pyglet.math import Vec3 as PyVec3
 
 wp.init()
 
-
 # %% [markdown]
 # # Load grasps
+
+# %%
+hand_type = HandType["ALLEGRO"]
+
 
 # %%
 @localscope.mfc
@@ -66,10 +69,14 @@ grasps = json.loads(open("./graspdata/good_grasps.txt").read())
 for grasp_dict in grasps['grasps']:
     object_code = grasp_dict['object_code']
     object_type, object_id = get_object_type_id(object_code)
+    try:
+        ot = ObjectType[object_type.upper()]
+    except:
+        continue
     grasp_dict.update(dict(object_type=object_type, object_id=object_id))
     grasp_npy = os.path.join(allegro_grasps,f"{object_code}.npy")
     grasp_dict['grasp_file'] = grasp_npy
-    grasp_params = map(lambda x: x[1], filter(lambda x: x[0] in grasp_dict['grasp_ids'], enumerate(load_grasps_npy(grasp_npy))))
+    grasp_params = map(lambda x: x[1], filter(lambda x: x[0] in grasp_dict['grasp_ids'], enumerate(load_grasps_npy(ot, object_id, hand_type))))
     grasp_dict['params'] = list(grasp_params)
 
 # %%
@@ -147,7 +154,7 @@ object_model = object_model(use_mesh_extents=True)
 
 # loads env with grasps for desired object_code
 env = HandObjectTask(1, 1, episode_length=1000, object_type=object_type, object_id=object_id,
-                     stochastic_init=False, reward_params=rew_params, grasp_file=g['grasp_file'],
+                     stochastic_init=False, reward_params=rew_params, load_grasps=True,
                      grasp_id=None, hand_start_position=(0,0,0),
                      hand_start_orientation=(0,0,0), action_type=ActionType["POSITION"], 
                      fix_position=True, fix_orientation=True, render_mode=RenderMode["USD"])

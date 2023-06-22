@@ -47,7 +47,7 @@ class HandObjectTask(ObjectTask):
         hand_type: HandType = HandType.ALLEGRO,
         hand_start_position: Tuple = (0.1, 0.3, 0.0),
         hand_start_orientation: Tuple = (-np.pi / 2 * 3, np.pi * 1.25, np.pi / 2 * 3),
-        grasp_file: str = "",
+        load_grasps: bool = False,
         grasp_id: int = -1,
         use_autograd: bool = True,
         use_graph_capture: bool = True,
@@ -64,8 +64,8 @@ class HandObjectTask(ObjectTask):
         self.hand_type = hand_type
         self.grasp_joint_q = None
 
-        if grasp_file:
-            self.grasps = load_grasps_npy(grasp_file)
+        if load_grasps:
+            self.grasps = load_grasps_npy(object_type, object_id, hand_type)
             self.grasp = None
             if grasp_id:
                 self.grasp = self.grasps[grasp_id]
@@ -83,8 +83,6 @@ class HandObjectTask(ObjectTask):
         else:
             self.grasp = None
             self.grasps = None
-            if grasp_file != "":
-                print(f"Grasp file {grasp_file} not found")
 
         # unset stochastic init if grasp_id not specified
         stochastic_init = (self.grasps is not None and grasp_id is None) and stochastic_init
@@ -189,7 +187,7 @@ class HandObjectTask(ObjectTask):
                 self.num_envs,
                 joint_indices=xform_indices,
             )
-
+        
         if self.action_type == ActionType.POSITION_DELTA:
             hand_pos = self.joint_q.view(self.num_envs, -1)[:, self.env_joint_target_indices]
             lower, upper = self.action_bounds
@@ -248,7 +246,7 @@ class HandObjectTask(ObjectTask):
         self.extras["obs_dict"] = obs_dict
         return obs_dict
 
-    def _set_hand_base_xform(self, joint_q, xform):
+    def apply_grasps(self, joint_q, xform):
         # update both joint and shape transforms according to xform
         if self.model.joint_type.numpy()[0] == wp.sim.JOINT_FREE:
             # if hand base joint is free aka floating
@@ -326,7 +324,7 @@ class HandObjectTask(ObjectTask):
         grasp_joint_q[env_ids] = hand_init_q
 
         joint_q[:, self.env_joint_target_indices] = grasp_joint_q
-        joint_q = self._set_hand_base_xform(joint_q, hand_init_xform)
+        joint_q = self.apply_grasps(joint_q, hand_init_xform)
         return joint_q, joint_qd
 
     def get_stochastic_init(self, env_ids, joint_q, joint_qd):
@@ -459,7 +457,7 @@ if __name__ == "__main__":
         object_id=args.object_id,
         hand_type=HandType[args.hand_type.upper()],
         render=args.render,
-        grasp_file=args.grasp_file,
+        load_grasps=args.grasp_file,
         grasp_id=args.grasp_id,
         stiffness=args.stiffness,
         damping=args.damping,

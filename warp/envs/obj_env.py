@@ -88,7 +88,6 @@ class ObjectTask(WarpEnv):
 
         self.object_type = object_type
         self.object_id = object_id
-        self.action_type = action_type
 
         if self.object_type:
             obj_generator = bu.OBJ_MODELS[self.object_type]
@@ -194,6 +193,8 @@ class ObjectTask(WarpEnv):
     def assign_actions(self, actions):
         # first scale actions to bounds
         lower, upper = self.action_bounds
+        print("lower bound", lower)
+        print("upper bound", upper)
         actions = scale(actions.clamp(-1, 1).view(self.num_envs, -1), lower, upper)
         self.warp_actions.zero_()
         self.warp_actions.assign(wp.from_torch(actions.flatten()))
@@ -297,7 +298,7 @@ class ObjectTask(WarpEnv):
         self.num_joint_q += builder.joint_axis_count - num_joint_axis_before
         self.num_joint_qd += builder.joint_axis_count - num_joint_axis_before
 
-        valid_joint_types = supported_joint_types[self.action_type]
+        valid_joint_types = supported_joint_types[self.action_type] + [wp.sim.JOINT_D6]
         self.env_joint_mask = [
             i + num_joints_before
             for i, joint_type in enumerate(builder.joint_type[num_joints_before:])
@@ -312,7 +313,7 @@ class ObjectTask(WarpEnv):
                     if i + 1 < len(builder.joint_q_start):
                         axis_count = builder.joint_q_start[i + 1] - builder.joint_q_start[i]
                     else:
-                        axis_count = builder.joint_q_start - builder.joint_q_start[i]
+                        axis_count = builder.joint_axis_count - builder.joint_q_start[i]
                 else:
                     axis_count = joint_coord_map[builder.joint_type[i]]
                 joint_indices.append(np.arange(joint_start, joint_start + axis_count))

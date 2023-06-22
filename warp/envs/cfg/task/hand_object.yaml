@@ -26,6 +26,7 @@ env:
   stochastic_init: true
   use_autograd: true
   use_graph_capture: true
+  load_grasps: false
   # use_graph_capture: ${eval:'("shac" not in "${alg.name}")'}
   # no_grad: ${eval:'("shac" not in "${alg.name}")'}
 

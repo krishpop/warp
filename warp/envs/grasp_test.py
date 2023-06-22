@@ -58,7 +58,7 @@ def main(args):
         object_id=object_id,
         stochastic_init=True,
         reward_params=rew_params,
-        grasp_file=g["grasp_file"],
+        load_grasps=True,
         grasp_id=2,
         hand_start_position=(0.1, 0.11485 * 2.3, 0),
         hand_start_orientation=(0, 0, 0),

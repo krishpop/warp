@@ -4,6 +4,7 @@ import torch
 import numpy as np
 import random
 import warp as wp
+from warp.envs.utils.torch_utils import unscale_np
 import warp.sim
 import matplotlib.pyplot as plt
 
@@ -255,12 +256,25 @@ def parse_grasp_data(grasp):
     return dict(xform=np.concatenate([pose_t, pose_r]), joint_pos=qpos, hand_type=hand_type)
 
 
-def load_grasps_npy(path, defaults={}) -> List[GraspParams]:
+def load_grasps_npy(object_type: ObjectType, object_id: Optional[int], hand_type: HandType,
+                    grasp_params=None) -> List[GraspParams]:
+    if object_id:
+        object_filename = f"{object_type.name.lower().capitalize()}_{object_id}_merged.npy"
+    else:
+        object_filename = f"{object_type.name.lower()}_merged.npy"
+    path = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)),
+            "graspdata",
+            hand_type.name.lower(),
+            object_filename)
+
     data = np.load(path, allow_pickle=True)
 
     params = []
     for grasp in data:
-        gparams = defaults.copy()
+        gparams = {}
+        if grasp_params:
+            gparams = grasp_params
         gparams.update(parse_grasp_data(grasp))
         params.append(GraspParams(**gparams))
     return params
@@ -323,16 +337,19 @@ def profile(env):
 
 def run_env(env, pi=None, num_steps=600, num_rollouts=1, logdir=None):
     if pi is None:
+        period = 50 #150
         joint_target_indices = env.env_joint_target_indices
 
-        upper = env.model.joint_limit_upper.numpy().reshape(env.num_envs, -1)[0, joint_target_indices]
+        lower, upper = env.action_bounds
+        lower, upper = lower.cpu().numpy(), upper.cpu().numpy()
         joint_start = env.start_joint_q.cpu().numpy()[:, joint_target_indices]
+        joint_start = unscale_np(joint_start, lower, upper)
 
         def pi(obs, t):
             del obs
-            act = np.sin(np.ones((env.num_envs, env.num_acts)) * t / 150) * 0.9  # [-1, 1]
+            act = np.sin(np.ones((env.num_envs, env.num_acts)) * t / period) * 0.9  # [-1, 1]
             # joint_q_targets = act * (upper - lower) / 2 + (upper - lower) / 2
-            i = (t // 300) % len(joint_target_indices)
+            i = (t // (period*2)) % len(joint_target_indices)
             action = joint_start.copy()
             action[:, i] = act.reshape(1, -1).repeat(env.num_envs, axis=0)[:, i]
             return torch.tensor(action, device=str(env.device))

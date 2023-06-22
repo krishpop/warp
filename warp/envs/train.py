@@ -88,7 +88,6 @@ def train(cfg: DictConfig):
     try:
         cfg_full = OmegaConf.to_container(cfg, resolve=True)
         cfg_yaml = yaml.dump(cfg_full["alg"])
-
         resume_model = cfg.resume_model
         if os.path.exists("exp_config.yaml"):
             loaded_config = yaml.load(open("exp_config.yaml", "r"))
@@ -158,7 +157,6 @@ def train(cfg: DictConfig):
                 os.makedirs(log_dir, exist_ok=True)
                 # save config
                 yaml.dump(cfg_train, open(os.path.join(log_dir, "cfg.yaml"), "w"))
-
             # register envs
             register_envs(cfg_train, env_name)
 

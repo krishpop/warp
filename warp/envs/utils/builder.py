@@ -555,7 +555,7 @@ class OperableObjectModel(ObjectModel):
             shape_mu=1.0,
             limit_ke=1.0e4,
             limit_kd=1.0e1,
-            enable_self_collisions=False,
+            enable_self_collisions=True,
             parse_visuals_as_colliders=False,
             collapse_fixed_joints=True,
             continuous_joint_type=self.continuous_joint_type,
@@ -626,13 +626,15 @@ SprayBottleObject = operable_object_generator(
 
 PillBottleObject = operable_object_generator(
     ObjectType.PILL_BOTTLE,
-    base_pos=(0.0, 0.18, 0.0),
+    # base_pos=(0.0, 0.18, 0.0),
+    use_mesh_extents=True,
     base_ori=(-np.pi / 2, 0.0, 0.0),
-    scale=0.2,
+    scale=0.14,
     stiffness=[11, 11],
     damping=[0.0, 0.0],
     # base_ori=(np.pi / 17, 0.0, 0.0),
     model_path="pill_bottle/mobility.urdf",
+    continuous_joint_type="revolute",
 )
 
 bottle_ids = ("3558", "3574", "3616")
@@ -798,7 +800,7 @@ OBJ_NUM_JOINTS[ObjectType.OCTPRISM] = 7
 OBJ_MODELS[ObjectType.SPRAY_BOTTLE] = SprayBottleObject
 OBJ_NUM_JOINTS[ObjectType.SPRAY_BOTTLE] = 1
 OBJ_MODELS[ObjectType.PILL_BOTTLE] = PillBottleObject
-OBJ_NUM_JOINTS[ObjectType.PILL_BOTTLE] = 1
+OBJ_NUM_JOINTS[ObjectType.PILL_BOTTLE] = 2
 OBJ_MODELS[ObjectType.BOTTLE] = BottleObjects
 OBJ_NUM_JOINTS[ObjectType.BOTTLE] = 1
 OBJ_MODELS[ObjectType.DISPENSER] = DispenserObjects

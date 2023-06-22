@@ -61,7 +61,7 @@ class ReposeTask(HandObjectTask):
             hand_type=hand_type,
             hand_start_position=hand_start_position,
             hand_start_orientation=hand_start_orientation,
-            grasp_file="",
+            load_grasps=False,
             grasp_id=None,
             use_autograd=use_autograd,
             use_graph_capture=use_graph_capture,
