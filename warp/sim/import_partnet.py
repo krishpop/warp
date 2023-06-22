@@ -43,7 +43,6 @@ def parse_partnet_urdf(
     collapse_fixed_joints=False,
     continuous_joint_type="screw",
 ):
-
     file = ET.parse(urdf_filename)
     root = file.getroot()
 
@@ -58,10 +57,8 @@ def parse_partnet_urdf(
         return wp.transform(xyz, wp.quat_rpy(*rpy))
 
     def parse_shapes(link, collisions, density, incoming_xform=None):
-
         # add geometry
         for collision in collisions:
-
             geo = collision.find("geometry")
             if geo is None:
                 continue
@@ -199,7 +196,6 @@ def parse_partnet_urdf(
 
     # add links
     for i, urdf_link in enumerate(root.findall("link")):
-
         if parse_visuals_as_colliders:
             colliders = urdf_link.findall("visual")
         else:
