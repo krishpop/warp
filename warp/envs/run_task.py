@@ -41,19 +41,20 @@ def run(cfg: DictConfig):
     print("Run Params:")
     print(cfg_yaml)
 
-    # instantiate the environment
-    if cfg.task.name.lower() == "repose_task":
-        env = instantiate(cfg.task.env, _convert_="partial")
-    elif cfg.task.name.lower() == "hand_object_task":
-        env = instantiate(cfg.task.env, _convert_="partial")
-    elif cfg.task.name.lower() == "object_task":
-        env = instantiate(cfg.task.env, _convert_="partial")
-
-    if env.opengl_render_settings.get('headless', False):
-        env = Monitor(env, "outputs/videos/{}".format(get_time_stamp()))
-
     # get a policy
     if cfg.alg.name in ["default", "random", "zero", "sine"]:
+
+        # instantiate the environment
+        if cfg.task.name.lower() == "repose_task":
+            env = instantiate(cfg.task.env, _convert_="partial")
+        elif cfg.task.name.lower() == "hand_object_task":
+            env = instantiate(cfg.task.env, _convert_="partial")
+        elif cfg.task.name.lower() == "object_task":
+            env = instantiate(cfg.task.env, _convert_="partial")
+
+        if env.opengl_render_settings.get('headless', False):
+            env = Monitor(env, "outputs/videos/{}".format(get_time_stamp()))
+
         policy = get_policy(cfg)
         run_env(env, policy, cfg_full["num_steps"], cfg_full["num_rollouts"])
     elif cfg.alg.name in ["ppo", "sac"]:

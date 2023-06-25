@@ -62,7 +62,7 @@ task:
         - 64
     lr: 3e-4
     lr_schedule: adaptive
-    score_to_win: 
+    score_to_win: 60000
 
   shac:
     lambda: 0.95

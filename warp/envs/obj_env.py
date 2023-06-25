@@ -26,7 +26,7 @@ class ObjectTask(WarpEnv):
     obs_keys = ["object_joint_pos", "object_joint_vel", "goal_joint_pos"]
     opengl_render_settings = {"draw_axis": True}
     self_reset = True
-    show_joints = True
+    show_joints = False
 
     def __init__(
         self,
@@ -295,6 +295,7 @@ class ObjectTask(WarpEnv):
         num_joints_before = len(builder.joint_type)
         num_joint_axis_before = builder.joint_axis_count
         self.object_model.create_articulation(builder)
+
         self.num_joint_q += builder.joint_axis_count - num_joint_axis_before
         self.num_joint_qd += builder.joint_axis_count - num_joint_axis_before
 

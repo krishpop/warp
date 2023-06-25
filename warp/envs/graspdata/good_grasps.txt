@@ -14,6 +14,7 @@
         {"object_code": "Bottle_3616_merged", "grasp_ids": [], "comments": "for some reason the grasps are always intersecting the object"},
         {"object_code": "Dispenser_103405_merged", "grasp_ids": [36, 60, 146, 167, 329], "comments": "for some reason the grasps are always intersecting the object"},
         {"object_code": "Dispenser_101490_merged", "grasp_ids": [8, 15, 101, 119, 153], "comments": "The hand tends to just go through the trigger area on these models, I tried to pick grasps where that didn't happen"},
+        {"object_code": "soap_dispenser_merged", "grasp_ids": [408], "comments": "fingers not outstretched, scale 0.11"}
         {"object_code": "Eyeglasses_102586_merged", "grasp_ids": [9, 46, 20, 57, 127], "comments": ""},
         {"object_code": "Eyeglasses_103189_merged", "grasp_ids": [22, 36, 68, 79, 49], "comments": ""},
         {"object_code": "Pliers_100182_merged", "grasp_ids": [1, 15, 18, 40, 116], "comments": ""},

@@ -23,6 +23,7 @@ env:
   hand_type: ${hand:allegro}
   action_type: ${action:position}
   object_type: ${object:spray_bottle}
+  object_id: 0
   stochastic_init: true
   use_autograd: true
   use_graph_capture: true

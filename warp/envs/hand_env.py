@@ -116,9 +116,9 @@ class HandObjectTask(ObjectTask):
         )
 
         print("gravity", self.model.gravity, self.gravity)
+
         self.hand_target_ke = self.model.joint_target_ke
         self.hand_target_kd = self.model.joint_target_kd
-
         self.simulate_params["ag_return_body"] = True
 
     @property
@@ -158,7 +158,9 @@ class HandObjectTask(ObjectTask):
 
         self.body_name_to_idx = {k: np.array(v) for k, v in self.body_name_to_idx.items()}
         self.joint_name_to_idx = {k: np.array(v) for k, v in self.joint_name_to_idx.items()}
-        self.sample_grasps(None, self.start_joint_q, self.start_joint_qd)
+
+        self.start_shape_transform = self.model.shape_transform.numpy()
+        self.start_joint_X_p = self.model.joint_X_p.numpy()
 
     def assign_actions(self, actions):
         # overrides ObjectTask.assign_actions
@@ -261,7 +263,7 @@ class HandObjectTask(ObjectTask):
             # apply transforms to the shape bodies where parent body is -1 (i.e. world frame)
             print("assigning shape_transform to hand base xform")
             shape_body = self.model.shape_body.numpy()
-            shape_transform = self.model.shape_transform.numpy()
+            shape_transform = self.start_shape_transform.copy()
             grasp_idx = 0
 
             for s, b in enumerate(shape_body):
@@ -278,7 +280,7 @@ class HandObjectTask(ObjectTask):
 
             # apply transform to the joint_X_p where parent body is -1 (i.e. world frame)
             print("assigning joint_X_p to hand base xform")
-            joint_X_p = self.model.joint_X_p.numpy()
+            joint_X_p = self.start_joint_X_p.copy()
             joint_parent = self.model.joint_parent.numpy()
             grasp_idx = 0
             for i in range(len(joint_X_p)):
@@ -317,6 +319,7 @@ class HandObjectTask(ObjectTask):
             )
         else:
             pos, ori = grasp_xform[:, :3], grasp_xform[:, 3:]
+
         hand_init_xform = torch.cat([pos, ori], dim=-1)
         self.hand_init_q = hand_init_q = to_torch(
             np.stack([sampled_grasp.joint_pos for sampled_grasp in sampled_grasps], axis=0), device=self.device
@@ -324,7 +327,7 @@ class HandObjectTask(ObjectTask):
         grasp_joint_q[env_ids] = hand_init_q
 
         joint_q[:, self.env_joint_target_indices] = grasp_joint_q
-        joint_q = self.apply_grasps(joint_q, hand_init_xform)
+        # joint_q = self.apply_grasps(joint_q, hand_init_xform)
         return joint_q, joint_qd
 
     def get_stochastic_init(self, env_ids, joint_q, joint_qd):
@@ -337,10 +340,40 @@ class HandObjectTask(ObjectTask):
 
         return joint_q, joint_qd
 
-    def reset(self, env_ids=None, force_reset=True):
-        if self.grasps is not None and self.stochastic_init:
-            self.sample_grasps(env_ids)
-        return super().reset(env_ids=env_ids, force_reset=force_reset)
+    def remesh(self, builder):
+        remeshed_path = os.path.join(
+                os.path.split(__file__)[0], "assets", "remeshed", self.hand_type.name
+                )
+        if self.object_type:
+            remeshed_path += "_" + self.object_type.name
+            if self.object_id:
+                remeshed_path += "_" + str(self.object_id)
+        remeshed_path += ".npz"
+        if os.path.exists(remeshed_path):
+            mesh_data = np.load(remeshed_path, allow_pickle=True)
+        else:
+            mesh_data = None
+
+        mesh_obj = {}
+        for i, mesh in enumerate(builder.shape_geo_src):
+            if isinstance(mesh, wp.sim.Mesh):
+                if mesh_data is None or hash(mesh) != mesh_data.get(f"hash-{i}"):
+                    # force remesh if any mesh hash does not match
+                    mesh_data = None 
+                    mesh_obj[f"hash-{i}"] = hash(mesh)
+                    mesh.remesh(visualize=False)
+                    mesh_obj[f"vertices-{i}"] = mesh.vertices
+                    mesh_obj[f"indices-{i}"] = mesh.indices
+                    mesh_obj[f"mass-{i}"] = mesh.mass
+                    mesh_obj[f"com-{i}"] = mesh.com
+                    mesh_obj[f"I-{i}"] = mesh.I
+                else:
+                    mesh.vertices, mesh.indices = mesh_data[f'vertices-{i}'], mesh_data[f'indices-{i}']
+                    mesh.mass, mesh.com, mesh.I = mesh_data[f'mass-{i}'], mesh_data[f'com-{i}'], mesh_data[f'I-{i}']
+
+        if mesh_data is None:
+            print("saving remeshed data to ", remeshed_path)
+            np.savez(remeshed_path, **mesh_obj)
 
     def create_articulation(self, builder):
         if self.hand_type == HandType.ALLEGRO:
@@ -349,7 +382,7 @@ class HandObjectTask(ObjectTask):
                 self.action_type,
                 stiffness=self.hand_stiffness,
                 damping=self.hand_damping,
-                base_joint=None,  # self.base_joint,
+                base_joint=self.base_joint,
                 hand_start_position=self.hand_start_position,
                 hand_start_orientation=self.hand_start_orientation,
                 collapse_joints=self.collapse_joints,
@@ -401,6 +434,13 @@ class HandObjectTask(ObjectTask):
             # self.object_num_joint_axis = object_articulation_builder.joint_axis_count
             # self.object_joint_start = self.hand_num_joint_axis
             # self.asset_builders.insert(0, object_articulation_builder)
+
+        try:
+            self.remesh(builder)
+        except ImportError as e:
+            print("Skipped remeshing due to ImportError:", e)
+            print("Likely due to missing wildmeshing dependency")
+            pass
 
         self.env_num_shapes = builder.shape_count
         self.env_joint_count = builder.joint_count

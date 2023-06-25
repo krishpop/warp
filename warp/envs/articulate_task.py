@@ -4,7 +4,7 @@ from typing import Tuple, Optional
 from .hand_env import HandObjectTask
 from .environment import RenderMode
 from .utils import torch_utils as tu
-from .utils.rewards import l1_dist
+from .utils.rewards import l1_dist, action_penalty
 from .utils.common import ActionType, HandType, ObjectType, run_env
 
 
@@ -52,6 +52,11 @@ class ArticulateTask(HandObjectTask):
         goal_joint_pos=None,
         headless=False
     ):
+        if reward_params is None:
+            reward_params = {
+                    "action_penalty": (action_penalty, ["action"], 1e-3),
+                    "object_joint_pos_err_penalty": (l1_dist, ["object_joint_pos_err"], 1e-3),
+                    }
         reward_params_dict = {k: v for k, v in reward_params.items() if k != "reach_bonus"}
         self.reach_bonus = reward_params.get(
             "reach_bonus", (lambda x: torch.zeros_like(x), ("object_joint_pos_err",), 100.0)

@@ -591,7 +591,12 @@ def get_object_xform(object_type, object_id=None, **obj_kwargs):
         model = model.get(object_id)(**obj_kwargs)
     else:
         model = model(**obj_kwargs)
-    return model.base_pos, (0, 0, 0, 1)
+    base_ori = (0, 0, 0, 1)
+
+    if 'base_joint' not in obj_kwargs:
+        base_ori = model.base_ori
+
+    return model.base_pos, base_ori
 
 
 StaplerObject = object_generator(ObjectType.TCDM_STAPLER, base_pos=(0.0, 0.01756801, 0.0), scale=1.3)
@@ -675,7 +680,7 @@ SoapDispenserObject = operable_object_generator(
     ObjectType.SOAP_DISPENSER,
     base_pos=(0.0, 0.01756801, 0.0),
     base_ori=(-0.5 * np.pi, 0.0, 0.0),
-    scale=0.4,
+    scale=0.12,
     use_mesh_extents=True,
     # base_ori=(np.pi / 17, 0.0, 0.0),
     stiffness=[100, 100],
