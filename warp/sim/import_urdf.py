@@ -233,14 +233,14 @@ def parse_urdf(
             # set the mass to something nonzero to ensure the body is dynamic
             m = static_link_mass
             # cube with side length 0.5
-            I_m = np.eye(3)* m / 12.0 * (0.5 * scale)**2 * 2.0
+            I_m = np.eye(3) * m / 12.0 * (0.5 * scale)**2 * 2.0
             builder.body_mass[link] = m
             builder.body_inv_mass[link] = 1.0 / m
             builder.body_inertia[link] = I_m
             builder.body_inv_inertia[link] = np.linalg.inv(I_m)
-    
+
     end_shape_count = len(builder.shape_geo_type)
-    
+
     # find joints per body
     body_children = {name: [] for name in link_index.keys()}
     # mapping from parent, child link names to joint
@@ -278,7 +278,7 @@ def parse_urdf(
             joint_data['mimic_joint'] = mimic.get('joint')
             joint_data['mimic_multiplier'] = float(mimic.get('multiplier') or '1')
             joint_data['mimic_offset'] = float(mimic.get('offset') or '0')
-        
+
         parent_child_joint[(parent, child)] = joint_data
         joints.append(joint_data)
 
@@ -439,6 +439,6 @@ def parse_urdf(
         for i in range(start_shape_count, end_shape_count):
             for j in range(i + 1, end_shape_count):
                 builder.shape_collision_filter_pairs.add((i, j))
-                
+
     if collapse_fixed_joints:
         builder.collapse_fixed_joints()
