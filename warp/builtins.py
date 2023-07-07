@@ -2757,24 +2757,12 @@ add_builtin(
 )
 
 # bitwise operators
-add_builtin(
-    "logical_and", input_types={"x": Int, "y": Int}, value_func=sametype_value_func(Int), doc="", group="Operators"
-)
-add_builtin(
-    "logical_or", input_types={"x": Int, "y": Int}, value_func=sametype_value_func(Int), doc="", group="Operators"
-)
-add_builtin(
-    "logical_xor", input_types={"x": Int, "y": Int}, value_func=sametype_value_func(Int), doc="", group="Operators"
-)
-add_builtin(
-    "lshift", input_types={"x": Int, "y": Int}, value_func=sametype_value_func(Int), doc="", group="Operators"
-)
-add_builtin(
-    "rshift", input_types={"x": Int, "y": Int}, value_func=sametype_value_func(Int), doc="", group="Operators"
-)
-add_builtin(
-    "invert", input_types={"x": Int}, value_func=sametype_value_func(Int), doc="", group="Operators"
-)
+add_builtin("bit_and", input_types={"x": Int, "y": Int}, value_func=sametype_value_func(Int), doc="", group="Operators")
+add_builtin("bit_or", input_types={"x": Int, "y": Int}, value_func=sametype_value_func(Int), doc="", group="Operators")
+add_builtin("bit_xor", input_types={"x": Int, "y": Int}, value_func=sametype_value_func(Int), doc="", group="Operators")
+add_builtin("lshift", input_types={"x": Int, "y": Int}, value_func=sametype_value_func(Int), doc="", group="Operators")
+add_builtin("rshift", input_types={"x": Int, "y": Int}, value_func=sametype_value_func(Int), doc="", group="Operators")
+add_builtin("invert", input_types={"x": Int}, value_func=sametype_value_func(Int), doc="", group="Operators")
 
 
 def scalar_mul_value_func(default):
