@@ -2409,16 +2409,12 @@ class XPBDIntegrator:
                             model.rigid_active_contact_point1_prev = wp.clone(rigid_active_contact_point1)
                             if self.rigid_contact_con_weighting:
                                 model.rigid_contact_inv_weight_prev = wp.clone(rigid_contact_inv_weight)
-                            else:
-                                model.rigid_contact_inv_weight_prev = None
                         else:
                             model.rigid_active_contact_distance_prev.assign(rigid_active_contact_distance)
                             model.rigid_active_contact_point0_prev.assign(rigid_active_contact_point0)
                             model.rigid_active_contact_point1_prev.assign(rigid_active_contact_point1)
                             if self.rigid_contact_con_weighting:
                                 model.rigid_contact_inv_weight_prev.assign(rigid_contact_inv_weight)
-                            else:
-                                model.rigid_contact_inv_weight_prev = None
 
                     if requires_grad:
                         model.rigid_active_contact_distance = rigid_active_contact_distance
