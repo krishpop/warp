@@ -550,8 +550,8 @@ def parse_usd(
         elif type_name in shape_types:
             # parse shapes
             shape_params = dict(
-                ke=default_ke, kd=default_kd, kf=default_kf, mu=default_mu,
-                restitution=default_restitution, has_ground_collision=False)
+                ke=default_ke, kd=default_kd, kf=default_kf, mu=default_mu, restitution=default_restitution
+            )
             if material is not None:
                 if "restitution" in material:
                     shape_params["restitution"] = material["restitution"]

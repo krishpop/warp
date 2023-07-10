@@ -618,16 +618,6 @@ class Model:
             s.body_qd.requires_grad = requires_grad
             s.body_f.requires_grad = requires_grad
 
-        if self.joint_count:
-            s.joint_q = wp.clone(self.joint_q)
-            s.joint_qd = wp.clone(self.joint_qd)
-            s.joint_qdd = wp.zeros_like(self.joint_qd)
-            s.joint_act = wp.clone(self.joint_act)
-
-            s.joint_q.requires_grad = requires_grad
-            s.joint_qd.requires_grad = requires_grad
-            s.joint_act.requires_grad = requires_grad
-
         return s
 
     def allocate_soft_contacts(self, count, requires_grad=False):
@@ -1255,6 +1245,7 @@ class ModelBuilder:
             "joint_target_kd",
             "joint_linear_compliance",
             "joint_angular_compliance",
+            "shape_transform",
             "shape_geo_type",
             "shape_geo_scale",
             "shape_geo_src",

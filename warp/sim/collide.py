@@ -660,7 +660,9 @@ def count_contact_points(
     elif actual_type_a == wp.sim.GEO_PLANE:
         return  # no plane-plane contacts
     else:
-        wp.printf("count_contact_points: unsupported geometry type combination %d and %d\n", actual_type_a, actual_type_b)
+        print("count_contact_points: unsupported geometry type")
+        print(actual_type_a)
+        print(actual_type_b)
 
     wp.atomic_add(contact_count, 0, num_contacts)
 
@@ -944,7 +946,7 @@ def handle_contact_pairs(
             face_u = float(0.0)
             face_v = float(0.0)
             sign = float(0.0)
-            max_dist = (thickness_a + thickness_b + rigid_contact_margin) / geo_scale_b[0]
+            max_dist = (thickness + rigid_contact_margin) / geo_scale_b[0]
             res = wp.mesh_query_point_sign_normal(
                 mesh_b, wp.cw_div(query_b_local, geo_scale_b), max_dist, sign, face_index, face_u, face_v
             )
@@ -1102,7 +1104,7 @@ def handle_contact_pairs(
         edge0_b = wp.transform_point(X_sw_b, edge0_world)
         edge1_b = wp.transform_point(X_sw_b, edge1_world)
         max_iter = edge_sdf_iter
-        max_dist = (rigid_contact_margin + thickness_a + thickness_b) / min_scale_b
+        max_dist = (rigid_contact_margin + thickness) / min_scale_b
         mesh_b = geo.source[shape_b]
         u = closest_edge_coordinate_mesh(
             mesh_b, wp.cw_div(edge0_b, geo_scale_b), wp.cw_div(edge1_b, geo_scale_b), max_iter, max_dist
@@ -1210,7 +1212,7 @@ def handle_contact_pairs(
         p_a_world = wp.transform_point(X_ws_a, query_a)
         query_b_local = wp.transform_point(X_sw_b, p_a_world)
         mesh_b = geo.source[shape_b]
-        max_dist = (rigid_contact_margin + thickness_a + thickness_b) / min_scale_b
+        max_dist = (rigid_contact_margin + thickness) / min_scale_b
         face_index = int(0)
         face_u = float(0.0)
         face_v = float(0.0)
@@ -1246,7 +1248,7 @@ def handle_contact_pairs(
         face_v = float(0.0)
         sign = float(0.0)
         min_scale = min(min_scale_a, min_scale_b)
-        max_dist = (rigid_contact_margin + thickness_a + thickness_b) / min_scale
+        max_dist = (rigid_contact_margin + thickness) / min_scale
 
         res = wp.mesh_query_point_sign_normal(
             mesh_b, wp.cw_div(query_b_local, geo_scale_b), max_dist, sign, face_index, face_u, face_v
@@ -1283,15 +1285,14 @@ def handle_contact_pairs(
             and wp.abs(query_b[2]) < geo_scale_b[1]
         ):
             normal = wp.transform_vector(X_ws_b, wp.vec3(0.0, 1.0, 0.0))
-            distance = wp.dot(diff, normal)
         else:
             normal = wp.normalize(diff)
-            distance = wp.dot(diff, normal)
-            # ignore extreme penetrations (e.g. when mesh is below the plane)
-            if distance < -rigid_contact_margin:
-                contact_shape0[tid] = -1
-                contact_shape1[tid] = -1
-                return
+        distance = wp.dot(diff, normal)
+        # ignore extreme penetrations (e.g. when mesh is below the plane)
+        if distance < -rigid_contact_margin:
+            contact_shape0[tid] = -1
+            contact_shape1[tid] = -1
+            return
 
     else:
         print("Unsupported geometry pair in collision handling")
@@ -1430,11 +1431,5 @@ def collide(model, state, edge_sdf_iter: int = 10):
                 model.rigid_contact_normal,
                 model.rigid_contact_thickness,
             ],
-            device=model.device)
-        
-        # print("shapes:", model.rigid_contact_shape0.numpy(), model.rigid_contact_shape1.numpy())
-        
-        # print("rigid_contact_count:", model.rigid_contact_count.numpy()[0])
-        # print("rigid_contact_point0:", model.rigid_contact_point0.numpy())
-        # print("rigid_contact_point1:", model.rigid_contact_point1.numpy())
-        # print("rigid_contact_normal:", model.rigid_contact_normal.numpy())
+            device=model.device,
+        )
