@@ -10,7 +10,6 @@ from typing import Callable, List, Literal, Tuple
 import warp as wp
 from warp.context import Devicelike
 import numpy as np
-from .test_base import assert_np_equal
 
 
 class FontColors:
@@ -24,6 +23,23 @@ class FontColors:
     ENDC = '\033[0m'
     BOLD = '\033[1m'
     UNDERLINE = '\033[4m'
+
+
+def assert_np_equal(result, expect, tol=0.0):
+    a = result.flatten()
+    b = expect.flatten()
+
+    if tol == 0.0:
+        if (a == b).all() == False:
+            raise AssertionError(f"Unexpected result, got: {a} expected: {b}")
+
+    else:
+        delta = a - b
+        err = np.max(np.abs(delta))
+        if err > tol:
+            raise AssertionError(
+                f"Maximum expected error exceeds tolerance got: {a}, expected: {b}, with err: {err} > {tol}"
+            )
 
 
 def check_gradient(func: Callable, func_name: str, inputs: List, device: Devicelike, eps: float = 1e-4, tol: float = 1e-2):
@@ -401,6 +417,7 @@ def plot_matrix(ax, mat, vmin, vmax, input_ticks=None, input_ticks_labels=None, 
                 ax.set_yticklabels([f"{label} ({tick})" for label, tick in zip(output_ticks_labels, output_ticks)])
             else:
                 ax.set_yticklabels(output_ticks_labels)
+    ax.grid(True)
 
 
 def plot_jacobian_comparison(
