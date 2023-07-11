@@ -1245,7 +1245,6 @@ class ModelBuilder:
             "joint_target_kd",
             "joint_linear_compliance",
             "joint_angular_compliance",
-            "shape_transform",
             "shape_geo_type",
             "shape_geo_scale",
             "shape_geo_src",
