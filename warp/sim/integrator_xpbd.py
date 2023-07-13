@@ -1232,12 +1232,8 @@ def solve_body_joints(
             upper = axis_limits_upper[dim]
             if e < lower:
                 err = e - lower
-                compliance = linear_compliance
-                damping = 0.0
             elif e > upper:
                 err = e - upper
-                compliance = linear_compliance
-                damping = 0.0
             else:
                 target = axis_target[dim]
                 if mode == JOINT_MODE_TARGET_POSITION:
@@ -1438,12 +1434,8 @@ def solve_body_joints(
             upper = axis_limits_upper[dim]
             if e < lower:
                 err = e - lower
-                compliance = angular_compliance
-                damping = 0.0
             elif e > upper:
                 err = e - upper
-                compliance = angular_compliance
-                damping = 0.0
             else:
                 target = axis_target[dim]
                 if mode == JOINT_MODE_TARGET_POSITION:
