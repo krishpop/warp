@@ -63,7 +63,7 @@ class RigidBodySimulator:
     episode_duration = 1.5      # seconds
     episode_frames = int(episode_duration / frame_dt)
 
-    sim_substeps = 30
+    sim_substeps = 3
     sim_dt = frame_dt / sim_substeps
     sim_steps = int(episode_duration / sim_dt)
 
@@ -210,6 +210,8 @@ class RigidBodySimulator:
         # quat = wp.quat_from_axis_angle(axis, -math.pi*0.5)
         # builder.joint_X_p = [wp.transform((1.0, 2.0, 3.0), quat)]
 
+        builder.collapse_fixed_joints()
+
         # finalize model
         self.model = builder.finalize(device, requires_grad=True)
 
@@ -245,8 +247,8 @@ class RigidBodySimulator:
         self.model.body_qd.assign(state.body_qd)
 
         solve_iterations = 1
-        # self.integrator = wp.sim.XPBDIntegrator(solve_iterations, rigid_contact_con_weighting=True)
-        self.integrator = wp.sim.SemiImplicitIntegrator()
+        self.integrator = wp.sim.XPBDIntegrator(solve_iterations, rigid_contact_con_weighting=True)
+        # self.integrator = wp.sim.SemiImplicitIntegrator()
 
         # -----------------------
         # set up Usd renderer
@@ -460,6 +462,15 @@ class RigidBodySimulator:
         tape = wp.Tape()
         with tape:
             self.warp_step_maximal(q, qd, tau, q_next, qd_next, joint_q, joint_qd, requires_grad=True)
+        
+
+        check_backward_pass(
+            tape,
+            visualize_graph=False,
+            track_inputs=[q, qd, tau],
+            track_outputs=[q_next, qd_next, joint_q, joint_qd],
+            track_input_names=["q", "qd", "tau"],
+            track_output_names=["q_next", "qd_next", "joint_q", "joint_qd"],)
 
         num_in = self.num_bodies * (7 + 6) + self.dof_qd
         num_out = self.num_bodies * (7 + 6) + self.dof_q + self.dof_qd

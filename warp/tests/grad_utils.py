@@ -704,16 +704,18 @@ def check_tape_jacobians(tape: wp.Tape, inputs: list, outputs: list, input_names
     s = s.center(120, '#')
     print(FontColors.HEADER + s + FontColors.ENDC)
 
-    plot_jacobian_comparison(
-        jac_ad, jac_fd, "Tape Jacobian",
-        input_ticks, input_ticks_labels,
-        output_ticks, output_ticks_labels)
-
-    return compare_jacobians(jac_ad, jac_fd, inputs, outputs, ad_in=flat_ins, ad_out=flat_outs,
+    result = compare_jacobians(jac_ad, jac_fd, inputs, outputs, ad_in=flat_ins, ad_out=flat_outs,
                              jacobian_name="Tape", input_names=input_names, output_names=output_names,
                              atol=atol, rtol=rtol,
                              max_outputs_per_var=max_outputs_per_var, max_fd_dims_per_var=max_fd_dims_per_var,
                              tabulate_errors=tabulate_errors, plot_jac_on_fail=plot_jac_on_fail)
+
+    plot_jacobian_comparison(
+        jac_ad, jac_fd, "Tape Jacobian",
+        input_ticks, input_ticks_labels,
+        output_ticks, output_ticks_labels)
+    
+    return result
 
 
 def make_struct_of_arrays(xs):
