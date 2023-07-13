@@ -12,6 +12,10 @@ from warp.context import Devicelike
 import numpy as np
 
 
+# whether quaternions and transforms should be normalized before computing the finite difference Jacobian
+NORMALIZE_FD_INPUTS = False
+
+
 class FontColors:
     # https://stackoverflow.com/a/287944
     HEADER = '\033[95m'
@@ -165,12 +169,14 @@ def normalize_quats(xs: wp.array(dtype=wp.quat)):
 
 def normalize_inputs(xs: wp.array):
     """
-    Normalizes quaternion inputs to ensure the finite difference Jacobian makes sense.
+    Normalizes quaternion and transform inputs to avoid numerical issues when computing finite differences.
+    Note: this operation is only performed if NORMALIZE_FD_INPUTS is set to True.
     """
-    if xs.dtype == wp.transform:
-        wp.launch(normalize_transforms, dim=len(xs), inputs=[xs], device=xs.device)
-    elif xs.dtype == wp.quat:
-        wp.launch(normalize_quats, dim=len(xs), inputs=[xs], device=xs.device)
+    if NORMALIZE_FD_INPUTS:
+        if xs.dtype == wp.transform:
+            wp.launch(normalize_transforms, dim=len(xs), inputs=[xs], device=xs.device)
+        elif xs.dtype == wp.quat:
+            wp.launch(normalize_quats, dim=len(xs), inputs=[xs], device=xs.device)
     return xs
 
 
@@ -354,39 +360,51 @@ def kernel_jacobian_fd(kernel: wp.Kernel, dim: int, inputs: List[wp.array], outp
                 if is_differentiable(var):
                     np_in = var.numpy().copy()
                     np_in_original = np_in.copy()
+                    np_in_original_flat = np_in_original.flatten()
                     in_shape = np_in.shape
                     np_in = np_in.flatten()
+                    # choose epsilon based on input magnitude
+                    eps2 = max(eps, eps * np.abs(np_in_original_flat).max())
+                    # limit the number of input dimensions to evaluate
                     limit = min(max_fd_dims_per_var, len(np_in)) if max_fd_dims_per_var > 0 else len(np_in)
                     for j in range(limit):
-                        np_in[j] += eps
+                        x1 = np_in_original_flat[j] + eps2
+                        np_in[j] = x1
                         setattr(diff_inputs[input_id], varname, normalize_inputs(
                             wp.array(np_in.reshape(in_shape), dtype=var.dtype, device=var.device)))
                         y1 = f(diff_inputs)
-                        np_in[j] -= 2 * eps
+                        x2 = np_in_original_flat[j] - eps2
+                        np_in[j] = x2
                         setattr(diff_inputs[input_id], varname, normalize_inputs(
                             wp.array(np_in.reshape(in_shape), dtype=var.dtype, device=var.device)))
                         y2 = f(diff_inputs)
                         setattr(diff_inputs[input_id], varname, wp.array(
                             np_in_original, dtype=var.dtype, device=var.device))
-                        jac_fd[:, col_id] = (y1 - y2) / (2 * eps)
+                        jac_fd[:, col_id] = (y1 - y2) / (x1 - x2)
                         col_id += 1
         elif is_differentiable(input):
             np_in = input.numpy().copy()
             np_in_original = np_in.copy()
+            np_in_original_flat = np_in_original.flatten()
             in_shape = np_in.shape
             np_in = np_in.flatten()
+            # choose epsilon based on input magnitude
+            eps2 = max(eps, eps * np.abs(np_in_original_flat).max())
+            # limit the number of input dimensions to evaluate
             limit = min(max_fd_dims_per_var, len(np_in)) if max_fd_dims_per_var > 0 else len(np_in)
             for j in range(limit):
-                np_in[j] += eps
+                x1 = np_in_original_flat[j] + eps2
+                np_in[j] = x1
                 diff_inputs[input_id] = normalize_inputs(
                     wp.array(np_in.reshape(in_shape), dtype=input.dtype, device=input.device))
                 y1 = f(diff_inputs)
-                np_in[j] -= 2 * eps
+                x2 = np_in_original_flat[j] - eps2
+                np_in[j] = x2
                 diff_inputs[input_id] = normalize_inputs(
                     wp.array(np_in.reshape(in_shape), dtype=input.dtype, device=input.device))
                 y2 = f(diff_inputs)
                 diff_inputs[input_id] = wp.array(np_in_original, dtype=input.dtype, device=input.device)
-                jac_fd[:, col_id] = (y1 - y2) / (2 * eps)
+                jac_fd[:, col_id] = (y1 - y2) / (x1 - x2)
                 col_id += 1
 
     return jac_fd
@@ -403,7 +421,8 @@ def plot_matrix(ax, mat, vmin, vmax, input_ticks=None, input_ticks_labels=None, 
     else:
         ax.imshow(mat, cmap='jet', interpolation='nearest')
     if input_ticks is not None and len(input_ticks) > 0:
-        ax.set_xticks(input_ticks)
+        # grid lines should start at the beginning of each matrix entry
+        ax.set_xticks([tick - 0.5 for tick in input_ticks])
         if input_ticks_labels is not None and len(input_ticks_labels) > 0:
             if len(input_ticks_labels) > 1:
                 ax.set_xticklabels([f"{label} ({tick})" for label, tick in zip(
@@ -411,7 +430,8 @@ def plot_matrix(ax, mat, vmin, vmax, input_ticks=None, input_ticks_labels=None, 
             else:
                 ax.set_xticklabels(input_ticks_labels)
     if output_ticks is not None and len(output_ticks) > 0:
-        ax.set_yticks(output_ticks)
+        # grid lines should start at the beginning of each matrix entry
+        ax.set_yticks([tick - 0.5 for tick in output_ticks])
         if output_ticks_labels is not None and len(output_ticks_labels) > 0:
             if len(output_ticks_labels) > 1:
                 ax.set_yticklabels([f"{label} ({tick})" for label, tick in zip(output_ticks_labels, output_ticks)])
@@ -441,8 +461,8 @@ def plot_jacobian_comparison(
     axs[2].set_title("Difference")
     if highlight_xs is not None and highlight_ys is not None:
         axs[2].scatter(highlight_xs, highlight_ys, marker='x', color='red')
-    # plt.tight_layout(h_pad=0.0, w_pad=0.0)
-    plt.tight_layout()
+    plt.tight_layout(h_pad=0.0, w_pad=0.0)
+    # plt.tight_layout()
     plt.show()
 
 
@@ -539,10 +559,12 @@ def compare_jacobians(jacobian_ad, jacobian_fd, inputs, outputs, input_names, ou
     result = np.allclose(jacobian_ad, jacobian_fd, atol=atol, rtol=rtol)
     max_abs_error, max_abs_error_idx = compute_max_abs_error(jacobian_ad, jacobian_fd)
     labels = find_variable_names(max_abs_error_idx)
-    print(f"Max absolute error: {colorize_error(max_abs_error, atol)} at {max_abs_error_idx} ({labels[0]} -> {labels[1]}): {jacobian_ad[max_abs_error_idx]} vs {jacobian_fd[max_abs_error_idx]}")
+    print(
+        f"Max absolute error: {colorize_error(max_abs_error, atol)} at {max_abs_error_idx} ({labels[0]} -> {labels[1]}): {jacobian_ad[max_abs_error_idx]} vs {jacobian_fd[max_abs_error_idx]}")
     max_rel_error, max_rel_error_idx = compute_max_rel_error(jacobian_ad, jacobian_fd)
     labels = find_variable_names(max_rel_error_idx)
-    print(f"Max relative error: {colorize_error(max_rel_error, rtol)} at {max_rel_error_idx} ({labels[0]} -> {labels[1]}): {jacobian_ad[max_rel_error_idx]} vs {jacobian_fd[max_rel_error_idx]}")
+    print(
+        f"Max relative error: {colorize_error(max_rel_error, rtol)} at {max_rel_error_idx} ({labels[0]} -> {labels[1]}): {jacobian_ad[max_rel_error_idx]} vs {jacobian_fd[max_rel_error_idx]}")
 
     # compute relative condition number
     # ||J(x)|| / (||f(x)|| / ||x||)
@@ -705,16 +727,17 @@ def check_tape_jacobians(tape: wp.Tape, inputs: list, outputs: list, input_names
     print(FontColors.HEADER + s + FontColors.ENDC)
 
     result = compare_jacobians(jac_ad, jac_fd, inputs, outputs, ad_in=flat_ins, ad_out=flat_outs,
-                             jacobian_name="Tape", input_names=input_names, output_names=output_names,
-                             atol=atol, rtol=rtol,
-                             max_outputs_per_var=max_outputs_per_var, max_fd_dims_per_var=max_fd_dims_per_var,
-                             tabulate_errors=tabulate_errors, plot_jac_on_fail=plot_jac_on_fail)
+                               jacobian_name="Tape", input_names=input_names, output_names=output_names,
+                               atol=atol, rtol=rtol,
+                               max_outputs_per_var=max_outputs_per_var, max_fd_dims_per_var=max_fd_dims_per_var,
+                               tabulate_errors=tabulate_errors, plot_jac_on_fail=plot_jac_on_fail)
 
-    plot_jacobian_comparison(
-        jac_ad, jac_fd, "Tape Jacobian",
-        input_ticks, input_ticks_labels,
-        output_ticks, output_ticks_labels)
-    
+    if not plot_jac_on_fail:
+        plot_jacobian_comparison(
+            jac_ad, jac_fd, "Tape Jacobian",
+            input_ticks, input_ticks_labels,
+            output_ticks, output_ticks_labels)
+
     return result
 
 
@@ -741,12 +764,14 @@ def check_backward_pass(
     check_kernel_jacobians=True,
     check_input_output_jacobian=True,
     plot_jac_on_fail=False,
+    jacobian_fd_eps=1e-4,
     plotting: Literal["matplotlib", "plotly", "none"] = "matplotlib",
     track_inputs=[],
     track_outputs=[],
     track_input_names=[],
     track_output_names=[],
-    ignore_kernels=set(),
+    blacklist_kernels=set(),
+    whitelist_kernels=set(),
 ):
     """
     Runs various checks of the backward pass given the tape of recorded kernel launches.
@@ -933,8 +958,10 @@ def check_backward_pass(
 
     if check_input_output_jacobian and len(track_inputs) > 0 and len(track_outputs) > 0:
         assert len(track_inputs) == len(track_input_names), "track_inputs and track_input_names must have the same length"
-        assert len(track_outputs) == len(track_output_names), "track_outputs and track_output_names must have the same length"
-        check_tape_jacobians(tape, track_inputs, track_outputs, track_input_names, track_output_names, plot_jac_on_fail=plot_jac_on_fail)
+        assert len(track_outputs) == len(
+            track_output_names), "track_outputs and track_output_names must have the same length"
+        check_tape_jacobians(tape, track_inputs, track_outputs, track_input_names,
+                             track_output_names, plot_jac_on_fail=plot_jac_on_fail)
 
     stats = {}
     kernel_names = set()
@@ -946,13 +973,15 @@ def check_backward_pass(
     hide_non_arrays = True
     for launch in tape.launches:
         kernel, dim, inputs, outputs, device = tuple(launch)
-        if check_kernel_jacobians and kernel.key not in ignore_kernels:
+        if len(whitelist_kernels) > 0 and kernel.key not in whitelist_kernels:
+            continue
+        if check_kernel_jacobians and kernel.key not in blacklist_kernels:
             msg = f"Checking Jacobian of kernel \"{kernel.key}\" (launch {kernel_launch_count[kernel.key]})..."
             print("".join(["#"] * len(msg)))
             print(FontColors.OKCYAN + msg + FontColors.ENDC)
             try:
                 result, kernel_stats = check_kernel_jacobian(
-                    kernel, dim, inputs, outputs, plot_jac_on_fail=plot_jac_on_fail, atol=1.0)
+                    kernel, dim, inputs, outputs, plot_jac_on_fail=plot_jac_on_fail, eps=jacobian_fd_eps)
                 print(result)
                 if kernel.key not in stats:
                     stats[kernel.key] = defaultdict(list)

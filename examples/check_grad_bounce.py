@@ -265,7 +265,7 @@ class Bounce:
             #     analyze_graph=False,
             #     visualize_graph=False,
             #     check_kernel_jacobians=True,
-            #     ignore_kernels=["integrate_particles"]
+            #     blacklist_kernels=["integrate_particles"]
             # )
 
             with wp.ScopedTimer("Backward", active=self.profile):
