@@ -213,9 +213,9 @@ class RigidBodySimulator:
         axis = np.array([1.0, 2.0, 3.0])
         axis /= np.linalg.norm(axis)
         quat = wp.quat_from_axis_angle(axis, -math.pi * 0.5)
-        builder.joint_X_p = [wp.transform((1.0, 2.0, 3.0), quat)]
+        builder.joint_X_p = [wp.transform((1.0, 2.0, 3.0), quat) for _ in range(builder.joint_count)]
 
-        builder.collapse_fixed_joints()
+        # builder.collapse_fixed_joints()
 
         # finalize model
         self.model = builder.finalize(device, requires_grad=True)
@@ -251,7 +251,7 @@ class RigidBodySimulator:
         self.model.body_q.assign(state.body_q)
         self.model.body_qd.assign(state.body_qd)
 
-        solve_iterations = 1
+        solve_iterations = 2
         self.integrator = wp.sim.XPBDIntegrator(solve_iterations, rigid_contact_con_weighting=True)
         # self.integrator = wp.sim.SemiImplicitIntegrator()
 
@@ -467,6 +467,11 @@ class RigidBodySimulator:
         tape = wp.Tape()
         with tape:
             self.warp_step_maximal(q, qd, tau, q_next, qd_next, joint_q, joint_qd, requires_grad=True)
+
+        def f(q, qd, tau):
+            self.warp_step_maximal(q, qd, tau, q_next, qd_next, joint_q, joint_qd, requires_grad=True)
+            return q_next, qd_next, joint_q, joint_qd
+        check_tape_safety(f, inputs=[q, qd, tau])
 
         check_backward_pass(
             tape,
