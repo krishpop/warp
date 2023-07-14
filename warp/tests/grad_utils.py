@@ -1276,7 +1276,8 @@ def check_tape_safety(function: Callable, inputs: list, tol: float = 1e-5):
             for output in outputs:
                 randomize_vars(output)
         elif isinstance(outputs, wp.array):
-            outputs.assign(np.random.rand(*outputs.shape))
+            np_array = outputs.numpy()
+            outputs.assign(np.random.rand(*np_array.shape).astype(np_array.dtype))
 
     tape = wp.Tape()
     with tape:
