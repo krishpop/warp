@@ -2783,7 +2783,7 @@ Instances: {len(self._instances)}"""
                 cap_vertices.append(vertex)
 
                 indices.extend(
-                    [center_index, i + center_index * segments + 2, (i + 1) % segments + center_index * segments + 2]
+                    [center_index, i + center_index * segments + 2, (i + 1) % segments + center_index * segments + 2][::-j]
                 )
 
         # Create the cylinder side indices
