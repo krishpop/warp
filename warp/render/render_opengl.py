@@ -2533,6 +2533,7 @@ Instances: {len(self._instances)}"""
             wp_points = wp.array(points, dtype=wp.vec3, device=self._device)
 
         if name not in self._shape_instancers:
+            np_points = points.numpy() if isinstance(points, wp.array) else points
             instancer = ShapeInstancer(self._shape_shader, self._device)
             radius_is_scalar = np.isscalar(radius)
             if radius_is_scalar:
@@ -2545,12 +2546,13 @@ Instances: {len(self._instances)}"""
                 color = colors[0]
             instancer.register_shape(vertices, indices, color, color)
             scalings = None if radius_is_scalar else np.tile(radius, (3, 1)).T
-            instancer.allocate_instances(np.array(points), colors1=colors, colors2=colors, scalings=scalings)
+            instancer.allocate_instances(np_points, colors1=colors, colors2=colors, scalings=scalings)
             self._shape_instancers[name] = instancer
         else:
             instancer = self._shape_instancers[name]
             if len(points) != instancer.num_instances:
-                instancer.allocate_instances(np.array(points))
+                np_points = points.numpy() if isinstance(points, wp.array) else points
+                instancer.allocate_instances(np_points)
 
         with instancer:
             wp.launch(
