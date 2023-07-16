@@ -1507,7 +1507,7 @@ class OpenGLRenderer:
         self._frame_speed = update_duration * 100.0
 
         # self.app.event_loop.idle()
-        self.app.platform_event_loop.step(self._frame_dt*1e-3)
+        self.app.platform_event_loop.step(self._frame_dt * 1e-3)
 
         if not self.skip_rendering:
             self._skip_frame_counter += 1
@@ -1527,7 +1527,7 @@ class OpenGLRenderer:
                     update = 1.0 / update_duration
                     self._fps_render = (1.0 - self._fps_alpha) * self._fps_render + self._fps_alpha * update
 
-            self.app.event_loop._redraw_windows(self._frame_dt*1e-3)
+            self.app.event_loop._redraw_windows(self._frame_dt * 1e-3)
 
     def _draw(self):
         from pyglet import gl
@@ -2670,7 +2670,7 @@ Instances: {len(self._instances)}"""
 
                 if reverse_winding:
                     indices.extend([first, second, first + 1, second, second + 1, first + 1])
-                else:    
+                else:
                     indices.extend([first, first + 1, second, second, first + 1, second + 1])
 
         return np.array(vertices, dtype=np.float32), np.array(indices, dtype=np.uint32)
@@ -2783,7 +2783,8 @@ Instances: {len(self._instances)}"""
                 cap_vertices.append(vertex)
 
                 indices.extend(
-                    [center_index, i + center_index * segments + 2, (i + 1) % segments + center_index * segments + 2][::-j]
+                    [center_index, i + center_index * segments + 2,
+                        (i + 1) % segments + center_index * segments + 2][::-j]
                 )
 
         # Create the cylinder side indices
