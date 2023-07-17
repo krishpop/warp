@@ -25,15 +25,18 @@ from warp.optim import Adam
 
 import matplotlib.pyplot as plt
 
+from warp.tests.grad_utils import *
+
 wp.init()
 
 
 @wp.kernel
-def loss_l2(state: wp.array(dtype=wp.transform), target_pos: wp.vec3, loss: wp.array(dtype=wp.float32)):
+def sim_loss(body_q: wp.array(dtype=wp.transform), body_qd: wp.array(dtype=wp.spatial_vector), target_pos: wp.vec3, loss: wp.array(dtype=wp.float32)):
     i = wp.tid()
-    tf = state[i]
+    tf = body_q[i]
     dist = wp.length_sq(wp.transform_get_translation(tf) - target_pos)
-    wp.atomic_add(loss, 0, dist)
+    vel = wp.length_sq(body_qd[i])
+    wp.atomic_add(loss, 0, dist + 0.1 * vel)
 
 
 @wp.kernel
@@ -47,7 +50,7 @@ class Environment:
     frame_dt = 1.0 / 60.0
     episode_frames = 100
 
-    sim_substeps = 1
+    sim_substeps = 3
     sim_dt = frame_dt / sim_substeps
 
     sim_time = 0.0
@@ -58,7 +61,7 @@ class Environment:
 
         self.device = device
 
-        self.start_pos = wp.vec3(0.0, 0.6, 0.0)
+        self.start_pos = wp.vec3(0.0, 1.6, 0.0)
         self.target_pos = wp.vec3(3.0, 0.6, 0.0)
 
         # add planar joints
@@ -73,7 +76,7 @@ class Environment:
         self.builder = builder
         self.model.ground = True
 
-        solve_iterations = 1
+        solve_iterations = 2
         self.integrator = wp.sim.XPBDIntegrator(solve_iterations)
         # self.integrator = wp.sim.SemiImplicitIntegrator()
 
@@ -84,6 +87,7 @@ class Environment:
         Simulate the system for the given states.
         """
 
+        self.render_time = 0.0
         traj_verts = [state.body_q.numpy()[0, :3].tolist()]
         for frame in range(self.episode_frames):
             for i in range(self.sim_substeps):
@@ -97,6 +101,7 @@ class Environment:
                     # apply initial velocity to the rigid object
                     wp.launch(apply_velocity, 1, inputs=[action], outputs=[state.body_qd], device=action.device)
 
+                self.model.allocate_rigid_contacts(requires_grad=True)
                 wp.sim.collide(self.model, state)
                 self.integrator.simulate(self.model, state, next_state, self.sim_dt, requires_grad=requires_grad)
 
@@ -133,29 +138,38 @@ class Environment:
                 self.model, os.path.join(os.path.dirname(__file__), "outputs/example_sim_trajopt.usd"), scaling=1.0
             )
             self.renderer.render_sphere("target", self.target_pos, wp.quat_identity(), 0.1)
-            self.render_time = 0.0
         else:
             self.renderer = None
 
         # optimize
+        losses = []
         for i in range(1, num_iter + 1):
             self.iteration = i
             loss.zero_()
-            state = self.model.state(requires_grad=True)
+            state = self.model.state(requires_grad=False)
             tape = wp.Tape()
             with tape:
                 final_state = self.simulate(state, action, requires_grad=True)
 
-                wp.launch(loss_l2, dim=1, inputs=[final_state.body_q, self.target_pos], outputs=[loss], device=action.device)
+                wp.launch(sim_loss, dim=1, inputs=[final_state.body_q, final_state.body_qd, self.target_pos], outputs=[loss], device=action.device)
 
-            if i % 2 == 0:
-                print(f"iter {i}/{num_iter} loss: {loss.numpy()[0]:.3f}")
+            # check_backward_pass(tape, visualize_graph=False,)
+            l = loss.numpy()[0]
+            print(f"iter {i}/{num_iter} loss: {l:.3f}")
+            losses.append(l)
 
             tape.backward(loss=loss)
             # print("action grad", opt_vars.grad.numpy())
             assert not np.isnan(action.grad.numpy()).any(), "NaN in gradient"
             optimizer.step([action.grad])
             tape.zero()
+
+        import matplotlib.pyplot as plt
+        plt.plot(losses)
+        plt.grid()
+        plt.title("Loss")
+        plt.xlabel("Iteration")
+        plt.show()
 
         return action
 
@@ -164,7 +178,7 @@ np.set_printoptions(precision=4, linewidth=2000, suppress=True)
 
 sim = Environment(device=wp.get_preferred_device())
 
-best_actions = sim.optimize(num_iter=70, lr=1e1)
+best_actions = sim.optimize(num_iter=50, lr=1e-1)
 
 # np_states = opt_traj.numpy().reshape((-1, 2))
 # np_ref = sim.ref_traj.numpy().reshape((-1, 2))
