@@ -105,13 +105,16 @@ def is_differentiable(x):
     return isinstance(x, wp.array) and x.dtype not in (wp.int32, wp.int64, wp.int16, wp.uint8, wp.uint16, wp.uint32, wp.uint64)
 
 
+def get_struct_vars(x: wp.codegen.StructInstance):
+    return {varname: getattr(x, varname) for varname, _ in x._cls.ctype._fields_}
+
+
 def flatten_arrays(xs):
     # flatten arrays that are potentially differentiable
     arrays = []
     for x in xs:
         if isinstance(x, wp.codegen.StructInstance):
-            for varname in x._struct_.vars:
-                var = getattr(x, varname)
+            for varname, var in get_struct_vars(x).items():
                 if is_differentiable(var):
                     arrays.append(var.numpy().flatten())
         if is_differentiable(x):
@@ -125,8 +128,7 @@ def create_diff_copies(xs, require_grad=True):
     for x in xs:
         if isinstance(x, wp.codegen.StructInstance):
             new_struct = type(x)()
-            for varname in x._struct_.vars:
-                var = getattr(x, varname)
+            for varname, var in get_struct_vars(x).items():
                 if is_differentiable(var):
                     dvar = wp.clone(var)
                     dvar.requires_grad = require_grad
@@ -186,8 +188,7 @@ def get_device(xs: list):
         if isinstance(x, wp.array):
             return x.device
         elif isinstance(x, wp.codegen.StructInstance):
-            for varname in x._struct_.vars:
-                var = getattr(x, varname)
+            for varname, var in get_struct_vars(x).items():
                 if isinstance(var, wp.array):
                     return var.device
     return wp.get_preferred_device()
@@ -226,8 +227,7 @@ def tape_jacobian(tape: wp.Tape, inputs: List[wp.array], outputs: List[wp.array]
             for input in inputs:
                 # fill in Jacobian columns from input gradients
                 if isinstance(input, wp.codegen.StructInstance):
-                    for varname in input._struct_.vars:
-                        var = getattr(input, varname)
+                    for varname, var in get_struct_vars(input).items():
                         if is_differentiable(var):
                             grad = tape.gradients[var].numpy().flatten()
                             jac_ad[row_id, col_id:col_id + len(grad)] = grad
@@ -242,8 +242,7 @@ def tape_jacobian(tape: wp.Tape, inputs: List[wp.array], outputs: List[wp.array]
     for out in outputs:
         # loop over Jacobian rows, select output dimension to differentiate
         if isinstance(out, wp.codegen.StructInstance):
-            for varname in out._struct_.vars:
-                var = getattr(out, varname)
+            for varname, var in get_struct_vars(out).items():
                 if is_differentiable(var):
                     eval_row(var)
         elif is_differentiable(out):
@@ -296,8 +295,7 @@ def tape_jacobian_fd(tape: wp.Tape, inputs: List[wp.array], outputs: List[wp.arr
     col_id = 0
     for input in inputs:
         if isinstance(input, wp.codegen.StructInstance):
-            for varname in input._struct_.vars:
-                var = getattr(input, varname)
+            for varname, var in get_struct_vars(input).items():
                 if is_differentiable(var):
                     col_id = eval_row(var, col_id)
         elif is_differentiable(input):
@@ -355,8 +353,7 @@ def kernel_jacobian_fd(kernel: wp.Kernel, dim: int, inputs: List[wp.array], outp
     col_id = 0
     for input_id, input in enumerate(diff_inputs):
         if isinstance(input, wp.codegen.StructInstance):
-            for varname in input._struct_.vars:
-                var = getattr(input, varname)
+            for varname, var in get_struct_vars(input).items():
                 if is_differentiable(var):
                     np_in = var.numpy().copy()
                     np_in_original = np_in.copy()
@@ -474,8 +471,7 @@ def get_ticks(vars, labels):
     i = 0
     for name, x in zip(labels, vars):
         if isinstance(x, wp.codegen.StructInstance):
-            for varname in x._struct_.vars:
-                var = getattr(x, varname)
+            for varname, var in get_struct_vars(x).items():
                 if is_differentiable(var):
                     sname = f"{name}.{varname}"
                     ticks_labels.append(sname)
@@ -677,8 +673,7 @@ def check_kernel_jacobian(kernel: Callable, dim: Tuple[int], inputs: list, outpu
         # check that the kernel arguments have requires_grad enabled
         for input_id, input in enumerate(inputs):
             if isinstance(input, wp.codegen.StructInstance):
-                for varname in input._struct_.vars:
-                    var = getattr(input, varname)
+                for varname, var in get_struct_vars(input).items():
                     if is_differentiable(var) and not var.requires_grad:
                         print(FontColors.WARNING +
                               f"Warning: input \"{kernel.adj.args[input_id].label}.{varname}\" is differentiable but requires_grad is False" + FontColors.ENDC)
@@ -687,8 +682,7 @@ def check_kernel_jacobian(kernel: Callable, dim: Tuple[int], inputs: list, outpu
                       f"Warning: input \"{kernel.adj.args[input_id].label}\" is differentiable but requires_grad is False" + FontColors.ENDC)
         for output_id, output in enumerate(outputs):
             if isinstance(output, wp.codegen.StructInstance):
-                for varname in output._struct_.vars:
-                    var = getattr(output, varname)
+                for varname, var in get_struct_vars(output).items():
                     if is_differentiable(var) and not var.requires_grad:
                         print(FontColors.WARNING +
                               f"Warning: output \"{kernel.adj.args[output_id + len(inputs)].label}.{varname}\" is differentiable but requires_grad is False" + FontColors.ENDC)
@@ -841,8 +835,7 @@ def check_backward_pass(
                 add_node(G, x, name)
                 input_arrays.append(x.ptr)
             elif isinstance(x, wp.codegen.StructInstance):
-                for varname in x._struct_.vars:
-                    var = getattr(x, varname)
+                for varname, var in get_struct_vars(x).items():
                     if isinstance(var, wp.array):
                         add_node(G, var, f"{name}.{varname}")
                         input_arrays.append(var.ptr)
@@ -853,8 +846,7 @@ def check_backward_pass(
                 add_node(G, x, name)
                 output_arrays.append(x.ptr)
             elif isinstance(x, wp.codegen.StructInstance):
-                for varname in x._struct_.vars:
-                    var = getattr(x, varname)
+                for varname, var in get_struct_vars(x).items():
                     if isinstance(var, wp.array):
                         add_node(G, var, f"{name}.{varname}")
                         output_arrays.append(var.ptr)
@@ -1013,8 +1005,7 @@ def check_backward_pass(
                     input_nodes.append(f"a{x.ptr}")
                     chart_vars[x.ptr] = f"a{x.ptr}([{name}]):::nograd;"
             elif isinstance(x, wp.codegen.StructInstance):
-                for varname in x._struct_.vars:
-                    var = getattr(x, varname)
+                for varname, var in get_struct_vars(x).items():
                     if isinstance(var, wp.array):
                         if var.requires_grad:
                             input_nodes.append(f"a{var.ptr}")
