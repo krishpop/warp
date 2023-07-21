@@ -1103,10 +1103,13 @@ def check_backward_pass(
                     ax.set_title(f"{stat_name}")
                     marker = "o" if len(cond["total"]) < 10 else None
                     ax.plot(cond["total"], label="total", c="k", zorder=2, marker=marker)
-                    ax.set_yscale("log")
+                    data_has_positive = False
                     for key, value in cond["individual"].items():
                         marker = "o" if len(value) < 10 else None
                         ax.plot(value, label=f"{key[0]} $\\to$ {key[1]}", zorder=1, marker=marker)
+                        data_has_positive = data_has_positive or len(value) > 0 and np.any(np.array(value) > 0.0)
+                    if data_has_positive:
+                        ax.set_yscale("log")
                     if dim == len(kernel_stats) - 1:
                         ax.legend(loc='lower left', bbox_to_anchor=(1.05, 0.0), fancybox=True, shadow=True, ncol=2)
                     ax.grid()
@@ -1252,7 +1255,7 @@ def check_backward_pass(
             app.run()
 
 
-def check_tape_safety(function: Callable, inputs: list, tol: float = 1e-5):
+def check_tape_safety(function: Callable, inputs: list, outputs: list = None, tol: float = 1e-5):
     """
     Check if all operations in the given function are recordable by a Warp tape so that the results from `tape.forward()` match the function outputs.
     """
@@ -1272,7 +1275,8 @@ def check_tape_safety(function: Callable, inputs: list, tol: float = 1e-5):
 
     tape = wp.Tape()
     with tape:
-        outputs = function(*inputs)
+        fun_outputs = function(*inputs)
+    outputs = outputs or fun_outputs
     ref_output = flatten_outputs(outputs)
     # reset output arrays to a random value to ensure the tape will actually update them
     randomize_vars(outputs)
