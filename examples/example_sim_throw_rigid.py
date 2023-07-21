@@ -36,7 +36,9 @@ def sim_loss(body_q: wp.array(dtype=wp.transform), body_qd: wp.array(dtype=wp.sp
     tf = body_q[i]
     dist = wp.length_sq(wp.transform_get_translation(tf) - target_pos)
     vel = wp.length_sq(body_qd[i])
-    wp.atomic_add(loss, 0, dist + 0.1 * vel)
+    l = dist + 0.1 * vel
+    # wp.atomic_add(loss, 0, l)
+    loss[0] = l
 
 
 @wp.kernel
@@ -68,7 +70,7 @@ class Environment:
         builder = wp.sim.ModelBuilder(gravity=0.0)
         builder.add_articulation()
         b = builder.add_body(origin=wp.transform(self.start_pos))
-        s = builder.add_shape_box(pos=(0.0, 0.0, 0.0), hx=0.5, hy=0.5, hz=0.5, density=100.0, body=b)
+        _ = builder.add_shape_box(pos=(0.0, 0.0, 0.0), hx=0.5, hy=0.5, hz=0.5, density=100.0, body=b)
 
         # finalize model
         self.model = builder.finalize(device, requires_grad=True)
@@ -82,55 +84,58 @@ class Environment:
 
         self.num_iterations = 100
 
-    def simulate(self, state: wp.sim.State, action: wp.array, requires_grad=False) -> wp.sim.State:
+    def simulate(self, requires_grad=False) -> wp.sim.State:
         """
         Simulate the system for the given states.
         """
 
         self.render_time = 0.0
-        traj_verts = [state.body_q.numpy()[0, :3].tolist()]
+        traj_verts = [self.states[0].body_q.numpy()[0, :3].tolist()]
         for frame in range(self.episode_frames):
             for i in range(self.sim_substeps):
-                if requires_grad:
-                    next_state = self.model.state(requires_grad=True)
-                else:
-                    next_state = state
-                    next_state.clear_forces()
-
-                if i == 0:
-                    # apply initial velocity to the rigid object
-                    wp.launch(apply_velocity, 1, inputs=[action], outputs=[state.body_qd], device=action.device)
+                t = frame * self.sim_substeps + i
+                state = self.states[t]
+                next_state = self.states[t + 1]
+                state.clear_forces()
 
                 self.model.allocate_rigid_contacts(requires_grad=True)
                 wp.sim.collide(self.model, state)
                 self.integrator.simulate(self.model, state, next_state, self.sim_dt, requires_grad=requires_grad)
 
-                if self.renderer is not None:
-                    self.renderer.begin_frame(self.render_time)
-                    self.renderer.render(state)
-                    self.renderer.end_frame()
-                    self.render_time += self.frame_dt
-                    traj_verts.append(next_state.body_q.numpy()[0, :3].tolist())
-                    self.renderer.render_line_strip(
-                        vertices=traj_verts,
-                        color=wp.render.bourke_color_map(0.0, self.num_iterations, self.iteration),
-                        radius=0.02 + 0.01 * self.iteration / self.num_iterations,
-                        name=f"traj_{self.iteration}",
-                    )
-                    # self.renderer.save()
+            if self.renderer is not None:
+                self.renderer.begin_frame(self.render_time)
+                self.renderer.render(state)
+                self.renderer.end_frame()
+                self.render_time += self.frame_dt
+                traj_verts.append(next_state.body_q.numpy()[0, :3].tolist())
+                self.renderer.render_line_strip(
+                    vertices=traj_verts,
+                    color=wp.render.bourke_color_map(0.0, 1.0, float(self.iteration)  / self.num_iterations),
+                    radius=0.02 + 0.01 * self.iteration / self.num_iterations,
+                    name=f"traj_{self.iteration}",
+                )
+                # self.renderer.save()
 
-                state = next_state
-
-        return state
-
-    def optimize(self, num_iter=100, lr=0.01, render=True):
-
-        action = wp.zeros(1, dtype=wp.vec3, requires_grad=True)
-
-        optimizer = Adam([action], lr=lr)
+    def dynamics(self, action):
         loss = wp.zeros(1, dtype=wp.float32, requires_grad=True)
 
+        # apply initial velocity to the rigid object
+        wp.launch(apply_velocity, 1, inputs=[action], outputs=[self.states[0].body_qd], device=action.device)
+
+        self.simulate(requires_grad=True)
+        final_state = self.states[-1]
+
+        wp.launch(sim_loss, dim=1, inputs=[final_state.body_q, final_state.body_qd, self.target_pos], outputs=[loss], device=action.device)
+
+        return loss
+
+    def optimize(self, num_iter=100, lr=0.01, render=True):
+        action = wp.zeros(1, dtype=wp.vec3, requires_grad=True)
+        optimizer = Adam([action], lr=lr)
         self.num_iterations = num_iter
+
+        with wp.ScopedTimer("allocate states"):
+            self.states = [self.model.state(requires_grad=True) for _ in range(self.episode_frames * self.sim_substeps + 1)]
 
         if render:
             # set up Usd renderer
@@ -145,15 +150,22 @@ class Environment:
         losses = []
         for i in range(1, num_iter + 1):
             self.iteration = i
-            loss.zero_()
-            state = self.model.state(requires_grad=False)
+
             tape = wp.Tape()
             with tape:
-                final_state = self.simulate(state, action, requires_grad=True)
+                loss = self.dynamics(action)
 
-                wp.launch(sim_loss, dim=1, inputs=[final_state.body_q, final_state.body_qd, self.target_pos], outputs=[loss], device=action.device)
+            # check_tape_safety(self.dynamics, [action])
 
-            # check_backward_pass(tape, visualize_graph=False,)
+            # check_backward_pass(
+            #     tape,
+            #     visualize_graph=False,
+            #     analyze_graph=False,
+            #     track_inputs=[action],
+            #     track_outputs=[loss],
+            #     track_input_names=["action"],
+            #     track_output_names=["loss"])
+
             l = loss.numpy()[0]
             print(f"iter {i}/{num_iter} loss: {l:.3f}")
             losses.append(l)
@@ -164,7 +176,6 @@ class Environment:
             optimizer.step([action.grad])
             tape.zero()
 
-        import matplotlib.pyplot as plt
         plt.plot(losses)
         plt.grid()
         plt.title("Loss")
@@ -178,7 +189,7 @@ np.set_printoptions(precision=4, linewidth=2000, suppress=True)
 
 sim = Environment(device=wp.get_preferred_device())
 
-best_actions = sim.optimize(num_iter=50, lr=1e-1)
+best_actions = sim.optimize(num_iter=50, lr=1e-1, render=False)
 
 # np_states = opt_traj.numpy().reshape((-1, 2))
 # np_ref = sim.ref_traj.numpy().reshape((-1, 2))
