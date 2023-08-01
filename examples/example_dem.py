@@ -134,9 +134,9 @@ class Example:
         self.k_mu = 100000.0  # for cohesive materials
 
         self.inv_mass = 64.0
-       
+
         # self.renderer = wp.render.UsdRenderer(stage)
-        self.renderer = wp.render.NanoRenderer(stage, vsync=False)
+        self.renderer = wp.render.OpenGLRenderer(stage, vsync=False, scaling=0.2)
         self.renderer.render_ground()
 
         self.grid = wp.HashGrid(128, 128, 128)
@@ -221,7 +221,7 @@ class Example:
             time = 0.0 if is_live else self.sim_time
 
             self.renderer.begin_frame(time)
-            self.renderer.render_points(points=self.x.numpy(), radius=self.point_radius, name="points")
+            self.renderer.render_points(points=self.x, radius=self.point_radius, name="points")
             self.renderer.end_frame()
 
         self.sim_time += self.frame_dt
