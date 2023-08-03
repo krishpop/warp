@@ -217,8 +217,12 @@ class RigidBodySimulator:
 
         # builder.collapse_fixed_joints()
 
+        solve_iterations = 2
+        self.integrator = wp.sim.XPBDIntegrator(solve_iterations, rigid_contact_con_weighting=True)
+        # self.integrator = wp.sim.SemiImplicitIntegrator()
+
         # finalize model
-        self.model = builder.finalize(device, requires_grad=True)
+        self.model = builder.finalize(device, requires_grad=True, integrator=self.integrator)
 
         self.model.joint_attach_kd = 0.0
         self.model.joint_limit_ke.zero_()
@@ -251,10 +255,6 @@ class RigidBodySimulator:
         self.model.body_q.assign(state.body_q)
         self.model.body_qd.assign(state.body_qd)
 
-        solve_iterations = 2
-        self.integrator = wp.sim.XPBDIntegrator(solve_iterations, rigid_contact_con_weighting=True)
-        # self.integrator = wp.sim.SemiImplicitIntegrator()
-
         # -----------------------
         # set up Usd renderer
         if (self.render):
@@ -262,20 +262,19 @@ class RigidBodySimulator:
                 self.model, os.path.join(os.path.dirname(__file__), "outputs/example_sim_grad_control.usd"))
         self.render_time = 0.0
 
-    def simulate(self, state: wp.sim.State, requires_grad=False) -> wp.sim.State:
+    def simulate(self, state: wp.sim.State) -> wp.sim.State:
         """
         Simulate the system for the given states.
         """
         for _ in range(self.sim_substeps):
-            if requires_grad:
-                next_state = self.model.state(requires_grad=True)
+            if self.model.requires_grad:
+                next_state = self.model.state()
             else:
                 next_state = state
                 next_state.clear_forces()
             if self.model.ground:
-                self.model.allocate_rigid_contacts(requires_grad=requires_grad)
                 wp.sim.collide(self.model, state)
-            state = self.integrator.simulate(self.model, state, next_state, self.sim_dt, requires_grad=requires_grad)
+            state = self.integrator.simulate(self.model, state, next_state, self.sim_dt)
         return state
 
     def _render(self, state: wp.sim.State):
@@ -295,7 +294,7 @@ class RigidBodySimulator:
         if check_diffs:
             model_before = self.builder.finalize(self.device)
 
-        start_state = self.model.state(requires_grad=requires_grad)
+        start_state = self.model.state()
 
         # assign maximal state coordinates
         wp.launch(inplace_assign_transform, dim=self.num_bodies, inputs=[
@@ -306,7 +305,7 @@ class RigidBodySimulator:
         # assign input controls as joint torques
         wp.launch(inplace_assign, dim=self.dof_qd, inputs=[tau], outputs=[self.model.joint_act], device=self.device)
 
-        end_state = self.simulate(start_state, requires_grad=requires_grad)
+        end_state = self.simulate(start_state)
 
         if joint_q_next is not None and joint_qd_next is not None:
             wp.sim.eval_ik(self.model, end_state, joint_q_next, joint_qd_next)
