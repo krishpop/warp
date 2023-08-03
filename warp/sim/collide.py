@@ -1353,8 +1353,14 @@ def collide(model, state, edge_sdf_iter: int = 10):
             device=model.device,
         )
 
+    # determine where the contact variables are stored
+    if state.has_rigid_contact_vars:
+        contact_state = state
+    else:
+        contact_state = model
+
     # clear old count
-    model.rigid_contact_count.zero_()
+    contact_state.rigid_contact_count.zero_()
 
     if model.shape_contact_pair_count:
         wp.launch(
@@ -1371,10 +1377,10 @@ def collide(model, state, edge_sdf_iter: int = 10):
                 model.rigid_contact_margin,
             ],
             outputs=[
-                model.rigid_contact_count,
-                model.rigid_contact_shape0,
-                model.rigid_contact_shape1,
-                model.rigid_contact_point_id,
+                contact_state.rigid_contact_count,
+                contact_state.rigid_contact_shape0,
+                contact_state.rigid_contact_shape1,
+                contact_state.rigid_contact_point_id,
             ],
             device=model.device,
             record_tape=False,
@@ -1395,10 +1401,10 @@ def collide(model, state, edge_sdf_iter: int = 10):
                 model.rigid_contact_margin,
             ],
             outputs=[
-                model.rigid_contact_count,
-                model.rigid_contact_shape0,
-                model.rigid_contact_shape1,
-                model.rigid_contact_point_id,
+                contact_state.rigid_contact_count,
+                contact_state.rigid_contact_shape0,
+                contact_state.rigid_contact_shape1,
+                contact_state.rigid_contact_point_id,
             ],
             device=model.device,
             record_tape=False,
@@ -1415,21 +1421,21 @@ def collide(model, state, edge_sdf_iter: int = 10):
                 model.shape_geo,
                 model.rigid_contact_margin,
                 model.body_com,
-                model.rigid_contact_shape0,
-                model.rigid_contact_shape1,
-                model.rigid_contact_point_id,
-                model.rigid_contact_count,
+                contact_state.rigid_contact_shape0,
+                contact_state.rigid_contact_shape1,
+                contact_state.rigid_contact_point_id,
+                contact_state.rigid_contact_count,
                 edge_sdf_iter,
             ],
             outputs=[
-                model.rigid_contact_body0,
-                model.rigid_contact_body1,
-                model.rigid_contact_point0,
-                model.rigid_contact_point1,
-                model.rigid_contact_offset0,
-                model.rigid_contact_offset1,
-                model.rigid_contact_normal,
-                model.rigid_contact_thickness,
+                contact_state.rigid_contact_body0,
+                contact_state.rigid_contact_body1,
+                contact_state.rigid_contact_point0,
+                contact_state.rigid_contact_point1,
+                contact_state.rigid_contact_offset0,
+                contact_state.rigid_contact_offset1,
+                contact_state.rigid_contact_normal,
+                contact_state.rigid_contact_thickness,
             ],
             device=model.device,
         )

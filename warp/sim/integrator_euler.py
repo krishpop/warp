@@ -1600,6 +1600,10 @@ def compute_forces(model, state, particle_f, body_f, requires_grad):
     if model.rigid_contact_max and (
         model.ground and model.shape_ground_contact_pair_count or model.shape_contact_pair_count
     ):
+        if state.has_rigid_contact_vars:
+            contact_state = state
+        else:
+            contact_state = model
         wp.launch(
             kernel=eval_rigid_contacts,
             dim=model.rigid_contact_max,
@@ -1609,14 +1613,14 @@ def compute_forces(model, state, particle_f, body_f, requires_grad):
                 model.body_com,
                 model.shape_materials,
                 model.shape_geo,
-                model.rigid_contact_count,
-                model.rigid_contact_body0,
-                model.rigid_contact_body1,
-                model.rigid_contact_point0,
-                model.rigid_contact_point1,
-                model.rigid_contact_normal,
-                model.rigid_contact_shape0,
-                model.rigid_contact_shape1,
+                contact_state.rigid_contact_count,
+                contact_state.rigid_contact_body0,
+                contact_state.rigid_contact_body1,
+                contact_state.rigid_contact_point0,
+                contact_state.rigid_contact_point1,
+                contact_state.rigid_contact_normal,
+                contact_state.rigid_contact_shape0,
+                contact_state.rigid_contact_shape1,
             ],
             outputs=[body_f],
             device=model.device,

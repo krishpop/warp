@@ -60,7 +60,7 @@ class Tape:
         wp.context.runtime.tape = None
 
     def forward(self, check_nans=True):
-    
+
         # run launches forwards
         for launch in self.launches:
 
@@ -71,12 +71,12 @@ class Tape:
             device = launch[4]
 
             wp.launch(
-                kernel=kernel, 
-                dim=dim, 
-                inputs=inputs, 
+                kernel=kernel,
+                dim=dim,
+                inputs=inputs,
                 outputs=outputs,
                 device=device)
-            
+
             if check_nans:
                 for o in outputs:
                     if isinstance(o, wp.array):
