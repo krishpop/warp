@@ -34,7 +34,7 @@ from warp.types import matmul, adj_matmul, batched_matmul, adj_batched_matmul, f
 from warp.types import vector as vec
 from warp.types import matrix as mat
 
-from warp.context import init, func, kernel, struct, overload
+from warp.context import init, func, func_grad, func_replay, kernel, struct, overload
 from warp.context import is_cpu_available, is_cuda_available, is_device_available
 from warp.context import get_devices, get_preferred_device
 from warp.context import get_cuda_devices, get_cuda_device_count, get_cuda_device, map_cuda_device, unmap_cuda_device
@@ -64,7 +64,7 @@ from warp.context import RegisteredGLBuffer
 
 from warp.tape import Tape
 from warp.utils import ScopedTimer, ScopedDevice, ScopedStream
-from warp.utils import transform_expand
+from warp.utils import transform_expand, quat_between_vectors
 
 from warp.torch import from_torch, to_torch
 from warp.torch import device_from_torch, device_to_torch
