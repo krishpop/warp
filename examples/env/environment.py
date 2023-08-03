@@ -168,8 +168,10 @@ class Environment:
     def init(self):
         if self.integrator_type == IntegratorType.EULER:
             self.sim_substeps = self.sim_substeps_euler
+            self.integrator = wp.sim.SemiImplicitIntegrator(**self.euler_settings)
         elif self.integrator_type == IntegratorType.XPBD:
             self.sim_substeps = self.sim_substeps_xpbd
+            self.integrator = wp.sim.XPBDIntegrator(**self.xpbd_settings)
 
         self.episode_frames = int(self.episode_duration / self.frame_dt)
         self.sim_dt = self.frame_dt / self.sim_substeps
@@ -196,7 +198,7 @@ class Environment:
             self.setup(builder)
             self.bodies_per_env = len(builder.body_q)
 
-        self.model = builder.finalize()
+        self.model = builder.finalize(integrator=self.integrator)
         self.device = self.model.device
         if not self.device.is_cuda:
             self.use_graph_capture = False
@@ -208,11 +210,6 @@ class Environment:
         # set up current and next state to be used by the integrator
         self.state_0 = None
         self.state_1 = None
-
-        if self.integrator_type == IntegratorType.EULER:
-            self.integrator = wp.sim.SemiImplicitIntegrator(**self.euler_settings)
-        elif self.integrator_type == IntegratorType.XPBD:
-            self.integrator = wp.sim.XPBDIntegrator(**self.xpbd_settings)
 
         self.renderer = None
         if self.profile:
