@@ -37,7 +37,6 @@ def sim_loss(body_q: wp.array(dtype=wp.transform), body_qd: wp.array(dtype=wp.sp
     dist = wp.length_sq(wp.transform_get_translation(tf) - target_pos)
     vel = wp.length_sq(body_qd[i])
     l = dist + 0.1 * vel
-    # wp.atomic_add(loss, 0, l)
     loss[0] = l
 
 
@@ -52,7 +51,7 @@ class Environment:
     frame_dt = 1.0 / 60.0
     episode_frames = 150
 
-    sim_substeps = 3
+    sim_substeps = 5
     sim_dt = frame_dt / sim_substeps
 
     sim_time = 0.0
@@ -72,7 +71,7 @@ class Environment:
         b = builder.add_body(origin=wp.transform(self.start_pos))
         _ = builder.add_shape_box(pos=(0.0, 0.0, 0.0), hx=0.5, hy=0.5, hz=0.5, density=100.0, body=b)
 
-        solve_iterations = 1
+        solve_iterations = 2
         self.integrator = wp.sim.XPBDIntegrator(solve_iterations)
         # self.integrator = wp.sim.SemiImplicitIntegrator()
 
