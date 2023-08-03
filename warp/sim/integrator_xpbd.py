@@ -2062,12 +2062,10 @@ class XPBDIntegrator:
     def augment_state(self, model, state):
         assert model.requires_grad == state.requires_grad, "model and state must have the same requires_grad flag"
         if state.requires_grad:
-            state.body_deltas = [
-                wp.zeros(model.body_count, dtype=wp.spatial_vector, device=model.device, requires_grad=state.requires_grad) for _ in range(self.iterations)
-            ]
-            XPBDIntegrator._augment_rigid_contact_vars(state, model.rigid_contact_max, model.body_count, state.requires_grad)
+            state.body_deltas = wp.zeros(model.body_count, dtype=wp.spatial_vector, device=model.device, requires_grad=state.requires_grad)
             state.body_q_temp = wp.zeros_like(state.body_q)
             state.body_qd_temp = wp.zeros_like(state.body_qd)
+            XPBDIntegrator._augment_rigid_contact_vars(state, model.rigid_contact_max, model.body_count, state.requires_grad)
         else:
             model.body_deltas = wp.zeros(model.body_count, dtype=wp.spatial_vector, device=model.device, requires_grad=state.requires_grad)
             XPBDIntegrator._augment_rigid_contact_vars(model, model.rigid_contact_max, model.body_count, state.requires_grad)
@@ -2155,7 +2153,7 @@ class XPBDIntegrator:
 
                 if model.body_count:
                     if requires_grad:
-                        body_deltas = state_out.body_deltas[i]
+                        body_deltas = state_out.body_deltas
                         out_body_q = state_out.body_q_temp
                         out_body_qd = state_out.body_qd_temp
                         out_body_q.assign(state_out.body_q)
