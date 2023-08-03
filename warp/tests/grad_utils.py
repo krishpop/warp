@@ -543,8 +543,14 @@ def compare_jacobians(jacobian_ad, jacobian_fd, inputs, outputs, input_names, ou
         mean_rel_error = np.mean(rel_diff)
         return mean_rel_error
 
+    def compute_condition_number(m):
+        try:
+            return np.linalg.cond(m)
+        except np.linalg.LinAlgError:
+            return np.nan
+
     def colorize_error(error, tol, alt_str=None):
-        if error > tol:
+        if error > tol or not np.isfinite(error):
             return FontColors.FAIL + str(error) + FontColors.ENDC
         elif alt_str is None:
             return str(error)
@@ -573,7 +579,7 @@ def compare_jacobians(jacobian_ad, jacobian_fd, inputs, outputs, input_names, ou
 
     # compute condition numbers
     cond_stat = {
-        "total": np.linalg.cond(jacobian_ad),
+        "total": compute_condition_number(jacobian_ad),
         "individual": {}
     }
     max_abs_error_stat = {
@@ -604,7 +610,7 @@ def compare_jacobians(jacobian_ad, jacobian_fd, inputs, outputs, input_names, ou
             output_len = min(output_lengths[output_label], max_outputs_per_var)
             jacobian_ad_sub = jacobian_ad[output_tick:output_tick + output_len, input_tick:input_tick + input_len]
             jacobian_fd_sub = jacobian_fd[output_tick:output_tick + output_len, input_tick:input_tick + input_len]
-            cond_stat["individual"][(input_label, output_label)] = np.linalg.cond(jacobian_ad_sub)
+            cond_stat["individual"][(input_label, output_label)] = compute_condition_number(jacobian_ad_sub)
             max_abs = compute_max_abs_error(jacobian_ad_sub, jacobian_fd_sub)
             max_rel = compute_max_rel_error(jacobian_ad_sub, jacobian_fd_sub)
             max_abs_error_stat["individual"][(input_label, output_label)] = max_abs[0]
@@ -619,7 +625,7 @@ def compare_jacobians(jacobian_ad, jacobian_fd, inputs, outputs, input_names, ou
                 highlight_ys.append(actual_idx[0])
             if tabulate_errors:
                 prefix, postfix = "", ""
-                if max_abs[0] > atol or max_rel[0] > rtol:
+                if max_abs[0] > atol or not np.isfinite(max_abs[0]):
                     prefix, postfix = FontColors.FAIL, FontColors.ENDC
                 table.append([prefix + input_label + postfix, prefix + output_label + postfix,
                               f"[{output_tick}:{output_tick+output_len}, {input_tick}:{input_tick+input_len}]",
