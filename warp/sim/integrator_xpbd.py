@@ -2060,22 +2060,26 @@ class XPBDIntegrator:
         )
 
     def augment_state(self, model, state):
+        assert model.requires_grad == state.requires_grad, "model and state must have the same requires_grad flag"
         if state.requires_grad:
             state.body_deltas = [
                 wp.zeros(model.body_count, dtype=wp.spatial_vector, device=model.device, requires_grad=state.requires_grad) for _ in range(self.iterations)
             ]
             XPBDIntegrator._augment_rigid_contact_vars(state, model.rigid_contact_max, model.body_count, state.requires_grad)
+            state.body_q_temp = wp.zeros_like(state.body_q)
+            state.body_qd_temp = wp.zeros_like(state.body_qd)
         else:
             model.body_deltas = wp.zeros(model.body_count, dtype=wp.spatial_vector, device=model.device, requires_grad=state.requires_grad)
             XPBDIntegrator._augment_rigid_contact_vars(model, model.rigid_contact_max, model.body_count, state.requires_grad)
 
-    def simulate(self, model, state_in, state_out, dt, requires_grad=False):
+    def simulate(self, model, state_in, state_out, dt):
+        requires_grad = state_in.requires_grad
         with wp.ScopedTimer("simulate", False):
             particle_q = None
             particle_qd = None
 
             if state_out.has_rigid_contact_vars:
-                contact_state = state_out
+                contact_state = state_in
             else:
                 contact_state = model
 
@@ -2152,9 +2156,10 @@ class XPBDIntegrator:
                 if model.body_count:
                     if requires_grad:
                         body_deltas = state_out.body_deltas[i]
-                        out_body_q = wp.clone(state_out.body_q)
-                        out_body_qd = wp.clone(state_out.body_qd)
-                        # state_out.body_deltas = wp.zeros_like(state_out.body_deltas)
+                        out_body_q = state_out.body_q_temp
+                        out_body_qd = state_out.body_qd_temp
+                        out_body_q.assign(state_out.body_q)
+                        out_body_qd.assign(state_out.body_qd)
                     else:
                         out_body_q = state_out.body_q
                         out_body_qd = state_out.body_qd
@@ -2380,10 +2385,10 @@ class XPBDIntegrator:
                         device=model.device,
                     )
 
-                if model.body_count and requires_grad:
-                    # update state
-                    state_out.body_q.assign(out_body_q)
-                    state_out.body_qd.assign(out_body_qd)
+                # if model.body_count and requires_grad:
+                #     # update state
+                #     state_out.body_q.assign(out_body_q)
+                #     state_out.body_qd.assign(out_body_qd)
 
                 # Solve rigid contact constraints
                 if model.rigid_contact_max and (
@@ -2455,6 +2460,11 @@ class XPBDIntegrator:
                         ],
                         device=model.device,
                     )
+                    
+                    # if contact_state.rigid_contact_count.numpy()[0] > 0:
+                    #     print("contact_state.rigid_contact_count", contact_state.rigid_contact_count.numpy()[0])
+                    #     print("rigid_active_contact_distance", rigid_active_contact_distance.numpy())
+                    #     print()
 
                     if self.enable_restitution and i == 0:
                         # remember the contacts from the first iteration
@@ -2476,15 +2486,17 @@ class XPBDIntegrator:
                         if self.rigid_contact_con_weighting:
                             contact_state.rigid_contact_inv_weight_prev.assign(rigid_contact_inv_weight)
 
-                    if requires_grad:
-                        model.rigid_active_contact_distance = rigid_active_contact_distance
-                        model.rigid_active_contact_point0 = rigid_active_contact_point0
-                        model.rigid_active_contact_point1 = rigid_active_contact_point1
-                        body_q = wp.clone(state_out.body_q)
-                        body_qd = wp.clone(state_out.body_qd)
-                    else:
-                        body_q = state_out.body_q
-                        body_qd = state_out.body_qd
+                    # if requires_grad:
+                    #     contact_state.rigid_active_contact_distance = rigid_active_contact_distance
+                    #     contact_state.rigid_active_contact_point0 = rigid_active_contact_point0
+                    #     contact_state.rigid_active_contact_point1 = rigid_active_contact_point1
+                    #     body_q = wp.clone(state_out.body_q)
+                    #     body_qd = wp.clone(state_out.body_qd)
+                    # else:
+                    #     body_q = state_out.body_q
+                    #     body_qd = state_out.body_qd
+                    # body_q = state_out.body_q
+                    # body_qd = state_out.body_qd
 
                     # apply updates
                     wp.launch(
@@ -2502,15 +2514,17 @@ class XPBDIntegrator:
                             dt,
                         ],
                         outputs=[
-                            body_q,
-                            body_qd,
+                            out_body_q,
+                            out_body_qd,
                         ],
                         device=model.device,
                     )
 
                     if requires_grad:
-                        state_out.body_q = body_q
-                        state_out.body_qd = body_qd
+                        # state_out.body_q = body_q
+                        # state_out.body_qd = body_qd
+                        state_out.body_q.assign(out_body_q)
+                        state_out.body_qd.assign(out_body_qd)
 
             # update body velocities from position changes
             if model.body_count and not requires_grad:

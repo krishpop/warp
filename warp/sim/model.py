@@ -571,7 +571,7 @@ class Model:
         self.device = wp.get_device(device)
         self.integrator = integrator
 
-    def state(self, requires_grad=False) -> State:
+    def state(self, requires_grad=None) -> State:
         """Returns a state object for the model
 
         The returned state will be initialized with the initial configuration given in
@@ -579,6 +579,8 @@ class Model:
         """
 
         s = State()
+        if requires_grad is None:
+            requires_grad = self.requires_grad
         s.requires_grad = requires_grad
 
         s.particle_count = self.particle_count
