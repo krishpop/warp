@@ -6,19 +6,25 @@
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
 ###########################################################################
-# Example Trajectory Optimization
+# Example Throw Rigid
 #
-# Shows how to optimize torque trajectories for a simple planar environment
-# using Warp's provided Adam optimizer.
+# Optimize the initial velocity of a rigid body to hit a target.
 #
 ###########################################################################
 
+DEBUG = False
 
 import os
 
 import numpy as np
 
 import warp as wp
+
+if DEBUG:
+    wp.config.verify_cuda = True
+    wp.config.verify_fp = True
+    wp.config.mode = "debug"
+
 import warp.sim
 import warp.sim.render
 from warp.optim import Adam, SGD
@@ -83,7 +89,7 @@ class Environment:
 
         self.num_iterations = 100
 
-        self.capture_graph = True
+        self.capture_graph = not DEBUG
 
     def simulate(self) -> wp.sim.State:
         """
@@ -120,7 +126,6 @@ class Environment:
         # apply initial velocity to the rigid object
         wp.launch(apply_velocity, 1, inputs=[action], outputs=[self.states[0].body_qd], device=action.device)
 
-        # self.simulate(requires_grad=True)
         self.simulate()
         final_state = self.states[-1]
 
@@ -129,11 +134,11 @@ class Environment:
         return self.loss
 
     def optimize(self, num_iter=100, lr=0.01, render=True):
-        action = wp.zeros(1, dtype=wp.vec3, requires_grad=True)
+        action = wp.zeros(1, dtype=wp.vec3, requires_grad=True, device=self.device)
         # optimizer = Adam([action], lr=lr)
         optimizer = SGD([action], lr=lr, nesterov=True, momentum=0.1)
         self.num_iterations = num_iter
-        self.loss = wp.zeros(1, dtype=wp.float32, requires_grad=True)
+        self.loss = wp.zeros(1, dtype=wp.float32, requires_grad=True, device=self.device)
 
         with wp.ScopedTimer("allocate states"):
             self.states = [self.model.state() for _ in range(self.episode_frames * self.sim_substeps + 1)]
@@ -210,7 +215,10 @@ class Environment:
 
 np.set_printoptions(precision=4, linewidth=2000, suppress=True)
 
-sim = Environment(device=wp.get_preferred_device())
+if DEBUG:
+    sim = Environment(device="cpu")
+else:
+    sim = Environment(device=wp.get_preferred_device())
 
 best_actions = sim.optimize(num_iter=80, lr=3e-2, render=False)
 
