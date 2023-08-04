@@ -122,6 +122,9 @@ class Environment:
     joint_attach_ke: float = 32000.0
     joint_attach_kd: float = 50.0
 
+    # maximum number of rigid contact points to generate per mesh
+    rigid_mesh_contact_max: int = 0  # (0 = unlimited)
+
     # distance threshold at which contacts are generated
     rigid_contact_margin: float = 0.05
 
@@ -182,6 +185,7 @@ class Environment:
             self.env_offset = (0.0, 0.0, 0.0)
 
         builder = wp.sim.ModelBuilder()
+        builder.rigid_mesh_contact_max = self.rigid_mesh_contact_max
         builder.rigid_contact_margin = self.rigid_contact_margin
         try:
             articulation_builder = wp.sim.ModelBuilder()

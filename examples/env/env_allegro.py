@@ -33,6 +33,9 @@ class AllegroEnvironment(Environment):
     sim_substeps_euler = 64
     sim_substeps_xpbd = 8
 
+    rigid_contact_margin = 0.001
+    rigid_mesh_contact_max = 100
+
     num_envs = 100
 
     show_joints = False
