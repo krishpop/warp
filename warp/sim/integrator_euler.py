@@ -1613,6 +1613,7 @@ def compute_forces(model, state, particle_f, body_f, requires_grad):
                 model.body_com,
                 model.shape_materials,
                 model.shape_geo,
+                model.shape_body,
                 contact_state.rigid_contact_count,
                 contact_state.rigid_contact_point0,
                 contact_state.rigid_contact_point1,
