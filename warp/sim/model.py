@@ -754,10 +754,6 @@ class Model:
             target.rigid_contact_count = wp.zeros(1, dtype=wp.int32)
             # contact point ID within the (shape_a, shape_b) contact pair
             target.rigid_contact_point_id = wp.zeros(self.rigid_contact_max, dtype=wp.int32)
-            # ID of first rigid body
-            target.rigid_contact_body0 = wp.zeros(self.rigid_contact_max_limited, dtype=wp.int32)
-            # ID of second rigid body
-            target.rigid_contact_body1 = wp.zeros(self.rigid_contact_max_limited, dtype=wp.int32)
             # position of contact point in body 0's frame before the integration step
             target.rigid_contact_point0 = wp.zeros(
                 self.rigid_contact_max_limited, dtype=wp.vec3, requires_grad=requires_grad

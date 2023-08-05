@@ -1590,9 +1590,8 @@ def solve_body_contact_positions(
     body_com: wp.array(dtype=wp.vec3),
     body_m_inv: wp.array(dtype=float),
     body_I_inv: wp.array(dtype=wp.mat33),
+    shape_body: wp.array(dtype=int),
     contact_count: wp.array(dtype=int),
-    contact_body0: wp.array(dtype=int),
-    contact_body1: wp.array(dtype=int),
     contact_point0: wp.array(dtype=wp.vec3),
     contact_point1: wp.array(dtype=wp.vec3),
     contact_offset0: wp.array(dtype=wp.vec3),
@@ -1619,12 +1618,17 @@ def solve_body_contact_positions(
     if tid >= count:
         return
 
-    body_a = contact_body0[tid]
-    body_b = contact_body1[tid]
-
-    if body_a == body_b:
+    shape_a = contact_shape0[tid]
+    shape_b = contact_shape1[tid]
+    if shape_a == shape_b:
         return
-    if contact_shape0[tid] == contact_shape1[tid]:
+    body_a = -1
+    if shape_a >= 0:
+        body_a = shape_body[shape_a]
+    body_b = -1
+    if shape_b >= 0:
+        body_b = shape_body[shape_b]
+    if body_a == body_b:
         return
 
     # find body to world transform
@@ -1684,8 +1688,6 @@ def solve_body_contact_positions(
     # use average contact material properties
     mat_nonzero = 0
     mu = 0.0
-    shape_a = contact_shape0[tid]
-    shape_b = contact_shape1[tid]
     if shape_a >= 0:
         mat_nonzero += 1
         mu += shape_materials.mu[shape_a]
@@ -1835,9 +1837,8 @@ def apply_rigid_restitution(
     body_com: wp.array(dtype=wp.vec3),
     body_m_inv: wp.array(dtype=float),
     body_I_inv: wp.array(dtype=wp.mat33),
+    shape_body: wp.array(dtype=int),
     contact_count: wp.array(dtype=int),
-    contact_body0: wp.array(dtype=int),
-    contact_body1: wp.array(dtype=int),
     contact_normal: wp.array(dtype=wp.vec3),
     contact_shape0: wp.array(dtype=int),
     contact_shape1: wp.array(dtype=int),
@@ -1859,23 +1860,26 @@ def apply_rigid_restitution(
     d = active_contact_distance[tid]
     if d >= 0.0:
         return
+    shape_a = contact_shape0[tid]
+    shape_b = contact_shape1[tid]
+    if shape_a == shape_b:
+        return
+    body_a = -1
+    body_b = -1
 
     # use average contact material properties
     mat_nonzero = 0
     restitution = 0.0
-    shape_a = contact_shape0[tid]
-    shape_b = contact_shape1[tid]
     if shape_a >= 0:
         mat_nonzero += 1
         restitution += shape_materials.restitution[shape_a]
+        body_a = shape_body[shape_a]
     if shape_b >= 0:
         mat_nonzero += 1
         restitution += shape_materials.restitution[shape_b]
+        body_b = shape_body[shape_b]
     if mat_nonzero > 0:
         restitution /= float(mat_nonzero)
-
-    body_a = contact_body0[tid]
-    body_b = contact_body1[tid]
 
     m_inv_a = 0.0
     m_inv_b = 0.0
@@ -2433,9 +2437,8 @@ class XPBDIntegrator:
                             model.body_com,
                             model.body_inv_mass,
                             model.body_inv_inertia,
+                            model.shape_body,
                             contact_state.rigid_contact_count,
-                            contact_state.rigid_contact_body0,
-                            contact_state.rigid_contact_body1,
                             contact_state.rigid_contact_point0,
                             contact_state.rigid_contact_point1,
                             contact_state.rigid_contact_offset0,
@@ -2586,9 +2589,8 @@ class XPBDIntegrator:
                             model.body_com,
                             model.body_inv_mass,
                             model.body_inv_inertia,
+                            model.shape_body,
                             contact_state.rigid_contact_count,
-                            contact_state.rigid_contact_body0,
-                            contact_state.rigid_contact_body1,
                             contact_state.rigid_contact_normal,
                             contact_state.rigid_contact_shape0,
                             contact_state.rigid_contact_shape1,

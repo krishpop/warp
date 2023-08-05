@@ -950,9 +950,8 @@ def eval_rigid_contacts(
     body_com: wp.array(dtype=wp.vec3),
     shape_materials: ModelShapeMaterials,
     geo: ModelShapeGeometry,
+    shape_body: wp.array(dtype=int),
     contact_count: wp.array(dtype=int),
-    contact_body0: wp.array(dtype=int),
-    contact_body1: wp.array(dtype=int),
     contact_point0: wp.array(dtype=wp.vec3),
     contact_point1: wp.array(dtype=wp.vec3),
     contact_normal: wp.array(dtype=wp.vec3),
@@ -962,8 +961,6 @@ def eval_rigid_contacts(
     body_f: wp.array(dtype=wp.spatial_vector),
 ):
     tid = wp.tid()
-    if contact_shape0[tid] == contact_shape1[tid]:
-        return
 
     count = contact_count[0]
     if tid >= count:
@@ -979,6 +976,10 @@ def eval_rigid_contacts(
     thickness_b = 0.0
     shape_a = contact_shape0[tid]
     shape_b = contact_shape1[tid]
+    if shape_a == shape_b:
+        return
+    body_a = -1
+    body_b = -1
     if shape_a >= 0:
         mat_nonzero += 1
         ke += shape_materials.ke[shape_a]
@@ -986,6 +987,7 @@ def eval_rigid_contacts(
         kf += shape_materials.kf[shape_a]
         mu += shape_materials.mu[shape_a]
         thickness_a = geo.thickness[shape_a]
+        body_a = shape_body[shape_a]
     if shape_b >= 0:
         mat_nonzero += 1
         ke += shape_materials.ke[shape_b]
@@ -993,14 +995,12 @@ def eval_rigid_contacts(
         kf += shape_materials.kf[shape_b]
         mu += shape_materials.mu[shape_b]
         thickness_b = geo.thickness[shape_b]
+        body_b = shape_body[shape_b]
     if mat_nonzero > 0:
         ke = ke / float(mat_nonzero)
         kd = kd / float(mat_nonzero)
         kf = kf / float(mat_nonzero)
         mu = mu / float(mat_nonzero)
-
-    body_a = contact_body0[tid]
-    body_b = contact_body1[tid]
 
     # body position in world space
     n = contact_normal[tid]
