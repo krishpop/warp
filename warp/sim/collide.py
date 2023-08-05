@@ -932,8 +932,6 @@ def handle_contact_pairs(
     contact_count: wp.array(dtype=int),
     contact_shape0: wp.array(dtype=int),
     contact_shape1: wp.array(dtype=int),
-    contact_body0: wp.array(dtype=int),
-    contact_body1: wp.array(dtype=int),
     contact_point0: wp.array(dtype=wp.vec3),
     contact_point1: wp.array(dtype=wp.vec3),
     contact_offset0: wp.array(dtype=wp.vec3),
@@ -1381,9 +1379,6 @@ def handle_contact_pairs(
         contact_offset1[index] = wp.transform_vector(X_bw_b, thickness_b * normal)
         contact_normal[index] = normal
         contact_thickness[index] = thickness
-        # fill in contact rigid body ids
-        contact_body0[index] = rigid_a
-        contact_body1[index] = rigid_b
 
 
 def collide(model, state, edge_sdf_iter: int = 10):
@@ -1518,8 +1513,6 @@ def collide(model, state, edge_sdf_iter: int = 10):
                 contact_state.rigid_contact_count,
                 contact_state.rigid_contact_shape0,
                 contact_state.rigid_contact_shape1,
-                contact_state.rigid_contact_body0,
-                contact_state.rigid_contact_body1,
                 contact_state.rigid_contact_point0,
                 contact_state.rigid_contact_point1,
                 contact_state.rigid_contact_offset0,
