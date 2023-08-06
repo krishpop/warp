@@ -236,9 +236,9 @@ class ObjectTask(WarpEnv):
         self.num_frames += 1
         self.reset_buf = self.reset_buf | (self.progress_buf >= self.episode_length)
         env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
+
+        self.extras.update({"obs_before_reset": self.obs_buf.clone(), "episode_end": self.termination_buf})
         if len(env_ids) > 0 and self.self_reset:
-            self.obs_buf_before_reset = self.obs_buf.clone()
-            self.extras.update({"obs_before_reset": self.obs_buf_before_reset, "episode_end": self.termination_buf})
             self.reset(env_ids)
         if self.visualize:
             self.render()
