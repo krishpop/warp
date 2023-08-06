@@ -17,12 +17,18 @@ def register_envs(cfg_train, env_name):
     def create_warp_env(**kwargs):
         env_fn = getattr(envs, cfg_train["params"]["diff_env"]["_target_"].split(".")[-1])
         env_kwargs = kwargs
-        skip_keys = ["_target_", "num_envs", "render", "seed", "episode_length", "no_grad", "stochastic_init", "name"]
+        skip_keys = ["_target_", "num_envs", "render", "seed", "episode_length", "no_grad", "stochastic_init", "name", "env_name"]
         env_kwargs.update({k: v for k, v in cfg_train["params"]["diff_env"].items() if k not in skip_keys})
+        if cfg_train["params"].get("seed", None):
+            seed = cfg_train["params"]["seed"]
+            env_kwargs.pop('seed', None)
+        else:
+            seed = env_kwargs.pop("seed", 42)
+
         env = env_fn(
             num_envs=cfg_train["params"]["config"]["num_actors"],
             render=cfg_train["params"]["render"],
-            seed=cfg_train["params"]["seed"],
+            seed=seed,
             episode_length=cfg_train["params"]["diff_env"].get("episode_length", 1000),
             no_grad=True,
             stochastic_init=cfg_train["params"]["diff_env"]["stochastic_init"],
@@ -138,7 +144,7 @@ def train(cfg: DictConfig):
             else:
                 traj_optimizer.play(cfg_train)
             wandb.finish()
-        elif cfg.alg.name == "ppo":
+        elif cfg.alg.name in ["ppo", "sac"]:
             cfg_train = cfg_full["alg"]
             cfg_train["params"]["general"] = cfg_full["general"]
             cfg_train["params"]["seed"] = cfg_full["general"]["seed"]
