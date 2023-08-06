@@ -36,7 +36,7 @@ env:
 
 
 ppo:
-  max_epochs: 5000
+  max_epochs: 1000
   save_best_after: 100
   save_frequency: 400
   num_actors: 2048

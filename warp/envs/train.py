@@ -65,6 +65,7 @@ def create_wandb_run(wandb_cfg, job_config, run_id=None, run_wandb=False):
         name, notes = None, None
     if run_wandb:
         return wandb.init(
+            entity=wandb_cfg.entity,
             project=wandb_cfg.project,
             config=job_config,
             group=wandb_cfg.group,
@@ -86,9 +87,10 @@ cfg_path = os.path.join(cfg_path, "cfg")
 def train(cfg: DictConfig):
     if cfg.debug:
         import warp as wp
+
         wp.config.mode = "debug"
         wp.config.verify_cuda = True
-        wp.config.print_launches=True
+        wp.config.print_launches = True
 
     torch.set_default_dtype(torch.float32)
     try:
