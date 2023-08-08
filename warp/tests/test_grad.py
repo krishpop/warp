@@ -8,7 +8,6 @@
 import numpy as np
 import warp as wp
 from warp.tests.test_base import *
-from warp.tests.grad_utils import check_kernel_jacobian
 
 wp.config.quiet = True
 wp.init()
@@ -268,7 +267,7 @@ def test_preserve_outputs_grad(test, device):
     assert_np_equal(tape.gradients[x].numpy(), -2.0 * val)
 
 
-def gradcheck(func, func_name, inputs, device, outputs=None, eps=1e-4, tol=1e-2):
+def gradcheck(func, func_name, inputs, device, eps=1e-4, tol=1e-2):
     """
     Checks that the gradient of the Warp kernel is correct by comparing it to the
     numerical gradient computed using finite differences.
@@ -355,16 +354,16 @@ def test_matrix_math_grad(test, device):
         # run the tests with 5 different random inputs
         for _ in range(5):
             x = wp.array(np.random.randn(1, dim, dim).astype(np.float32), ndim=1, dtype=mat_type, device=device)
-            gradcheck(check_determinant, f"check_determinant_{mat_type.__name__}", [x], device)
-            gradcheck(check_trace, f"check_trace_{mat_type.__name__}", [x], device)
+            gradcheck(check_determinant, f"check_length_{mat_type.__name__}", [x], device)
+            gradcheck(check_trace, f"check_length_sq_{mat_type.__name__}", [x], device)
 
 
 def test_3d_math_grad(test, device):
     np.random.seed(123)
 
     # test binary operations
-    def check_cross(vs: wp.array(dtype=wp.vec3), out: wp.array(dtype=wp.vec3)):
-        out[0] = wp.cross(vs[0], vs[1])
+    def check_cross(vs: wp.array(dtype=wp.vec3), out: wp.array(dtype=float)):
+        out[0] = wp.length(wp.cross(vs[0], vs[1]))
 
     def check_dot(vs: wp.array(dtype=wp.vec3), out: wp.array(dtype=float)):
         out[0] = wp.dot(vs[0], vs[1])
@@ -505,39 +504,6 @@ def test_mesh_grad(test, device):
             mesh = wp.Mesh(points=pos, indices=indices)
             output.zero_()
             wp.launch(kernel, dim=num_tris, inputs=[mesh.id], outputs=[output], device=device)
-            f2 = output.numpy()[0]
-            pos_np[i, j] += eps
-            fd_grad[i, j] = (f1 - f2) / (2 * eps)
-
-    assert np.allclose(ad_grad, fd_grad, atol=1e-3)
-
-    # compute analytical gradient
-    tape = wp.Tape()
-    output = wp.zeros(1, dtype=wp.float32, device=device, requires_grad=True)
-    with tape:
-        wp.launch(kernel, dim=len(indices), inputs=[mesh.id], outputs=[output], device=device)
-
-    tape.backward(loss=output)
-
-    ad_grad = mesh.points.grad.numpy()
-
-    # compute finite differences
-    eps = 1e-3
-    pos_np = pos.numpy()
-    fd_grad = np.zeros_like(ad_grad)
-    for i in range(len(pos)):
-        for j in range(3):
-            pos_np[i, j] += eps
-            pos = wp.array(pos_np, dtype=wp.vec3, device=device)
-            mesh = wp.Mesh(points=pos, indices=indices)
-            output.zero_()
-            wp.launch(kernel, dim=len(indices), inputs=[mesh.id], outputs=[output], device=device)
-            f1 = output.numpy()[0]
-            pos_np[i, j] -= 2 * eps
-            pos = wp.array(pos_np, dtype=wp.vec3, device=device)
-            mesh = wp.Mesh(points=pos, indices=indices)
-            output.zero_()
-            wp.launch(kernel, dim=len(indices), inputs=[mesh.id], outputs=[output], device=device)
             f2 = output.numpy()[0]
             pos_np[i, j] += eps
             fd_grad[i, j] = (f1 - f2) / (2 * eps)
