@@ -202,7 +202,7 @@ class Environment:
             self.setup(builder)
             self.bodies_per_env = len(builder.body_q)
 
-        self.model = builder.finalize(integrator=self.integrator)
+        self.model = builder.finalize(integrator=self.integrator, requires_grad=self.requires_grad)
         self.device = self.model.device
         if not self.device.is_cuda:
             self.use_graph_capture = False
@@ -212,8 +212,8 @@ class Environment:
         self.model.joint_attach_kd = self.joint_attach_kd
 
         # set up current and next state to be used by the integrator
-        self.state_0 = None
-        self.state_1 = None
+        self.state_0 = self.model.state()
+        self.state_1 = self.model.state()
 
         self.renderer = None
         if self.profile:
@@ -237,7 +237,7 @@ class Environment:
                     additional_instances.append(floor_id)
                 self.renderer.setup_tiled_rendering(
                     instances=[
-                        instance_ids[i * shapes_per_env : (i + 1) * shapes_per_env] + additional_instances
+                        instance_ids[i * shapes_per_env: (i + 1) * shapes_per_env] + additional_instances
                         for i in range(self.num_envs)
                     ]
                 )
@@ -281,6 +281,7 @@ class Environment:
             wp.sim.collide(self.model, self.state_0)
             self.integrator.simulate(self.model, self.state_0, self.state_1, self.sim_dt)
             self.state_0, self.state_1 = self.state_1, self.state_0
+            self.sim_time += self.sim_dt
 
     def render(self, state=None):
         if self.renderer is not None:
@@ -291,17 +292,17 @@ class Environment:
                 self.renderer.render(state or self.state_1)
                 self.renderer.end_frame()
 
-    def run(self):
-        # ---------------
-        # run simulation
-
+    def reset(self):
         self.sim_time = 0.0
         self.render_time = 0.0
-        self.state_0 = self.model.state()
-        self.state_1 = self.model.state()
 
         if self.eval_fk:
             wp.sim.eval_fk(self.model, self.model.joint_q, self.model.joint_qd, None, self.state_0)
+
+    def run(self):
+        # ---------------
+        # run simulation
+        self.reset()
 
         self.before_simulate()
 
@@ -346,7 +347,6 @@ class Environment:
                         self.sim_time += self.frame_dt
                     else:
                         self.update()
-                        self.sim_time += self.frame_dt
 
                         if not self.profile:
                             if self.plot_body_coords:
