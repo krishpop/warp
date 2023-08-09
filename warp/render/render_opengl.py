@@ -771,6 +771,9 @@ class OpenGLRenderer:
         near_plane=0.01,
         far_plane=1000.0,
         camera_fov=45.0,
+        camera_pos=(0.0, 2.0, 10.0),
+        camera_front=(0.0, 0.0, -1.0),
+        camera_up=(0.0, 1.0, 0.0),
         background_color=(0.53, 0.8, 0.92),
         draw_grid=True,
         draw_sky=True,
@@ -819,9 +822,9 @@ class OpenGLRenderer:
 
         self.screen_width, self.screen_height = self.window.get_framebuffer_size()
 
-        self._camera_pos = PyVec3(0.0, 2.0, 10.0)
-        self._camera_front = PyVec3(0.0, 0.0, -1.0)
-        self._camera_up = PyVec3(0.0, 1.0, 0.0)
+        self._camera_pos = PyVec3(*camera_pos)
+        self._camera_front = PyVec3(*camera_front)
+        self._camera_up = PyVec3(*camera_up)
         self._camera_speed = 0.04
         if isinstance(up_axis, int):
             self._camera_axis = up_axis
