@@ -32,11 +32,10 @@ wp.init()
 # wp.set_device("cpu")
 
 if DEBUG_PLOTS:
-    
+
     import pyqtgraph as pg
     from pyqtgraph import PlotWidget, plot
     from PyQt5 import QtWidgets, QtCore
-
 
     class MainWindow(QtWidgets.QMainWindow):
 
@@ -252,9 +251,6 @@ class Controller:
                     thread_plots.append(p)
                 self.rollout_plots.append(thread_plots)
 
-
-
-                
             self.plotting_window2 = MainWindow()
             self.plotting_window2.show()
 
@@ -276,7 +272,8 @@ class Controller:
                 squeeze=False,
                 sharex=True,
             )
-            scaled_control_limits = np.array(self.env_rollout.control_limits) * np.array(self.env_rollout.control_gains)[:, np.newaxis]
+            scaled_control_limits = np.array(self.env_rollout.control_limits) * \
+                np.array(self.env_rollout.control_gains)[:, np.newaxis]
             for i in range(num_plots):
                 p = self.plotting_window2.graphWidget.addPlot(row=i // ncols, col=i % ncols)
                 p.setTitle(f"Ref Control {i}")
@@ -416,7 +413,8 @@ class Controller:
             if env == self.env_ref:
                 self.env_ref_acts.append(env.model.joint_act.numpy()[self.controllable_dofs_np])
             if DEBUG_PLOTS and not self.use_graph_capture:
-                self.joint_acts.append(env.model.joint_act.numpy()[self.controllable_dofs_np].reshape((-1, self.control_dim)))
+                self.joint_acts.append(env.model.joint_act.numpy()[
+                                       self.controllable_dofs_np].reshape((-1, self.control_dim)))
 
         if self.interpolation_mode == InterpolationMode.INTERPOLATE_HOLD:
             env.custom_update = update_control_hold
@@ -468,7 +466,7 @@ class Controller:
         # the last trajectory is fixed to the previous best trajectory
         wp.launch(
             sample_gaussian,
-            dim=(self.num_threads-1, self.num_control_points, self.control_dim),
+            dim=(self.num_threads - 1, self.num_control_points, self.control_dim),
             inputs=[
                 nominal_traj,
                 noise_scale,
@@ -521,7 +519,6 @@ if __name__ == "__main__":
     mpc = Controller(CartpoleEnvironment)
     mpc.run()
 
-    
     # from env_ant import AntEnvironment
 
     # AntEnvironment.env_offset = (0.0, 0.0, 0.0)
