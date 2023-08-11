@@ -23,6 +23,22 @@ import warp.sim
 from environment import Environment, run_env
 
 
+@wp.kernel
+def ant_cost(
+    body_q: wp.array(dtype=wp.transform),
+    body_qd: wp.array(dtype=wp.spatial_vector),
+    cost: wp.array(dtype=wp.float32),
+):
+    env_id = wp.tid()
+
+    pos_base = wp.transform_get_translation(body_q[env_id * 9])
+    vel_base = body_qd[env_id * 9]
+
+    cost[env_id] = cost[env_id] + (vel_base[4]) + pos_base[0] * 10.0
+    # cost[env_id] = 0.95 * cost[env_id] + 10.0 * (cart_cost + pole_cost) + 0.02 * vel_cost
+
+
+
 class AntEnvironment(Environment):
     sim_name = "env_ant"
     env_offset = (2.5, 0.0, 2.5)
@@ -38,6 +54,10 @@ class AntEnvironment(Environment):
     use_graph_capture = True
     use_tiled_rendering = False
     show_joints = False
+
+    controllable_dofs = [6, 7, 8, 9, 10, 11, 12, 13]
+    control_gains = [100.0] * 8
+    control_limits = [(-1.0, 1.0)] * 8
 
     def create_articulation(self, builder):
         wp.sim.parse_mjcf(
@@ -58,6 +78,14 @@ class AntEnvironment(Environment):
         builder.joint_q[7:] = [0.0, 1.0, 0.0, -1.0, 0.0, -1.0, 0.0, 1.0]
         builder.joint_q[:7] = [0.0, 0.7, 0.0, *wp.quat_from_axis_angle((1.0, 0.0, 0.0), -math.pi * 0.5)]
 
+    def evaluate_cost(self, state: wp.sim.State, cost: wp.array):
+        wp.launch(
+            ant_cost,
+            dim=self.num_envs,
+            inputs=[state.body_q, state.body_qd],
+            outputs=[cost],
+            device=self.device
+        )
 
 if __name__ == "__main__":
     run_env(AntEnvironment)
