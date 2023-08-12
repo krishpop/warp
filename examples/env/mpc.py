@@ -42,9 +42,15 @@ if DEBUG_PLOTS:
         def __init__(self, *args, **kwargs):
             super(MainWindow, self).__init__(*args, **kwargs)
 
+            self.layoutWidget = pg.LayoutWidget()
+            self.layoutWidget.addWidget
+
             # self.graphWidget = pg.PlotWidget()
-            self.graphWidget = pg.GraphicsLayoutWidget()
-            self.setCentralWidget(self.graphWidget)
+            self.graphWidget1 = pg.GraphicsLayoutWidget()
+            self.graphWidget2 = pg.GraphicsLayoutWidget()
+            self.layoutWidget.addWidget(self.graphWidget1)
+            self.layoutWidget.addWidget(self.graphWidget2)
+            self.setCentralWidget(self.layoutWidget)
 
 
 class InterpolationMode(Enum):
@@ -142,6 +148,38 @@ def interpolate_control_linear(
 
 
 @wp.kernel
+def interpolate_control_cubic(
+    control_points: wp.array(dtype=float, ndim=3),
+    control_dims: wp.array(dtype=int),
+    control_gains: wp.array(dtype=float),
+    t: float,
+    dt: float,
+    torque_dim: int,
+    # outputs
+    torques: wp.array(dtype=float),
+):
+    env_id, control_id = wp.tid()
+    t_id = int(t)
+    q = t - wp.floor(t)
+    c0 = control_points[env_id, t_id, control_id]
+    c1 = control_points[env_id, t_id + 1, control_id]
+    c2 = control_points[env_id, t_id + 2, control_id]
+    c3 = control_points[env_id, t_id + 3, control_id]
+    # Eq. 17
+    phi_0 = 0.5 * ((c2 - c1) + (c1 - c0)) / dt
+    # Eq. 18
+    phi_1 = 0.5 * ((c3 - c2) + (c2 - c1)) / dt
+    # Eq. 20-23
+    a = 2.0 * q ** 3.0 - 3.0 * q ** 2.0 + 1.0
+    b = (q ** 3.0 - 2.0 * q ** 2.0 + q) * dt
+    c = -2.0 * q ** 3.0 + 3.0 * q ** 2.0
+    d = (q ** 3.0 - q ** 2.0) * dt
+    torque_id = env_id * torque_dim + control_dims[control_id]
+    action = a * c1 + b * phi_0 + c * c2 + d * phi_1
+    torques[torque_id] = action * control_gains[control_id]
+
+
+@wp.kernel
 def pick_best_trajectory(
     rollout_trajectories: wp.array(dtype=float, ndim=3),
     lowest_cost_id: int,
@@ -154,9 +192,10 @@ def pick_best_trajectory(
 
 class Controller:
 
-    noise_scale = 1.1
+    noise_scale = 0.8
 
-    interpolation_mode = InterpolationMode.INTERPOLATE_LINEAR
+    # interpolation_mode = InterpolationMode.INTERPOLATE_LINEAR
+    interpolation_mode = InterpolationMode.INTERPOLATE_CUBIC
     # interpolation_mode = InterpolationMode.INTERPOLATE_HOLD
 
     def __init__(self, env_fn):
@@ -165,13 +204,15 @@ class Controller:
         self.traj_length = 500
 
         # time steps between control points
-        self.control_step = 40
+        self.control_step = 30
         # number of control horizon points to interpolate between
         self.num_control_points = 3
         # total number of horizon time steps
         self.horizon_length = self.num_control_points * self.control_step
         # number of trajectories to sample for optimization
-        self.num_threads = 100
+        self.num_threads = 1000
+        # number of steps to follow before optimizing again
+        self.optimization_interval = 2
 
         # create environment for sampling trajectories for optimization
         self.env_rollout = env_fn()
@@ -215,6 +256,9 @@ class Controller:
             self.plotting_window = MainWindow()
             self.plotting_window.show()
 
+            # maximum number of threads to visualize in the control sample views
+            self.max_plotting_threads = 50
+
             # get matplotlib colors as list for tab20 colormap
             self.plot_colors = (plt.get_cmap("tab10")(np.arange(10, dtype=int))[:, :3] * 255).astype(int)
 
@@ -234,7 +278,7 @@ class Controller:
                 sharex=True,
             )
             for i in range(num_plots):
-                p = self.plotting_window.graphWidget.addPlot(row=i // ncols, col=i % ncols)
+                p = self.plotting_window.graphWidget1.addPlot(row=i // ncols, col=i % ncols)
                 if i == 0:
                     p.setTitle("Cost")
                     # p.setYRange(0.0, 10.0)
@@ -243,7 +287,8 @@ class Controller:
                     p.setTitle(f"Control {i-1}")
                     p.setYRange(*self.env_rollout.control_limits[i - 1])
                 self.rollout_plot_axs.append(p)
-            for i in range(self.num_threads):
+            plotting_threads = min(self.num_threads, self.max_plotting_threads)
+            for i in range(plotting_threads):
                 thread_plots = []
                 for j in range(1, self.control_dim + 1):
                     pen = pg.mkPen(color=self.plot_colors[i % len(self.plot_colors)])
@@ -251,8 +296,8 @@ class Controller:
                     thread_plots.append(p)
                 self.rollout_plots.append(thread_plots)
 
-            self.plotting_window2 = MainWindow()
-            self.plotting_window2.show()
+            # self.plotting_window2 = MainWindow()
+            # self.plotting_window2.show()
 
             # get matplotlib colors as list for tab20 colormap
             self.plot_colors = (plt.get_cmap("tab10")(np.arange(10, dtype=int))[:, :3] * 255).astype(int)
@@ -275,7 +320,7 @@ class Controller:
             scaled_control_limits = np.array(self.env_rollout.control_limits) * \
                 np.array(self.env_rollout.control_gains)[:, np.newaxis]
             for i in range(num_plots):
-                p = self.plotting_window2.graphWidget.addPlot(row=i // ncols, col=i % ncols)
+                p = self.plotting_window.graphWidget2.addPlot(row=i // ncols, col=i % ncols)
                 p.setTitle(f"Ref Control {i}")
                 p.setYRange(*scaled_control_limits[i])
                 self.ref_plot_axs.append(p)
@@ -297,16 +342,22 @@ class Controller:
         return self.env_rollout.device
 
     def allocate_trajectories(self):
+        # number of control points that need to be optimized, respective of the type of interpolation
+        self.num_control_points_data = self.num_control_points
+        if self.interpolation_mode == InterpolationMode.INTERPOLATE_LINEAR:
+            self.num_control_points_data += 1
+        elif self.interpolation_mode == InterpolationMode.INTERPOLATE_CUBIC:
+            self.num_control_points_data += 3
         # optimized control points for the current horizon (3-dimensional to be compatible with rollout trajectories)
-        self.best_traj = wp.zeros((1, self.num_control_points, self.control_dim), dtype=float, device=self.device)
+        self.best_traj = wp.zeros((1, self.num_control_points_data, self.control_dim), dtype=float, device=self.device)
         # control point samples for the current horizon
         self.rollout_trajectories = wp.zeros(
-            (self.num_threads, self.num_control_points, self.control_dim), dtype=float, device=self.device)
+            (self.num_threads, self.num_control_points_data, self.control_dim), dtype=float, device=self.device)
         # self.rollout_trajectories = wp.array(
         #     [
-        #         -np.ones((self.num_control_points, self.control_dim)),
-        #         np.ones((self.num_control_points, self.control_dim)),
-        #         np.zeros((self.num_control_points, self.control_dim)),
+        #         -np.ones((self.num_control_points_data, self.control_dim)),
+        #         np.ones((self.num_control_points_data, self.control_dim)),
+        #         np.zeros((self.num_control_points_data, self.control_dim)),
         #     ], dtype=float, device=self.device)
         # cost of each trajectory
         self.rollout_costs = wp.zeros((self.num_threads,), dtype=float, device=self.device)
@@ -322,12 +373,12 @@ class Controller:
         for t in progress:
             # optimize trajectory horizon
             self.optimize(self.env_ref.state)
-            # self.assign_control_fn(self.env_ref, self.best_traj)
             # set sim time to zero to execute first optimized action
             self.env_ref.sim_time = 0
-            # advance the reference state with the next best action
-            self.env_ref.update()
-            self.env_ref.render()
+            for _ in range(self.optimization_interval):
+                # advance the reference state with the next best action
+                self.env_ref.update()
+                self.env_ref.render()
 
             # if DEBUG_PLOTS:
             #     fig, axes, ncols, nrows = self._create_plot_grid(self.control_dim)
@@ -365,7 +416,7 @@ class Controller:
         self.last_lowest_cost = costs[lowest_cost_id]
         wp.launch(
             pick_best_trajectory,
-            dim=(self.num_control_points, self.control_dim),
+            dim=(self.num_control_points_data, self.control_dim),
             inputs=[self.rollout_trajectories, lowest_cost_id],
             outputs=[self.best_traj],
             device=self.device
@@ -374,11 +425,12 @@ class Controller:
 
         if DEBUG_PLOTS:
             trajs = self.rollout_trajectories.numpy()
+            plotting_threads = min(self.num_threads, self.max_plotting_threads)
             if len(self.env_ref_acts) > 0:
                 env_ref_acts = np.array(self.env_ref_acts)
                 for j in range(self.control_dim):
-                    for i in range(self.num_threads):
-                        self.rollout_plots[i][j].setData(self.data_xs, trajs[i, :, j])
+                    for i in range(plotting_threads):
+                        self.rollout_plots[i][j].setData(self.data_xs, trajs[i, :self.num_control_points, j])
                     self.ref_plots[j].setData(np.arange(len(env_ref_acts)), env_ref_acts[:, j])
 
     def assign_control_fn(self, env, controls):
@@ -416,10 +468,32 @@ class Controller:
                 self.joint_acts.append(env.model.joint_act.numpy()[
                                        self.controllable_dofs_np].reshape((-1, self.control_dim)))
 
+        def update_control_cubic():
+            wp.launch(
+                interpolate_control_cubic,
+                dim=(env.num_envs, self.control_dim),
+                inputs=[
+                    controls,
+                    self.controllable_dofs,
+                    self.control_gains,
+                    env.sim_time / self.control_step / env.frame_dt,
+                    self.control_step * env.frame_dt,
+                    self.dof_count,
+                ],
+                outputs=[env.model.joint_act],
+                device=self.device)
+            if env == self.env_ref:
+                self.env_ref_acts.append(env.model.joint_act.numpy()[self.controllable_dofs_np])
+            if DEBUG_PLOTS and not self.use_graph_capture:
+                self.joint_acts.append(env.model.joint_act.numpy()[
+                                       self.controllable_dofs_np].reshape((-1, self.control_dim)))
+
         if self.interpolation_mode == InterpolationMode.INTERPOLATE_HOLD:
             env.custom_update = update_control_hold
         elif self.interpolation_mode == InterpolationMode.INTERPOLATE_LINEAR:
             env.custom_update = update_control_linear
+        elif self.interpolation_mode == InterpolationMode.INTERPOLATE_CUBIC:
+            env.custom_update = update_control_cubic
         else:
             raise NotImplementedError(f"Interpolation mode {self.interpolation_mode} not implemented")
 
@@ -466,11 +540,11 @@ class Controller:
         # the last trajectory is fixed to the previous best trajectory
         wp.launch(
             sample_gaussian,
-            dim=(self.num_threads - 1, self.num_control_points, self.control_dim),
+            dim=(self.num_threads - 1, self.num_control_points_data, self.control_dim),
             inputs=[
                 nominal_traj,
                 noise_scale,
-                self.num_control_points,
+                self.num_control_points_data,
                 self.control_dim,
                 self.control_limits,
                 self.sampling_seed_counter,
