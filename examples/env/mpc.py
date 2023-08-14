@@ -195,8 +195,8 @@ class Controller:
     noise_scale = 0.8
 
     # interpolation_mode = InterpolationMode.INTERPOLATE_LINEAR
-    interpolation_mode = InterpolationMode.INTERPOLATE_CUBIC
-    # interpolation_mode = InterpolationMode.INTERPOLATE_HOLD
+    # interpolation_mode = InterpolationMode.INTERPOLATE_CUBIC
+    interpolation_mode = InterpolationMode.INTERPOLATE_HOLD
 
     def __init__(self, env_fn):
 
@@ -206,11 +206,11 @@ class Controller:
         # time steps between control points
         self.control_step = 30
         # number of control horizon points to interpolate between
-        self.num_control_points = 3
+        self.num_control_points = 10
         # total number of horizon time steps
         self.horizon_length = self.num_control_points * self.control_step
         # number of trajectories to sample for optimization
-        self.num_threads = 1000
+        self.num_threads = 200
         # number of steps to follow before optimizing again
         self.optimization_interval = 2
 
@@ -247,7 +247,7 @@ class Controller:
         # CUDA graphs
         self._rollout_graph = None
 
-        self.use_graph_capture = wp.get_device(self.device).is_cuda  # and not DEBUG_PLOTS
+        self.use_graph_capture = wp.get_device(self.device).is_cuda
 
         self.plotting_app = None
         self.plotting_window = None
@@ -585,17 +585,18 @@ class Controller:
 
 
 if __name__ == "__main__":
+    from env_ant import AntEnvironment
+    from env_hopper import HopperEnvironment
     from env_cartpole import CartpoleEnvironment
 
     CartpoleEnvironment.env_offset = (0.0, 0.0, 0.0)
     CartpoleEnvironment.single_cartpole = True
 
-    mpc = Controller(CartpoleEnvironment)
+    AntEnvironment.env_offset = (0.0, 0.0, 0.0)
+    HopperEnvironment.env_offset = (0.0, 0.0, 0.0)
+
+    mpc = Controller(AntEnvironment)
+    # mpc = Controller(HopperEnvironment)
+    # mpc = Controller(CartpoleEnvironment)
+
     mpc.run()
-
-    # from env_ant import AntEnvironment
-
-    # AntEnvironment.env_offset = (0.0, 0.0, 0.0)
-
-    # mpc = Controller(AntEnvironment)
-    # mpc.run()
