@@ -21,6 +21,7 @@ from enum import Enum
 from tqdm import trange
 
 import matplotlib.pyplot as plt
+from warp.optim import Adam, SGD
 
 DEBUG_PLOTS = True
 
@@ -214,10 +215,14 @@ class Controller:
         # number of steps to follow before optimizing again
         self.optimization_interval = 2
 
+        # whether env_rollout requires gradients
+        self.use_diff_sim = True
+
         # create environment for sampling trajectories for optimization
         self.env_rollout = env_fn()
         self.env_rollout.num_envs = self.num_threads
         self.env_rollout.render_mode = RenderMode.NONE
+        self.env_rollout.requires_grad = self.use_diff_sim
         self.env_rollout.init()
 
         # create environment for visualization and the reference state
@@ -349,18 +354,18 @@ class Controller:
         elif self.interpolation_mode == InterpolationMode.INTERPOLATE_CUBIC:
             self.num_control_points_data += 3
         # optimized control points for the current horizon (3-dimensional to be compatible with rollout trajectories)
-        self.best_traj = wp.zeros((1, self.num_control_points_data, self.control_dim), dtype=float, device=self.device)
+        self.best_traj = wp.zeros((1, self.num_control_points_data, self.control_dim), dtype=float, requires_grad=self.use_diff_sim, device=self.device)
         # control point samples for the current horizon
         self.rollout_trajectories = wp.zeros(
-            (self.num_threads, self.num_control_points_data, self.control_dim), dtype=float, device=self.device)
+            (self.num_threads, self.num_control_points_data, self.control_dim), dtype=float, requires_grad=self.use_diff_sim, device=self.device)
         # self.rollout_trajectories = wp.array(
         #     [
         #         -np.ones((self.num_control_points_data, self.control_dim)),
         #         np.ones((self.num_control_points_data, self.control_dim)),
         #         np.zeros((self.num_control_points_data, self.control_dim)),
-        #     ], dtype=float, device=self.device)
+        #     ], dtype=float, requires_grad=self.use_diff_sim, device=self.device)
         # cost of each trajectory
-        self.rollout_costs = wp.zeros((self.num_threads,), dtype=float, device=self.device)
+        self.rollout_costs = wp.zeros((self.num_threads,), dtype=float, requires_grad=self.use_diff_sim, device=self.device)
 
     def run(self):
         self.env_ref.reset()
@@ -391,7 +396,7 @@ class Controller:
 
             progress.set_description(f"cost: {self.last_lowest_cost:.2f} ({self.last_lowest_cost_id})")
 
-    def optimize(self, state):
+    def optimize_ps(self, state):
         # predictive sampling algorithm
         if self.use_graph_capture:
             if self._rollout_graph is None:
@@ -401,6 +406,30 @@ class Controller:
                 self._rollout_graph = wp.capture_end()
             else:
                 wp.capture_launch(self._rollout_graph)
+        else:
+            self.sample_controls(self.best_traj)
+            self.rollout(state, self.horizon_length, self.num_threads)
+        wp.synchronize()
+        self.pick_best_control()
+    
+    def optimize(self, state):
+        # gradient-based optimization
+        optimizer = SGD([self.rollout_trajectories], lr=0.1, nesterov=True, momentum=0.1)
+        if self.use_graph_capture:
+            self.sample_controls(self.best_traj)
+            if self._rollout_graph is None:
+                wp.capture_begin()
+                tape = wp.Tape()
+                with tape:
+                    self.rollout(state, self.horizon_length, self.num_threads)
+                self.rollout_costs.grad.fill_(1.0)
+                tape.backward()
+                tape.zero()
+                self._rollout_graph = wp.capture_end()
+            else:
+                wp.capture_launch(self._rollout_graph)
+            for _ in range(10):
+                optimizer.step([self.rollout_trajectories.grad])
         else:
             self.sample_controls(self.best_traj)
             self.rollout(state, self.horizon_length, self.num_threads)
@@ -595,8 +624,8 @@ if __name__ == "__main__":
     AntEnvironment.env_offset = (0.0, 0.0, 0.0)
     HopperEnvironment.env_offset = (0.0, 0.0, 0.0)
 
-    mpc = Controller(AntEnvironment)
+    # mpc = Controller(AntEnvironment)
     # mpc = Controller(HopperEnvironment)
-    # mpc = Controller(CartpoleEnvironment)
+    mpc = Controller(CartpoleEnvironment)
 
     mpc.run()

@@ -82,6 +82,7 @@ class Environment:
     frame_dt = 1.0 / 60.0
 
     episode_duration = 5.0  # seconds
+    episode_frames = None  # number of steps per episode, if None, use episode_duration / frame_dt
 
     # whether to play the simulation indefinitely when using the OpenGL renderer
     continuous_opengl_render: bool = True
@@ -176,9 +177,10 @@ class Environment:
             self.sim_substeps = self.sim_substeps_xpbd
             self.integrator = wp.sim.XPBDIntegrator(**self.xpbd_settings)
 
-        self.episode_frames = int(self.episode_duration / self.frame_dt)
+        if self.episode_frames is None:
+            self.episode_frames = int(self.episode_duration / self.frame_dt)
         self.sim_dt = self.frame_dt / self.sim_substeps
-        self.sim_steps = int(self.episode_duration / self.sim_dt)
+        self.sim_steps = self.episode_frames * self.sim_substeps
 
         if self.use_tiled_rendering and self.render_mode == RenderMode.OPENGL:
             # no environment offset when using tiled rendering
@@ -211,9 +213,14 @@ class Environment:
         self.model.joint_attach_ke = self.joint_attach_ke
         self.model.joint_attach_kd = self.joint_attach_kd
 
-        # set up current and next state to be used by the integrator
-        self.state_0 = self.model.state()
-        self.state_1 = self.model.state()
+        if self.requires_grad:
+            self.states = [self.model.state() for _ in range(self.sim_steps + 1)]
+            self.update = self.update_grad
+        else:
+            # set up current and next state to be used by the integrator
+            self.state_0 = self.model.state()
+            self.state_1 = self.model.state()
+            self.update = self.update_nograd
 
         self.renderer = None
         if self.profile:
@@ -272,9 +279,18 @@ class Environment:
     @property
     def state(self):
         # shortcut to current state
+        if self.requires_grad:
+            return self.states[self.sim_step]
         return self.state_0
 
-    def update(self):
+    @property
+    def next_state(self):
+        # shortcut to subsequent state
+        if self.requires_grad:
+            return self.states[self.sim_step + 1]
+        return self.state_1
+
+    def update_nograd(self):
         for i in range(self.sim_substeps):
             self.state_0.clear_forces()
             self.custom_update()
@@ -282,6 +298,14 @@ class Environment:
             self.integrator.simulate(self.model, self.state_0, self.state_1, self.sim_dt)
             self.state_0, self.state_1 = self.state_1, self.state_0
             self.sim_time += self.sim_dt
+            self.sim_step += 1
+    
+    def update_grad(self):
+        for i in range(self.sim_substeps):
+            wp.sim.collide(self.model, self.states[self.sim_step])
+            self.integrator.simulate(self.model, self.states[self.sim_step], self.states[self.sim_step + 1], self.sim_dt)
+            self.sim_time += self.sim_dt
+            self.sim_step += 1
 
     def render(self, state=None):
         if self.renderer is not None:
@@ -289,15 +313,16 @@ class Environment:
                 self.render_time += self.frame_dt
                 self.renderer.begin_frame(self.render_time)
                 # render state 1 (swapped with state 0 just before)
-                self.renderer.render(state or self.state_1)
+                self.renderer.render(state or self.next_state)
                 self.renderer.end_frame()
 
     def reset(self):
         self.sim_time = 0.0
+        self.sim_step = 0
         self.render_time = 0.0
 
         if self.eval_fk:
-            wp.sim.eval_fk(self.model, self.model.joint_q, self.model.joint_qd, None, self.state_0)
+            wp.sim.eval_fk(self.model, self.model.joint_q, self.model.joint_qd, None, self.state)
 
     def run(self):
         # ---------------
@@ -307,7 +332,7 @@ class Environment:
         self.before_simulate()
 
         if self.renderer is not None:
-            self.render(self.state_0)
+            self.render(self.state)
 
             if self.render_mode == RenderMode.OPENGL:
                 self.renderer.paused = True
@@ -325,11 +350,11 @@ class Environment:
 
         if self.plot_body_coords:
             q_history = []
-            q_history.append(self.state_0.body_q.numpy().copy())
+            q_history.append(self.state.body_q.numpy().copy())
             qd_history = []
-            qd_history.append(self.state_0.body_qd.numpy().copy())
+            qd_history.append(self.state.body_qd.numpy().copy())
             delta_history = []
-            delta_history.append(self.state_0.body_deltas.numpy().copy())
+            delta_history.append(self.state.body_deltas.numpy().copy())
             num_con_history = []
             num_con_history.append(self.model.rigid_contact_inv_weight.numpy().copy())
         if self.plot_joint_coords:
@@ -350,13 +375,13 @@ class Environment:
 
                         if not self.profile:
                             if self.plot_body_coords:
-                                q_history.append(self.state_0.body_q.numpy().copy())
-                                qd_history.append(self.state_0.body_qd.numpy().copy())
-                                delta_history.append(self.state_0.body_deltas.numpy().copy())
+                                q_history.append(self.state.body_q.numpy().copy())
+                                qd_history.append(self.state.body_qd.numpy().copy())
+                                delta_history.append(self.state.body_deltas.numpy().copy())
                                 num_con_history.append(self.model.rigid_contact_inv_weight.numpy().copy())
 
                             if self.plot_joint_coords:
-                                wp.sim.eval_ik(self.model, self.state_0, joint_q, joint_qd)
+                                wp.sim.eval_ik(self.model, self.state, joint_q, joint_qd)
                                 joint_q_history.append(joint_q.numpy().copy())
 
                     self.render()
