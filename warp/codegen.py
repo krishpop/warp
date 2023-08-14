@@ -772,10 +772,13 @@ class Adjoint:
                         arg_type = x.type[0]
                     else:
                         arg_type = x.type
-                    if arg_type.__module__ == "warp.types":
-                        arg_types.append(arg_type.__name__)
+                    if not hasattr(arg_type, "__name__"):
+                        arg_types.append(str(arg_type))
                     else:
-                        arg_types.append(arg_type.__module__ + "." + arg_type.__name__)
+                        if arg_type.__module__ == "warp.types":
+                            arg_types.append(arg_type.__name__)
+                        else:
+                            arg_types.append(arg_type.__module__ + "." + arg_type.__name__)
 
                 if isinstance(x, warp.context.Function):
                     arg_types.append("function")
