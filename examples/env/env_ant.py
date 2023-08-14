@@ -30,13 +30,30 @@ def ant_cost(
     cost: wp.array(dtype=wp.float32),
 ):
     env_id = wp.tid()
+    base_tf = body_q[env_id * 9]
 
-    pos_base = wp.transform_get_translation(body_q[env_id * 9])
+    pos_base = wp.transform_get_translation(base_tf)
+    rot_base = wp.transform_get_rotation(base_tf)
     vel_base = body_qd[env_id * 9]
 
-    cost[env_id] = cost[env_id] + (vel_base[4]) + pos_base[0] * 10.0
+    # cost[env_id] = cost[env_id] + (vel_base[4]) + pos_base[0] * 10.0
     # cost[env_id] = 0.95 * cost[env_id] + 10.0 * (cart_cost + pole_cost) + 0.02 * vel_cost
 
+    termination_height = 0.27
+
+    up_vec = wp.quat_rotate(rot_base, wp.vec3(0.0, 1.0, 0.0))
+    heading_vec = wp.quat_rotate(rot_base, wp.vec3(1.0, 0.0, 0.0))
+
+    # wp.printf("up_vec: [%.3f %.3f %.3f]\n", up_vec[0], up_vec[1], up_vec[2])
+    # wp.printf("heading_vec: [%.3f %.3f %.3f]\n", heading_vec[0], heading_vec[1], heading_vec[2])
+
+    up_reward = wp.length_sq(up_vec - wp.vec3(0.0, 0.0, -1.0))
+    heading_reward = wp.length_sq(heading_vec - wp.vec3(1.0, 0.0, 0.0))
+    height_reward = pos_base[1] - termination_height
+    progress_reward = vel_base[3]  # double-check!
+
+    reward = 10.0 * progress_reward + up_reward + heading_reward + height_reward
+    cost[env_id] = cost[env_id] - reward
 
 
 class AntEnvironment(Environment):
@@ -56,7 +73,7 @@ class AntEnvironment(Environment):
     show_joints = False
 
     controllable_dofs = [6, 7, 8, 9, 10, 11, 12, 13]
-    control_gains = [100.0] * 8
+    control_gains = [50.0] * 8
     control_limits = [(-1.0, 1.0)] * 8
 
     def create_articulation(self, builder):
@@ -64,8 +81,8 @@ class AntEnvironment(Environment):
             os.path.join(os.path.dirname(__file__), "../assets/nv_ant.xml"),
             builder,
             stiffness=0.0,
-            damping=1.0,
-            armature=0.1,
+            damping=0.0,
+            armature=0.01,
             contact_ke=1.0e4,
             contact_kd=1.0e2,
             contact_kf=1.0e4,
@@ -86,6 +103,7 @@ class AntEnvironment(Environment):
             outputs=[cost],
             device=self.device
         )
+
 
 if __name__ == "__main__":
     run_env(AntEnvironment)
