@@ -135,11 +135,12 @@ def solve_particle_shape_contacts(
     body_delta: wp.array(dtype=wp.spatial_vector),
 ):
     tid = wp.tid()
-    if (particle_flags[tid] & PARTICLE_FLAG_ACTIVE) == 0:
-        return
 
     count = min(contact_max, contact_count[0])
     if tid >= count:
+        return
+
+    if (particle_flags[tid] & PARTICLE_FLAG_ACTIVE) == 0:
         return
 
     shape_index = contact_shape[tid]
@@ -2522,11 +2523,11 @@ class XPBDIntegrator:
                         device=model.device,
                     )
 
-                    if requires_grad:
-                        # state_out.body_q = body_q
-                        # state_out.body_qd = body_qd
-                        state_out.body_q.assign(out_body_q)
-                        state_out.body_qd.assign(out_body_qd)
+                if requires_grad:
+                    # state_out.body_q = body_q
+                    # state_out.body_qd = body_qd
+                    state_out.body_q.assign(out_body_q)
+                    state_out.body_qd.assign(out_body_qd)
 
             # update body velocities from position changes
             if model.body_count and not requires_grad:
