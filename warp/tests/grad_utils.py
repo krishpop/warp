@@ -933,7 +933,7 @@ def check_backward_pass(
             mpl.patches.Patch(color="lightgray", label="no grad"),
             mpl.patches.Patch(color="yellow", label="kernel"),
         ]
-        plt.legend(handles=handles)
+        plt.legend(handles=handles, loc="upper right")
 
         default_draw_args = dict(
             alpha=0.9, edgecolors="black", linewidths=0.5, node_size=1000)
