@@ -1427,7 +1427,7 @@ def collide(model, state, edge_sdf_iter: int = 10):
     else:
         contact_state = model
 
-    if model.shape_contact_pair_count or model.shape_ground_contact_pair_count:
+    if model.shape_contact_pair_count or model.ground and model.shape_ground_contact_pair_count:
         # clear old count
         contact_state.rigid_contact_count.zero_()
 
