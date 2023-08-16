@@ -1085,7 +1085,6 @@ def compute_angular_correction_3d(
     return d_lambda * relaxation
 
 
-
 @wp.kernel
 def solve_simple_body_joints(
     body_q: wp.array(dtype=wp.transform),
@@ -1198,11 +1197,8 @@ def solve_simple_body_joints(
         limit_lower = joint_limit_lower[axis_start]
         limit_upper = joint_limit_upper[axis_start]
 
-    linear_alpha = joint_linear_compliance[tid]
-    angular_alpha = joint_angular_compliance[tid]
-
-    linear_alpha_tilde = linear_alpha / dt / dt
-    angular_alpha_tilde = angular_alpha / dt / dt
+    linear_alpha_tilde = linear_compliance / dt / dt
+    angular_alpha_tilde = angular_compliance / dt / dt
 
     # prevent division by zero
     # linear_alpha_tilde = wp.max(linear_alpha_tilde, 1e-6)
@@ -1331,10 +1327,6 @@ def solve_simple_body_joints(
         ncorr = wp.normalize(corr)
         ang_delta_p -= lambda_n * ncorr
         ang_delta_c += lambda_n * ncorr
-    # if (type == wp.sim.JOINT_BALL):
-    #     # TODO: implement Eq. 22-24
-    #     wp.print("Ball joint not implemented")
-    #     return
 
     # handle positional constraints
 
@@ -1345,12 +1337,6 @@ def solve_simple_body_joints(
     # compute error between the joint attachment points on both bodies
     # delta x is the difference of point r_2 minus point r_1 (Fig. 3)
     dx = x_c - x_p
-
-    # define set of perpendicular unit axes a, b, c
-    # (Sec. 3.4.1)
-    normal_a = wp.vec3(1.0, 0.0, 0.0)
-    normal_b = wp.vec3(0.0, 1.0, 0.0)
-    normal_c = wp.vec3(0.0, 0.0, 1.0)
 
     # rotate the error vector into the joint frame
     q_dx = q_p
@@ -1364,52 +1350,19 @@ def solve_simple_body_joints(
         lower_pos_limits = axis * limit_lower
         upper_pos_limits = axis * limit_upper
 
+    # compute linear constraint violations
     corr = wp.vec3(0.0)
-
-    d = wp.dot(normal_a, dx)
-    if (d < lower_pos_limits[0]):
-        corr -= normal_a * (lower_pos_limits[0] - d)
-    if (d > upper_pos_limits[0]):
-        corr -= normal_a * (upper_pos_limits[0] - d)
-
-    d = wp.dot(normal_b, dx)
-    if (d < lower_pos_limits[1]):
-        corr -= normal_b * (lower_pos_limits[1] - d)
-    if (d > upper_pos_limits[1]):
-        corr -= normal_b * (upper_pos_limits[1] - d)
-
-    d = wp.dot(normal_c, dx)
-    if (d < lower_pos_limits[2]):
-        corr -= normal_c * (lower_pos_limits[2] - d)
-    if (d > upper_pos_limits[2]):
-        corr -= normal_c * (upper_pos_limits[2] - d)
+    zero = wp.vec3(0.0)
+    corr -= vec_min(zero, upper_pos_limits - dx)
+    corr -= vec_max(zero, lower_pos_limits - dx)
 
     # rotate correction vector into world frame
     corr = wp.quat_rotate(q_dx, corr)
 
-    # print("parent")
-    # print(id_p)
-    # print("dx")
-    # print(dx)
-    # print("r_p")
-    # print(r_p)
-    # print("r_c")
-    # print(r_c)
-
-    # handle positional constraints (Sec. 3.3.1)
-    # positional_correction(corr, r_p, r_c, pose_p, pose_c, m_inv_p, m_inv_c, I_inv_p, I_inv_c,
-    #                       linear_alpha_tilde, linear_relaxation, 0.0, 0.0, deltas, id_p, id_c)
-
-    derr = 0.0
     lambda_in = 0.0
     linear_alpha = joint_linear_compliance[tid]
-    joint_damping = 0.0
-    # TODO reset relaxation
-    # linear_relaxation = 0.006
-    # deltaLambda = compute_constraint_delta(corr, derr, pose_p, pose_c, m_inv_p, m_inv_c, I_inv_p, I_inv_c,
-    #     r_p, r_c, angular0, angular1, lambda_in, linear_alpha, joint_damping, positional_relaxation, dt)
     lambda_n = compute_linear_correction_3d(corr, r_p, r_c, pose_p, pose_c, m_inv_p, m_inv_c, I_inv_p, I_inv_c,
-                                           lambda_in, linear_alpha, linear_relaxation, dt)
+                                            lambda_in, linear_alpha, linear_relaxation, dt)
     n = wp.normalize(corr)
 
     lin_delta_p -= n * lambda_n
@@ -2783,7 +2736,7 @@ class XPBDIntegrator:
                 # ----------------------------
 
                 if model.joint_count:
-                    
+
                     wp.launch(
                         kernel=solve_simple_body_joints,
                         dim=model.joint_count,
