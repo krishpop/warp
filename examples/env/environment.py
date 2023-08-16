@@ -221,6 +221,10 @@ class Environment:
             self.state_0 = self.model.state()
             self.state_1 = self.model.state()
             self.update = self.update_nograd
+            if self.use_graph_capture:
+                self.state_temp = self.model.state()
+            else:
+                self.state_temp = None
 
         self.renderer = None
         if self.profile:
@@ -296,14 +300,28 @@ class Environment:
             self.custom_update()
             wp.sim.collide(self.model, self.state_0)
             self.integrator.simulate(self.model, self.state_0, self.state_1, self.sim_dt)
-            self.state_0, self.state_1 = self.state_1, self.state_0
+            if i < self.sim_substeps - 1 or not self.use_graph_capture:
+                # we can just swap the state references
+                self.state_0, self.state_1 = self.state_1, self.state_0
+            elif self.use_graph_capture:
+                assert hasattr(self, "state_temp") and self.state_temp is not None, \
+                    "state_temp must be allocated when using graph capture"
+                # swap states by actually copying the state arrays to make sure the graph capture works
+                for key, value in self.state_0.__dict__.items():
+                    if isinstance(value, wp.array):
+                        self.state_temp.__dict__[key].assign(value)
+                        self.state_0.__dict__[key].assign(self.state_1.__dict__[key])
+                        self.state_1.__dict__[key].assign(self.state_temp.__dict__[key])
             self.sim_time += self.sim_dt
             self.sim_step += 1
-    
+
     def update_grad(self):
         for i in range(self.sim_substeps):
+            self.states[self.sim_step].clear_forces()
+            self.custom_update()
             wp.sim.collide(self.model, self.states[self.sim_step])
-            self.integrator.simulate(self.model, self.states[self.sim_step], self.states[self.sim_step + 1], self.sim_dt)
+            self.integrator.simulate(self.model, self.states[self.sim_step],
+                                     self.states[self.sim_step + 1], self.sim_dt)
             self.sim_time += self.sim_dt
             self.sim_step += 1
 
@@ -313,7 +331,11 @@ class Environment:
                 self.render_time += self.frame_dt
                 self.renderer.begin_frame(self.render_time)
                 # render state 1 (swapped with state 0 just before)
-                self.renderer.render(state or self.next_state)
+                if self.requires_grad:
+                    # ensure we do not render beyond the last state
+                    self.renderer.render(state or self.states[min(self.sim_steps, self.sim_step + 1)])
+                else:
+                    self.renderer.render(state or self.next_state)
                 self.renderer.end_frame()
 
     def reset(self):
@@ -370,6 +392,7 @@ class Environment:
                     if self.use_graph_capture:
                         wp.capture_launch(graph)
                         self.sim_time += self.frame_dt
+                        self.sim_step += self.sim_substeps
                     else:
                         self.update()
 
