@@ -222,6 +222,13 @@ def closest_point_box(upper: wp.vec3, point: wp.vec3):
 
 @wp.func
 def get_box_vertex(point_id: int, upper: wp.vec3):
+    # box vertex numbering:
+    #    6---7
+    #    |\  |\       y
+    #    | 2-+-3      |
+    #    4-+-5 |   z \|
+    #     \|  \|      o---x
+    #      0---1
     # get the vertex of the box given its ID (0-7)
     sign_x = float(point_id % 2) * 2.0 - 1.0
     sign_y = float((point_id // 2) % 2) * 2.0 - 1.0
@@ -1363,7 +1370,8 @@ def handle_contact_pairs(
 
     d = distance - thickness
     if d < rigid_contact_margin:
-        pair_contact_id = limited_counter_increment(contact_pairwise_counter, pair_index, contact_tids, tid, contact_limit)
+        pair_contact_id = limited_counter_increment(
+            contact_pairwise_counter, pair_index, contact_tids, tid, contact_limit)
         if pair_contact_id == -1:
             # wp.printf("Reached contact point limit %d >= %d for shape pair %d and %d\n",
             #           contact_pairwise_counter[pair_index], contact_limit, shape_a, shape_b)
