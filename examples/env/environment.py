@@ -186,11 +186,16 @@ class Environment:
             # no environment offset when using tiled rendering
             self.env_offset = (0.0, 0.0, 0.0)
 
-        builder = wp.sim.ModelBuilder()
+        if isinstance(self.up_axis, str):
+            up_vector = np.zeros(3)
+            up_vector["xyz".index(self.up_axis.lower())] = 1.0
+        else:
+            up_vector = self.up_axis
+        builder = wp.sim.ModelBuilder(up_vector=up_vector, gravity=self.gravity)
         builder.rigid_mesh_contact_max = self.rigid_mesh_contact_max
         builder.rigid_contact_margin = self.rigid_contact_margin
         try:
-            articulation_builder = wp.sim.ModelBuilder()
+            articulation_builder = wp.sim.ModelBuilder(up_vector=up_vector, gravity=self.gravity)
             self.create_articulation(articulation_builder)
             env_offsets = compute_env_offsets(self.num_envs, self.env_offset, self.up_axis)
             for i in range(self.num_envs):
