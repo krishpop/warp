@@ -266,9 +266,27 @@ def tape_jacobian_fd(tape: wp.Tape, inputs: List[wp.array], outputs: List[wp.arr
     assert num_in > 0, "Must specify at least one input"
     assert num_out > 0, "Must specify at least one output"
 
+    def zero_vars(outputs):
+        # zero out the outputs before executing tape operations, in case
+        # there is no operation on the tape that resets the outputs
+        # (a loss function is often simply accumulated; array.zero_() is
+        # not an operation that can be recorded on the tape)
+        if isinstance(outputs, (list, tuple)):
+            for output in outputs:
+                zero_vars(output)
+        elif isinstance(outputs, wp.array):
+            outputs.zero_()
+        elif isinstance(outputs, wp.codegen.StructInstance):
+            for varname, var in get_struct_vars(outputs).items():
+                zero_vars(var)
+
+    zero_vars(outputs)
+
     def f():
         tape.forward()
-        return flatten_arrays(outputs)
+        out = flatten_arrays(outputs)
+        zero_vars(outputs)
+        return out
 
     # compute numerical Jacobian
     jac_fd = np.zeros((num_out, num_in), dtype=np.float32)
