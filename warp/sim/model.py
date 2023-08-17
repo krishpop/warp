@@ -1071,7 +1071,7 @@ class ModelBuilder:
         self.joint_coord_count = 0
         self.joint_axis_total_count = 0
 
-        self.up_vector = up_vector
+        self.up_vector = np.array(up_vector)
         self.up_axis = np.argmax(np.abs(up_vector))
         self.gravity = gravity
         # indicates whether a ground plane has been created
