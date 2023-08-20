@@ -6,203 +6,274 @@
 
 Kernel Reference
 ================
+
 Scalar Types
 ------------
-.. autoclass:: int8
-.. autoclass:: uint8
-.. autoclass:: int16
-.. autoclass:: uint16
-.. autoclass:: int32
-.. autoclass:: uint32
-.. autoclass:: int64
-.. autoclass:: uint64
-.. autoclass:: float16
-.. autoclass:: float32
-.. autoclass:: float64
+.. class:: int8
+.. class:: uint8
+.. class:: int16
+.. class:: uint16
+.. class:: int32
+.. class:: uint32
+.. class:: int64
+.. class:: uint64
+.. class:: float16
+.. class:: float32
+.. class:: float64
+
+
 Vector Types
 ------------
-.. autoclass:: vec2
-.. autoclass:: vec3
-.. autoclass:: vec4
-.. autoclass:: mat22
-.. autoclass:: mat33
-.. autoclass:: mat44
-.. autoclass:: quat
-.. autoclass:: transform
-.. autoclass:: spatial_vector
-.. autoclass:: spatial_matrix
+.. class:: vec2b
+.. class:: vec2ub
+.. class:: vec2s
+.. class:: vec2us
+.. class:: vec2i
+.. class:: vec2ui
+.. class:: vec2l
+.. class:: vec2ul
+.. class:: vec2h
+.. class:: vec2f
+.. class:: vec2d
+.. class:: vec3b
+.. class:: vec3ub
+.. class:: vec3s
+.. class:: vec3us
+.. class:: vec3i
+.. class:: vec3ui
+.. class:: vec3l
+.. class:: vec3ul
+.. class:: vec3h
+.. class:: vec3f
+.. class:: vec3d
+.. class:: vec4b
+.. class:: vec4ub
+.. class:: vec4s
+.. class:: vec4us
+.. class:: vec4i
+.. class:: vec4ui
+.. class:: vec4l
+.. class:: vec4ul
+.. class:: vec4h
+.. class:: vec4f
+.. class:: vec4d
+.. class:: mat22h
+.. class:: mat22f
+.. class:: mat22d
+.. class:: mat33h
+.. class:: mat33f
+.. class:: mat33d
+.. class:: mat44h
+.. class:: mat44f
+.. class:: mat44d
+.. class:: quath
+.. class:: quatf
+.. class:: quatd
+.. class:: transformh
+.. class:: transformf
+.. class:: transformd
+.. class:: spatial_vectorh
+.. class:: spatial_vectorf
+.. class:: spatial_vectord
+.. class:: spatial_matrixh
+.. class:: spatial_matrixf
+.. class:: spatial_matrixd
+
+Generic Types
+-------------
+.. class:: Int
+.. class:: Float
+.. class:: Scalar
+.. class:: Vector
+.. class:: Matrix
+.. class:: Quaternion
+.. class:: Transformation
+.. class:: Array
 
 
 Scalar Math
 ---------------
-.. function:: min(x: int32, y: int32) -> int
+.. function:: min(x: Scalar, y: Scalar) -> Scalar
 
-   Return the minimum of two integers.
-
-
-.. function:: min(x: float32, y: float32) -> float
-
-   Return the minimum of two floats.
+   Return the minimum of two scalars.
 
 
-.. function:: max(x: int32, y: int32) -> int
+.. function:: min(x: Vector[Any,Scalar], y: Vector[Any,Scalar]) -> Vector[Any,Scalar]
+   :noindex:
+   :nocontentsentry:
 
-   Return the maximum of two integers.
-
-
-.. function:: max(x: float32, y: float32) -> float
-
-   Return the maximum of two floats.
+   Return the element wise minimum of two vectors.
 
 
-.. function:: clamp(x: int32, a: int32, b: int32) -> int
+.. function:: min(v: Vector[Any,Scalar]) -> Scalar
+   :noindex:
+   :nocontentsentry:
+
+   Return the minimum element of a vector.
+
+
+.. function:: max(x: Scalar, y: Scalar) -> Scalar
+
+   Return the maximum of two scalars.
+
+
+.. function:: max(x: Vector[Any,Scalar], y: Vector[Any,Scalar]) -> Vector[Any,Scalar]
+   :noindex:
+   :nocontentsentry:
+
+   Return the element wise maximum of two vectors.
+
+
+.. function:: max(v: Vector[Any,Scalar]) -> Scalar
+   :noindex:
+   :nocontentsentry:
+
+   Return the maximum element of a vector.
+
+
+.. function:: clamp(x: Scalar, a: Scalar, b: Scalar) -> Scalar
 
    Clamp the value of x to the range [a, b].
 
 
-.. function:: clamp(x: float32, a: float32, b: float32) -> float
-
-   Clamp the value of x to the range [a, b].
-
-
-.. function:: abs(x: int32) -> int
+.. function:: abs(x: Scalar) -> Scalar
 
    Return the absolute value of x.
 
 
-.. function:: abs(x: float32) -> float
-
-   Return the absolute value of x.
-
-
-.. function:: sign(x: int32) -> int
+.. function:: sign(x: Scalar) -> Scalar
 
    Return -1 if x < 0, return 1 otherwise.
 
 
-.. function:: sign(x: float32) -> float
-
-   Return -1.0 if x < 0.0, return 1.0 otherwise.
-
-
-.. function:: step(x: float32) -> float
+.. function:: step(x: Scalar) -> Scalar
 
    Return 1.0 if x < 0.0, return 0.0 otherwise.
 
 
-.. function:: nonzero(x: float32) -> float
+.. function:: nonzero(x: Scalar) -> Scalar
 
    Return 1.0 if x is not equal to zero, return 0.0 otherwise.
 
 
-.. function:: sin(x: float32) -> float
+.. function:: sin(x: Float) -> Float
 
    Return the sine of x in radians.
 
 
-.. function:: cos(x: float32) -> float
+.. function:: cos(x: Float) -> Float
 
    Return the cosine of x in radians.
 
 
-.. function:: acos(x: float32) -> float
+.. function:: acos(x: Float) -> Float
 
    Return arccos of x in radians. Inputs are automatically clamped to [-1.0, 1.0].
 
 
-.. function:: asin(x: float32) -> float
+.. function:: asin(x: Float) -> Float
 
    Return arcsin of x in radians. Inputs are automatically clamped to [-1.0, 1.0].
 
 
-.. function:: sqrt(x: float32) -> float
+.. function:: sqrt(x: Float) -> Float
 
    Return the sqrt of x, where x is positive.
 
 
-.. function:: tan(x: float32) -> float
+.. function:: tan(x: Float) -> Float
 
    Return tangent of x in radians.
 
 
-.. function:: atan(x: float32) -> float
+.. function:: atan(x: Float) -> Float
 
    Return arctan of x.
 
 
-.. function:: atan2(y: float32, x: float32) -> float
+.. function:: atan2(y: Float, x: Float) -> Float
 
    Return atan2 of x.
 
 
-.. function:: sinh(x: float32) -> float
+.. function:: sinh(x: Float) -> Float
 
    Return the sinh of x.
 
 
-.. function:: cosh(x: float32) -> float
+.. function:: cosh(x: Float) -> Float
 
    Return the cosh of x.
 
 
-.. function:: tanh(x: float32) -> float
+.. function:: tanh(x: Float) -> Float
 
    Return the tanh of x.
 
 
-.. function:: log(x: float32) -> float
+.. function:: degrees(x: Float) -> Float
+
+   Convert radians into degrees.
+
+
+.. function:: radians(x: Float) -> Float
+
+   Convert degrees into radians.
+
+
+.. function:: log(x: Float) -> Float
 
    Return the natural log (base-e) of x, where x is positive.
 
 
-.. function:: log2(x: float32) -> float
+.. function:: log2(x: Float) -> Float
 
    Return the natural log (base-2) of x, where x is positive.
 
 
-.. function:: log10(x: float32) -> float
+.. function:: log10(x: Float) -> Float
 
    Return the natural log (base-10) of x, where x is positive.
 
 
-.. function:: exp(x: float32) -> float
+.. function:: exp(x: Float) -> Float
 
    Return base-e exponential, e^x.
 
 
-.. function:: pow(x: float32, y: float32) -> float
+.. function:: pow(x: Float, y: Float) -> Float
 
    Return the result of x raised to power of y.
 
 
-.. function:: round(x: float32) -> float
+.. function:: round(x: Float) -> Float
 
    Calculate the nearest integer value, rounding halfway cases away from zero.
-   This is the most intuitive form of rounding in the colloquial sense, but can be slower than other options like ``warp.rint()``.
-   Differs from ``numpy.round()``, which behaves the same way as ``numpy.rint()``.
+    This is the most intuitive form of rounding in the colloquial sense, but can be slower than other options like ``warp.rint()``.
+    Differs from ``numpy.round()``, which behaves the same way as ``numpy.rint()``.
 
 
-.. function:: rint(x: float32) -> float
+.. function:: rint(x: Float) -> Float
 
    Calculate the nearest integer value, rounding halfway cases to nearest even integer.
-   It is generally faster than ``warp.round()``.
-   Equivalent to ``numpy.rint()``.
+    It is generally faster than ``warp.round()``.
+    Equivalent to ``numpy.rint()``.
 
 
-.. function:: trunc(x: float32) -> float
+.. function:: trunc(x: Float) -> Float
 
    Calculate the nearest integer that is closer to zero than x.
-   In other words, it discards the fractional part of x.
-   It is similar to casting ``float(int(x))``, but preserves the negative sign when x is in the range [-0.0, -1.0).
-   Equivalent to ``numpy.trunc()`` and ``numpy.fix()``.
+    In other words, it discards the fractional part of x.
+    It is similar to casting ``float(int(x))``, but preserves the negative sign when x is in the range [-0.0, -1.0).
+    Equivalent to ``numpy.trunc()`` and ``numpy.fix()``.
 
 
-.. function:: floor(x: float32) -> float
+.. function:: floor(x: Float) -> Float
 
    Calculate the largest integer that is less than or equal to x.
 
 
-.. function:: ceil(x: float32) -> float
+.. function:: ceil(x: Float) -> Float
 
    Calculate the smallest integer that is greater than or equal to x.
 
@@ -211,318 +282,281 @@ Scalar Math
 
 Vector Math
 ---------------
-.. function:: dot(x: vec2, y: vec2) -> float
+.. function:: dot(x: Vector[Any,Scalar], y: Vector[Any,Scalar]) -> Scalar
 
-   Compute the dot product between two 2d vectors.
-
-
-.. function:: dot(x: vec3, y: vec3) -> float
-
-   Compute the dot product between two 3d vectors.
+   Compute the dot product between two vectors.
 
 
-.. function:: dot(x: vec4, y: vec4) -> float
-
-   Compute the dot product between two 4d vectors.
-
-
-.. function:: dot(x: quat, y: quat) -> float
+.. function:: dot(x: Quaternion[Float], y: Quaternion[Float]) -> Scalar
+   :noindex:
+   :nocontentsentry:
 
    Compute the dot product between two quaternions.
 
 
-.. function:: outer(x: vec2, y: vec2) -> mat22
+.. function:: ddot(x: Matrix[Any,Any,Scalar], y: Matrix[Any,Any,Scalar]) -> Scalar
+
+   Compute the double dot product between two matrices.
+
+
+.. function:: argmin(v: Vector[Any,Scalar]) -> uint32
+
+   Return the index of the minimum element of a vector. [1]_
+
+
+.. function:: argmax(v: Vector[Any,Scalar]) -> uint32
+
+   Return the index of the maximum element of a vector. [1]_
+
+
+.. function:: outer(x: Vector[Any,Scalar], y: Vector[Any,Scalar]) -> Matrix[Any,Any,Scalar]
 
    Compute the outer product x*y^T for two vec2 objects.
 
 
-.. function:: outer(x: vec3, y: vec3) -> mat33
-
-   Compute the outer product x*y^T for two vec3 objects.
-
-
-.. function:: cross(x: vec3, y: vec3) -> vec3
+.. function:: cross(x: Vector[3,Scalar], y: Vector[3,Scalar]) -> Vector[3,Scalar]
 
    Compute the cross product of two 3d vectors.
 
 
-.. function:: skew(x: vec3) -> mat33
+.. function:: skew(x: Vector[3,Scalar])
 
    Compute the skew symmetric matrix for a 3d vector.
 
 
-.. function:: length(x: vec2) -> float
+.. function:: length(x: Vector[Any,Float]) -> Scalar
 
-   Compute the length of a 2d vector.
-
-
-.. function:: length(x: vec3) -> float
-
-   Compute the length of a 3d vector.
+   Compute the length of a vector.
 
 
-.. function:: length(x: vec4) -> float
+.. function:: length(x: Quaternion[Float]) -> Scalar
+   :noindex:
+   :nocontentsentry:
 
-   Compute the length of a 4d vector.
+   Compute the length of a quaternion.
 
 
-.. function:: normalize(x: vec2) -> vec2
+.. function:: length_sq(x: Vector[Any,Scalar]) -> Scalar
+
+   Compute the squared length of a 2d vector.
+
+
+.. function:: length_sq(x: Quaternion[Scalar]) -> Scalar
+   :noindex:
+   :nocontentsentry:
+
+   Compute the squared length of a quaternion.
+
+
+.. function:: normalize(x: Vector[Any,Float]) -> Vector[Any,Scalar]
 
    Compute the normalized value of x, if length(x) is 0 then the zero vector is returned.
 
 
-.. function:: normalize(x: vec3) -> vec3
-
-   Compute the normalized value of x, if length(x) is 0 then the zero vector is returned.
-
-
-.. function:: normalize(x: vec4) -> vec4
-
-   Compute the normalized value of x, if length(x) is 0 then the zero vector is returned.
-
-
-.. function:: normalize(x: quat) -> quat
+.. function:: normalize(x: Quaternion[Float]) -> Quaternion[Scalar]
+   :noindex:
+   :nocontentsentry:
 
    Compute the normalized value of x, if length(x) is 0 then the zero quat is returned.
 
 
-.. function:: transpose(m: mat22) -> mat22
+.. function:: transpose(m: Matrix[Any,Any,Scalar])
 
    Return the transpose of the matrix m
 
 
-.. function:: transpose(m: mat33) -> mat33
+.. function:: inverse(m: Matrix[2,2,Float]) -> Matrix[Any,Any,Float]
 
-   Return the transpose of the matrix m
-
-
-.. function:: transpose(m: mat44) -> mat44
-
-   Return the transpose of the matrix m
+   Return the inverse of a 2x2 matrix m
 
 
-.. function:: transpose(m: spatial_matrix) -> spatial_matrix
+.. function:: inverse(m: Matrix[3,3,Float]) -> Matrix[Any,Any,Float]
+   :noindex:
+   :nocontentsentry:
 
-   Return the transpose of the matrix m
-
-
-.. function:: inverse(m: mat22) -> mat22
-
-   Return the inverse of the matrix m
+   Return the inverse of a 3x3 matrix m
 
 
-.. function:: inverse(m: mat33) -> mat33
+.. function:: inverse(m: Matrix[4,4,Float]) -> Matrix[Any,Any,Float]
+   :noindex:
+   :nocontentsentry:
 
-   Return the inverse of the matrix m
-
-
-.. function:: inverse(m: mat44) -> mat44
-
-   Return the inverse of the matrix m
+   Return the inverse of a 4x4 matrix m
 
 
-.. function:: determinant(m: mat22) -> float
+.. function:: determinant(m: Matrix[2,2,Float]) -> Scalar
 
-   Return the determinant of the matrix m
-
-
-.. function:: determinant(m: mat33) -> float
-
-   Return the determinant of the matrix m
+   Return the determinant of a 2x2 matrix m
 
 
-.. function:: determinant(m: mat44) -> float
+.. function:: determinant(m: Matrix[3,3,Float]) -> Scalar
+   :noindex:
+   :nocontentsentry:
 
-   Return the determinant of the matrix m
+   Return the determinant of a 3x3 matrix m
 
 
-.. function:: diag(d: vec2) -> mat22
+.. function:: determinant(m: Matrix[4,4,Float]) -> Scalar
+   :noindex:
+   :nocontentsentry:
+
+   Return the determinant of a 4x4 matrix m
+
+
+.. function:: trace(m: Matrix[Any,Any,Scalar]) -> Scalar
+
+   Return the trace of the matrix m
+
+
+.. function:: diag(d: Vector[Any,Scalar]) -> Matrix[Any,Any,Scalar]
 
    Returns a matrix with the components of the vector d on the diagonal
 
 
-.. function:: diag(d: vec3) -> mat33
+.. function:: get_diag(m: Matrix[Any,Any,Scalar]) -> Vector[Any,Scalar]
 
-   Returns a matrix with the components of the vector d on the diagonal
-
-
-.. function:: diag(d: vec4) -> mat44
-
-   Returns a matrix with the components of the vector d on the diagonal
+   Returns a vector containing the diagonal elements of the square matrix.
 
 
-.. function:: cw_mul(x: vec2, y: vec2) -> vec2
+.. function:: cw_mul(x: Vector[Any,Scalar], y: Vector[Any,Scalar]) -> Vector[Any,Scalar]
 
    Component wise multiply of two 2d vectors.
 
 
-.. function:: cw_mul(x: vec3, y: vec3) -> vec3
+.. function:: cw_mul(x: Matrix[Any,Any,Scalar], y: Matrix[Any,Any,Scalar]) -> Matrix[Any,Any,Scalar]
+   :noindex:
+   :nocontentsentry:
 
-   Component wise multiply of two 3d vectors.
-
-
-.. function:: cw_mul(x: vec4, y: vec4) -> vec4
-
-   Component wise multiply of two 4d vectors.
+   Component wise multiply of two 2d vectors.
 
 
-.. function:: cw_div(x: vec2, y: vec2) -> vec2
+.. function:: cw_div(x: Vector[Any,Scalar], y: Vector[Any,Scalar]) -> Vector[Any,Scalar]
 
    Component wise division of two 2d vectors.
 
 
-.. function:: cw_div(x: vec3, y: vec3) -> vec3
+.. function:: cw_div(x: Matrix[Any,Any,Scalar], y: Matrix[Any,Any,Scalar]) -> Matrix[Any,Any,Scalar]
+   :noindex:
+   :nocontentsentry:
 
-   Component wise division of two 3d vectors.
-
-
-.. function:: cw_div(x: vec4, y: vec4) -> vec4
-
-   Component wise division of two 4d vectors.
+   Component wise division of two 2d vectors.
 
 
-.. function:: vec2() -> vec2
+.. function:: vector(w: Vector[3,Float], v: Vector[3,Float])
 
-   Construct a zero-initialized 2d vector.
-
-
-.. function:: vec2(x: float32, y: float32) -> vec2
-
-   Construct a 2d vector with compontents x, y.
+   Construct a 6d screw vector from two 3d vectors.
 
 
-.. function:: vec2(s: float32) -> vec2
+.. function:: vector(*args: Scalar, length: int32, dtype: Scalar) -> Vector[Any,Scalar]
+   :noindex:
+   :nocontentsentry:
 
-   Construct a 2d vector with all components set to s.
-
-
-.. function:: vec3() -> vec3
-
-   Construct a zero-initialized 3d vector.
+   Construct a vector of with given length and dtype.
 
 
-.. function:: vec3(x: float32, y: float32, z: float32) -> vec3
-
-   Construct a 3d vector with compontents x, y, z.
-
-
-.. function:: vec3(s: float32) -> vec3
-
-   Construct a 3d vector with all components set to s.
-
-
-.. function:: vec4() -> vec4
-
-   Construct a zero-initialized 4d vector.
-
-
-.. function:: vec4(x: float32, y: float32, z: float32, w: float32) -> vec4
-
-   Construct a 4d vector with compontents x, y, z, w.
-
-
-.. function:: vec4(s: float32) -> vec4
-
-   Construct a 4d vector with all components set to s.
-
-
-.. function:: mat22(c0: vec2, c1: vec2) -> mat22
-
-   Construct a 2x2 matrix from column vectors c0, c1.
-
-
-.. function:: mat22(m00: float32, m01: float32, m10: float32, m11: float32) -> mat22
-
-   Construct a 2x2 matrix from components.
-
-
-.. function:: mat33(c0: vec3, c1: vec3, c2: vec3) -> mat33
-
-   Construct a 3x3 matrix from column vectors c0, c1, c2.
-
-
-.. function:: mat33(m00: float32, m01: float32, m02: float32, m10: float32, m11: float32, m12: float32, m20: float32, m21: float32, m22: float32) -> mat33
-
-   Construct a 3x3 matrix from components.
-
-
-.. function:: mat44(c0: vec4, c1: vec4, c2: vec4, c3: vec4) -> mat44
-
-   Construct a 4x4 matrix from column vectors c0, c1, c2, c4.
-
-
-.. function:: mat44(m00: float32, m01: float32, m02: float32, m03: float32, m10: float32, m11: float32, m12: float32, m13: float32, m20: float32, m21: float32, m22: float32, m23: float32, m30: float32, m31: float32, m32: float32, m33: float32) -> mat44
-
-   Construct a 4x4 matrix from components.
-
-
-.. function:: mat44(pos: vec3, rot: quat, scale: vec3) -> mat44
+.. function:: matrix(pos: Vector[3,Float], rot: Quaternion[Float], scale: Vector[3,Float]) -> Matrix[Any,Any,Float]
 
    Construct a 4x4 transformation matrix that applies the transformations as Translation(pos)*Rotation(rot)*Scale(scale) when applied to column vectors, i.e.: y = (TRS)*x
 
 
-.. function:: svd3(A: mat33, U: mat33, sigma: vec3, V: mat33) -> None
+.. function:: matrix(*args: Scalar, shape: Tuple[int, int], dtype: Scalar) -> Matrix[Any,Any,Scalar]
+   :noindex:
+   :nocontentsentry:
+
+   Construct a matrix, if positional args are not given then matrix will be zero-initialized.
+
+
+.. function:: identity(n: int32, dtype: Scalar) -> Matrix[Any,Any,Scalar]
+
+   Create an identity matrix with shape=(n,n) with the type given by ``dtype``.
+
+
+.. function:: svd3(A: Matrix[3,3,Float], U: Matrix[3,3,Float], sigma: Vector[3,Float], V: Matrix[3,3,Scalar]) -> None
 
    Compute the SVD of a 3x3 matrix. The singular values are returned in sigma, 
    while the left and right basis vectors are returned in U and V.
+
+
+.. function:: qr3(A: Matrix[3,3,Float], Q: Matrix[3,3,Float], R: Matrix[3,3,Float]) -> None
+
+   Compute the QR decomposition of a 3x3 matrix. The orthogonal matrix is returned in Q, while the upper triangular matrix is returned in R.
+
+
+.. function:: eig3(A: Matrix[3,3,Float], Q: Matrix[3,3,Float], d: Vector[3,Float]) -> None
+
+   Compute the eigendecomposition of a 3x3 matrix. The eigenvectors are returned as the columns of Q, while the corresponding eigenvalues are returned in d.
 
 
 
 
 Quaternion Math
 ---------------
-.. function:: quat() -> quat
+.. function:: quaternion() -> Quaternion[Scalar]
 
    Construct a zero-initialized quaternion, quaternions are laid out as
    [ix, iy, iz, r], where ix, iy, iz are the imaginary part, and r the real part.
 
 
-.. function:: quat(x: float32, y: float32, z: float32, w: float32) -> quat
+.. function:: quaternion(x: Float, y: Float, z: Float, w: Float) -> Quaternion[Scalar]
+   :noindex:
+   :nocontentsentry:
 
-   Construct a quarternion from its components x, y, z are the imaginary parts, w is the real part.
-
-
-.. function:: quat(i: vec3, r: float32) -> quat
-
-   Construct a quaternion from it's imaginary components i, and real part r
+   Create a quaternion using the supplied components (type inferred from component type)
 
 
-.. function:: quat_identity() -> quat
+.. function:: quaternion(i: Vector[3,Float], r: Float) -> Quaternion[Scalar]
+   :noindex:
+   :nocontentsentry:
+
+   Create a quaternion using the supplied vector/scalar (type inferred from scalar type)
+
+
+.. function:: quat_identity() -> quatf
 
    Construct an identity quaternion with zero imaginary part and real part of 1.0
 
 
-.. function:: quat_from_axis_angle(axis: vec3, angle: float32) -> quat
+.. function:: quat_from_axis_angle(axis: Vector[3,Float], angle: Float) -> Quaternion[Scalar]
 
    Construct a quaternion representing a rotation of angle radians around the given axis.
 
 
-.. function:: quat_from_matrix(m: mat33) -> quat
+.. function:: quat_to_axis_angle(q: Quaternion[Float], axis: Vector[3,Float], angle: Float) -> None
+
+   Extract the rotation axis and angle radians a quaternion represents.
+
+
+.. function:: quat_from_matrix(m: Matrix[3,3,Float]) -> Quaternion[Scalar]
 
    Construct a quaternion from a 3x3 matrix.
 
 
-.. function:: quat_rpy(roll: float32, pitch: float32, yaw: float32) -> quat
+.. function:: quat_rpy(roll: Float, pitch: Float, yaw: Float) -> Quaternion[Scalar]
 
    Construct a quaternion representing a combined roll (z), pitch (x), yaw rotations (y) in radians.
 
 
-.. function:: quat_inverse(q: quat) -> quat
+.. function:: quat_inverse(q: Quaternion[Float]) -> Quaternion[Scalar]
 
    Compute quaternion conjugate.
 
 
-.. function:: quat_rotate(q: quat, p: vec3) -> vec3
+.. function:: quat_rotate(q: Quaternion[Float], p: Vector[3,Float]) -> Vector[3,Scalar]
 
    Rotate a vector by a quaternion.
 
 
-.. function:: quat_rotate_inv(q: quat, p: vec3) -> vec3
+.. function:: quat_rotate_inv(q: Quaternion[Float], p: Vector[3,Float]) -> Vector[3,Scalar]
 
    Rotate a vector the inverse of a quaternion.
 
 
-.. function:: quat_to_matrix(q: quat) -> mat33
+.. function:: quat_slerp(q0: Quaternion[Float], q1: Quaternion[Float], t: Float) -> Quaternion[Scalar]
+
+   Linearly interpolate between two quaternions.
+
+
+.. function:: quat_to_matrix(q: Quaternion[Float]) -> Matrix[3,3,Scalar]
 
    Convert a quaternion to a 3x3 rotation matrix.
 
@@ -531,56 +565,60 @@ Quaternion Math
 
 Transformations
 ---------------
-.. function:: transform(p: vec3, q: quat) -> transform
+.. function:: transformation(p: Vector[3,Float], q: Quaternion[Float]) -> Transformation[Scalar]
 
    Construct a rigid body transformation with translation part p and rotation q.
 
 
-.. function:: transform_identity() -> transform
+.. function:: transform_identity() -> transformf
 
    Construct an identity transform with zero translation and identity rotation.
 
 
-.. function:: transform_get_translation(t: transform) -> vec3
+.. function:: transform_get_translation(t: Transformation[Float]) -> Vector[3,Scalar]
 
    Return the translational part of a transform.
 
 
-.. function:: transform_get_rotation(t: transform) -> quat
+.. function:: transform_get_rotation(t: Transformation[Float]) -> Quaternion[Scalar]
 
    Return the rotational part of a transform.
 
 
-.. function:: transform_multiply(a: transform, b: transform) -> transform
+.. function:: transform_multiply(a: Transformation[Float], b: Transformation[Float]) -> Transformation[Scalar]
 
    Multiply two rigid body transformations together.
 
 
-.. function:: transform_point(t: transform, p: vec3) -> vec3
+.. function:: transform_point(t: Transformation[Scalar], p: Vector[3,Scalar]) -> Vector[3,Scalar]
 
    Apply the transform to a point p treating the homogenous coordinate as w=1 (translation and rotation).
 
 
-.. function:: transform_point(m: mat44, p: vec3) -> vec3
+.. function:: transform_point(m: Matrix[4,4,Scalar], p: Vector[3,Scalar]) -> Vector[3,Scalar]
+   :noindex:
+   :nocontentsentry:
 
    Apply the transform to a point ``p`` treating the homogenous coordinate as w=1. The transformation is applied treating ``p`` as a column vector, e.g.: ``y = M*p``
    note this is in contrast to some libraries, notably USD, which applies transforms to row vectors, ``y^T = p^T*M^T``. If the transform is coming from a library that uses row-vectors
-   then users should transpose the tranformation matrix before calling this method.
+   then users should transpose the transformation matrix before calling this method.
 
 
-.. function:: transform_vector(t: transform, v: vec3) -> vec3
+.. function:: transform_vector(t: Transformation[Scalar], v: Vector[3,Scalar]) -> Vector[3,Scalar]
 
    Apply the transform to a vector v treating the homogenous coordinate as w=0 (rotation only).
 
 
-.. function:: transform_vector(m: mat44, v: vec3) -> vec3
+.. function:: transform_vector(m: Matrix[4,4,Scalar], v: Vector[3,Scalar]) -> Vector[3,Scalar]
+   :noindex:
+   :nocontentsentry:
 
    Apply the transform to a vector ``v`` treating the homogenous coordinate as w=0. The transformation is applied treating ``v`` as a column vector, e.g.: ``y = M*v``
    note this is in contrast to some libraries, notably USD, which applies transforms to row vectors, ``y^T = v^T*M^T``. If the transform is coming from a library that uses row-vectors
-   then users should transpose the tranformation matrix before calling this method.
+   then users should transpose the transformation matrix before calling this method.
 
 
-.. function:: transform_inverse(t: transform) -> transform
+.. function:: transform_inverse(t: Transformation[Float]) -> Transformation[Float]
 
    Compute the inverse of the transform.
 
@@ -589,72 +627,47 @@ Transformations
 
 Spatial Math
 ---------------
-.. function:: spatial_vector() -> spatial_vector
-
-   Construct a zero-initialized 6d screw vector. Screw vectors may be used to represent rigid body wrenches and twists (velocites).
-
-
-.. function:: spatial_vector(a: float32, b: float32, c: float32, d: float32, e: float32, f: float32) -> spatial_vector
-
-   Construct a 6d screw vector from it's components.
-
-
-.. function:: spatial_vector(w: vec3, v: vec3) -> spatial_vector
-
-   Construct a 6d screw vector from two 3d vectors.
-
-
-.. function:: spatial_vector(s: float32) -> spatial_vector
-
-   Construct a 6d screw vector with all components set to s
-
-
-.. function:: spatial_matrix() -> spatial_matrix
-
-   Construct a 6x6 zero-initialized spatial inertia matrix
-
-
-.. function:: spatial_adjoint(r: mat33, s: mat33) -> spatial_matrix
+.. function:: spatial_adjoint(r: Matrix[3,3,Float], s: Matrix[3,3,Float]) -> Matrix[6,6,Scalar]
 
    Construct a 6x6 spatial inertial matrix from two 3x3 diagonal blocks.
 
 
-.. function:: spatial_dot(a: spatial_vector, b: spatial_vector) -> float
+.. function:: spatial_dot(a: Vector[6,Float], b: Vector[6,Float]) -> Scalar
 
    Compute the dot product of two 6d screw vectors.
 
 
-.. function:: spatial_cross(a: spatial_vector, b: spatial_vector) -> spatial_vector
+.. function:: spatial_cross(a: Vector[6,Float], b: Vector[6,Float]) -> Vector[6,Float]
 
    Compute the cross-product of two 6d screw vectors.
 
 
-.. function:: spatial_cross_dual(a: spatial_vector, b: spatial_vector) -> spatial_vector
+.. function:: spatial_cross_dual(a: Vector[6,Float], b: Vector[6,Float]) -> Vector[6,Float]
 
    Compute the dual cross-product of two 6d screw vectors.
 
 
-.. function:: spatial_top(a: spatial_vector) -> vec3
+.. function:: spatial_top(a: Vector[6,Float])
 
    Return the top (first) part of a 6d screw vector.
 
 
-.. function:: spatial_bottom(a: spatial_vector) -> vec3
+.. function:: spatial_bottom(a: Vector[6,Float])
 
    Return the bottom (second) part of a 6d screw vector.
 
 
-.. function:: spatial_jacobian(S: array[spatial_vector], joint_parents: array[int32], joint_qd_start: array[int32], joint_start: int32, joint_count: int32, J_start: int32, J_out: array[float32]) -> None
+.. function:: spatial_jacobian(S: Array[Vector[6,Float]], joint_parents: Array[int32], joint_qd_start: Array[int32], joint_start: int32, joint_count: int32, J_start: int32, J_out: Array[Float]) -> None
 
 
-.. function:: spatial_mass(I_s: array[spatial_matrix], joint_start: int32, joint_count: int32, M_start: int32, M: array[float32]) -> None
+.. function:: spatial_mass(I_s: Array[Matrix[6,6,Float]], joint_start: int32, joint_count: int32, M_start: int32, M: Array[Float]) -> None
 
 
 
 
 Utility
 ---------------
-.. function:: mlp(weights: array[float32], bias: array[float32], activation: Callable, index: int32, x: array[float32], out: array[float32]) -> None
+.. function:: mlp(weights: Array[float32], bias: Array[float32], activation: Callable, index: int32, x: Array[float32], out: Array[float32]) -> None
 
    Evaluate a multi-layer perceptron (MLP) layer in the form: ``out = act(weights*x + bias)``. 
 
@@ -678,6 +691,11 @@ Utility
    Print variable to stdout
 
 
+.. function:: breakpoint() -> None
+
+   Debugger breakpoint
+
+
 .. function:: tid() -> int
 
    Return the current thread index. Note that this is the *global* index of the thread in the range [0, dim) 
@@ -685,16 +703,22 @@ Utility
 
 
 .. function:: tid() -> Tuple[int, int]
+   :noindex:
+   :nocontentsentry:
 
    Return the current thread indices for a 2d kernel launch. Use ``i,j = wp.tid()`` syntax to retrieve the coordinates inside the kernel thread grid.
 
 
 .. function:: tid() -> Tuple[int, int, int]
+   :noindex:
+   :nocontentsentry:
 
    Return the current thread indices for a 3d kernel launch. Use ``i,j,k = wp.tid()`` syntax to retrieve the coordinates inside the kernel thread grid.
 
 
 .. function:: tid() -> Tuple[int, int, int, int]
+   :noindex:
+   :nocontentsentry:
 
    Return the current thread indices for a 4d kernel launch. Use ``i,j,k,l = wp.tid()`` syntax to retrieve the coordinates inside the kernel thread grid.
 
@@ -704,252 +728,219 @@ Utility
    Select between two arguments, if cond is false then return ``arg1``, otherwise return ``arg2``
 
 
-.. function:: atomic_add(a: array[Any], i: int32, value: Any)
+.. function:: select(cond: int8, arg1: Any, arg2: Any)
+   :noindex:
+   :nocontentsentry:
+
+   Select between two arguments, if cond is false then return ``arg1``, otherwise return ``arg2``
+
+
+.. function:: select(cond: uint8, arg1: Any, arg2: Any)
+   :noindex:
+   :nocontentsentry:
+
+   Select between two arguments, if cond is false then return ``arg1``, otherwise return ``arg2``
+
+
+.. function:: select(cond: int16, arg1: Any, arg2: Any)
+   :noindex:
+   :nocontentsentry:
+
+   Select between two arguments, if cond is false then return ``arg1``, otherwise return ``arg2``
+
+
+.. function:: select(cond: uint16, arg1: Any, arg2: Any)
+   :noindex:
+   :nocontentsentry:
+
+   Select between two arguments, if cond is false then return ``arg1``, otherwise return ``arg2``
+
+
+.. function:: select(cond: int32, arg1: Any, arg2: Any)
+   :noindex:
+   :nocontentsentry:
+
+   Select between two arguments, if cond is false then return ``arg1``, otherwise return ``arg2``
+
+
+.. function:: select(cond: uint32, arg1: Any, arg2: Any)
+   :noindex:
+   :nocontentsentry:
+
+   Select between two arguments, if cond is false then return ``arg1``, otherwise return ``arg2``
+
+
+.. function:: select(cond: int64, arg1: Any, arg2: Any)
+   :noindex:
+   :nocontentsentry:
+
+   Select between two arguments, if cond is false then return ``arg1``, otherwise return ``arg2``
+
+
+.. function:: select(cond: uint64, arg1: Any, arg2: Any)
+   :noindex:
+   :nocontentsentry:
+
+   Select between two arguments, if cond is false then return ``arg1``, otherwise return ``arg2``
+
+
+.. function:: select(arr: Array[Any], arg1: Any, arg2: Any)
+   :noindex:
+   :nocontentsentry:
+
+   Select between two arguments, if array is null then return ``arg1``, otherwise return ``arg2``
+
+
+.. function:: atomic_add(a: Array[Any], i: int32, value: Any)
 
    Atomically add ``value`` onto the array at location given by index.
 
 
-.. function:: atomic_add(a: array[Any], i: int32, j: int32, value: Any)
+.. function:: atomic_add(a: Array[Any], i: int32, j: int32, value: Any)
+   :noindex:
+   :nocontentsentry:
 
    Atomically add ``value`` onto the array at location given by indices.
 
 
-.. function:: atomic_add(a: array[Any], i: int32, j: int32, k: int32, value: Any)
+.. function:: atomic_add(a: Array[Any], i: int32, j: int32, k: int32, value: Any)
+   :noindex:
+   :nocontentsentry:
 
    Atomically add ``value`` onto the array at location given by indices.
 
 
-.. function:: atomic_add(a: array[Any], i: int32, j: int32, k: int32, l: int32, value: Any)
+.. function:: atomic_add(a: Array[Any], i: int32, j: int32, k: int32, l: int32, value: Any)
+   :noindex:
+   :nocontentsentry:
 
    Atomically add ``value`` onto the array at location given by indices.
 
 
-.. function:: atomic_sub(a: array[Any], i: int32, value: Any)
+.. function:: atomic_sub(a: Array[Any], i: int32, value: Any)
 
    Atomically subtract ``value`` onto the array at location given by index.
 
 
-.. function:: atomic_sub(a: array[Any], i: int32, j: int32, value: Any)
+.. function:: atomic_sub(a: Array[Any], i: int32, j: int32, value: Any)
+   :noindex:
+   :nocontentsentry:
 
    Atomically subtract ``value`` onto the array at location given by indices.
 
 
-.. function:: atomic_sub(a: array[Any], i: int32, j: int32, k: int32, value: Any)
+.. function:: atomic_sub(a: Array[Any], i: int32, j: int32, k: int32, value: Any)
+   :noindex:
+   :nocontentsentry:
 
    Atomically subtract ``value`` onto the array at location given by indices.
 
 
-.. function:: atomic_sub(a: array[Any], i: int32, j: int32, k: int32, l: int32, value: Any)
+.. function:: atomic_sub(a: Array[Any], i: int32, j: int32, k: int32, l: int32, value: Any)
+   :noindex:
+   :nocontentsentry:
 
    Atomically subtract ``value`` onto the array at location given by indices.
 
 
-.. function:: index(a: vec2, i: int32) -> float
+.. function:: atomic_min(a: Array[Any], i: int32, value: Any)
 
+   Compute the minimum of ``value`` and ``array[index]`` and atomically update the array. Note that for vectors and matrices the operation is only atomic on a per-component basis.
 
-.. function:: index(a: vec3, i: int32) -> float
 
+.. function:: atomic_min(a: Array[Any], i: int32, j: int32, value: Any)
+   :noindex:
+   :nocontentsentry:
 
-.. function:: index(a: vec4, i: int32) -> float
+   Compute the minimum of ``value`` and ``array[index]`` and atomically update the array. Note that for vectors and matrices the operation is only atomic on a per-component basis.
 
 
-.. function:: index(a: quat, i: int32) -> float
+.. function:: atomic_min(a: Array[Any], i: int32, j: int32, k: int32, value: Any)
+   :noindex:
+   :nocontentsentry:
 
+   Compute the minimum of ``value`` and ``array[index]`` and atomically update the array. Note that for vectors and matrices the operation is only atomic on a per-component basis.
 
-.. function:: index(a: mat22, i: int32) -> vec2
 
+.. function:: atomic_min(a: Array[Any], i: int32, j: int32, k: int32, l: int32, value: Any)
+   :noindex:
+   :nocontentsentry:
 
-.. function:: index(a: mat22, i: int32, j: int32) -> float
+   Compute the minimum of ``value`` and ``array[index]`` and atomically update the array. Note that for vectors and matrices the operation is only atomic on a per-component basis.
 
 
-.. function:: index(a: mat33, i: int32) -> vec3
+.. function:: atomic_max(a: Array[Any], i: int32, value: Any)
 
+   Compute the maximum of ``value`` and ``array[index]`` and atomically update the array. Note that for vectors and matrices the operation is only atomic on a per-component basis.
 
-.. function:: index(a: mat33, i: int32, j: int32) -> float
 
+.. function:: atomic_max(a: Array[Any], i: int32, j: int32, value: Any)
+   :noindex:
+   :nocontentsentry:
 
-.. function:: index(a: mat44, i: int32) -> vec4
+   Compute the maximum of ``value`` and ``array[index]`` and atomically update the array. Note that for vectors and matrices the operation is only atomic on a per-component basis.
 
 
-.. function:: index(a: mat44, i: int32, j: int32) -> float
+.. function:: atomic_max(a: Array[Any], i: int32, j: int32, k: int32, value: Any)
+   :noindex:
+   :nocontentsentry:
 
+   Compute the maximum of ``value`` and ``array[index]`` and atomically update the array. Note that for vectors and matrices the operation is only atomic on a per-component basis.
 
-.. function:: expect_eq(arg1: int8, arg2: int8) -> None
 
-   Prints an error to stdout if arg1 and arg2 are not equal
+.. function:: atomic_max(a: Array[Any], i: int32, j: int32, k: int32, l: int32, value: Any)
+   :noindex:
+   :nocontentsentry:
 
+   Compute the maximum of ``value`` and ``array[index]`` and atomically update the array. Note that for vectors and matrices the operation is only atomic on a per-component basis.
 
-.. function:: expect_eq(arg1: uint8, arg2: uint8) -> None
 
-   Prints an error to stdout if arg1 and arg2 are not equal
-
-
-.. function:: expect_eq(arg1: int16, arg2: int16) -> None
-
-   Prints an error to stdout if arg1 and arg2 are not equal
-
-
-.. function:: expect_eq(arg1: uint16, arg2: uint16) -> None
-
-   Prints an error to stdout if arg1 and arg2 are not equal
-
-
-.. function:: expect_eq(arg1: int32, arg2: int32) -> None
-
-   Prints an error to stdout if arg1 and arg2 are not equal
-
-
-.. function:: expect_eq(arg1: uint32, arg2: uint32) -> None
-
-   Prints an error to stdout if arg1 and arg2 are not equal
-
-
-.. function:: expect_eq(arg1: int64, arg2: int64) -> None
-
-   Prints an error to stdout if arg1 and arg2 are not equal
-
-
-.. function:: expect_eq(arg1: uint64, arg2: uint64) -> None
-
-   Prints an error to stdout if arg1 and arg2 are not equal
-
-
-.. function:: expect_eq(arg1: float16, arg2: float16) -> None
-
-   Prints an error to stdout if arg1 and arg2 are not equal
-
-
-.. function:: expect_eq(arg1: float32, arg2: float32) -> None
-
-   Prints an error to stdout if arg1 and arg2 are not equal
-
-
-.. function:: expect_eq(arg1: float64, arg2: float64) -> None
-
-   Prints an error to stdout if arg1 and arg2 are not equal
-
-
-.. function:: expect_eq(arg1: vec2, arg2: vec2) -> None
-
-   Prints an error to stdout if arg1 and arg2 are not equal
-
-
-.. function:: expect_eq(arg1: vec3, arg2: vec3) -> None
-
-   Prints an error to stdout if arg1 and arg2 are not equal
-
-
-.. function:: expect_eq(arg1: vec4, arg2: vec4) -> None
-
-   Prints an error to stdout if arg1 and arg2 are not equal
-
-
-.. function:: expect_eq(arg1: mat22, arg2: mat22) -> None
-
-   Prints an error to stdout if arg1 and arg2 are not equal
-
-
-.. function:: expect_eq(arg1: mat33, arg2: mat33) -> None
-
-   Prints an error to stdout if arg1 and arg2 are not equal
-
-
-.. function:: expect_eq(arg1: mat44, arg2: mat44) -> None
-
-   Prints an error to stdout if arg1 and arg2 are not equal
-
-
-.. function:: expect_eq(arg1: quat, arg2: quat) -> None
-
-   Prints an error to stdout if arg1 and arg2 are not equal
-
-
-.. function:: expect_eq(arg1: transform, arg2: transform) -> None
-
-   Prints an error to stdout if arg1 and arg2 are not equal
-
-
-.. function:: expect_eq(arg1: spatial_vector, arg2: spatial_vector) -> None
-
-   Prints an error to stdout if arg1 and arg2 are not equal
-
-
-.. function:: expect_eq(arg1: spatial_matrix, arg2: spatial_matrix) -> None
-
-   Prints an error to stdout if arg1 and arg2 are not equal
-
-
-.. function:: lerp(a: float16, b: float16, t: float32) -> float16
+.. function:: lerp(a: Float, b: Float, t: Float) -> Float
 
    Linearly interpolate two values a and b using factor t, computed as ``a*(1-t) + b*t``
 
 
-.. function:: lerp(a: float32, b: float32, t: float32) -> float32
+.. function:: lerp(a: Vector[Any,Float], b: Vector[Any,Float], t: Float) -> Vector[Any,Float]
+   :noindex:
+   :nocontentsentry:
 
    Linearly interpolate two values a and b using factor t, computed as ``a*(1-t) + b*t``
 
 
-.. function:: lerp(a: float64, b: float64, t: float32) -> float64
+.. function:: lerp(a: Matrix[Any,Any,Float], b: Matrix[Any,Any,Float], t: Float) -> Matrix[Any,Any,Float]
+   :noindex:
+   :nocontentsentry:
 
    Linearly interpolate two values a and b using factor t, computed as ``a*(1-t) + b*t``
 
 
-.. function:: lerp(a: vec2, b: vec2, t: float32) -> vec2
+.. function:: lerp(a: Quaternion[Float], b: Quaternion[Float], t: Float) -> Quaternion[Float]
+   :noindex:
+   :nocontentsentry:
 
    Linearly interpolate two values a and b using factor t, computed as ``a*(1-t) + b*t``
 
 
-.. function:: lerp(a: vec3, b: vec3, t: float32) -> vec3
+.. function:: lerp(a: Transformation[Float], b: Transformation[Float], t: Float) -> Transformation[Float]
+   :noindex:
+   :nocontentsentry:
 
    Linearly interpolate two values a and b using factor t, computed as ``a*(1-t) + b*t``
 
 
-.. function:: lerp(a: vec4, b: vec4, t: float32) -> vec4
+.. function:: smoothstep(edge0: Float, edge1: Float, x: Float) -> Float
 
-   Linearly interpolate two values a and b using factor t, computed as ``a*(1-t) + b*t``
-
-
-.. function:: lerp(a: mat22, b: mat22, t: float32) -> mat22
-
-   Linearly interpolate two values a and b using factor t, computed as ``a*(1-t) + b*t``
+   Smoothly interpolate between two values edge0 and edge1 using a factor x, and return a result between 0 and 1 using a cubic Hermite interpolation after clamping
 
 
-.. function:: lerp(a: mat33, b: mat33, t: float32) -> mat33
-
-   Linearly interpolate two values a and b using factor t, computed as ``a*(1-t) + b*t``
-
-
-.. function:: lerp(a: mat44, b: mat44, t: float32) -> mat44
-
-   Linearly interpolate two values a and b using factor t, computed as ``a*(1-t) + b*t``
-
-
-.. function:: lerp(a: quat, b: quat, t: float32) -> quat
-
-   Linearly interpolate two values a and b using factor t, computed as ``a*(1-t) + b*t``
-
-
-.. function:: lerp(a: transform, b: transform, t: float32) -> transform
-
-   Linearly interpolate two values a and b using factor t, computed as ``a*(1-t) + b*t``
-
-
-.. function:: lerp(a: spatial_vector, b: spatial_vector, t: float32) -> spatial_vector
-
-   Linearly interpolate two values a and b using factor t, computed as ``a*(1-t) + b*t``
-
-
-.. function:: lerp(a: spatial_matrix, b: spatial_matrix, t: float32) -> spatial_matrix
-
-   Linearly interpolate two values a and b using factor t, computed as ``a*(1-t) + b*t``
-
-
-.. function:: expect_near(arg1: float32, arg2: float32, tolerance: float32) -> None
+.. function:: expect_near(arg1: Float, arg2: Float, tolerance: Float) -> None
 
    Prints an error to stdout if arg1 and arg2 are not closer than tolerance in magnitude
 
 
-.. function:: expect_near(arg1: vec3, arg2: vec3, tolerance: float32) -> None
+.. function:: expect_near(arg1: vec3f, arg2: vec3f, tolerance: float32) -> None
+   :noindex:
+   :nocontentsentry:
 
    Prints an error to stdout if any element of arg1 and arg2 are not closer than tolerance in magnitude
 
@@ -958,9 +949,38 @@ Utility
 
 Geometry
 ---------------
-.. function:: mesh_query_point(id: uint64, point: vec3, max_dist: float32, inside: float32, face: int32, bary_u: float32, bary_v: float32) -> bool
+.. function:: bvh_query_aabb(id: uint64, lower: vec3f, upper: vec3f) -> bvh_query_t
+
+   Construct an axis-aligned bounding box query against a bvh object. This query can be used to iterate over all bounds
+   inside a bvh. Returns an object that is used to track state during bvh traversal.
+    
+   :param id: The bvh identifier
+   :param lower: The lower bound of the bounding box in bvh space
+   :param upper: The upper bound of the bounding box in bvh space
+
+
+.. function:: bvh_query_ray(id: uint64, start: vec3f, dir: vec3f) -> bvh_query_t
+
+   Construct a ray query against a bvh object. This query can be used to iterate over all bounds
+   that intersect the ray. Returns an object that is used to track state during bvh traversal.
+    
+   :param id: The bvh identifier
+   :param start: The start of the ray in bvh space
+   :param dir: The direction of the ray in bvh space
+
+
+.. function:: bvh_query_next(query: bvh_query_t, index: int32) -> bool
+
+   Move to the next bound returned by the query. The index of the current bound is stored in ``index``, returns ``False``
+   if there are no more overlapping bound.
+
+
+.. function:: mesh_query_point(id: uint64, point: vec3f, max_dist: float32, inside: float32, face: int32, bary_u: float32, bary_v: float32) -> bool
 
    Computes the closest point on the mesh with identifier `id` to the given point in space. Returns ``True`` if a point < ``max_dist`` is found.
+
+   Identifies the sign of the distance using additional ray-casts to determine if the point is inside or outside. This method is relatively robust, but
+   does increase computational cost. See below for additional sign determination methods.
 
    :param id: The mesh identifier
    :param point: The point in space to query
@@ -968,10 +988,62 @@ Geometry
    :param inside: Returns a value < 0 if query point is inside the mesh, >=0 otherwise. Note that mesh must be watertight for this to be robust
    :param face: Returns the index of the closest face
    :param bary_u: Returns the barycentric u coordinate of the closest point
-   :param bary_v: Retruns the barycentric v coordinate of the closest point
+   :param bary_v: Returns the barycentric v coordinate of the closest point
 
 
-.. function:: mesh_query_ray(id: uint64, start: vec3, dir: vec3, max_t: float32, t: float32, bary_u: float32, bary_v: float32, sign: float32, normal: vec3, face: int32) -> bool
+.. function:: mesh_query_point_no_sign(id: uint64, point: vec3f, max_dist: float32, face: int32, bary_u: float32, bary_v: float32) -> bool
+
+   Computes the closest point on the mesh with identifier `id` to the given point in space. Returns ``True`` if a point < ``max_dist`` is found.
+
+   This method does not compute the sign of the point (inside/outside) which makes it faster than other point query methods.
+
+   :param id: The mesh identifier
+   :param point: The point in space to query
+   :param max_dist: Mesh faces above this distance will not be considered by the query
+   :param face: Returns the index of the closest face
+   :param bary_u: Returns the barycentric u coordinate of the closest point
+   :param bary_v: Returns the barycentric v coordinate of the closest point
+
+
+.. function:: mesh_query_point_sign_normal(id: uint64, point: vec3f, max_dist: float32, inside: float32, face: int32, bary_u: float32, bary_v: float32, epsilon: float32) -> bool
+
+   Computes the closest point on the mesh with identifier `id` to the given point in space. Returns ``True`` if a point < ``max_dist`` is found.
+    
+   Identifies the sign of the distance (inside/outside) using the angle-weighted pseudo normal. This approach to sign determination is robust for well conditioned meshes
+   that are watertight and non-self intersecting, it is also comparatively fast to compute.
+
+   :param id: The mesh identifier
+   :param point: The point in space to query
+   :param max_dist: Mesh faces above this distance will not be considered by the query
+   :param inside: Returns a value < 0 if query point is inside the mesh, >=0 otherwise. Note that mesh must be watertight for this to be robust
+   :param face: Returns the index of the closest face
+   :param bary_u: Returns the barycentric u coordinate of the closest point
+   :param bary_v: Returns the barycentric v coordinate of the closest point
+   :param epsilon: Epsilon treating distance values as equal, when locating the minimum distance vertex/face/edge, as a fraction of the average edge length, also for treating closest point as being on edge/vertex default 1e-3
+
+
+.. function:: mesh_query_point_sign_winding_number(id: uint64, point: vec3f, max_dist: float32, inside: float32, face: int32, bary_u: float32, bary_v: float32, accuracy: float32, threshold: float32) -> bool
+
+   Computes the closest point on the mesh with identifier `id` to the given point in space. Returns ``True`` if a point < ``max_dist`` is found. 
+    
+   Identifies the sign using the winding number of the mesh relative to the query point. This method of sign determination is robust for poorly conditioned meshes
+   and provides a smooth approximation to sign even when the mesh is not watertight. This method is the most robust and accurate of the sign determination meshes
+   but also the most expensive.
+     
+    Note that the Mesh object must be constructed with ``suport_winding_number=True`` for this method to return correct results.
+
+   :param id: The mesh identifier
+   :param point: The point in space to query
+   :param max_dist: Mesh faces above this distance will not be considered by the query
+   :param inside: Returns a value < 0 if query point is inside the mesh, >=0 otherwise. Note that mesh must be watertight for this to be robust
+   :param face: Returns the index of the closest face
+   :param bary_u: Returns the barycentric u coordinate of the closest point
+   :param bary_v: Returns the barycentric v coordinate of the closest point
+   :param accuracy: Accuracy for computing the winding number with fast winding number method utilizing second order dipole approximation, default 2.0
+   :param threshold: The threshold of the winding number to be considered inside, default 0.5
+
+
+.. function:: mesh_query_ray(id: uint64, start: vec3f, dir: vec3f, max_t: float32, t: float32, bary_u: float32, bary_v: float32, sign: float32, normal: vec3f, face: int32) -> bool
 
    Computes the closest ray hit on the mesh with identifier `id`, returns ``True`` if a point < ``max_t`` is found.
 
@@ -987,7 +1059,7 @@ Geometry
    :param face: Returns the index of the hit face
 
 
-.. function:: mesh_query_aabb(id: uint64, lower: vec3, upper: vec3) -> mesh_query_aabb_t
+.. function:: mesh_query_aabb(id: uint64, lower: vec3f, upper: vec3f) -> mesh_query_aabb_t
 
    Construct an axis-aligned bounding box query against a mesh object. This query can be used to iterate over all triangles
    inside a volume. Returns an object that is used to track state during mesh traversal.
@@ -1003,17 +1075,17 @@ Geometry
    if there are no more overlapping triangles.
 
 
-.. function:: mesh_eval_position(id: uint64, face: int32, bary_u: float32, bary_v: float32) -> vec3
+.. function:: mesh_eval_position(id: uint64, face: int32, bary_u: float32, bary_v: float32) -> vec3f
 
    Evaluates the position on the mesh given a face index, and barycentric coordinates.
 
 
-.. function:: mesh_eval_velocity(id: uint64, face: int32, bary_u: float32, bary_v: float32) -> vec3
+.. function:: mesh_eval_velocity(id: uint64, face: int32, bary_u: float32, bary_v: float32) -> vec3f
 
    Evaluates the velocity on the mesh given a face index, and barycentric coordinates.
 
 
-.. function:: hash_grid_query(id: uint64, point: vec3, max_dist: float32) -> hash_grid_query_t
+.. function:: hash_grid_query(id: uint64, point: vec3f, max_dist: float32) -> hash_grid_query_t
 
    Construct a point query against a hash grid. This query can be used to iterate over all neighboring points withing a 
    fixed radius from the query point. Returns an object that is used to track state during neighbor traversal.
@@ -1031,22 +1103,27 @@ Geometry
    traversal occurs in a spatially coherent order.
 
 
-.. function:: intersect_tri_tri(v0: vec3, v1: vec3, v2: vec3, u0: vec3, u1: vec3, u2: vec3) -> int
+.. function:: intersect_tri_tri(v0: vec3f, v1: vec3f, v2: vec3f, u0: vec3f, u1: vec3f, u2: vec3f) -> int
 
    Tests for intersection between two triangles (v0, v1, v2) and (u0, u1, u2) using Moller's method. Returns > 0 if triangles intersect.
 
 
-.. function:: mesh_eval_face_normal(id: uint64, face: int32) -> vec3
+.. function:: mesh_get(id: uint64) -> Mesh
+
+   Retrieves the mesh given its index. [1]_
+
+
+.. function:: mesh_eval_face_normal(id: uint64, face: int32) -> vec3f
 
    Evaluates the face normal the mesh given a face index.
 
 
-.. function:: mesh_get_point(id: uint64, index: int32) -> vec3
+.. function:: mesh_get_point(id: uint64, index: int32) -> vec3f
 
    Returns the point of the mesh given a index.
 
 
-.. function:: mesh_get_velocity(id: uint64, index: int32) -> vec3
+.. function:: mesh_get_velocity(id: uint64, index: int32) -> vec3f
 
    Returns the velocity of the mesh given a index.
 
@@ -1056,7 +1133,7 @@ Geometry
    Returns the point-index of the mesh given a face-vertex index.
 
 
-.. function:: closest_point_edge_edge(p1: vec3, q1: vec3, p2: vec3, q2: vec3, epsilon: float32) -> vec3
+.. function:: closest_point_edge_edge(p1: vec3f, q1: vec3f, p2: vec3f, q2: vec3f, epsilon: float32) -> vec3f
 
    Finds the closest points between two edges. Returns barycentric weights to the points on each edge, as well as the closest distance between the edges.
 
@@ -1072,7 +1149,7 @@ Geometry
 
 Volumes
 ---------------
-.. function:: volume_sample_f(id: uint64, uvw: vec3, sampling_mode: int32) -> float
+.. function:: volume_sample_f(id: uint64, uvw: vec3f, sampling_mode: int32) -> float
 
    Sample the volume given by ``id`` at the volume local-space point ``uvw``. Interpolation should be ``wp.Volume.CLOSEST``, or ``wp.Volume.LINEAR.``
 
@@ -1082,17 +1159,27 @@ Volumes
    Returns the value of voxel with coordinates ``i``, ``j``, ``k``, if the voxel at this index does not exist this function returns the background value
 
 
-.. function:: volume_sample_v(id: uint64, uvw: vec3, sampling_mode: int32) -> vec3
+.. function:: volume_store_f(id: uint64, i: int32, j: int32, k: int32, value: float32) -> None
+
+   Store the value at voxel with coordinates ``i``, ``j``, ``k``.
+
+
+.. function:: volume_sample_v(id: uint64, uvw: vec3f, sampling_mode: int32) -> vec3f
 
    Sample the vector volume given by ``id`` at the volume local-space point ``uvw``. Interpolation should be ``wp.Volume.CLOSEST``, or ``wp.Volume.LINEAR.``
 
 
-.. function:: volume_lookup_v(id: uint64, i: int32, j: int32, k: int32) -> vec3
+.. function:: volume_lookup_v(id: uint64, i: int32, j: int32, k: int32) -> vec3f
 
    Returns the vector value of voxel with coordinates ``i``, ``j``, ``k``, if the voxel at this index does not exist this function returns the background value
 
 
-.. function:: volume_sample_i(id: uint64, uvw: vec3) -> int
+.. function:: volume_store_v(id: uint64, i: int32, j: int32, k: int32, value: vec3f) -> None
+
+   Store the value at voxel with coordinates ``i``, ``j``, ``k``.
+
+
+.. function:: volume_sample_i(id: uint64, uvw: vec3f) -> int
 
    Sample the int32 volume given by ``id`` at the volume local-space point ``uvw``. 
 
@@ -1102,22 +1189,27 @@ Volumes
    Returns the int32 value of voxel with coordinates ``i``, ``j``, ``k``, if the voxel at this index does not exist this function returns the background value
 
 
-.. function:: volume_index_to_world(id: uint64, uvw: vec3) -> vec3
+.. function:: volume_store_i(id: uint64, i: int32, j: int32, k: int32, value: int32) -> None
+
+   Store the value at voxel with coordinates ``i``, ``j``, ``k``.
+
+
+.. function:: volume_index_to_world(id: uint64, uvw: vec3f) -> vec3f
 
    Transform a point defined in volume index space to world space given the volume's intrinsic affine transformation.
 
 
-.. function:: volume_world_to_index(id: uint64, xyz: vec3) -> vec3
+.. function:: volume_world_to_index(id: uint64, xyz: vec3f) -> vec3f
 
    Transform a point defined in volume world space to the volume's index space, given the volume's intrinsic affine transformation.
 
 
-.. function:: volume_index_to_world_dir(id: uint64, uvw: vec3) -> vec3
+.. function:: volume_index_to_world_dir(id: uint64, uvw: vec3f) -> vec3f
 
    Transform a direction defined in volume index space to world space given the volume's intrinsic affine transformation.
 
 
-.. function:: volume_world_to_index_dir(id: uint64, xyz: vec3) -> vec3
+.. function:: volume_world_to_index_dir(id: uint64, xyz: vec3f) -> vec3f
 
    Transform a direction defined in volume world space to the volume's index space, given the volume's intrinsic affine transformation.
 
@@ -1132,6 +1224,8 @@ Random
 
 
 .. function:: rand_init(seed: int32, offset: int32) -> uint32
+   :noindex:
+   :nocontentsentry:
 
    Initialize a new random number generator given a user-defined seed and an offset. 
    This alternative constructor can be useful in parallel programs, where a kernel as a whole should share a seed,
@@ -1144,6 +1238,8 @@ Random
 
 
 .. function:: randi(state: uint32, min: int32, max: int32) -> int
+   :noindex:
+   :nocontentsentry:
 
    Return a random integer between [min, max)
 
@@ -1154,6 +1250,8 @@ Random
 
 
 .. function:: randf(state: uint32, min: float32, max: float32) -> float
+   :noindex:
+   :nocontentsentry:
 
    Return a random float between [min, max)
 
@@ -1163,54 +1261,62 @@ Random
    Sample a normal distribution
 
 
-.. function:: sample_cdf(state: uint32, cdf: array[float32]) -> int
+.. function:: sample_cdf(state: uint32, cdf: Array[float32]) -> int
 
    Inverse transform sample a cumulative distribution function
 
 
-.. function:: sample_triangle(state: uint32) -> vec2
+.. function:: sample_triangle(state: uint32) -> vec2f
 
    Uniformly sample a triangle. Returns sample barycentric coordinates
 
 
-.. function:: sample_unit_ring(state: uint32) -> vec2
+.. function:: sample_unit_ring(state: uint32) -> vec2f
 
    Uniformly sample a ring in the xy plane
 
 
-.. function:: sample_unit_disk(state: uint32) -> vec2
+.. function:: sample_unit_disk(state: uint32) -> vec2f
 
    Uniformly sample a disk in the xy plane
 
 
-.. function:: sample_unit_sphere_surface(state: uint32) -> vec3
+.. function:: sample_unit_sphere_surface(state: uint32) -> vec3f
 
    Uniformly sample a unit sphere surface
 
 
-.. function:: sample_unit_sphere(state: uint32) -> vec3
+.. function:: sample_unit_sphere(state: uint32) -> vec3f
 
    Uniformly sample a unit sphere
 
 
-.. function:: sample_unit_hemisphere_surface(state: uint32) -> vec3
+.. function:: sample_unit_hemisphere_surface(state: uint32) -> vec3f
 
    Uniformly sample a unit hemisphere surface
 
 
-.. function:: sample_unit_hemisphere(state: uint32) -> vec3
+.. function:: sample_unit_hemisphere(state: uint32) -> vec3f
 
    Uniformly sample a unit hemisphere
 
 
-.. function:: sample_unit_square(state: uint32) -> vec2
+.. function:: sample_unit_square(state: uint32) -> vec2f
 
    Uniformly sample a unit square
 
 
-.. function:: sample_unit_cube(state: uint32) -> vec3
+.. function:: sample_unit_cube(state: uint32) -> vec3f
 
    Uniformly sample a unit cube
+
+
+.. function:: poisson(state: uint32, lam: float32) -> uint32
+
+   Generate a random sample from a Poisson distribution.
+    
+    :param state: RNG state
+    :param lam: The expected value of the distribution
 
 
 .. function:: noise(state: uint32, x: float32) -> float
@@ -1218,17 +1324,23 @@ Random
    Non-periodic Perlin-style noise in 1d.
 
 
-.. function:: noise(state: uint32, xy: vec2) -> float
+.. function:: noise(state: uint32, xy: vec2f) -> float
+   :noindex:
+   :nocontentsentry:
 
    Non-periodic Perlin-style noise in 2d.
 
 
-.. function:: noise(state: uint32, xyz: vec3) -> float
+.. function:: noise(state: uint32, xyz: vec3f) -> float
+   :noindex:
+   :nocontentsentry:
 
    Non-periodic Perlin-style noise in 3d.
 
 
-.. function:: noise(state: uint32, xyzt: vec4) -> float
+.. function:: noise(state: uint32, xyzt: vec4f) -> float
+   :noindex:
+   :nocontentsentry:
 
    Non-periodic Perlin-style noise in 4d.
 
@@ -1238,249 +1350,300 @@ Random
    Periodic Perlin-style noise in 1d.
 
 
-.. function:: pnoise(state: uint32, xy: vec2, px: int32, py: int32) -> float
+.. function:: pnoise(state: uint32, xy: vec2f, px: int32, py: int32) -> float
+   :noindex:
+   :nocontentsentry:
 
    Periodic Perlin-style noise in 2d.
 
 
-.. function:: pnoise(state: uint32, xyz: vec3, px: int32, py: int32, pz: int32) -> float
+.. function:: pnoise(state: uint32, xyz: vec3f, px: int32, py: int32, pz: int32) -> float
+   :noindex:
+   :nocontentsentry:
 
    Periodic Perlin-style noise in 3d.
 
 
-.. function:: pnoise(state: uint32, xyzt: vec4, px: int32, py: int32, pz: int32, pt: int32) -> float
+.. function:: pnoise(state: uint32, xyzt: vec4f, px: int32, py: int32, pz: int32, pt: int32) -> float
+   :noindex:
+   :nocontentsentry:
 
    Periodic Perlin-style noise in 4d.
 
 
-.. function:: curlnoise(state: uint32, xy: vec2) -> vec2
+.. function:: curlnoise(state: uint32, xy: vec2f) -> vec2f
 
-   Divergence-free vector field based on the gradient of a Perlin noise function.
-
-
-.. function:: curlnoise(state: uint32, xyz: vec3) -> vec3
-
-   Divergence-free vector field based on the curl of three Perlin noise functions.
+   Divergence-free vector field based on the gradient of a Perlin noise function. [1]_
 
 
-.. function:: curlnoise(state: uint32, xyzt: vec4) -> vec3
+.. function:: curlnoise(state: uint32, xyz: vec3f) -> vec3f
+   :noindex:
+   :nocontentsentry:
 
-   Divergence-free vector field based on the curl of three Perlin noise functions.
+   Divergence-free vector field based on the curl of three Perlin noise functions. [1]_
+
+
+.. function:: curlnoise(state: uint32, xyzt: vec4f) -> vec3f
+   :noindex:
+   :nocontentsentry:
+
+   Divergence-free vector field based on the curl of three Perlin noise functions. [1]_
 
 
 
 
 Other
 ---------------
-.. function:: lower_bound(arr: array[int32], value: int32) -> int
+.. function:: lower_bound(arr: Array[Scalar], value: Scalar) -> int
 
    Search a sorted array for the closest element greater than or equal to value.
 
 
-.. function:: lower_bound(arr: array[float32], value: float32) -> int
+.. function:: lower_bound(arr: Array[Scalar], arr_begin: int32, arr_end: int32, value: Scalar) -> int
+   :noindex:
+   :nocontentsentry:
 
-   Search a sorted array for the closest element greater than or equal to value.
+   Search a sorted array range [arr_begin, arr_end) for the closest element greater than or equal to value.
 
 
 
 
 Operators
 ---------------
-.. function:: add(x: int32, y: int32) -> int
+.. function:: add(x: Scalar, y: Scalar) -> Scalar
 
 
-.. function:: add(x: float32, y: float32) -> float
+.. function:: add(x: Vector[Any,Scalar], y: Vector[Any,Scalar]) -> Vector[Any,Scalar]
+   :noindex:
+   :nocontentsentry:
 
 
-.. function:: add(x: vec2, y: vec2) -> vec2
+.. function:: add(x: Quaternion[Scalar], y: Quaternion[Scalar]) -> Quaternion[Scalar]
+   :noindex:
+   :nocontentsentry:
 
 
-.. function:: add(x: vec3, y: vec3) -> vec3
+.. function:: add(x: Matrix[Any,Any,Scalar], y: Matrix[Any,Any,Scalar]) -> Matrix[Any,Any,Scalar]
+   :noindex:
+   :nocontentsentry:
 
 
-.. function:: add(x: vec4, y: vec4) -> vec4
+.. function:: add(x: Transformation[Scalar], y: Transformation[Scalar]) -> Transformation[Scalar]
+   :noindex:
+   :nocontentsentry:
 
 
-.. function:: add(x: quat, y: quat) -> quat
+.. function:: sub(x: Scalar, y: Scalar) -> Scalar
 
 
-.. function:: add(x: mat22, y: mat22) -> mat22
+.. function:: sub(x: Vector[Any,Scalar], y: Vector[Any,Scalar]) -> Vector[Any,Scalar]
+   :noindex:
+   :nocontentsentry:
 
 
-.. function:: add(x: mat33, y: mat33) -> mat33
+.. function:: sub(x: Matrix[Any,Any,Scalar], y: Matrix[Any,Any,Scalar]) -> Matrix[Any,Any,Scalar]
+   :noindex:
+   :nocontentsentry:
 
 
-.. function:: add(x: mat44, y: mat44) -> mat44
+.. function:: sub(x: Quaternion[Scalar], y: Quaternion[Scalar]) -> Quaternion[Scalar]
+   :noindex:
+   :nocontentsentry:
 
 
-.. function:: add(x: spatial_vector, y: spatial_vector) -> spatial_vector
+.. function:: sub(x: Transformation[Scalar], y: Transformation[Scalar]) -> Transformation[Scalar]
+   :noindex:
+   :nocontentsentry:
 
 
-.. function:: add(x: spatial_matrix, y: spatial_matrix) -> spatial_matrix
+.. function:: bit_and(x: Int, y: Int) -> Int
 
 
-.. function:: sub(x: int32, y: int32) -> int
+.. function:: bit_or(x: Int, y: Int) -> Int
 
 
-.. function:: sub(x: float32, y: float32) -> float
+.. function:: bit_xor(x: Int, y: Int) -> Int
 
 
-.. function:: sub(x: vec2, y: vec2) -> vec2
+.. function:: lshift(x: Int, y: Int) -> Int
 
 
-.. function:: sub(x: vec3, y: vec3) -> vec3
+.. function:: rshift(x: Int, y: Int) -> Int
 
 
-.. function:: sub(x: vec4, y: vec4) -> vec4
+.. function:: invert(x: Int) -> Int
 
 
-.. function:: sub(x: mat22, y: mat22) -> mat22
+.. function:: mul(x: Scalar, y: Scalar) -> Scalar
 
 
-.. function:: sub(x: mat33, y: mat33) -> mat33
+.. function:: mul(x: Vector[Any,Scalar], y: Scalar) -> Vector[Any,Scalar]
+   :noindex:
+   :nocontentsentry:
 
 
-.. function:: sub(x: mat44, y: mat44) -> mat44
+.. function:: mul(x: Scalar, y: Vector[Any,Scalar]) -> Vector[Any,Scalar]
+   :noindex:
+   :nocontentsentry:
 
 
-.. function:: sub(x: spatial_vector, y: spatial_vector) -> spatial_vector
+.. function:: mul(x: Quaternion[Scalar], y: Scalar) -> Quaternion[Scalar]
+   :noindex:
+   :nocontentsentry:
 
 
-.. function:: sub(x: spatial_matrix, y: spatial_matrix) -> spatial_matrix
+.. function:: mul(x: Scalar, y: Quaternion[Scalar]) -> Quaternion[Scalar]
+   :noindex:
+   :nocontentsentry:
 
 
-.. function:: mul(x: int32, y: int32) -> int
+.. function:: mul(x: Quaternion[Scalar], y: Quaternion[Scalar]) -> Quaternion[Scalar]
+   :noindex:
+   :nocontentsentry:
 
 
-.. function:: mul(x: float32, y: float32) -> float
+.. function:: mul(x: Scalar, y: Matrix[Any,Any,Scalar]) -> Matrix[Any,Any,Scalar]
+   :noindex:
+   :nocontentsentry:
 
 
-.. function:: mul(x: float32, y: vec2) -> vec2
+.. function:: mul(x: Matrix[Any,Any,Scalar], y: Scalar) -> Matrix[Any,Any,Scalar]
+   :noindex:
+   :nocontentsentry:
 
 
-.. function:: mul(x: float32, y: vec3) -> vec3
+.. function:: mul(x: Matrix[Any,Any,Scalar], y: Vector[Any,Scalar]) -> Vector[Any,Scalar]
+   :noindex:
+   :nocontentsentry:
 
 
-.. function:: mul(x: float32, y: vec4) -> vec4
+.. function:: mul(x: Matrix[Any,Any,Scalar], y: Matrix[Any,Any,Scalar])
+   :noindex:
+   :nocontentsentry:
 
 
-.. function:: mul(x: float32, y: quat) -> quat
+.. function:: mul(x: Transformation[Scalar], y: Transformation[Scalar]) -> Transformation[Scalar]
+   :noindex:
+   :nocontentsentry:
 
 
-.. function:: mul(x: float32, y: mat22) -> mat22
+.. function:: mul(x: Scalar, y: Transformation[Scalar]) -> Transformation[Scalar]
+   :noindex:
+   :nocontentsentry:
 
 
-.. function:: mul(x: float32, y: mat33) -> mat33
+.. function:: mul(x: Transformation[Scalar], y: Scalar) -> Transformation[Scalar]
+   :noindex:
+   :nocontentsentry:
 
 
-.. function:: mul(x: float32, y: mat44) -> mat44
+.. function:: mod(x: Scalar, y: Scalar) -> Scalar
 
 
-.. function:: mul(x: vec2, y: float32) -> vec2
+.. function:: div(x: Scalar, y: Scalar) -> Scalar
 
 
-.. function:: mul(x: vec3, y: float32) -> vec3
+.. function:: div(x: Vector[Any,Scalar], y: Scalar) -> Vector[Any,Scalar]
+   :noindex:
+   :nocontentsentry:
 
 
-.. function:: mul(x: vec4, y: float32) -> vec4
+.. function:: div(x: Matrix[Any,Any,Scalar], y: Scalar) -> Matrix[Any,Any,Scalar]
+   :noindex:
+   :nocontentsentry:
 
 
-.. function:: mul(x: quat, y: float32) -> quat
+.. function:: div(x: Quaternion[Scalar], y: Scalar) -> Quaternion[Scalar]
+   :noindex:
+   :nocontentsentry:
 
 
-.. function:: mul(x: quat, y: quat) -> quat
+.. function:: floordiv(x: Scalar, y: Scalar) -> Scalar
 
 
-.. function:: mul(x: mat22, y: float32) -> mat22
+.. function:: pos(x: Scalar) -> Scalar
 
 
-.. function:: mul(x: mat22, y: vec2) -> vec2
+.. function:: pos(x: Vector[Any,Scalar]) -> Vector[Any,Scalar]
+   :noindex:
+   :nocontentsentry:
 
 
-.. function:: mul(x: mat22, y: mat22) -> mat22
+.. function:: pos(x: Quaternion[Scalar]) -> Quaternion[Scalar]
+   :noindex:
+   :nocontentsentry:
 
 
-.. function:: mul(x: mat33, y: float32) -> mat33
+.. function:: pos(x: Matrix[Any,Any,Scalar]) -> Matrix[Any,Any,Scalar]
+   :noindex:
+   :nocontentsentry:
 
 
-.. function:: mul(x: mat33, y: vec3) -> vec3
+.. function:: neg(x: Scalar) -> Scalar
 
 
-.. function:: mul(x: mat33, y: mat33) -> mat33
+.. function:: neg(x: Vector[Any,Scalar]) -> Vector[Any,Scalar]
+   :noindex:
+   :nocontentsentry:
 
 
-.. function:: mul(x: mat44, y: float32) -> mat44
+.. function:: neg(x: Quaternion[Scalar]) -> Quaternion[Scalar]
+   :noindex:
+   :nocontentsentry:
 
 
-.. function:: mul(x: mat44, y: vec4) -> vec4
-
-
-.. function:: mul(x: mat44, y: mat44) -> mat44
-
-
-.. function:: mul(x: spatial_vector, y: float32) -> spatial_vector
-
-
-.. function:: mul(x: spatial_matrix, y: spatial_matrix) -> spatial_matrix
-
-
-.. function:: mul(x: spatial_matrix, y: spatial_vector) -> spatial_vector
-
-
-.. function:: mul(x: transform, y: transform) -> transform
-
-
-.. function:: mod(x: int32, y: int32) -> int
-
-
-.. function:: mod(x: float32, y: float32) -> float
-
-
-.. function:: div(x: int32, y: int32) -> int
-
-
-.. function:: div(x: float32, y: float32) -> float
-
-
-.. function:: div(x: vec2, y: float32) -> vec2
-
-
-.. function:: div(x: vec3, y: float32) -> vec3
-
-
-.. function:: div(x: vec4, y: float32) -> vec4
-
-
-.. function:: floordiv(x: int32, y: int32) -> int
-
-
-.. function:: floordiv(x: float32, y: float32) -> float
-
-
-.. function:: neg(x: int32) -> int
-
-
-.. function:: neg(x: float32) -> float
-
-
-.. function:: neg(x: vec2) -> vec2
-
-
-.. function:: neg(x: vec3) -> vec3
-
-
-.. function:: neg(x: vec4) -> vec4
-
-
-.. function:: neg(x: quat) -> quat
-
-
-.. function:: neg(x: mat33) -> mat33
-
-
-.. function:: neg(x: mat44) -> mat44
+.. function:: neg(x: Matrix[Any,Any,Scalar]) -> Matrix[Any,Any,Scalar]
+   :noindex:
+   :nocontentsentry:
 
 
 .. function:: unot(b: bool) -> bool
 
 
+.. function:: unot(b: int8) -> bool
+   :noindex:
+   :nocontentsentry:
+
+
+.. function:: unot(b: uint8) -> bool
+   :noindex:
+   :nocontentsentry:
+
+
+.. function:: unot(b: int16) -> bool
+   :noindex:
+   :nocontentsentry:
+
+
+.. function:: unot(b: uint16) -> bool
+   :noindex:
+   :nocontentsentry:
+
+
+.. function:: unot(b: int32) -> bool
+   :noindex:
+   :nocontentsentry:
+
+
+.. function:: unot(b: uint32) -> bool
+   :noindex:
+   :nocontentsentry:
+
+
+.. function:: unot(b: int64) -> bool
+   :noindex:
+   :nocontentsentry:
+
+
+.. function:: unot(b: uint64) -> bool
+   :noindex:
+   :nocontentsentry:
+
+
+.. function:: unot(a: Array[Any]) -> bool
+   :noindex:
+   :nocontentsentry:
+
+
+.. rubric:: Footnotes
+.. [1] Note: function gradients not implemented for backpropagation.

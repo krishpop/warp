@@ -27,6 +27,15 @@ struct vec_t
             c[i] = s;
         }
     }
+    
+    template <typename OtherType>
+    inline explicit CUDA_CALLABLE vec_t(const vec_t<Length, OtherType>& other)
+    {
+        for( unsigned i=0; i < Length; ++i )
+        {
+            c[i] = other[i];
+        }
+    }
 
     inline CUDA_CALLABLE vec_t(Type x, Type y)
     {
@@ -376,17 +385,40 @@ inline CUDA_CALLABLE Type tensordot(vec_t<Length, Type> a, vec_t<Length, Type> b
 template<unsigned Length, typename Type>
 inline CUDA_CALLABLE Type index(const vec_t<Length, Type> & a, int idx)
 {
-#if FP_CHECK
-    if (idx < 0 || idx > Length)
+#ifndef NDEBUG
+    if (idx < 0 || idx >= Length)
     {
         printf("vec index %d out of bounds at %s %d\n", idx, __FILE__, __LINE__);
         assert(0);
     }
 #endif
 
-    return a[idx];
-        
+    return a[idx];        
 }
+
+template<unsigned Length, typename Type>
+inline CUDA_CALLABLE void indexset(vec_t<Length, Type>& v, int idx, Type value)
+{
+#ifndef NDEBUG
+    if (idx < 0 || idx >= Length)
+    {
+        printf("vec store %d out of bounds at %s %d\n", idx, __FILE__, __LINE__);
+        assert(0);
+    }
+#endif
+
+    v[idx] = value;
+}
+
+template<unsigned Length, typename Type>
+inline CUDA_CALLABLE void adj_indexset(vec_t<Length, Type>& v, int idx, const Type& value,
+                                       vec_t<Length, Type>& adj_v, int adj_idx, const Type& adj_value)
+{
+    // nop
+}
+
+
+
 
 template<unsigned Length, typename Type>
 inline CUDA_CALLABLE Type length(vec_t<Length, Type> a)
@@ -549,7 +581,7 @@ inline CUDA_CALLABLE void expect_near(const vec_t<Length, Type>& actual, const v
     }
     if (diff > tolerance)
     {
-        printf("Error, expect_near() failed with torerance "); print(tolerance);
+        printf("Error, expect_near() failed with tolerance "); print(tolerance);
         printf("\t Expected: "); print(expected); 
         printf("\t Actual: "); print(actual);
     }
@@ -607,6 +639,15 @@ inline CUDA_CALLABLE void adj_vec_t(Type s, Type& adj_s, const vec_t<Length, Typ
     }
 }
 
+// adjoint for the casting constructor
+template<unsigned Length, typename Type, typename OtherType>
+inline CUDA_CALLABLE void adj_vec_t(const vec_t<Length, OtherType>& other, vec_t<Length, OtherType>& adj_other, const vec_t<Length, Type>& adj_ret)
+{
+    for( unsigned i=0; i < Length; ++i )
+    {
+        adj_other[i] += adj_ret[i];
+    }
+}
 
 template<typename Type>
 CUDA_CALLABLE inline void adj_vec_t(const vec_t<3,Type>& w, const vec_t<3,Type>& v, vec_t<3,Type>& adj_w, vec_t<3,Type>& adj_v, const vec_t<6,Type>& adj_ret)
@@ -777,7 +818,7 @@ inline CUDA_CALLABLE void adj_dot(vec_t<3, Type> a, vec_t<3, Type> b, vec_t<3, T
 template<unsigned Length, typename Type>
 inline CUDA_CALLABLE void adj_index(const vec_t<Length, Type> & a, int idx, vec_t<Length, Type> & adj_a, int & adj_idx, Type & adj_ret)
 {
-#if FP_CHECK
+#ifndef NDEBUG
     if (idx < 0 || idx > Length)
     {
         printf("Tvec2<Scalar> index %d out of bounds at %s %d\n", idx, __FILE__, __LINE__);
@@ -933,11 +974,11 @@ inline CUDA_CALLABLE vec_t<Length, Type> atomic_max(vec_t<Length, Type> * addr, 
 template<unsigned Length, typename Type>
 CUDA_CALLABLE inline int longest_axis(const vec_t<Length, Type>& v)
 {
-    Type lmax = fabs(v[0]);
+    Type lmax = abs(v[0]);
     int ret(0);
     for( unsigned i=1; i < Length; ++i )
     {
-        Type l = fabs(v[i]);
+        Type l = abs(v[i]);
         if( l > lmax )
         {
             ret = i;

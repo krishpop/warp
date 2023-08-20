@@ -31,7 +31,6 @@ def parse_usd(
     ignore_paths=[],
     export_usda=False,
 ):
-
     try:
         from pxr import Usd, UsdGeom, UsdPhysics
     except ImportError:
@@ -192,9 +191,9 @@ def parse_usd(
         target_pos = parse_float(prim, f"drive:{type}:physics:targetPosition")
         target_vel = parse_float(prim, f"drive:{type}:physics:targetVelocity")
         if is_angular:
-            stiffness *= mass_unit * linear_unit ** 2
+            stiffness *= mass_unit * linear_unit**2
             stiffness = np.deg2rad(stiffness)
-            damping *= mass_unit * linear_unit ** 2
+            damping *= mass_unit * linear_unit**2
             damping = np.deg2rad(damping)
             if target_pos is not None:
                 target_pos = np.deg2rad(target_pos)
@@ -551,8 +550,8 @@ def parse_usd(
         elif type_name in shape_types:
             # parse shapes
             shape_params = dict(
-                ke=default_ke, kd=default_kd, kf=default_kf, mu=default_mu,
-                restitution=default_restitution, has_ground_collision=False)
+                ke=default_ke, kd=default_kd, kf=default_kf, mu=default_mu, restitution=default_restitution
+            )
             if material is not None:
                 if "restitution" in material:
                     shape_params["restitution"] = material["restitution"]
@@ -672,7 +671,7 @@ def parse_usd(
                 face_id = 0
                 for count in counts:
                     if count == 3:
-                        faces.append(indices[face_id : face_id + 3][::-1])
+                        faces.append(indices[face_id : face_id + 3])
                     elif count == 4:
                         faces.append(indices[face_id : face_id + 3])
                         faces.append(indices[[face_id, face_id + 2, face_id + 3]])

@@ -5,11 +5,39 @@
 # distribution of this software and related documentation without an express
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
-import numpy as np
 import warp as wp
+import numpy as np
 
 
 class Tape:
+    """
+    Record kernel launches within a Tape scope to enable automatic differentiation.
+    Gradients can be computed after the operations have been recorded on the tape via
+    ``tape.backward()``.
+
+    Example
+    -------
+
+    .. code-block:: python
+
+        tape = wp.Tape()
+
+        # forward pass
+        with tape:
+            wp.launch(kernel=compute1, inputs=[a, b], device="cuda")
+            wp.launch(kernel=compute2, inputs=[c, d], device="cuda")
+            wp.launch(kernel=loss, inputs=[d, l], device="cuda")
+
+        # reverse pass
+        tape.backward(l)
+
+    Gradients can be accessed via the ``tape.gradients`` dictionary, e.g.:
+
+    .. code-block:: python
+
+        print(tape.gradients[a])
+
+    """
     def __init__(self):
         self.gradients = {}
         self.const_gradients = set()
@@ -32,7 +60,7 @@ class Tape:
         wp.context.runtime.tape = None
 
     def forward(self, check_nans=True):
-    
+
         # run launches forwards
         for launch in self.launches:
 
@@ -43,12 +71,12 @@ class Tape:
             device = launch[4]
 
             wp.launch(
-                kernel=kernel, 
-                dim=dim, 
-                inputs=inputs, 
+                kernel=kernel,
+                dim=dim,
+                inputs=inputs,
                 outputs=outputs,
                 device=device)
-            
+
             if check_nans:
                 for o in outputs:
                     if isinstance(o, wp.array):
@@ -65,6 +93,17 @@ class Tape:
     #  adj_tensor = tape.gradients[tensor]
     #
     def backward(self, loss: wp.array = None, grads: dict = None):
+        """
+        Evaluate the backward pass of the recorded operations on the tape.
+        A single-element array ``loss`` or a dictionary of arrays ``grads``
+        can be provided to assign the incoming gradients for the reverse-mode
+        automatic differentiation pass.
+
+        Args:
+            loss (wp.array): A single-element array that holds the loss function value whose gradient is to be computed
+            grads (dict): A dictionary of arrays that map from Warp arrays to their incoming gradients
+
+        """
         # if scalar loss is specified then initialize
         # a 'seed' array for it, with gradient of one
         if loss:
@@ -125,10 +164,14 @@ class Tape:
     def record_launch(self, kernel, dim, inputs, outputs, device):
         self.launches.append([kernel, dim, inputs, outputs, device])
 
-    # records a custom function for the backward pass, can be any
-    # Callable python object. Callee should also pass arrays that
-    # take part in the function for gradient tracking.
     def record_func(self, backward, arrays):
+        """
+        Records a custom function to be executed only in the backward pass.
+
+        Args:
+            backward (Callable): A callable Python object (can be any function) that will be executed in the backward pass.
+            arrays (list): A list of arrays that are used by the function for gradient tracking.
+        """
         self.launches.append(backward)
 
         for a in arrays:
@@ -153,11 +196,11 @@ class Tape:
             return a.grad
 
         elif isinstance(a, wp.codegen.StructInstance):
-            adj = a._struct_()
-            for name, _ in a._struct_.ctype._fields_:
+            adj = a._cls()
+            for name, _ in a._cls.ctype._fields_:
                 if name.startswith("_"):
                     continue
-                if isinstance(a._struct_.vars[name].type, wp.array):
+                if isinstance(a._cls.vars[name].type, wp.array):
                     arr = getattr(a, name)
                     if arr.grad:
                         grad = self.gradients[arr] = arr.grad
@@ -173,15 +216,21 @@ class Tape:
         return None
 
     def reset(self):
+        """
+        Clear all operations recorded on the tape and zero out all gradients.
+        """
         self.launches = []
         self.zero()
 
     def zero(self):
+        """
+        Zero out all gradients recorded on the tape.
+        """
         for a, g in self.gradients.items():
             if a not in self.const_gradients:
                 if isinstance(a, wp.codegen.StructInstance):
-                    for name in g._struct_.vars:
-                        if isinstance(g._struct_.vars[name].type, wp.array) and g._struct_.vars[name].requires_grad:
+                    for name in g._cls.vars:
+                        if isinstance(g._cls.vars[name].type, wp.array) and g._cls.vars[name].requires_grad:
                             getattr(g, name).zero_()
                 else:
                     g.zero_()

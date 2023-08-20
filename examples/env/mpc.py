@@ -101,6 +101,10 @@ class Controller:
         self._rollout_trajectories = wp.zeros((self.env.action_dim, self.num_threads), dtype=wp.float32)
 
     def sample_controls(self, nominal_traj, num_steps, num_threads, noise_scale=noise_scale):
+        controls = wp.zeros((self.env.action_dim, num_threads), dtype=wp.float32)
+        for i in range(num_threads):
+            controls[:, i] = sample_gaussian(nominal_traj[:, i], noise_scale * nominal_traj[:, i])
+        return controls
         
 
 
@@ -108,6 +112,5 @@ class Controller:
 if __name__ == "__main__":
     from env.env_cartpole import CartpoleEnvironment
     
-    env = CartpoleEnvironment()
-    mpc = Controller(env)
+    mpc = Controller(CartpoleEnvironment)
     mpc.run()

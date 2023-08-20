@@ -13,11 +13,10 @@
 ###########################################################################
 
 import os
-import numpy as np
 import warp as wp
 import warp.sim
 
-from environment import Environment, run_env, IntegratorType
+from environment import Environment, run_env
 
 class SprayBottleEnvironment(Environment):
     sim_name = "env_spray_bottle"
@@ -32,10 +31,8 @@ class SprayBottleEnvironment(Environment):
     use_graph_capture = True
 
     show_rigid_contact_points = True
-    
-    # integrator_type = IntegratorType.EULER
 
-    num_envs = 1
+    num_envs = 4
 
     show_joints = False
 
@@ -43,17 +40,13 @@ class SprayBottleEnvironment(Environment):
 
     def create_articulation(self, builder):
         wp.sim.parse_urdf(
-            # os.path.join(os.path.dirname(__file__), "../assets/spray_bottle/mobility.urdf"),
-            os.path.join(os.path.dirname(__file__), "../assets/pill_bottle/mobility.urdf"),
+            os.path.join(os.path.dirname(__file__), "../assets/spray_bottle/mobility.urdf"),
             builder,
-            # xform=wp.transform((0.0, 0.22, 0.0), wp.quat_from_axis_angle((0.7, 0.0, 1.0), 0.1)),
-            xform=wp.transform((0.0, 0.3, 0.0), wp.quat_from_axis_angle((1.0, 0.0, 0.0), -np.pi/2)),
-            # xform=wp.transform(),
+            xform=wp.transform((0.0, 0.22, 0.0), wp.quat_from_axis_angle((0.7, 0.0, 1.0), 0.1)),
             floating=True,
             density=1.0,
             armature=1e-4,
             stiffness=0.0,
-            scale=0.2,
             damping=0.0,
             shape_ke=1.e+4,
             shape_kd=1.e+2,
@@ -62,8 +55,11 @@ class SprayBottleEnvironment(Environment):
             limit_ke=1.e+4,
             limit_kd=1.e+1,
             enable_self_collisions=False,
-            parse_visuals_as_colliders=False,
-            collapse_fixed_joints=True)
+            parse_visuals_as_colliders=False)
+
+        print("builder.body_mass", "\n".join(map(str, builder.body_mass)))
+        print("builder.body_inertia", "\n".join(map(str, builder.body_inertia)))
+        print("builder.body_com", "\n".join(map(str, builder.body_com)))
         
         # for mesh in builder.shape_geo_src:
         #     if isinstance(mesh, wp.sim.Mesh):
@@ -71,12 +67,7 @@ class SprayBottleEnvironment(Environment):
         #         mesh.remesh(method="ftetwild", visualize=False)
         
         # builder.plot_articulation()
-        # builder.collapse_fixed_joints()
-
-        print("builder.body_mass", builder.body_mass)
-        print("builder.body_inertia", "\n".join(map(str, builder.body_inertia)))
-        print("builder.body_com", "\n".join(map(str, builder.body_com)))
-
+        builder.collapse_fixed_joints()
         # builder.plot_articulation()
 
 

@@ -29,10 +29,10 @@ env:
     reach_bonus: ${task.rewards.reach_bonus}
   hand_type: ${hand:allegro}
   stochastic_init: true
-  use_autograd: true
+  use_autograd: false
   use_graph_capture: false
   # use_graph_capture: ${eval:'("shac" not in "${alg.name}")'}
-  no_grad: true
+  no_grad: false
 
 
 ppo:

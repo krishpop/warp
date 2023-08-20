@@ -30,7 +30,7 @@ class AntEnvironment(Environment):
     usd_render_settings = dict(scaling=100.0)
 
     sim_substeps_euler = 32
-    sim_substeps_xpbd = 3
+    sim_substeps_xpbd = 5
 
     joint_attach_ke: float = 100000.0
     joint_attach_kd: float = 10.0
