@@ -8,7 +8,6 @@
 from collections import defaultdict
 from typing import Callable, List, Literal, Tuple
 import warp as wp
-from warp.context import Devicelike
 import numpy as np
 
 
@@ -29,75 +28,79 @@ class FontColors:
     UNDERLINE = '\033[4m'
 
 
-def assert_np_equal(result, expect, tol=0.0):
-    a = result.flatten()
-    b = expect.flatten()
-
-    if tol == 0.0:
-        if (a == b).all() == False:
-            raise AssertionError(f"Unexpected result, got: {a} expected: {b}")
-
-    else:
-        delta = a - b
-        err = np.max(np.abs(delta))
-        if err > tol:
-            raise AssertionError(
-                f"Maximum expected error exceeds tolerance got: {a}, expected: {b}, with err: {err} > {tol}"
-            )
-
-
-def check_gradient(func: Callable, func_name: str, inputs: List, device: Devicelike, eps: float = 1e-4, tol: float = 1e-2):
-    """
-    Checks that the gradient of the Warp kernel is correct by comparing it to the
-    numerical gradient computed using finite differences.
-    Note that this function only works for kernels with an output scalar array of length 1.
-    """
-
-    module = wp.get_module(func.__module__)
-    kernel = wp.Kernel(func=func, key=func_name, module=module)
-
-    def f(xs):
-        # call the kernel without taping for finite differences
-        wp_xs = [
-            wp.array(xs[i], ndim=1, dtype=inputs[i].dtype, device=device)
-            for i in range(len(inputs))
-        ]
-        output = wp.zeros(1, dtype=wp.float32, device=device)
-        wp.launch(kernel, dim=1, inputs=wp_xs, outputs=[output], device=device)
-        return output.numpy()[0]
-
-    # compute numerical gradient
-    numerical_grad = []
-    np_xs = []
-    for i in range(len(inputs)):
-        np_xs.append(inputs[i].numpy().flatten().copy())
-        numerical_grad.append(np.zeros_like(np_xs[-1]))
-        inputs[i].requires_grad = True
-
-    for i in range(len(np_xs)):
-        for j in range(len(np_xs[i])):
-            np_xs[i][j] += eps
-            y1 = f(np_xs)
-            np_xs[i][j] -= 2 * eps
-            y2 = f(np_xs)
-            np_xs[i][j] += eps
-            numerical_grad[i][j] = (y1 - y2) / (2 * eps)
-
-    # compute analytical gradient
+def function_jacobian(func: Callable, inputs: List, max_outputs_per_var: int = -1):
     tape = wp.Tape()
-    output = wp.zeros(1, dtype=wp.float32, device=device, requires_grad=True)
     with tape:
-        wp.launch(kernel, dim=1, inputs=inputs,
-                  outputs=[output], device=device)
+        outputs = func(*inputs)
+    if isinstance(outputs, wp.array):
+        outputs = [outputs]
+    jac, ad_in, ad_out = tape_jacobian(tape, inputs, outputs, max_outputs_per_var=max_outputs_per_var)
+    return jac, outputs, ad_in, ad_out
 
-    tape.backward(loss=output)
 
-    # compare gradients
-    for i in range(len(inputs)):
-        grad = tape.gradients[inputs[i]]
-        assert_np_equal(grad.numpy(), numerical_grad[i], tol=tol)
+def function_jacobian_fd(func: Callable, inputs: List, eps: float = 1e-4, max_fd_dims_per_var: int = 500):
+    diff_in = flatten_arrays(inputs)
 
-    tape.zero()
+    num_in = len(diff_in)
+
+    assert num_in > 0, "Must specify at least one input"
+
+    # compute numerical Jacobian
+    jac_fd = None
+
+    def eval_row(var, col_id):
+        nonlocal jac_fd
+        np_in = var.numpy().copy()
+        np_in_original = np_in.copy()
+        in_shape = np_in.shape
+        np_in = np_in.flatten()
+        limit = min(max_fd_dims_per_var, len(np_in)) if max_fd_dims_per_var > 0 else len(np_in)
+        for j in range(limit):
+            np_in[j] += eps
+            var.assign(normalize_inputs(wp.array(np_in.reshape(in_shape), dtype=var.dtype, device=var.device)))
+            y1 = flatten_arrays(func(*inputs))
+            if jac_fd is None:
+                num_out = len(y1)
+                jac_fd = np.zeros((num_out, num_in), dtype=np.float32)
+            np_in[j] -= 2 * eps
+            var.assign(normalize_inputs(wp.array(np_in.reshape(in_shape), dtype=var.dtype, device=var.device)))
+            y2 = flatten_arrays(func(*inputs))
+            var.assign(wp.array(np_in_original, dtype=var.dtype, device=var.device))
+            jac_fd[:, col_id] = (y1 - y2) / (2 * eps)
+            col_id += 1
+        return col_id
+
+    col_id = 0
+    for input in inputs:
+        if isinstance(input, wp.codegen.StructInstance):
+            for varname, var in get_struct_vars(input).items():
+                if is_differentiable(var):
+                    col_id = eval_row(var, col_id)
+        elif is_differentiable(input):
+            col_id = eval_row(input, col_id)
+
+    return jac_fd
+
+
+def check_jacobian(func: Callable, inputs: List,
+                   input_names, output_names,
+                   eps: float = 1e-4,
+                   jacobian_name: str = "", max_fd_dims_per_var: int = 500, max_outputs_per_var: int = 500,
+                   atol: float = 0.1, rtol: float = 0.1, plot_jac_on_fail: bool = False, tabulate_errors: bool = True):
+    """
+    Checks that the autodiff Jacobian of the function is correct by comparing it to the
+    numerical Jacobian computed using finite differences.
+    """
+
+    jac_fd = function_jacobian_fd(func, inputs, eps=eps, max_fd_dims_per_var=max_fd_dims_per_var)
+    jac_ad, outputs, ad_in, ad_out = function_jacobian(func, inputs, max_outputs_per_var=max_outputs_per_var)
+    return compare_jacobians(jac_ad, jac_fd, inputs, outputs, input_names, output_names,
+                             jacobian_name=jacobian_name, max_fd_dims_per_var=max_fd_dims_per_var,
+                             max_outputs_per_var=max_outputs_per_var,
+                             ad_in=ad_in, ad_out=ad_out,
+                             atol=atol, rtol=rtol,
+                             plot_jac_on_fail=plot_jac_on_fail,
+                             tabulate_errors=tabulate_errors)
 
 
 def is_differentiable(x):
@@ -111,6 +114,8 @@ def get_struct_vars(x: wp.codegen.StructInstance):
 
 def flatten_arrays(xs):
     # flatten arrays that are potentially differentiable
+    if isinstance(xs, wp.array):
+        return xs.numpy().flatten()
     arrays = []
     for x in xs:
         if isinstance(x, wp.codegen.StructInstance):
@@ -251,6 +256,34 @@ def tape_jacobian(tape: wp.Tape, inputs: List[wp.array], outputs: List[wp.array]
     return jac_ad, flatten_arrays(inputs), flatten_arrays(outputs)
 
 
+def zero_vars(vars):
+    # zero out the vars before executing tape operations, in case
+    # there is no operation on the tape that resets the vars
+    # (a loss function is often simply accumulated; array.zero_() is
+    # not an operation that can be recorded on the tape)
+    if isinstance(vars, (list, tuple)):
+        for output in vars:
+            zero_vars(output)
+    elif isinstance(vars, wp.array):
+        vars.zero_()
+    elif isinstance(vars, wp.codegen.StructInstance):
+        for varname, var in get_struct_vars(vars).items():
+            zero_vars(var)
+
+
+def randomize_vars(vars):
+    # assign random numbers to variables
+    if isinstance(vars, (list, tuple)):
+        for output in vars:
+            randomize_vars(output)
+    elif isinstance(vars, wp.array):
+        np_array = vars.numpy()
+        vars.assign(np.random.rand(*np_array.shape).astype(np_array.dtype))
+    elif isinstance(vars, wp.codegen.StructInstance):
+        for varname, var in get_struct_vars(vars).items():
+            randomize_vars(var)
+
+
 def tape_jacobian_fd(tape: wp.Tape, inputs: List[wp.array], outputs: List[wp.array], eps: float = 1e-4, max_fd_dims_per_var: int = 500):
     """
     Computes the Jacobian of a Warp kernel launch mapping from all differentiable inputs to all differentiable outputs
@@ -265,20 +298,6 @@ def tape_jacobian_fd(tape: wp.Tape, inputs: List[wp.array], outputs: List[wp.arr
 
     assert num_in > 0, "Must specify at least one input"
     assert num_out > 0, "Must specify at least one output"
-
-    def zero_vars(outputs):
-        # zero out the outputs before executing tape operations, in case
-        # there is no operation on the tape that resets the outputs
-        # (a loss function is often simply accumulated; array.zero_() is
-        # not an operation that can be recorded on the tape)
-        if isinstance(outputs, (list, tuple)):
-            for output in outputs:
-                zero_vars(output)
-        elif isinstance(outputs, wp.array):
-            outputs.zero_()
-        elif isinstance(outputs, wp.codegen.StructInstance):
-            for varname, var in get_struct_vars(outputs).items():
-                zero_vars(var)
 
     zero_vars(outputs)
 
@@ -1289,21 +1308,14 @@ def check_tape_safety(function: Callable, inputs: list, outputs: list = None, to
         else:
             return outputs.numpy().flatten().copy()
 
-    def randomize_vars(outputs):
-        if isinstance(outputs, (list, tuple)):
-            for output in outputs:
-                randomize_vars(output)
-        elif isinstance(outputs, wp.array):
-            np_array = outputs.numpy()
-            outputs.assign(np.random.rand(*np_array.shape).astype(np_array.dtype))
-
     tape = wp.Tape()
     with tape:
         fun_outputs = function(*inputs)
     outputs = outputs or fun_outputs
     ref_output = flatten_outputs(outputs)
     # reset output arrays to a random value to ensure the tape will actually update them
-    randomize_vars(outputs)
+    # randomize_vars(outputs)
+    zero_vars(outputs)
     tape.forward()
     tape_output = flatten_outputs(outputs)
     print("Output from direct fn call:", ref_output)
