@@ -22,6 +22,8 @@ from tqdm import trange
 
 import matplotlib.pyplot as plt
 from warp.optim import Adam, SGD
+from warp.tests.grad_utils import check_tape_safety, check_backward_pass, check_jacobian, function_jacobian_fd
+from warp.sim.integrator_xpbd import apply_joint_torques
 
 DEBUG_PLOTS = True
 
@@ -123,9 +125,9 @@ def interpolate_control_hold(
 ):
     env_id, control_id = wp.tid()
     t_id = int(t)
-    control_left = control_points[env_id, t_id, control_id]
+    control = control_points[env_id, t_id, control_id]
     torque_id = env_id * torque_dim + control_dims[control_id]
-    torques[torque_id] = control_left * control_gains[control_id]
+    torques[torque_id] = control * control_gains[control_id]
 
 
 @wp.kernel
@@ -181,6 +183,27 @@ def interpolate_control_cubic(
 
 
 @wp.kernel
+def control_to_body_force(
+    control_points: wp.array(dtype=float, ndim=3),
+    control_dims: wp.array(dtype=int),
+    control_gains: wp.array(dtype=float),
+    t: float,
+    torque_dim: int,
+    bodies_per_env: int,
+    # outputs
+    body_f: wp.array(dtype=wp.spatial_vector),
+):
+    env_id, control_id = wp.tid()
+    t_id = int(t)
+    control_left = control_points[env_id, t_id, control_id]
+    force_id = env_id * bodies_per_env + control_dims[control_id]
+    c = control_left * control_gains[control_id]
+    lin_f = wp.vec3(c, 0.0, 0.0)
+    ang_f = wp.vec3(0.0, 0.0, 0.0)
+    body_f[force_id] = wp.spatial_vector(ang_f, lin_f)
+
+
+@wp.kernel
 def pick_best_trajectory(
     rollout_trajectories: wp.array(dtype=float, ndim=3),
     lowest_cost_id: int,
@@ -191,13 +214,25 @@ def pick_best_trajectory(
     best_traj[0, t_id, control_id] = rollout_trajectories[lowest_cost_id, t_id, control_id]
 
 
+@wp.kernel
+def enforce_control_limits(
+    control_points: wp.array(dtype=float, ndim=3),
+    control_limits: wp.array(dtype=float, ndim=2),
+):
+    env_id, t_id, control_id = wp.tid()
+    lo, hi = control_limits[control_id, 0], control_limits[control_id, 1]
+    control_points[env_id, t_id, control_id] = wp.clamp(
+        control_points[env_id, t_id, control_id], lo, hi
+    )
+
+
 class Controller:
 
-    noise_scale = 0.8
+    noise_scale = 1.1
 
-    # interpolation_mode = InterpolationMode.INTERPOLATE_LINEAR
+    interpolation_mode = InterpolationMode.INTERPOLATE_LINEAR
     # interpolation_mode = InterpolationMode.INTERPOLATE_CUBIC
-    interpolation_mode = InterpolationMode.INTERPOLATE_HOLD
+    # interpolation_mode = InterpolationMode.INTERPOLATE_HOLD
 
     def __init__(self, env_fn):
 
@@ -207,13 +242,13 @@ class Controller:
         # time steps between control points
         self.control_step = 30
         # number of control horizon points to interpolate between
-        self.num_control_points = 10
+        self.num_control_points = 3
         # total number of horizon time steps
         self.horizon_length = self.num_control_points * self.control_step
         # number of trajectories to sample for optimization
-        self.num_threads = 200
+        self.num_threads = 100
         # number of steps to follow before optimizing again
-        self.optimization_interval = 2
+        self.optimization_interval = 1
 
         # whether env_rollout requires gradients
         self.use_diff_sim = True
@@ -223,14 +258,19 @@ class Controller:
         self.env_rollout.num_envs = self.num_threads
         self.env_rollout.render_mode = RenderMode.NONE
         self.env_rollout.requires_grad = self.use_diff_sim
+        self.env_rollout.episode_frames = self.horizon_length
         self.env_rollout.init()
 
         # create environment for visualization and the reference state
         self.env_ref = env_fn()
         self.env_ref.num_envs = 1
+        # self.env_ref.requires_grad = self.use_diff_sim
+        self.env_ref.episode_frames = self.traj_length
         # self.env_ref.render_mode = RenderMode.NONE
         self.env_ref.init()
         self.dof_count = len(self.env_ref.model.joint_act)
+
+        self.use_graph_capture = wp.get_device(self.device).is_cuda
 
         # optimized control points for the current horizon
         self.best_traj = None
@@ -252,7 +292,7 @@ class Controller:
         # CUDA graphs
         self._rollout_graph = None
 
-        self.use_graph_capture = wp.get_device(self.device).is_cuda
+        self._optimizer = None
 
         self.plotting_app = None
         self.plotting_window = None
@@ -287,7 +327,7 @@ class Controller:
                 if i == 0:
                     p.setTitle("Cost")
                     # p.setYRange(0.0, 10.0)
-                    self.cost_plot = p.plot(np.arange(self.num_threads), np.zeros(self.num_threads))
+                    self.cost_plot = p.plot(np.arange(self.num_threads), np.zeros(self.num_threads), symbol='o', symbolSize=4)
                 else:
                     p.setTitle(f"Control {i-1}")
                     p.setYRange(*self.env_rollout.control_limits[i - 1])
@@ -297,7 +337,7 @@ class Controller:
                 thread_plots = []
                 for j in range(1, self.control_dim + 1):
                     pen = pg.mkPen(color=self.plot_colors[i % len(self.plot_colors)])
-                    p = self.rollout_plot_axs[j].plot(self.data_xs, ys, pen=pen)
+                    p = self.rollout_plot_axs[j].plot(self.data_xs, ys, pen=pen, symbol='o', symbolSize=2)
                     thread_plots.append(p)
                 self.rollout_plots.append(thread_plots)
 
@@ -380,6 +420,7 @@ class Controller:
             self.optimize(self.env_ref.state)
             # set sim time to zero to execute first optimized action
             self.env_ref.sim_time = 0
+            self.env_ref.sim_step = 0
             for _ in range(self.optimization_interval):
                 # advance the reference state with the next best action
                 self.env_ref.update()
@@ -396,43 +437,95 @@ class Controller:
 
             progress.set_description(f"cost: {self.last_lowest_cost:.2f} ({self.last_lowest_cost_id})")
 
-    def optimize_ps(self, state):
+    def optimize(self, state):
         # predictive sampling algorithm
         if self.use_graph_capture:
             if self._rollout_graph is None:
                 wp.capture_begin()
                 self.sample_controls(self.best_traj)
-                self.rollout(state, self.horizon_length, self.num_threads)
+                self.rollout(state, self.rollout_trajectories)
                 self._rollout_graph = wp.capture_end()
             else:
                 wp.capture_launch(self._rollout_graph)
         else:
             self.sample_controls(self.best_traj)
-            self.rollout(state, self.horizon_length, self.num_threads)
+            self.rollout(state, self.rollout_trajectories)
         wp.synchronize()
         self.pick_best_control()
-    
-    def optimize(self, state):
+
+    def optimize2(self, state):
+        num_opt_steps = 10
         # gradient-based optimization
-        optimizer = SGD([self.rollout_trajectories], lr=0.1, nesterov=True, momentum=0.1)
+        if self._optimizer is None:
+            self._optimizer = SGD([self.rollout_trajectories], lr=1e4, nesterov=False, momentum=0.0)
+            # self._optimizer = Adam([self.rollout_trajectories], lr=1e-4)
         if self.use_graph_capture:
             self.sample_controls(self.best_traj)
             if self._rollout_graph is None:
                 wp.capture_begin()
-                tape = wp.Tape()
-                with tape:
-                    self.rollout(state, self.horizon_length, self.num_threads)
+                self.tape = wp.Tape()
+                with self.tape:
+                    self.rollout(state, self.rollout_trajectories)
                 self.rollout_costs.grad.fill_(1.0)
-                tape.backward()
-                tape.zero()
+                self.tape.backward()
+                self._optimizer.step([self.rollout_trajectories.grad])
+                self.clamp_controls()
+                self.tape.zero()
                 self._rollout_graph = wp.capture_end()
-            else:
+
+            for _ in range(num_opt_steps):
                 wp.capture_launch(self._rollout_graph)
-            for _ in range(10):
-                optimizer.step([self.rollout_trajectories.grad])
         else:
             self.sample_controls(self.best_traj)
-            self.rollout(state, self.horizon_length, self.num_threads)
+            for _ in range(num_opt_steps):
+                # check_tape_safety(
+                #     lambda _: self.rollout(state, self.rollout_trajectories),
+                #     inputs=[self.rollout_trajectories],
+                #     outputs=[self.rollout_costs])
+                
+                # check_jacobian(                    
+                #     lambda controls: self.rollout(state, controls),
+                #     inputs=[self.rollout_trajectories],
+                #     input_names=["controls"],
+                #     output_names=["costs"]
+                # )
+
+
+                use_fd_grads = True
+                
+                if not use_fd_grads:
+                    self.tape = wp.Tape()
+                    with self.tape:
+                        self.rollout(state, self.rollout_trajectories)
+                    
+                    # check_backward_pass(
+                    #     self.tape,
+                    #     visualize_graph=False,
+                    #     analyze_graph=False,
+                    #     plot_jac_on_fail=True,
+                    #     track_inputs=[self.rollout_trajectories],
+                    #     track_outputs=[self.rollout_costs],
+                    #     track_input_names=["controls"],
+                    #     track_output_names=["costs"],
+                    #     # whitelist_kernels={
+                    #     #     "apply_joint_torques",
+                    #     #     # "solve_simple_body_joints"
+                    #     # }
+                    # )
+                    self.rollout_costs.grad.fill_(1.0)
+                    self.tape.backward()
+                else:
+                    jac_fd = function_jacobian_fd(
+                        lambda controls: self.rollout(state, controls),
+                        inputs=[self.rollout_trajectories])
+                    self.rollout_trajectories.grad.assign(jac_fd)
+
+                self._optimizer.step([self.rollout_trajectories.grad])
+                # print("grad:")
+                # print(self.rollout_trajectories.grad.numpy())
+                self.clamp_controls()
+                if not use_fd_grads:
+                    self.tape.zero()
         wp.synchronize()
         self.pick_best_control()
 
@@ -462,6 +555,15 @@ class Controller:
                         self.rollout_plots[i][j].setData(self.data_xs, trajs[i, :self.num_control_points, j])
                     self.ref_plots[j].setData(np.arange(len(env_ref_acts)), env_ref_acts[:, j])
 
+    def clamp_controls(self):
+        # enforce control limits on the control points
+        wp.launch(
+            enforce_control_limits,
+            dim=[self.num_threads, self.num_control_points_data, self.control_dim],
+            inputs=[self.rollout_trajectories, self.control_limits],
+            device=self.device,
+        )
+
     def assign_control_fn(self, env, controls):
         # assign environment control application function that interpolates the control points
         def update_control_hold():
@@ -475,8 +577,13 @@ class Controller:
                     env.sim_time / self.control_step / env.frame_dt,
                     self.dof_count,
                 ],
-                outputs=[env.model.joint_act],
+                outputs=[env.state.joint_act],
                 device=self.device)
+            if env == self.env_ref:
+                self.env_ref_acts.append(env.state.joint_act.numpy()[self.controllable_dofs_np])
+            if DEBUG_PLOTS and not self.use_graph_capture:
+                self.joint_acts.append(env.state.joint_act.numpy()[
+                                       self.controllable_dofs_np].reshape((-1, self.control_dim)))
 
         def update_control_linear():
             wp.launch(
@@ -489,12 +596,12 @@ class Controller:
                     env.sim_time / self.control_step / env.frame_dt,
                     self.dof_count,
                 ],
-                outputs=[env.model.joint_act],
+                outputs=[env.state.joint_act],
                 device=self.device)
             if env == self.env_ref:
-                self.env_ref_acts.append(env.model.joint_act.numpy()[self.controllable_dofs_np])
+                self.env_ref_acts.append(env.state.joint_act.numpy()[self.controllable_dofs_np])
             if DEBUG_PLOTS and not self.use_graph_capture:
-                self.joint_acts.append(env.model.joint_act.numpy()[
+                self.joint_acts.append(env.state.joint_act.numpy()[
                                        self.controllable_dofs_np].reshape((-1, self.control_dim)))
 
         def update_control_cubic():
@@ -509,13 +616,31 @@ class Controller:
                     self.control_step * env.frame_dt,
                     self.dof_count,
                 ],
-                outputs=[env.model.joint_act],
+                outputs=[env.state.joint_act],
                 device=self.device)
             if env == self.env_ref:
-                self.env_ref_acts.append(env.model.joint_act.numpy()[self.controllable_dofs_np])
+                self.env_ref_acts.append(env.state.joint_act.numpy()[self.controllable_dofs_np])
             if DEBUG_PLOTS and not self.use_graph_capture:
-                self.joint_acts.append(env.model.joint_act.numpy()[
+                self.joint_acts.append(env.state.joint_act.numpy()[
                                        self.controllable_dofs_np].reshape((-1, self.control_dim)))
+                
+        def update_control_direct():
+            wp.launch(
+                control_to_body_force,
+                dim=(env.num_envs, self.control_dim),
+                inputs=[
+                    controls,
+                    self.controllable_dofs,
+                    self.control_gains,
+                    env.sim_time / self.control_step / env.frame_dt,
+                    self.dof_count,
+                    env.bodies_per_env,
+                ],
+                outputs=[env.state.body_f],
+                device=self.device)
+            
+        # env.custom_update = update_control_direct
+        # return
 
         if self.interpolation_mode == InterpolationMode.INTERPOLATE_HOLD:
             env.custom_update = update_control_hold
@@ -526,43 +651,46 @@ class Controller:
         else:
             raise NotImplementedError(f"Interpolation mode {self.interpolation_mode} not implemented")
 
-    def rollout(self, state, num_steps, num_threads):
-        self.env_rollout.reset()
-        self.rollout_costs.zero_()
-        if DEBUG_PLOTS and not self.use_graph_capture:
-            self.joint_acts = []
+    def rollout(self, state, controls):
+        if True:
+            self.env_rollout.reset()
+            self.rollout_costs.zero_()
+            if DEBUG_PLOTS and not self.use_graph_capture:
+                self.joint_acts = []
 
-        wp.launch(
-            replicate_states,
-            dim=(num_threads),
-            inputs=[
-                state.body_q,
-                state.body_qd,
-                self.body_count
-            ],
-            outputs=[
-                self.env_rollout.state.body_q,
-                self.env_rollout.state.body_qd
-            ],
-            device=self.device
-        )
-        self.assign_control_fn(self.env_rollout, self.rollout_trajectories)
+            wp.launch(
+                replicate_states,
+                dim=self.num_threads,
+                inputs=[
+                    state.body_q,
+                    state.body_qd,
+                    self.body_count
+                ],
+                outputs=[
+                    self.env_rollout.state.body_q,
+                    self.env_rollout.state.body_qd
+                ],
+                device=self.device
+            )
+            self.assign_control_fn(self.env_rollout, controls)
 
-        for t in range(num_steps):
+        for t in range(self.horizon_length):
             self.env_rollout.update()
             self.env_rollout.evaluate_cost(self.env_rollout.state, self.rollout_costs)
             if not self.use_graph_capture:
                 self.env_rollout.render()
 
-        if DEBUG_PLOTS and not self.use_graph_capture:
-            self.joint_acts = np.array(self.joint_acts)
-            fig, axes, ncols, nrows = self._create_plot_grid(self.control_dim)
-            fig.suptitle("joint acts")
-            for dim in range(self.control_dim):
-                ax = axes[dim // ncols, dim % ncols]
-                ax.plot(self.joint_acts[:, :, dim], alpha=0.4)
-            plt.show()
-            self.joint_acts = []
+        # if DEBUG_PLOTS and not self.use_graph_capture:
+        #     self.joint_acts = np.array(self.joint_acts)
+        #     fig, axes, ncols, nrows = self._create_plot_grid(self.control_dim)
+        #     fig.suptitle("joint acts")
+        #     for dim in range(self.control_dim):
+        #         ax = axes[dim // ncols, dim % ncols]
+        #         ax.plot(self.joint_acts[:, :, dim], alpha=0.4)
+        #     plt.show()
+        #     self.joint_acts = []
+
+        return self.rollout_costs
 
     def sample_controls(self, nominal_traj, noise_scale=noise_scale):
         # sample control waypoints around the nominal trajectory
