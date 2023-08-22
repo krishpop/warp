@@ -227,6 +227,8 @@ class State:
         if self.body_count:
             self.body_f.zero_()
 
+            self.joint_act.zero_()
+
     def flatten(self):
         """Returns a list of Tensors stored by the state
 
@@ -638,6 +640,8 @@ class Model:
                 # across all simulation steps
                 self._allocate_rigid_contacts(s, self.rigid_contact_max, requires_grad=True)
                 s.has_rigid_contact_vars = True
+
+            s.joint_act = wp.zeros_like(self.joint_act, requires_grad=requires_grad)
 
         if self.integrator is None:
             raise RuntimeError("No integrator was specified for the model, assign `model.integrator` to be able to create a state")
