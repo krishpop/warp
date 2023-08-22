@@ -22,31 +22,73 @@ import warp.sim
 from environment import Environment, run_env
 
 
-@wp.kernel
-def single_cartpole_cost(
-    body_q: wp.array(dtype=wp.transform),
-    body_qd: wp.array(dtype=wp.spatial_vector),
-    cost: wp.array(dtype=wp.float32),
-):
-    env_id = wp.tid()
+# @wp.kernel
+# def single_cartpole_cost(
+#     body_q: wp.array(dtype=wp.transform),
+#     body_qd: wp.array(dtype=wp.spatial_vector),
+#     cost: wp.array(dtype=wp.float32),
+# ):
+#     env_id = wp.tid()
 
-    pos_cart = wp.transform_get_translation(body_q[env_id * 2])
-    pos_pole = wp.transform_vector(body_q[env_id * 2 + 1], wp.vec3(0.0, 0.0, 1.0))
-    # wp.printf("[%.3f %.3f %.3f]\n", pos_pole[0], pos_pole[1], pos_pole[2])
+#     pos_cart = wp.transform_get_translation(body_q[env_id])
+#     # cart must be at target (x = 3)
+#     cart_cost = (3.0 - pos_cart[0]) ** 2.0
 
-    # cart must be at the origin (x = 0)
-    cart_cost = pos_cart[0] ** 2.0
-    # pole must be upright (x = 0, y as high as possible)
-    # pole_cost = pos_pole[0] ** 2.0 - 0.1 * pos_pole[1]
-    pole_cost = (1.0 - pos_pole[1]) ** 2.0 * 1000.0 + (pos_cart[0] - pos_pole[0]) ** 2.0 * 10.0
+#     vel_cart = body_qd[env_id]
 
-    vel_cart = body_qd[env_id * 2]
-    vel_pole = body_qd[env_id * 2 + 1]
+#     # encourage zero velocity
+#     vel_cost = wp.length_sq(vel_cart)
 
-    # encourage zero velocity
-    vel_cost = wp.length_sq(vel_cart) + wp.length_sq(vel_pole)
+#     # wp.atomic_add(cost, env_id, (cart_cost + 0.02 * vel_cost))
+#     wp.atomic_add(cost, env_id, cart_cost + 0.02 * vel_cost)
 
-    cost[env_id] = cost[env_id] + 10.0 * (cart_cost + pole_cost) + 0.02 * vel_cost
+if False:
+    @wp.kernel
+    def single_cartpole_cost(
+        body_q: wp.array(dtype=wp.transform),
+        body_qd: wp.array(dtype=wp.spatial_vector),
+        cost: wp.array(dtype=wp.float32),
+    ):
+        env_id = wp.tid()
+
+        pos_cart = wp.transform_get_translation(body_q[env_id*2])
+        # cart must be at target (x = 3)
+        cart_cost = (3.0 - pos_cart[0]) ** 2.0
+
+        vel_cart = body_qd[env_id*2]
+
+        # encourage zero velocity
+        vel_cost = wp.length_sq(vel_cart)
+
+        # wp.atomic_add(cost, env_id, (cart_cost + 0.02 * vel_cost))
+        wp.atomic_add(cost, env_id, cart_cost + 0.02 * vel_cost)
+else:
+    @wp.kernel
+    def single_cartpole_cost(
+        body_q: wp.array(dtype=wp.transform),
+        body_qd: wp.array(dtype=wp.spatial_vector),
+        cost: wp.array(dtype=wp.float32),
+    ):
+        env_id = wp.tid()
+
+        pos_cart = wp.transform_get_translation(body_q[env_id * 2])
+        pos_pole = wp.transform_vector(body_q[env_id * 2 + 1], wp.vec3(0.0, 0.0, 1.0))
+        # wp.printf("[%.3f %.3f %.3f]\n", pos_pole[0], pos_pole[1], pos_pole[2])
+
+        # cart must be at the origin (x = 0)
+        cart_cost = pos_cart[0] ** 2.0
+        # pole must be upright (x = 0, y as high as possible)
+        # pole_cost = pos_pole[0] ** 2.0 - 0.1 * pos_pole[1]
+        pole_cost = (1.0 - pos_pole[1]) ** 2.0 * 1000.0 + (pos_cart[0] - pos_pole[0]) ** 2.0 * 10.0
+
+        vel_cart = body_qd[env_id * 2]
+        vel_pole = body_qd[env_id * 2 + 1]
+
+        # encourage zero velocity
+        vel_cost = wp.length_sq(vel_cart) + wp.length_sq(vel_pole)
+
+        wp.atomic_add(cost, env_id, 1.0e-2 * pole_cost) # (10.0 * (cart_cost + 0.0 * pole_cost) + 0.0 * vel_cost))
+        # wp.atomic_add(cost, env_id, 10.0 * (cart_cost + pole_cost) + 0.02 * vel_cost)
 
 
 @wp.kernel
@@ -73,7 +115,7 @@ def double_cartpole_cost(
     # encourage zero velocity
     vel_cost = wp.length_sq(vel_cart) + wp.length_sq(vel_pole)
 
-    cost[env_id] = cost[env_id] + 10.0 * (cart_cost + pole_cost) + vel_cost
+    wp.atomic_add(cost, env_id, 10.0 * (cart_cost + pole_cost) + vel_cost)
 
 
 class CartpoleEnvironment(Environment):
@@ -88,6 +130,9 @@ class CartpoleEnvironment(Environment):
     sim_substeps_euler = 32
     sim_substeps_xpbd = 5
 
+    # xpbd_settings = dict(iterations=3, joint_linear_relaxation=0.3, joint_angular_relaxation=0.1)
+    # gravity = 0.0
+
     activate_ground_plane = False
     show_joints = True
 
@@ -98,6 +143,7 @@ class CartpoleEnvironment(Environment):
     def create_articulation(self, builder):
         if self.single_cartpole:
             path = "../assets/cartpole_single.urdf"
+            # path = "../assets/cartpole_cart_only.urdf"
         else:
             path = "../assets/cartpole.urdf"
             self.opengl_render_settings["camera_pos"] = (40.0, 1.0, 0.0)

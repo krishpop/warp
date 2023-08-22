@@ -230,9 +230,9 @@ class Controller:
 
     noise_scale = 1.1
 
-    interpolation_mode = InterpolationMode.INTERPOLATE_LINEAR
+    # interpolation_mode = InterpolationMode.INTERPOLATE_LINEAR
     # interpolation_mode = InterpolationMode.INTERPOLATE_CUBIC
-    # interpolation_mode = InterpolationMode.INTERPOLATE_HOLD
+    interpolation_mode = InterpolationMode.INTERPOLATE_HOLD
 
     def __init__(self, env_fn):
 
@@ -246,7 +246,7 @@ class Controller:
         # total number of horizon time steps
         self.horizon_length = self.num_control_points * self.control_step
         # number of trajectories to sample for optimization
-        self.num_threads = 100
+        self.num_threads = 10
         # number of steps to follow before optimizing again
         self.optimization_interval = 1
 
@@ -327,7 +327,8 @@ class Controller:
                 if i == 0:
                     p.setTitle("Cost")
                     # p.setYRange(0.0, 10.0)
-                    self.cost_plot = p.plot(np.arange(self.num_threads), np.zeros(self.num_threads), symbol='o', symbolSize=4)
+                    self.cost_plot = p.plot(np.arange(self.num_threads), np.zeros(
+                        self.num_threads), symbol='o', symbolSize=4)
                 else:
                     p.setTitle(f"Control {i-1}")
                     p.setYRange(*self.env_rollout.control_limits[i - 1])
@@ -351,7 +352,6 @@ class Controller:
             ys = np.zeros(self.num_control_points)
             self.ref_plots = []
             self.ref_plot_axs = []
-            num_plots = self.control_dim
             ncols = int(np.ceil(np.sqrt(num_plots)))
             nrows = int(np.ceil(num_plots / float(ncols)))
             fig, axes = plt.subplots(
@@ -366,12 +366,18 @@ class Controller:
                 np.array(self.env_rollout.control_gains)[:, np.newaxis]
             for i in range(num_plots):
                 p = self.plotting_window.graphWidget2.addPlot(row=i // ncols, col=i % ncols)
-                p.setTitle(f"Ref Control {i}")
-                p.setYRange(*scaled_control_limits[i])
+                if i == 0:
+                    p.setTitle("Ref Cost")
+                    # p.setYRange(0.0, 10.0)
+                    self.ref_cost_plot = p.plot(np.arange(self.num_threads), np.zeros(
+                        self.num_threads), symbol='o', symbolSize=4)
+                else:
+                    p.setTitle(f"Ref Control {i-1}")
+                    p.setYRange(*scaled_control_limits[i - 1])
                 self.ref_plot_axs.append(p)
             for j in range(self.control_dim):
                 pen = pg.mkPen(color=self.plot_colors[0])
-                p = self.ref_plot_axs[j].plot(self.data_xs, ys, pen=pen)
+                p = self.ref_plot_axs[j + 1].plot(self.data_xs, ys, pen=pen)
                 self.ref_plots.append(p)
 
     @property
@@ -394,7 +400,8 @@ class Controller:
         elif self.interpolation_mode == InterpolationMode.INTERPOLATE_CUBIC:
             self.num_control_points_data += 3
         # optimized control points for the current horizon (3-dimensional to be compatible with rollout trajectories)
-        self.best_traj = wp.zeros((1, self.num_control_points_data, self.control_dim), dtype=float, requires_grad=self.use_diff_sim, device=self.device)
+        self.best_traj = wp.zeros((1, self.num_control_points_data, self.control_dim),
+                                  dtype=float, requires_grad=self.use_diff_sim, device=self.device)
         # control point samples for the current horizon
         self.rollout_trajectories = wp.zeros(
             (self.num_threads, self.num_control_points_data, self.control_dim), dtype=float, requires_grad=self.use_diff_sim, device=self.device)
@@ -405,11 +412,14 @@ class Controller:
         #         np.zeros((self.num_control_points_data, self.control_dim)),
         #     ], dtype=float, requires_grad=self.use_diff_sim, device=self.device)
         # cost of each trajectory
-        self.rollout_costs = wp.zeros((self.num_threads,), dtype=float, requires_grad=self.use_diff_sim, device=self.device)
+        self.rollout_costs = wp.zeros((self.num_threads,), dtype=float,
+                                      requires_grad=self.use_diff_sim, device=self.device)
 
     def run(self):
         self.env_ref.reset()
         self.env_ref_acts = []
+        self.env_ref_costs = []
+        ref_cost = wp.zeros(1, dtype=float, device=self.device)
         assert len(self.env_ref.state.body_q) == self.body_count
         self.allocate_trajectories()
         self.assign_control_fn(self.env_ref, self.best_traj)
@@ -426,7 +436,12 @@ class Controller:
                 self.env_ref.update()
                 self.env_ref.render()
 
-            # if DEBUG_PLOTS:
+            ref_cost.zero_()
+            self.env_ref.evaluate_cost(self.env_ref.state, ref_cost)
+            self.env_ref_costs.append(ref_cost.numpy()[0])
+
+            if DEBUG_PLOTS:
+                self.ref_cost_plot.setData(np.arange(t + 1), self.env_ref_costs)
             #     fig, axes, ncols, nrows = self._create_plot_grid(self.control_dim)
             #     fig.suptitle("best traj")
             #     best_traj = self.best_traj.numpy()
@@ -437,7 +452,7 @@ class Controller:
 
             progress.set_description(f"cost: {self.last_lowest_cost:.2f} ({self.last_lowest_cost_id})")
 
-    def optimize(self, state):
+    def optimize2(self, state):
         # predictive sampling algorithm
         if self.use_graph_capture:
             if self._rollout_graph is None:
@@ -450,14 +465,13 @@ class Controller:
         else:
             self.sample_controls(self.best_traj)
             self.rollout(state, self.rollout_trajectories)
-        wp.synchronize()
         self.pick_best_control()
 
-    def optimize2(self, state):
-        num_opt_steps = 10
+    def optimize(self, state):
+        num_opt_steps = 2
         # gradient-based optimization
         if self._optimizer is None:
-            self._optimizer = SGD([self.rollout_trajectories], lr=1e4, nesterov=False, momentum=0.0)
+            self._optimizer = SGD([self.rollout_trajectories], lr=5e-3, nesterov=False, momentum=0.0)
             # self._optimizer = Adam([self.rollout_trajectories], lr=1e-4)
         if self.use_graph_capture:
             self.sample_controls(self.best_traj)
@@ -477,27 +491,26 @@ class Controller:
                 wp.capture_launch(self._rollout_graph)
         else:
             self.sample_controls(self.best_traj)
-            for _ in range(num_opt_steps):
+            for it in range(num_opt_steps):
                 # check_tape_safety(
                 #     lambda _: self.rollout(state, self.rollout_trajectories),
                 #     inputs=[self.rollout_trajectories],
                 #     outputs=[self.rollout_costs])
-                
-                # check_jacobian(                    
+
+                # check_jacobian(
                 #     lambda controls: self.rollout(state, controls),
                 #     inputs=[self.rollout_trajectories],
                 #     input_names=["controls"],
                 #     output_names=["costs"]
                 # )
 
+                use_fd_grads = False
 
-                use_fd_grads = True
-                
                 if not use_fd_grads:
                     self.tape = wp.Tape()
                     with self.tape:
                         self.rollout(state, self.rollout_trajectories)
-                    
+
                     # check_backward_pass(
                     #     self.tape,
                     #     visualize_graph=False,
@@ -517,13 +530,32 @@ class Controller:
                 else:
                     jac_fd = function_jacobian_fd(
                         lambda controls: self.rollout(state, controls),
-                        inputs=[self.rollout_trajectories])
+                        inputs=[self.rollout_trajectories],
+                        eps=1e-3)
                     self.rollout_trajectories.grad.assign(jac_fd)
 
-                self._optimizer.step([self.rollout_trajectories.grad])
-                # print("grad:")
-                # print(self.rollout_trajectories.grad.numpy())
+                # self._optimizer.step([self.rollout_trajectories.grad])
+                lr = 1.5e-4
+                print(f"\niter {it} cost:", self.rollout_costs.numpy().flatten())
+                # print("\tchecked cost 1:", self.rollout(state, self.rollout_trajectories).numpy())
+                # print("\tchecked cost 2:", self.rollout(state, self.rollout_trajectories).numpy())
+
+                # jac_fd = function_jacobian_fd(
+                #     lambda controls: self.rollout(state, controls),
+                #     inputs=[self.rollout_trajectories],
+                #     eps=1e-3)
+                # print("\tjac_fd 1:", jac_fd.flatten())
+                # jac_fd = function_jacobian_fd(
+                #     lambda controls: self.rollout(state, controls),
+                #     inputs=[self.rollout_trajectories],
+                #     eps=1e-3)
+                # print("\tjac_fd 2:", jac_fd.flatten())
+                self.rollout_trajectories.assign(self.rollout_trajectories.numpy() -
+                                                 lr * self.rollout_trajectories.grad.numpy())
+                print("\tgrad:", self.rollout_trajectories.grad.numpy().flatten())
+                print("\tcontrols:", self.rollout_trajectories.numpy().flatten())
                 self.clamp_controls()
+                print("\tclamped controls:", self.rollout_trajectories.numpy().flatten())
                 if not use_fd_grads:
                     self.tape.zero()
         wp.synchronize()
@@ -623,7 +655,7 @@ class Controller:
             if DEBUG_PLOTS and not self.use_graph_capture:
                 self.joint_acts.append(env.state.joint_act.numpy()[
                                        self.controllable_dofs_np].reshape((-1, self.control_dim)))
-                
+
         def update_control_direct():
             wp.launch(
                 control_to_body_force,
@@ -638,7 +670,7 @@ class Controller:
                 ],
                 outputs=[env.state.body_f],
                 device=self.device)
-            
+
         # env.custom_update = update_control_direct
         # return
 
