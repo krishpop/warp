@@ -1993,6 +1993,7 @@ class ModelBuilder:
                 # 'armature': self.joint_armature[i],
                 "q": self.joint_q[q_start : q_start + q_dim],
                 "qd": self.joint_qd[qd_start : qd_start + qd_dim],
+                "act": self.joint_act[qd_start : qd_start + qd_dim],
                 "q_start": q_start,
                 "qd_start": qd_start,
                 "linear_compliance": self.joint_linear_compliance[i],
@@ -2165,6 +2166,7 @@ class ModelBuilder:
         self.joint_limit_kd.clear()
         self.joint_axis_dim.clear()
         self.joint_axis_start.clear()
+        self.joint_act.clear()
         for joint in retained_joints:
             self.joint_name.append(joint["name"])
             self.joint_type.append(joint["type"])
@@ -2174,6 +2176,7 @@ class ModelBuilder:
             self.joint_qd_start.append(len(self.joint_qd))
             self.joint_q.extend(joint["q"])
             self.joint_qd.extend(joint["qd"])
+            self.joint_act.extend(joint["act"])
             self.joint_enabled.append(joint["enabled"])
             self.joint_linear_compliance.append(joint["linear_compliance"])
             self.joint_angular_compliance.append(joint["angular_compliance"])
