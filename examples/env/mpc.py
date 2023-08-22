@@ -290,7 +290,7 @@ class Controller:
         self.controllable_dofs_np = np.array(self.env_rollout.controllable_dofs)
 
         # CUDA graphs
-        self._rollout_graph = None
+        self._opt_graph = None
 
         self._optimizer = None
 
@@ -455,13 +455,13 @@ class Controller:
     def optimize2(self, state):
         # predictive sampling algorithm
         if self.use_graph_capture:
-            if self._rollout_graph is None:
+            if self._opt_graph is None:
                 wp.capture_begin()
                 self.sample_controls(self.best_traj)
                 self.rollout(state, self.rollout_trajectories)
-                self._rollout_graph = wp.capture_end()
+                self._opt_graph = wp.capture_end()
             else:
-                wp.capture_launch(self._rollout_graph)
+                wp.capture_launch(self._opt_graph)
         else:
             self.sample_controls(self.best_traj)
             self.rollout(state, self.rollout_trajectories)
@@ -475,7 +475,7 @@ class Controller:
             # self._optimizer = Adam([self.rollout_trajectories], lr=1e-4)
         if self.use_graph_capture:
             self.sample_controls(self.best_traj)
-            if self._rollout_graph is None:
+            if self._opt_graph is None:
                 wp.capture_begin()
                 self.tape = wp.Tape()
                 with self.tape:
@@ -485,10 +485,10 @@ class Controller:
                 self._optimizer.step([self.rollout_trajectories.grad])
                 self.clamp_controls()
                 self.tape.zero()
-                self._rollout_graph = wp.capture_end()
+                self._opt_graph = wp.capture_end()
 
             for _ in range(num_opt_steps):
-                wp.capture_launch(self._rollout_graph)
+                wp.capture_launch(self._opt_graph)
         else:
             self.sample_controls(self.best_traj)
             for it in range(num_opt_steps):
