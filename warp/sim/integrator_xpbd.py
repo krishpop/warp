@@ -814,9 +814,9 @@ def apply_joint_torques(
     com_c = body_com[id_c]
     r_c = wp.transform_get_translation(X_wc) - wp.transform_point(pose_c, com_c)
 
-    # local joint rotations
-    q_p = wp.transform_get_rotation(X_wp)
-    q_c = wp.transform_get_rotation(X_wc)
+    # # local joint rotations
+    # q_p = wp.transform_get_rotation(X_wp)
+    # q_c = wp.transform_get_rotation(X_wc)
 
     # joint properties (for 1D joints)
     q_start = joint_q_start[tid]
@@ -2515,6 +2515,12 @@ class XPBDIntegrator:
 
             if model.body_count:
                 if model.joint_count:
+                    if hasattr(state_in, "joint_act"):
+                        joint_act = state_in.joint_act
+                    else:
+                        joint_act = model.joint_act
+                    
+                    # print("state_in.body_f:", state_in.body_f.numpy().flatten())
                     wp.launch(
                         kernel=apply_joint_torques,
                         dim=model.joint_count,
@@ -2531,7 +2537,7 @@ class XPBDIntegrator:
                             model.joint_axis_start,
                             model.joint_axis_dim,
                             model.joint_axis,
-                            model.joint_act,
+                            joint_act,
                         ],
                         outputs=[state_in.body_f],
                         device=model.device,
