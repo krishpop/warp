@@ -228,11 +228,11 @@ def enforce_control_limits(
 
 class Controller:
 
-    noise_scale = 1.1
+    noise_scale = 0.2
 
     # interpolation_mode = InterpolationMode.INTERPOLATE_LINEAR
-    # interpolation_mode = InterpolationMode.INTERPOLATE_CUBIC
-    interpolation_mode = InterpolationMode.INTERPOLATE_HOLD
+    interpolation_mode = InterpolationMode.INTERPOLATE_CUBIC
+    # interpolation_mode = InterpolationMode.INTERPOLATE_HOLD
 
     def __init__(self, env_fn):
 
