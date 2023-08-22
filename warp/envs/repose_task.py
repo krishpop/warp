@@ -28,6 +28,7 @@ class ReposeTask(HandObjectTask):
         device="cuda",
         render_mode=RenderMode.OPENGL,
         stage_path=None,
+        logdir=None,
         stiffness=5000.0,
         damping=10.0,
         reward_params=None,
@@ -37,8 +38,9 @@ class ReposeTask(HandObjectTask):
         use_autograd: bool = True,
         use_graph_capture: bool = True,
         reach_threshold: float = 0.1,
-        headless=False
+        headless=False,
     ):
+        stage_path = stage_path or logdir
         object_type = ObjectType.REPOSE_CUBE
         object_id = 0
         super().__init__(
@@ -65,7 +67,7 @@ class ReposeTask(HandObjectTask):
             grasp_id=None,
             use_autograd=use_autograd,
             use_graph_capture=use_graph_capture,
-            headless=headless
+            headless=headless,
         )
         self.reward_extras["reach_threshold"] = reach_threshold
         # stay in center of hand
@@ -118,7 +120,10 @@ class ReposeTask(HandObjectTask):
     def _check_early_termination(self, obs_dict):
         # check if object is dropped
         object_body_pos = obs_dict["object_pos"]
-        self.reset_buf = self.reset_buf | (object_body_pos[:, 1] < self.drop_height)
+        termination = object_body_pos[:, 1] < self.drop_height
+        self.termination_buf = self.termination_buf | termination
+        self.reset_buf = self.reset_buf | termination
+        return termination
 
     def _get_obs_dict(self):
         obs_dict = super()._get_obs_dict()
@@ -141,7 +146,8 @@ class ReposeTask(HandObjectTask):
             ).squeeze()
         else:
             self.extras["net_energy"] = torch.zeros_like(self.rew_buf)
-        self._check_early_termination(obs_dict)
+        termination = self._check_early_termination(obs_dict)
+        self.extras["termination"] = termination
         return obs_dict
 
     def render(self, **kwargs):

@@ -1,5 +1,6 @@
 import torch
 import warp as wp
+import warp.torch  # noqa
 import numpy as np
 from typing import Union
 from inspect import getmembers
