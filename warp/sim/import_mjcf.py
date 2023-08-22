@@ -34,9 +34,41 @@ def parse_mjcf(
     armature_scale=1.0,
     parse_meshes=True,
     enable_self_collisions=False,
-    up_axis="z",
+    up_axis="Z",
     ignore_classes=[],
+    collapse_fixed_joints=False,
 ):
+    """
+    Parses MuJoCo XML (MJCF) file and adds the bodies and joints to the given ModelBuilder.
+
+    Args:
+        mjcf_filename (str): The filename of the MuJoCo file to parse.
+        builder (ModelBuilder): The :class:`ModelBuilder` to add the bodies and joints to.
+        xform (wp.transform): The transform to apply to the imported mechanism.
+        density (float): The density of the shapes in kg/m^3 which will be used to calculate the body mass and inertia.
+        stiffness (float): The stiffness of the joints.
+        damping (float): The damping of the joints.
+        contact_ke (float): The stiffness of the shape contacts (used by SemiImplicitIntegrator).
+        contact_kd (float): The damping of the shape contacts (used by SemiImplicitIntegrator).
+        contact_kf (float): The friction stiffness of the shape contacts (used by SemiImplicitIntegrator).
+        contact_mu (float): The friction coefficient of the shape contacts.
+        contact_restitution (float): The restitution coefficient of the shape contacts.
+        limit_ke (float): The stiffness of the joint limits (used by SemiImplicitIntegrator).
+        limit_kd (float): The damping of the joint limits (used by SemiImplicitIntegrator).
+        scale (float): The scaling factor to apply to the imported mechanism.
+        armature (float): Default joint armature to use if `armature` has not been defined for a joint in the MJCF.
+        armature_scale (float): Scaling factor to apply to the MJCF-defined joint armature values.
+        parse_meshes (bool): Whether geometries of type `"mesh"` should be parsed. If False, geometries of type `"mesh"` are ignored.
+        enable_self_collisions (bool): If True, self-collisions are enabled.
+        up_axis (str): The up axis of the mechanism. Can be either `"X"`, `"Y"` or `"Z"`. The default is `"Z"`.
+        ignore_classes (List[str]): A list of regular expressions. Bodies and joints with a class matching one of the regular expressions will be ignored.
+        collapse_fixed_joints (bool): If True, fixed joints are removed and the respective bodies are merged.
+
+    Note:
+        The inertia and masses of the bodies are calculated from the shape geometry and the given density. The values defined in the MJCF are not respected at the moment.
+
+        The handling of advanced features, such as MJCF classes, is still experimental.
+    """
     mjcf_dirname = os.path.dirname(mjcf_filename)
     file = ET.parse(mjcf_filename)
     root = file.getroot()
@@ -101,7 +133,7 @@ def parse_mjcf(
         return attrib
 
     if isinstance(up_axis, str):
-        up_axis = "xyz".index(up_axis.lower())
+        up_axis = "XYZ".index(up_axis.upper())
     sqh = np.sqrt(0.5)
     if up_axis == 0:
         xform = wp.transform(xform.p, wp.quat(0.0, 0.0, -sqh, sqh) * xform.q)
@@ -438,3 +470,6 @@ def parse_mjcf(
         for i in range(start_shape_count, end_shape_count):
             for j in range(i + 1, end_shape_count):
                 builder.shape_collision_filter_pairs.add((i, j))
+
+    if collapse_fixed_joints:
+        builder.collapse_fixed_joints()
