@@ -622,9 +622,11 @@ def count_contact_points(
     shape_b = contact_pairs[tid, 1]
 
     if shape_b == -1:
+        actual_shape_a = shape_a
         actual_type_a = geo.type[shape_a]
         # ground plane
         actual_type_b = wp.sim.GEO_PLANE
+        actual_shape_b = -1
     else:
         type_a = geo.type[shape_a]
         type_b = geo.type[shape_b]
@@ -689,18 +691,18 @@ def count_contact_points(
     elif actual_type_a == wp.sim.GEO_MESH:
         mesh_a = wp.mesh_get(geo.source[actual_shape_a])
         num_contacts_a = mesh_a.points.shape[0]
+        if mesh_contact_max > 0:
+            num_contacts_a = wp.min(mesh_contact_max, num_contacts_a)
         if actual_type_b == wp.sim.GEO_MESH:
             mesh_b = wp.mesh_get(geo.source[actual_shape_b])
             num_contacts_b = mesh_b.points.shape[0]
             num_contacts = num_contacts_a + num_contacts_b
             if mesh_contact_max > 0:
-                num_contacts_a = wp.min(mesh_contact_max, num_contacts_a)
                 num_contacts_b = wp.min(mesh_contact_max, num_contacts_b)
-            num_actual_contacts = num_contacts_a + num_contacts_b
         else:
             num_contacts_b = 0
-            num_actual_contacts = 0
         num_contacts = num_contacts_a + num_contacts_b
+        num_actual_contacts = num_contacts_a + num_contacts_b
     elif actual_type_a == wp.sim.GEO_PLANE:
         return  # no plane-plane contacts
     else:
@@ -831,12 +833,12 @@ def broadphase_collision_pairs(
                 contact_shape0[index + i] = shape_a
                 contact_shape1[index + i] = shape_b
                 contact_point_id[index + i] = i
+            contact_point_limit[pair_index_ab] = 12
             # allocate contact points from box B against A
             for i in range(12):
                 contact_shape0[index + 12 + i] = shape_b
                 contact_shape1[index + 12 + i] = shape_a
                 contact_point_id[index + 12 + i] = i
-            contact_point_limit[pair_index_ab] = 12
             contact_point_limit[pair_index_ba] = 12
             return
         elif actual_type_b == wp.sim.GEO_MESH:
