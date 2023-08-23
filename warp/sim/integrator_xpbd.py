@@ -2485,7 +2485,7 @@ class XPBDIntegrator:
             particle_q = None
             particle_qd = None
 
-            if state_out.has_rigid_contact_vars:
+            if state_in.has_rigid_contact_vars:
                 contact_state = state_in
             else:
                 contact_state = model
