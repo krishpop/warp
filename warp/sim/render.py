@@ -23,6 +23,7 @@ NAN = wp.constant(-1.0e8)
 def compute_contact_points(
     body_q: wp.array(dtype=wp.transform),
     shape_body: wp.array(dtype=int),
+    contact_count: wp.array(dtype=int),
     contact_shape0: wp.array(dtype=int),
     contact_shape1: wp.array(dtype=int),
     contact_point0: wp.array(dtype=wp.vec3),
@@ -32,6 +33,11 @@ def compute_contact_points(
     contact_pos1: wp.array(dtype=wp.vec3),
 ):
     tid = wp.tid()
+    count = contact_count[0]
+    if tid >= count:
+        contact_pos0[tid] = wp.vec3(NAN, NAN, NAN)
+        contact_pos1[tid] = wp.vec3(NAN, NAN, NAN)
+        return
     shape_a = contact_shape0[tid]
     shape_b = contact_shape1[tid]
     if shape_a == shape_b:
@@ -342,16 +348,21 @@ def CreateSimRenderer(renderer):
                 self.update_body_transforms(state.body_q)
 
                 if self.show_rigid_contact_points and self.model.rigid_contact_max:
+                    if state.has_rigid_contact_vars:
+                        contact_state = state
+                    else:
+                        contact_state = self.model
                     wp.launch(
                         kernel=compute_contact_points,
                         dim=self.model.rigid_contact_max,
                         inputs=[
                             state.body_q,
                             self.model.shape_body,
-                            self.model.rigid_contact_shape0,
-                            self.model.rigid_contact_shape1,
-                            self.model.rigid_contact_point0,
-                            self.model.rigid_contact_point1,
+                            contact_state.rigid_contact_count,
+                            contact_state.rigid_contact_shape0,
+                            contact_state.rigid_contact_shape1,
+                            contact_state.rigid_contact_point0,
+                            contact_state.rigid_contact_point1,
                         ],
                         outputs=[
                             self.contact_points0,
