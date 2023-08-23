@@ -129,6 +129,9 @@ class Environment:
     # distance threshold at which contacts are generated
     rigid_contact_margin: float = 0.05
 
+    # number of search iterations for finding closest contact points between edges and SDF
+    edge_sdf_iter: int = 10
+
     # whether each environment should have its own collision group
     # to avoid collisions between environments
     separate_collision_group_per_env: bool = True
@@ -303,7 +306,7 @@ class Environment:
         for i in range(self.sim_substeps):
             self.state_0.clear_forces()
             self.custom_update()
-            wp.sim.collide(self.model, self.state_0)
+            wp.sim.collide(self.model, self.state_0, edge_sdf_iter=self.edge_sdf_iter)
             self.integrator.simulate(self.model, self.state_0, self.state_1, self.sim_dt)
             if i < self.sim_substeps - 1 or not self.use_graph_capture:
                 # we can just swap the state references
