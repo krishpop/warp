@@ -817,17 +817,19 @@ class Model:
             target.rigid_contact_tids = wp.zeros(self.rigid_contact_max, dtype=wp.int32, device=self.device)
 
     def flatten(self):
-        """Returns a list of Tensors stored by the model
+        import warnings
 
-        This function is intended to be used internal-only but can be used to obtain
-        a set of all tensors owned by the model.
-        """
+        warnings.warn(
+            "Model.flatten() will be removed in a future Warp version.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
         tensors = []
 
         # build a list of all tensor attributes
         for attr, value in self.__dict__.items():
-            if wp.is_tensor(value):
+            if isinstance(value, wp.array):
                 tensors.append(value)
 
         return tensors
