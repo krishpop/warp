@@ -92,6 +92,22 @@ class ModelShapeGeometry:
 
 # Axis (linear or angular) of a joint that can have bounds and be driven towards a target
 class JointAxis:
+    """
+    Describes a joint axis that can have limits and be driven towards a target.
+
+    Attributes:
+
+        axis (3D vector): The axis that this JointAxis object describes 
+        limit_lower (float): The lower limit of the joint axis
+        limit_upper (float): The upper limit of the joint axis
+        limit_ke (float): The elastic stiffness of the joint axis limits, only respected by SemiImplicitIntegrator
+        limit_kd (float): The damping stiffness of the joint axis limits, only respected by SemiImplicitIntegrator
+        target (float): The target position or velocity (depending on the mode, see `Joint modes`_) of the joint axis
+        target_ke (float): The proportional gain of the joint axis target drive PD controller
+        target_kd (float): The derivative gain of the joint axis target drive PD controller
+        mode (int): The mode of the joint axis, see `Joint modes`_
+    """
+
     def __init__(
         self,
         axis,
@@ -226,6 +242,8 @@ class State:
 
         if self.body_count:
             self.body_f.zero_()
+
+            self.joint_act.zero_()
 
     def flatten(self):
         """Returns a list of Tensors stored by the state
@@ -639,8 +657,11 @@ class Model:
                 self._allocate_rigid_contacts(s, self.rigid_contact_max, requires_grad=True)
                 s.has_rigid_contact_vars = True
 
+            s.joint_act = wp.zeros_like(self.joint_act, requires_grad=requires_grad)
+
         if self.integrator is None:
-            raise RuntimeError("No integrator was specified for the model, assign `model.integrator` to be able to create a state")
+            raise RuntimeError(
+                "No integrator was specified for the model, assign `model.integrator` to be able to create a state")
 
         if self.integrator is not None and hasattr(self.integrator, "augment_state"):
             self.integrator.augment_state(self, s)
@@ -796,17 +817,19 @@ class Model:
             target.rigid_contact_tids = wp.zeros(self.rigid_contact_max, dtype=wp.int32, device=self.device)
 
     def flatten(self):
-        """Returns a list of Tensors stored by the model
+        import warnings
 
-        This function is intended to be used internal-only but can be used to obtain
-        a set of all tensors owned by the model.
-        """
+        warnings.warn(
+            "Model.flatten() will be removed in a future Warp version.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
         tensors = []
 
         # build a list of all tensor attributes
         for attr, value in self.__dict__.items():
-            if wp.is_tensor(value):
+            if isinstance(value, wp.array):
                 tensors.append(value)
 
         return tensors
@@ -1071,7 +1094,7 @@ class ModelBuilder:
         self.joint_coord_count = 0
         self.joint_axis_total_count = 0
 
-        self.up_vector = up_vector
+        self.up_vector = np.array(up_vector)
         self.up_axis = np.argmax(np.abs(up_vector))
         self.gravity = gravity
         # indicates whether a ground plane has been created
@@ -1098,7 +1121,7 @@ class ModelBuilder:
         # every simulation substep (can be 0 if only one PBD solver iteration is used)
         self.rigid_contact_margin = 0.1
         # torsional friction coefficient (only considered by XPBD so far)
-        self.rigid_contact_torsional_friction = 0.5
+        self.rigid_contact_torsional_friction = 0.0
         # rolling friction coefficient (only considered by XPBD so far)
         self.rigid_contact_rolling_friction = 0.001
 
@@ -1195,10 +1218,10 @@ class ModelBuilder:
                 for i in range(len(joint_X_p)):
                     if articulation.joint_type[i] == wp.sim.JOINT_FREE:
                         qi = articulation.joint_q_start[i]
-                        xform_prev = wp.transform(joint_q[qi : qi + 3], joint_q[qi + 3 : qi + 7])
+                        xform_prev = wp.transform(joint_q[qi: qi + 3], joint_q[qi + 3: qi + 7])
                         tf = xform * xform_prev
-                        joint_q[qi : qi + 3] = tf.p
-                        joint_q[qi + 3 : qi + 7] = tf.q
+                        joint_q[qi: qi + 3] = tf.p
+                        joint_q[qi + 3: qi + 7] = tf.q
                     elif articulation.joint_parent[i] == -1:
                         joint_X_p[i] = xform * joint_X_p[i]
             self.joint_X_p.extend(joint_X_p)
@@ -1372,6 +1395,26 @@ class ModelBuilder:
         collision_filter_parent: bool = True,
         enabled: bool = True,
     ) -> int:
+        """
+        Generic method to add any type of joint to this ModelBuilder.
+
+        Args:
+            joint_type: The type of joint to add (see `Joint types`_)
+            parent: The index of the parent body (-1 is the world)
+            child: The index of the child body
+            linear_axes: The linear axes (see :class:`JointAxis`) of the joint
+            angular_axes: The angular axes (see :class:`JointAxis`) of the joint
+            name: The name of the joint
+            parent_xform: The transform of the joint in the parent body's local frame
+            child_xform: The transform of the joint in the child body's local frame
+            linear_compliance: The linear compliance of the joint
+            angular_compliance: The angular compliance of the joint
+            collision_filter_parent: Whether to filter collisions between shapes of the parent and child bodies
+            enabled: Whether the joint is enabled
+
+        Returns:
+            The index of the child body
+        """
         self.joint_type.append(joint_type)
         self.joint_parent.append(parent)
         if child not in self.joint_parents:
@@ -1987,8 +2030,9 @@ class ModelBuilder:
             data = {
                 "type": self.joint_type[i],
                 # 'armature': self.joint_armature[i],
-                "q": self.joint_q[q_start : q_start + q_dim],
-                "qd": self.joint_qd[qd_start : qd_start + qd_dim],
+                "q": self.joint_q[q_start: q_start + q_dim],
+                "qd": self.joint_qd[qd_start: qd_start + qd_dim],
+                "act": self.joint_act[qd_start: qd_start + qd_dim],
                 "q_start": q_start,
                 "qd_start": qd_start,
                 "linear_compliance": self.joint_linear_compliance[i],
@@ -2161,6 +2205,7 @@ class ModelBuilder:
         self.joint_limit_kd.clear()
         self.joint_axis_dim.clear()
         self.joint_axis_start.clear()
+        self.joint_act.clear()
         for joint in retained_joints:
             self.joint_name.append(joint["name"])
             self.joint_type.append(joint["type"])
@@ -2170,6 +2215,7 @@ class ModelBuilder:
             self.joint_qd_start.append(len(self.joint_qd))
             self.joint_q.extend(joint["q"])
             self.joint_qd.extend(joint["qd"])
+            self.joint_act.extend(joint["act"])
             self.joint_enabled.append(joint["enabled"])
             self.joint_linear_compliance.append(joint["linear_compliance"])
             self.joint_angular_compliance.append(joint["angular_compliance"])

@@ -140,12 +140,12 @@ def solve_particle_shape_contacts(
     if tid >= count:
         return
 
-    if (particle_flags[tid] & PARTICLE_FLAG_ACTIVE) == 0:
-        return
-
     shape_index = contact_shape[tid]
     body_index = shape_body[shape_index]
     particle_index = contact_particle[tid]
+
+    if (particle_flags[particle_index] & PARTICLE_FLAG_ACTIVE) == 0:
+        return
 
     px = particle_x[particle_index]
     pv = particle_v[particle_index]
@@ -162,7 +162,7 @@ def solve_particle_shape_contacts(
     r = bx - wp.transform_point(X_wb, X_com)
 
     n = contact_normal[tid]
-    c = wp.dot(n, px - bx) - particle_radius[tid]
+    c = wp.dot(n, px - bx) - particle_radius[particle_index]
 
     if c > particle_ka:
         return
@@ -814,9 +814,9 @@ def apply_joint_torques(
     com_c = body_com[id_c]
     r_c = wp.transform_get_translation(X_wc) - wp.transform_point(pose_c, com_c)
 
-    # local joint rotations
-    q_p = wp.transform_get_rotation(X_wp)
-    q_c = wp.transform_get_rotation(X_wc)
+    # # local joint rotations
+    # q_p = wp.transform_get_rotation(X_wp)
+    # q_c = wp.transform_get_rotation(X_wc)
 
     # joint properties (for 1D joints)
     q_start = joint_q_start[tid]
@@ -987,6 +987,395 @@ def update_joint_axis_target_ke_kd(
     )
 
 
+@wp.func
+def compute_linear_correction_3d(
+    dx: wp.vec3,
+    r1: wp.vec3,
+    r2: wp.vec3,
+    tf1: wp.transform,
+    tf2: wp.transform,
+    m_inv1: float,
+    m_inv2: float,
+    I_inv1: wp.mat33,
+    I_inv2: wp.mat33,
+    lambda_in: float,
+    compliance: float,
+    relaxation: float,
+    dt: float
+) -> float:
+
+    c = wp.length(dx)
+    if c == 0.0:
+        # print("c == 0.0 in positional correction")
+        return 0.0
+
+    n = wp.normalize(dx)
+
+    q1 = wp.transform_get_rotation(tf1)
+    q2 = wp.transform_get_rotation(tf2)
+
+    # Eq. 2-3 (make sure to project into the frame of the body)
+    r1xn = wp.quat_rotate_inv(q1, wp.cross(r1, n))
+    r2xn = wp.quat_rotate_inv(q2, wp.cross(r2, n))
+
+    w1 = m_inv1 + wp.dot(r1xn, I_inv1 * r1xn)
+    w2 = m_inv2 + wp.dot(r2xn, I_inv2 * r2xn)
+    w = w1 + w2
+    if w == 0.0:
+        return 0.0
+    alpha = compliance
+
+    # Eq. 4-5
+    d_lambda = (-c - alpha * lambda_in) / (w * dt * dt + alpha)
+
+    return d_lambda * relaxation
+
+
+@wp.func
+def compute_angular_correction_3d(
+    corr: wp.vec3,
+    q1: wp.quat,
+    q2: wp.quat,
+    m_inv1: float,
+    m_inv2: float,
+    I_inv1: wp.mat33,
+    I_inv2: wp.mat33,
+    alpha_tilde: float,
+    # lambda_prev: float,
+    relaxation: float,
+    dt: float,
+):
+    # compute and apply the correction impulse for an angular constraint
+    theta = wp.length(corr)
+    if theta == 0.0:
+        return 0.0
+
+    n = wp.normalize(corr)
+
+    # project variables to body rest frame as they are in local matrix
+    n1 = wp.quat_rotate_inv(q1, n)
+    n2 = wp.quat_rotate_inv(q2, n)
+
+    # Eq. 11-12
+    w1 = wp.dot(n1, I_inv1 * n1)
+    w2 = wp.dot(n2, I_inv2 * n2)
+    w = w1 + w2
+    if w == 0.0:
+        return 0.0
+    #     # print("w == 0.0 in angular correction")
+    #     # # print("corr:")
+    #     # # print(corr)
+    #     # print("n1:")
+    #     # print(n1)
+    #     # print("n2:")
+    #     # print(n2)
+    #     # print("I_inv1:")
+    #     # print(I_inv1)
+    #     # print("I_inv2:")
+    #     # print(I_inv2)
+    #     return wp.vec3(0.0, 0.0, 0.0)
+
+    # Eq. 13-14
+    lambda_prev = 0.0
+    d_lambda = (-theta - alpha_tilde * lambda_prev) / (w * dt * dt + alpha_tilde)
+    # TODO consider lambda_prev?
+    # p = d_lambda * n * relaxation
+
+    # Eq. 15-16
+    return d_lambda * relaxation
+
+
+@wp.kernel
+def solve_simple_body_joints(
+    body_q: wp.array(dtype=wp.transform),
+    body_qd: wp.array(dtype=wp.spatial_vector),
+    body_com: wp.array(dtype=wp.vec3),
+    body_inv_m: wp.array(dtype=float),
+    body_inv_I: wp.array(dtype=wp.mat33),
+    joint_type: wp.array(dtype=int),
+    joint_enabled: wp.array(dtype=int),
+    joint_parent: wp.array(dtype=int),
+    joint_child: wp.array(dtype=int),
+    joint_X_p: wp.array(dtype=wp.transform),
+    joint_X_c: wp.array(dtype=wp.transform),
+    joint_limit_lower: wp.array(dtype=float),
+    joint_limit_upper: wp.array(dtype=float),
+    joint_axis_start: wp.array(dtype=int),
+    joint_axis_dim: wp.array(dtype=int, ndim=2),
+    joint_axis_mode: wp.array(dtype=wp.uint8),
+    joint_axis: wp.array(dtype=wp.vec3),
+    joint_target: wp.array(dtype=float),
+    joint_target_ke: wp.array(dtype=float),
+    joint_target_kd: wp.array(dtype=float),
+    joint_linear_compliance: wp.array(dtype=float),
+    joint_angular_compliance: wp.array(dtype=float),
+    angular_relaxation: float,
+    linear_relaxation: float,
+    dt: float,
+    deltas: wp.array(dtype=wp.spatial_vector),
+):
+    tid = wp.tid()
+    type = joint_type[tid]
+
+    if joint_enabled[tid] == 0:
+        return
+    if (type == wp.sim.JOINT_FREE):
+        return
+    if (type == wp.sim.JOINT_COMPOUND):
+        return
+    if (type == wp.sim.JOINT_UNIVERSAL):
+        return
+    if (type == wp.sim.JOINT_DISTANCE):
+        return
+    if (type == wp.sim.JOINT_D6):
+        return
+
+    # rigid body indices of the child and parent
+    id_c = joint_child[tid]
+    id_p = joint_parent[tid]
+
+    X_pj = joint_X_p[tid]
+    X_cj = joint_X_c[tid]
+
+    X_wp = X_pj
+    m_inv_p = 0.0
+    I_inv_p = wp.mat33(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    pose_p = X_pj
+    com_p = wp.vec3(0.0)
+    # parent transform and moment arm
+    if id_p >= 0:
+        pose_p = body_q[id_p]
+        X_wp = pose_p * X_wp
+        com_p = body_com[id_p]
+        m_inv_p = body_inv_m[id_p]
+        I_inv_p = body_inv_I[id_p]
+    r_p = wp.transform_get_translation(X_wp) - wp.transform_point(pose_p, com_p)
+
+    # child transform and moment arm
+    pose_c = body_q[id_c]
+    X_wc = pose_c * X_cj
+    com_c = body_com[id_c]
+    m_inv_c = body_inv_m[id_c]
+    I_inv_c = body_inv_I[id_c]
+    r_c = wp.transform_get_translation(X_wc) - wp.transform_point(pose_c, com_c)
+
+    if m_inv_p == 0.0 and m_inv_c == 0.0:
+        # connection between two immovable bodies
+        return
+
+    # accumulate constraint deltas
+    lin_delta_p = wp.vec3(0.0)
+    ang_delta_p = wp.vec3(0.0)
+    lin_delta_c = wp.vec3(0.0)
+    ang_delta_c = wp.vec3(0.0)
+
+    rel_pose = wp.transform_inverse(X_wp) * X_wc
+    rel_p = wp.transform_get_translation(rel_pose)
+
+    # joint connection points
+    # x_p = wp.transform_get_translation(X_wp)
+    x_c = wp.transform_get_translation(X_wc)
+
+    linear_compliance = joint_linear_compliance[tid]
+    angular_compliance = joint_angular_compliance[tid]
+
+    axis_start = joint_axis_start[tid]
+
+    # local joint rotations
+    q_p = wp.transform_get_rotation(X_wp)
+    q_c = wp.transform_get_rotation(X_wc)
+    inertial_q_p = wp.transform_get_rotation(pose_p)
+    inertial_q_c = wp.transform_get_rotation(pose_c)
+
+    # joint properties (for 1D joints)
+    axis = joint_axis[axis_start]
+
+    if (type == wp.sim.JOINT_FIXED):
+        limit_lower = 0.0
+        limit_upper = 0.0
+    else:
+        limit_lower = joint_limit_lower[axis_start]
+        limit_upper = joint_limit_upper[axis_start]
+
+    linear_alpha_tilde = linear_compliance / dt / dt
+    angular_alpha_tilde = angular_compliance / dt / dt
+
+    # prevent division by zero
+    # linear_alpha_tilde = wp.max(linear_alpha_tilde, 1e-6)
+    # angular_alpha_tilde = wp.max(angular_alpha_tilde, 1e-6)
+
+    # accumulate constraint deltas
+    lin_delta_p = wp.vec3(0.0)
+    ang_delta_p = wp.vec3(0.0)
+    lin_delta_c = wp.vec3(0.0)
+    ang_delta_c = wp.vec3(0.0)
+
+    # handle angular constraints
+    if (type == wp.sim.JOINT_REVOLUTE):
+        # align joint axes
+        a_p = wp.quat_rotate(q_p, axis)
+        a_c = wp.quat_rotate(q_c, axis)
+        # Eq. 20
+        corr = wp.cross(a_p, a_c)
+        ncorr = wp.normalize(corr)
+
+        angular_relaxation = 0.2
+        # angular_correction(
+        #     corr, inertial_q_p, inertial_q_c, m_inv_p, m_inv_c, I_inv_p, I_inv_c,
+        #     angular_alpha_tilde, angular_relaxation, deltas, id_p, id_c)
+        lambda_n = compute_angular_correction_3d(
+            corr, inertial_q_p, inertial_q_c, m_inv_p, m_inv_c, I_inv_p, I_inv_c,
+            angular_alpha_tilde, angular_relaxation, dt)
+        ang_delta_p -= lambda_n * ncorr
+        ang_delta_c += lambda_n * ncorr
+
+        # limit joint angles (Alg. 3)
+        pi = 3.14159265359
+        two_pi = 2.0 * pi
+        if limit_lower > -two_pi or limit_upper < two_pi:
+            # find a perpendicular vector to joint axis
+            a = axis
+            # https://math.stackexchange.com/a/3582461
+            g = wp.sign(a[2])
+            h = a[2] + g
+            b = wp.vec3(g - a[0] * a[0] / h, -a[0] * a[1] / h, -a[0])
+            c = wp.normalize(wp.cross(a, b))
+            # b = c  # TODO verify
+
+            # joint axis
+            n = wp.quat_rotate(q_p, a)
+            # the axes n1 and n2 are aligned with the two bodies
+            n1 = wp.quat_rotate(q_p, b)
+            n2 = wp.quat_rotate(q_c, b)
+
+            phi = wp.asin(wp.dot(wp.cross(n1, n2), n))
+            # print("phi")
+            # print(phi)
+            if wp.dot(n1, n2) < 0.0:
+                phi = pi - phi
+            if phi > pi:
+                phi -= two_pi
+            if phi < -pi:
+                phi += two_pi
+            if phi < limit_lower or phi > limit_upper:
+                phi = wp.clamp(phi, limit_lower, limit_upper)
+                # print("clamped phi")
+                # print(phi)
+                # rot = wp.quat(phi, n[0], n[1], n[2])
+                # rot = wp.quat(n, phi)
+                rot = wp.quat_from_axis_angle(n, phi)
+                n1 = wp.quat_rotate(rot, n1)
+                corr = wp.cross(n1, n2)
+                # print("corr")
+                # print(corr)
+                # TODO expose
+                # angular_alpha_tilde = 0.0001 / dt / dt
+                # angular_relaxation = 0.5
+                # TODO fix this constraint
+                # angular_correction(
+                #     corr, inertial_q_p, inertial_q_c, m_inv_p, m_inv_c, I_inv_p, I_inv_c,
+                #     angular_alpha_tilde, angular_relaxation, deltas, id_p, id_c)
+                lambda_n = compute_angular_correction_3d(
+                    corr, inertial_q_p, inertial_q_c, m_inv_p, m_inv_c, I_inv_p, I_inv_c,
+                    angular_alpha_tilde, angular_relaxation, dt)
+                ncorr = wp.normalize(corr)
+                ang_delta_p -= lambda_n * ncorr
+                ang_delta_c += lambda_n * ncorr
+
+        # handle joint targets
+        target_ke = joint_target_ke[axis_start]
+        if target_ke > 0.0:
+            target_angle = joint_target[axis_start]
+            # find a perpendicular vector to joint axis
+            a = axis
+            # https://math.stackexchange.com/a/3582461
+            g = wp.sign(a[2])
+            h = a[2] + g
+            b = wp.vec3(g - a[0] * a[0] / h, -a[0] * a[1] / h, -a[0])
+            c = wp.normalize(wp.cross(a, b))
+            b = c
+
+            q = wp.quat_from_axis_angle(a_p, target_angle)
+            b_target = wp.quat_rotate(q, wp.quat_rotate(q_p, b))
+            b2 = wp.quat_rotate(q_c, b)
+            # Eq. 21
+            d_target = wp.cross(b_target, b2)
+
+            target_compliance = 1.0 / target_ke  # / dt / dt
+            # angular_correction(
+            #     d_target, inertial_q_p, inertial_q_c, m_inv_p, m_inv_c, I_inv_p, I_inv_c,
+            #     target_compliance, angular_relaxation, deltas, id_p, id_c)
+            lambda_n = compute_angular_correction_3d(
+                d_target, inertial_q_p, inertial_q_c, m_inv_p, m_inv_c, I_inv_p, I_inv_c,
+                target_compliance, angular_relaxation, dt)
+            ncorr = wp.normalize(d_target)
+            # TODO fix
+            ang_delta_p -= lambda_n * ncorr
+            ang_delta_c += lambda_n * ncorr
+
+    if (type == wp.sim.JOINT_FIXED) or (type == wp.sim.JOINT_PRISMATIC):
+        # align the mutual orientations of the two bodies
+        # Eq. 18-19
+        q = q_p * wp.quat_inverse(q_c)
+        corr = -2.0 * wp.vec3(q[0], q[1], q[2])
+        # angular_correction(
+        #     -corr, inertial_q_p, inertial_q_c, m_inv_p, m_inv_c, I_inv_p, I_inv_c,
+        #     angular_alpha_tilde, angular_relaxation, deltas, id_p, id_c)
+        lambda_n = compute_angular_correction_3d(
+            corr, inertial_q_p, inertial_q_c, m_inv_p, m_inv_c, I_inv_p, I_inv_c,
+            angular_alpha_tilde, angular_relaxation, dt)
+        ncorr = wp.normalize(corr)
+        ang_delta_p -= lambda_n * ncorr
+        ang_delta_c += lambda_n * ncorr
+
+    # handle positional constraints
+
+    # joint connection points
+    x_p = wp.transform_get_translation(X_wp)
+    x_c = wp.transform_get_translation(X_wc)
+
+    # compute error between the joint attachment points on both bodies
+    # delta x is the difference of point r_2 minus point r_1 (Fig. 3)
+    dx = x_c - x_p
+
+    # rotate the error vector into the joint frame
+    q_dx = q_p
+    # q_dx = q_c
+    # q_dx = wp.transform_get_rotation(pose_p)
+    dx = wp.quat_rotate_inv(q_dx, dx)
+
+    lower_pos_limits = wp.vec3(0.0)
+    upper_pos_limits = wp.vec3(0.0)
+    if (type == wp.sim.JOINT_PRISMATIC):
+        lower_pos_limits = axis * limit_lower
+        upper_pos_limits = axis * limit_upper
+
+    # compute linear constraint violations
+    corr = wp.vec3(0.0)
+    zero = wp.vec3(0.0)
+    corr -= vec_min(zero, upper_pos_limits - dx)
+    corr -= vec_max(zero, lower_pos_limits - dx)
+
+    # rotate correction vector into world frame
+    corr = wp.quat_rotate(q_dx, corr)
+
+    lambda_in = 0.0
+    linear_alpha = joint_linear_compliance[tid]
+    lambda_n = compute_linear_correction_3d(corr, r_p, r_c, pose_p, pose_c, m_inv_p, m_inv_c, I_inv_p, I_inv_c,
+                                            lambda_in, linear_alpha, linear_relaxation, dt)
+    n = wp.normalize(corr)
+
+    lin_delta_p -= n * lambda_n
+    lin_delta_c += n * lambda_n
+    ang_delta_p -= wp.cross(r_p, n) * lambda_n
+    ang_delta_c += wp.cross(r_c, n) * lambda_n
+
+    if (id_p >= 0):
+        wp.atomic_add(deltas, id_p, wp.spatial_vector(ang_delta_p, lin_delta_p))
+    if (id_c >= 0):
+        wp.atomic_add(deltas, id_c, wp.spatial_vector(ang_delta_c, lin_delta_c))
+
+
 @wp.kernel
 def solve_body_joints(
     body_q: wp.array(dtype=wp.transform),
@@ -1019,7 +1408,17 @@ def solve_body_joints(
     tid = wp.tid()
     type = joint_type[tid]
 
-    if joint_enabled[tid] == 0 or type == wp.sim.JOINT_FREE:
+    if joint_enabled[tid] == 0:
+        return
+    if type == wp.sim.JOINT_FREE:
+        return
+    if type == wp.sim.JOINT_FIXED:
+        return
+    if type == wp.sim.JOINT_REVOLUTE:
+        return
+    if type == wp.sim.JOINT_PRISMATIC:
+        return
+    if type == wp.sim.JOINT_BALL:
         return
 
     # rigid body indices of the child and parent
@@ -2068,13 +2467,17 @@ class XPBDIntegrator:
         assert model.requires_grad == state.requires_grad, "model and state must have the same requires_grad flag"
         with wp.ScopedDevice(model.device):
             if state.requires_grad:
-                state.body_deltas = wp.zeros(model.body_count, dtype=wp.spatial_vector, requires_grad=state.requires_grad)
+                state.body_deltas = wp.zeros(model.body_count, dtype=wp.spatial_vector,
+                                             requires_grad=state.requires_grad)
                 state.body_q_temp = wp.zeros_like(state.body_q)
                 state.body_qd_temp = wp.zeros_like(state.body_qd)
-                XPBDIntegrator._augment_rigid_contact_vars(state, model.rigid_contact_max, model.body_count, state.requires_grad)
+                XPBDIntegrator._augment_rigid_contact_vars(
+                    state, model.rigid_contact_max, model.body_count, state.requires_grad)
             else:
-                model.body_deltas = wp.zeros(model.body_count, dtype=wp.spatial_vector, requires_grad=state.requires_grad)
-                XPBDIntegrator._augment_rigid_contact_vars(model, model.rigid_contact_max, model.body_count, state.requires_grad)
+                model.body_deltas = wp.zeros(model.body_count, dtype=wp.spatial_vector,
+                                             requires_grad=state.requires_grad)
+                XPBDIntegrator._augment_rigid_contact_vars(
+                    model, model.rigid_contact_max, model.body_count, state.requires_grad)
 
     def simulate(self, model, state_in, state_out, dt):
         requires_grad = state_in.requires_grad
@@ -2082,7 +2485,7 @@ class XPBDIntegrator:
             particle_q = None
             particle_qd = None
 
-            if state_out.has_rigid_contact_vars:
+            if state_in.has_rigid_contact_vars:
                 contact_state = state_in
             else:
                 contact_state = model
@@ -2112,6 +2515,12 @@ class XPBDIntegrator:
 
             if model.body_count:
                 if model.joint_count:
+                    if hasattr(state_in, "joint_act"):
+                        joint_act = state_in.joint_act
+                    else:
+                        joint_act = model.joint_act
+                    
+                    # print("state_in.body_f:", state_in.body_f.numpy().flatten())
                     wp.launch(
                         kernel=apply_joint_torques,
                         dim=model.joint_count,
@@ -2128,7 +2537,7 @@ class XPBDIntegrator:
                             model.joint_axis_start,
                             model.joint_axis_dim,
                             model.joint_axis,
-                            model.joint_act,
+                            joint_act,
                         ],
                         outputs=[state_in.body_f],
                         device=model.device,
@@ -2333,6 +2742,41 @@ class XPBDIntegrator:
                 # ----------------------------
 
                 if model.joint_count:
+
+                    wp.launch(
+                        kernel=solve_simple_body_joints,
+                        dim=model.joint_count,
+                        inputs=[
+                            state_out.body_q,
+                            state_out.body_qd,
+                            model.body_com,
+                            model.body_inv_mass,
+                            model.body_inv_inertia,
+                            model.joint_type,
+                            model.joint_enabled,
+                            model.joint_parent,
+                            model.joint_child,
+                            model.joint_X_p,
+                            model.joint_X_c,
+                            model.joint_limit_lower,
+                            model.joint_limit_upper,
+                            model.joint_axis_start,
+                            model.joint_axis_dim,
+                            model.joint_axis_mode,
+                            model.joint_axis,
+                            model.joint_target,
+                            model.joint_target_ke,
+                            model.joint_target_kd,
+                            model.joint_linear_compliance,
+                            model.joint_angular_compliance,
+                            self.joint_angular_relaxation,
+                            self.joint_linear_relaxation,
+                            dt,
+                        ],
+                        outputs=[body_deltas],
+                        device=model.device,
+                    )
+
                     wp.launch(
                         kernel=solve_body_joints,
                         dim=model.joint_count,
@@ -2368,26 +2812,26 @@ class XPBDIntegrator:
                     )
 
                     # apply updates
-                    wp.launch(
-                        kernel=apply_body_deltas,
-                        dim=model.body_count,
-                        inputs=[
-                            state_out.body_q,
-                            state_out.body_qd,
-                            model.body_com,
-                            model.body_inertia,
-                            model.body_inv_mass,
-                            model.body_inv_inertia,
-                            body_deltas,
-                            None,
-                            dt,
-                        ],
-                        outputs=[
-                            out_body_q,
-                            out_body_qd,
-                        ],
-                        device=model.device,
-                    )
+                    # wp.launch(
+                    #     kernel=apply_body_deltas,
+                    #     dim=model.body_count,
+                    #     inputs=[
+                    #         state_out.body_q,
+                    #         state_out.body_qd,
+                    #         model.body_com,
+                    #         model.body_inertia,
+                    #         model.body_inv_mass,
+                    #         model.body_inv_inertia,
+                    #         body_deltas,
+                    #         None,
+                    #         dt,
+                    #     ],
+                    #     outputs=[
+                    #         out_body_q,
+                    #         out_body_qd,
+                    #     ],
+                    #     device=model.device,
+                    # )
 
                 # if model.body_count and requires_grad:
                 #     # update state
@@ -2398,6 +2842,7 @@ class XPBDIntegrator:
                 if model.rigid_contact_max and (
                     model.ground and model.shape_ground_contact_pair_count or model.shape_contact_pair_count
                 ):
+                # if False:
                     rigid_contact_inv_weight = None
                     # if requires_grad:
                     #     # body_deltas = wp.zeros_like(state_out.body_deltas)
@@ -2420,7 +2865,7 @@ class XPBDIntegrator:
                     #     if self.rigid_contact_con_weighting:
                     #         rigid_contact_inv_weight = model.rigid_contact_inv_weight
                     #         rigid_contact_inv_weight.zero_()
-                    body_deltas.zero_()
+                    # body_deltas.zero_()
                     rigid_active_contact_distance = contact_state.rigid_active_contact_distance
                     rigid_active_contact_point0 = contact_state.rigid_active_contact_point0
                     rigid_active_contact_point1 = contact_state.rigid_active_contact_point1
@@ -2463,7 +2908,7 @@ class XPBDIntegrator:
                         ],
                         device=model.device,
                     )
-                    
+
                     # if contact_state.rigid_contact_count.numpy()[0] > 0:
                     #     print("contact_state.rigid_contact_count", contact_state.rigid_contact_count.numpy()[0])
                     #     print("rigid_active_contact_distance", rigid_active_contact_distance.numpy())
@@ -2500,6 +2945,9 @@ class XPBDIntegrator:
                     #     body_qd = state_out.body_qd
                     # body_q = state_out.body_q
                     # body_qd = state_out.body_qd
+
+                    # out_body_q = wp.clone(out_body_q)
+                    # out_body_qd = wp.clone(out_body_qd)
 
                     # apply updates
                     wp.launch(

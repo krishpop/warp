@@ -40,12 +40,42 @@ def parse_urdf(
         ignore_inertial_definitions=True,
         ensure_nonstatic_links=True,
         static_link_mass=1e-2,
-        collapse_fixed_joints=False):
+        collapse_fixed_joints=False,
+):
+    """
+    Parses a URDF file and adds the bodies and joints to the given ModelBuilder.
+
+    Args:
+        urdf_filename (str): The filename of the URDF file to parse.
+        builder (ModelBuilder): The :class:`ModelBuilder` to add the bodies and joints to.
+        xform (wp.transform): The transform to apply to the root body.
+        floating (bool): If True, the root body is a free joint. If False, the root body is connected via a fixed joint to the world, unless a `base_joint` is defined.
+        base_joint (Union[str, dict]): The joint by which the root body is connected to the world. This can be either a string defining the joint axes of a D6 joint with comma-separated positional and angular axis names (e.g. "px,py,rz" for a D6 joint with linear axes in x, y and an angular axis in z) or a dict with joint parameters (see :meth:`ModelBuilder.add_joint`).
+        density (float): The density of the shapes in kg/m^3 which will be used to calculate the body mass and inertia.
+        stiffness (float): The stiffness of the joints.
+        damping (float): The damping of the joints.
+        armature (float): The armature of the joints (bias to add to the inertia diagonals that may stabilize the simulation).
+        shape_ke (float): The stiffness of the shape contacts (used by SemiImplicitIntegrator).
+        shape_kd (float): The damping of the shape contacts (used by SemiImplicitIntegrator).
+        shape_kf (float): The friction stiffness of the shape contacts (used by SemiImplicitIntegrator).
+        shape_mu (float): The friction coefficient of the shape contacts.
+        shape_restitution (float): The restitution coefficient of the shape contacts.
+        shape_thickness (float): The thickness to add to the shape geometry.
+        limit_ke (float): The stiffness of the joint limits (used by SemiImplicitIntegrator).
+        limit_kd (float): The damping of the joint limits (used by SemiImplicitIntegrator).
+        scale (float): The scaling factor to apply to the imported mechanism.
+        parse_visuals_as_colliders (bool): If True, the geometry defined under the `<visual>` tags is used for collision handling instead of the `<collision>` geoemtries.
+        enable_self_collisions (bool): If True, self-collisions are enabled.
+        ignore_inertial_definitions (bool): If True, the inertial parameters defined in the URDF are ignored and the inertia is calculated from the shape geometry.
+        ensure_nonstatic_links (bool): If True, links with zero mass are given a small mass (see `static_link_mass`) to ensure they are dynamic.
+        static_link_mass (float): The mass to assign to links with zero mass (if `ensure_nonstatic_links` is set to True).
+        collapse_fixed_joints (bool): If True, fixed joints are removed and the respective bodies are merged.
+    """
 
     file = ET.parse(urdf_filename)
     root = file.getroot()
 
-    def parse_origin(element):
+    def parse_transform(element):
         if element is None or element.find('origin') is None:
             return wp.transform()
         origin = element.find('origin')
@@ -64,7 +94,7 @@ def parse_urdf(
             if geo is None:
                 continue
 
-            tf = parse_origin(collision)
+            tf = parse_transform(collision)
             if incoming_xform is not None:
                 tf = incoming_xform * tf
 
@@ -209,7 +239,7 @@ def parse_urdf(
         if not ignore_inertial_definitions and urdf_link.find('inertial') is not None:
             # overwrite inertial parameters if defined
             inertial = urdf_link.find('inertial')
-            inertial_frame = parse_origin(inertial)
+            inertial_frame = parse_transform(inertial)
             com = inertial_frame.p
             I_m = np.zeros((3, 3))
             I_m[0, 0] = float(inertial.find('inertia').get('ixx') or '0') * scale**2
@@ -256,7 +286,7 @@ def parse_urdf(
             'parent': parent,
             'child': child,
             'type': joint.get('type'),
-            'origin': parse_origin(joint),
+            'origin': parse_transform(joint),
             'damping': damping,
             'friction': 0.0,
             'limit_lower': -1.e6,

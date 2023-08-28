@@ -222,6 +222,13 @@ def closest_point_box(upper: wp.vec3, point: wp.vec3):
 
 @wp.func
 def get_box_vertex(point_id: int, upper: wp.vec3):
+    # box vertex numbering:
+    #    6---7
+    #    |\  |\       y
+    #    | 2-+-3      |
+    #    4-+-5 |   z \|
+    #     \|  \|      o---x
+    #      0---1
     # get the vertex of the box given its ID (0-7)
     sign_x = float(point_id % 2) * 2.0 - 1.0
     sign_y = float((point_id // 2) % 2) * 2.0 - 1.0
@@ -615,9 +622,11 @@ def count_contact_points(
     shape_b = contact_pairs[tid, 1]
 
     if shape_b == -1:
+        actual_shape_a = shape_a
         actual_type_a = geo.type[shape_a]
         # ground plane
         actual_type_b = wp.sim.GEO_PLANE
+        actual_shape_b = -1
     else:
         type_a = geo.type[shape_a]
         type_b = geo.type[shape_b]
@@ -682,18 +691,18 @@ def count_contact_points(
     elif actual_type_a == wp.sim.GEO_MESH:
         mesh_a = wp.mesh_get(geo.source[actual_shape_a])
         num_contacts_a = mesh_a.points.shape[0]
+        if mesh_contact_max > 0:
+            num_contacts_a = wp.min(mesh_contact_max, num_contacts_a)
         if actual_type_b == wp.sim.GEO_MESH:
             mesh_b = wp.mesh_get(geo.source[actual_shape_b])
             num_contacts_b = mesh_b.points.shape[0]
             num_contacts = num_contacts_a + num_contacts_b
             if mesh_contact_max > 0:
-                num_contacts_a = wp.min(mesh_contact_max, num_contacts_a)
                 num_contacts_b = wp.min(mesh_contact_max, num_contacts_b)
-            num_actual_contacts = num_contacts_a + num_contacts_b
         else:
             num_contacts_b = 0
-            num_actual_contacts = 0
         num_contacts = num_contacts_a + num_contacts_b
+        num_actual_contacts = num_contacts_a + num_contacts_b
     elif actual_type_a == wp.sim.GEO_PLANE:
         return  # no plane-plane contacts
     else:
@@ -824,12 +833,12 @@ def broadphase_collision_pairs(
                 contact_shape0[index + i] = shape_a
                 contact_shape1[index + i] = shape_b
                 contact_point_id[index + i] = i
+            contact_point_limit[pair_index_ab] = 12
             # allocate contact points from box B against A
             for i in range(12):
                 contact_shape0[index + 12 + i] = shape_b
                 contact_shape1[index + 12 + i] = shape_a
                 contact_point_id[index + 12 + i] = i
-            contact_point_limit[pair_index_ab] = 12
             contact_point_limit[pair_index_ba] = 12
             return
         elif actual_type_b == wp.sim.GEO_MESH:
@@ -1363,7 +1372,8 @@ def handle_contact_pairs(
 
     d = distance - thickness
     if d < rigid_contact_margin:
-        pair_contact_id = limited_counter_increment(contact_pairwise_counter, pair_index, contact_tids, tid, contact_limit)
+        pair_contact_id = limited_counter_increment(
+            contact_pairwise_counter, pair_index, contact_tids, tid, contact_limit)
         if pair_contact_id == -1:
             # wp.printf("Reached contact point limit %d >= %d for shape pair %d and %d\n",
             #           contact_pairwise_counter[pair_index], contact_limit, shape_a, shape_b)
@@ -1427,7 +1437,7 @@ def collide(model, state, edge_sdf_iter: int = 10):
     else:
         contact_state = model
 
-    if model.shape_contact_pair_count or model.shape_ground_contact_pair_count:
+    if model.shape_contact_pair_count or model.ground and model.shape_ground_contact_pair_count:
         # clear old count
         contact_state.rigid_contact_count.zero_()
 
