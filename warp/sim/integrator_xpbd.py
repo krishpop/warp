@@ -2740,6 +2740,8 @@ class XPBDIntegrator:
 
                 # handle rigid bodies
                 # ----------------------------
+                
+                rigid_contact_inv_weight = None
 
                 if model.joint_count:
 
@@ -2812,26 +2814,26 @@ class XPBDIntegrator:
                     )
 
                     # apply updates
-                    wp.launch(
-                        kernel=apply_body_deltas,
-                        dim=model.body_count,
-                        inputs=[
-                            state_out.body_q,
-                            state_out.body_qd,
-                            model.body_com,
-                            model.body_inertia,
-                            model.body_inv_mass,
-                            model.body_inv_inertia,
-                            body_deltas,
-                            None,
-                            dt,
-                        ],
-                        outputs=[
-                            out_body_q,
-                            out_body_qd,
-                        ],
-                        device=model.device,
-                    )
+                    # wp.launch(
+                    #     kernel=apply_body_deltas,
+                    #     dim=model.body_count,
+                    #     inputs=[
+                    #         state_out.body_q,
+                    #         state_out.body_qd,
+                    #         model.body_com,
+                    #         model.body_inertia,
+                    #         model.body_inv_mass,
+                    #         model.body_inv_inertia,
+                    #         body_deltas,
+                    #         None,
+                    #         dt,
+                    #     ],
+                    #     outputs=[
+                    #         out_body_q,
+                    #         out_body_qd,
+                    #     ],
+                    #     device=model.device,
+                    # )
 
                 # if model.body_count and requires_grad:
                 #     # update state
@@ -2842,7 +2844,7 @@ class XPBDIntegrator:
                 if model.rigid_contact_max and (
                     model.ground and model.shape_ground_contact_pair_count or model.shape_contact_pair_count
                 ):
-                    rigid_contact_inv_weight = None
+                # if False:
                     # if requires_grad:
                     #     # body_deltas = wp.zeros_like(state_out.body_deltas)
                     #     rigid_active_contact_distance = wp.zeros_like(model.rigid_active_contact_distance)
@@ -2864,7 +2866,7 @@ class XPBDIntegrator:
                     #     if self.rigid_contact_con_weighting:
                     #         rigid_contact_inv_weight = model.rigid_contact_inv_weight
                     #         rigid_contact_inv_weight.zero_()
-                    body_deltas.zero_()
+                    # body_deltas.zero_()
                     rigid_active_contact_distance = contact_state.rigid_active_contact_distance
                     rigid_active_contact_point0 = contact_state.rigid_active_contact_point0
                     rigid_active_contact_point1 = contact_state.rigid_active_contact_point1
@@ -2945,27 +2947,59 @@ class XPBDIntegrator:
                     # body_q = state_out.body_q
                     # body_qd = state_out.body_qd
 
-                    # apply updates
-                    wp.launch(
-                        kernel=apply_body_deltas,
-                        dim=model.body_count,
-                        inputs=[
-                            state_out.body_q,
-                            state_out.body_qd,
-                            model.body_com,
-                            model.body_inertia,
-                            model.body_inv_mass,
-                            model.body_inv_inertia,
-                            body_deltas,
-                            rigid_contact_inv_weight,
-                            dt,
-                        ],
-                        outputs=[
-                            out_body_q,
-                            out_body_qd,
-                        ],
-                        device=model.device,
-                    )
+                    # out_body_q = wp.clone(out_body_q)
+                    # out_body_qd = wp.clone(out_body_qd)
+
+                #     # apply updates
+                #     wp.launch(
+                #         kernel=apply_body_deltas,
+                #         dim=model.body_count,
+                #         inputs=[
+                #             state_out.body_q,
+                #             state_out.body_qd,
+                #             model.body_com,
+                #             model.body_inertia,
+                #             model.body_inv_mass,
+                #             model.body_inv_inertia,
+                #             body_deltas,
+                #             rigid_contact_inv_weight,
+                #             dt,
+                #         ],
+                #         outputs=[
+                #             out_body_q,
+                #             out_body_qd,
+                #         ],
+                #         device=model.device,
+                #     )
+
+                # if requires_grad:
+                #     # state_out.body_q = body_q
+                #     # state_out.body_qd = body_qd
+                #     state_out.body_q.assign(out_body_q)
+                #     state_out.body_qd.assign(out_body_qd)
+            
+            if model.body_count:
+                # apply updates
+                wp.launch(
+                    kernel=apply_body_deltas,
+                    dim=model.body_count,
+                    inputs=[
+                        state_out.body_q,
+                        state_out.body_qd,
+                        model.body_com,
+                        model.body_inertia,
+                        model.body_inv_mass,
+                        model.body_inv_inertia,
+                        body_deltas,
+                        rigid_contact_inv_weight,
+                        dt,
+                    ],
+                    outputs=[
+                        out_body_q,
+                        out_body_qd,
+                    ],
+                    device=model.device,
+                )
 
                 if requires_grad:
                     # state_out.body_q = body_q
