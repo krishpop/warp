@@ -250,29 +250,33 @@ def load_mesh(filename, use_meshio=True):
     Args:
         filename: The path to the 3D model file (obj, and other formats supported by meshio/openmesh) to load.
         use_meshio: If True, use meshio to load the mesh. Otherwise, use openmesh.
-        
+
     Returns:
         Tuple of (mesh_points, mesh_indices), where mesh_points is a Nx3 numpy array of vertex positions (float32),
         and mesh_indices is a Mx3 numpy array of vertex indices (int32) for the triangular faces.
     """
     if use_meshio:
         import meshio
+
         m = meshio.read(filename)
         mesh_points = np.array(m.points)
         mesh_indices = np.array(m.cells[0].data, dtype=np.int32)
     else:
         import openmesh
+
         m = openmesh.read_trimesh(filename)
         mesh_points = np.array(m.points())
         mesh_indices = np.array(m.face_vertex_indices(), dtype=np.int32)
     return mesh_points, mesh_indices
 
 
-def visualize_meshes(meshes: List[Tuple[list, list]], num_cols=0, num_rows=0, titles=[], scale_axes=True, show_plot=True):
+def visualize_meshes(
+    meshes: List[Tuple[list, list]], num_cols=0, num_rows=0, titles=[], scale_axes=True, show_plot=True
+):
     # render meshes in a grid with matplotlib
     import matplotlib.pyplot as plt
     from mpl_toolkits.mplot3d import Axes3D
-    
+
     num_cols = min(num_cols, len(meshes))
     num_rows = min(num_rows, len(meshes))
     if num_cols and not num_rows:
@@ -282,7 +286,7 @@ def visualize_meshes(meshes: List[Tuple[list, list]], num_cols=0, num_rows=0, ti
     else:
         num_cols = len(meshes)
         num_rows = 1
-    
+
     vertices = [np.array(v).reshape((-1, 3)) for v, _ in meshes]
     faces = [np.array(f, dtype=np.int32).reshape((-1, 3)) for _, f in meshes]
     if scale_axes:
@@ -292,10 +296,10 @@ def visualize_meshes(meshes: List[Tuple[list, list]], num_cols=0, num_rows=0, ti
 
     fig = plt.figure(figsize=(12, 6))
     for i, (vertices, faces) in enumerate(meshes):
-        ax = fig.add_subplot(num_rows, num_cols, i + 1, projection='3d')
+        ax = fig.add_subplot(num_rows, num_cols, i + 1, projection="3d")
         if i < len(titles):
             ax.set_title(titles[i])
-        ax.plot_trisurf(vertices[:, 0], vertices[:, 1], vertices[:, 2], triangles=faces, edgecolor='k')
+        ax.plot_trisurf(vertices[:, 0], vertices[:, 1], vertices[:, 2], triangles=faces, edgecolor="k")
         if scale_axes:
             mid = mid_points[i]
             ax.set_xlim(mid[0] - max_range, mid[0] + max_range)
@@ -325,7 +329,7 @@ def remesh_ftetwild(vertices, faces, stop_quality=10, max_its=50, edge_length_r=
         edge_length_r: The relative target edge length as a fraction of the bounding box diagonal.
         epsilon: The relative envelope size as a fraction of the bounding box diagonal.
         visualize: If True, visualize the input mesh next to the remeshed result using matplotlib.
-        
+
     Returns:
         A tuple (vertices, faces) containing the remeshed mesh. Returns the original vertices and faces
         if the remeshing fails.
@@ -333,11 +337,10 @@ def remesh_ftetwild(vertices, faces, stop_quality=10, max_its=50, edge_length_r=
     import wildmeshing as wm
     from collections import defaultdict
 
-    tetra = wm.Tetrahedralizer(
-        stop_quality=stop_quality, max_its=max_its, edge_length_r=edge_length_r, epsilon=epsilon)
+    tetra = wm.Tetrahedralizer(stop_quality=stop_quality, max_its=max_its, edge_length_r=edge_length_r, epsilon=epsilon)
     tetra.set_mesh(vertices, np.array(faces).reshape(-1, 3))
     tetra.tetrahedralize()
-    tet_vertices, tet_indices, _ = tetra.get_tet_mesh()
+    tet_vertices, tet_indices = tetra.get_tet_mesh()
 
     def face_indices(tet):
         face1 = (tet[0], tet[2], tet[1])
@@ -348,7 +351,8 @@ def remesh_ftetwild(vertices, faces, stop_quality=10, max_its=50, edge_length_r=
             (face1, tuple(sorted(face1))),
             (face2, tuple(sorted(face2))),
             (face3, tuple(sorted(face3))),
-            (face4, tuple(sorted(face4))))
+            (face4, tuple(sorted(face4))),
+        )
 
     # determine surface faces
     elements_per_face = defaultdict(set)
@@ -364,6 +368,7 @@ def remesh_ftetwild(vertices, faces, stop_quality=10, max_its=50, edge_length_r=
 
     if len(new_vertices) == 0 or len(new_faces) == 0:
         import warnings
+
         warnings.warn("Remeshing failed, the optimized mesh has no vertices or faces; return previous mesh.")
         return vertices, faces
 
@@ -373,17 +378,17 @@ def remesh_ftetwild(vertices, faces, stop_quality=10, max_its=50, edge_length_r=
 def remesh_alphashape(vertices, faces=None, alpha=3.0):
     """
     Remeshes a 3D triangular surface mesh using the alpha shape algorithm.
-    
+
     Args:
         vertices: A numpy array of shape (N, 3) containing the vertex positions.
         faces: A numpy array of shape (M, 3) containing the vertex indices of the faces (not needed).
         alpha: The alpha shape parameter.
-        
+
     Returns:
         A tuple (vertices, faces) containing the remeshed mesh.
     """
     import alphashape
-    
+
     alpha_shape = alphashape.alphashape(vertices, alpha)
     return np.array(alpha_shape.vertices), np.array(alpha_shape.faces, dtype=np.int32)
 
@@ -391,14 +396,14 @@ def remesh_alphashape(vertices, faces=None, alpha=3.0):
 def remesh(vertices, faces, method="ftetwild", visualize=False, **remeshing_kwargs):
     """
     Remeshes a 3D triangular surface mesh using the specified method.
-    
+
     Args:
         vertices: A numpy array of shape (N, 3) containing the vertex positions.
         faces: A numpy array of shape (M, 3) containing the vertex indices of the faces.
         method: The remeshing method to use. One of "ftetwild" or "alphashape".
         visualize: Whether to render the input and output meshes using matplotlib.
         **remeshing_kwargs: Additional keyword arguments passed to the remeshing function.
-        
+
     Returns:
         A tuple (vertices, faces) containing the remeshed mesh.
     """
@@ -409,7 +414,7 @@ def remesh(vertices, faces, method="ftetwild", visualize=False, **remeshing_kwar
     # TODO add poisson sampling (trimesh has implementation at https://trimsh.org/trimesh.sample.html)
     else:
         raise ValueError(f"Unknown remeshing method: {method}")
-    
+
     if visualize:
         # side-by-side visualization of the input and output meshes
         visualize_meshes([(vertices, faces), (new_vertices, new_faces)], titles=["Original", "Remeshed"])
@@ -419,7 +424,7 @@ def remesh(vertices, faces, method="ftetwild", visualize=False, **remeshing_kwar
 def plot_graph(vertices, edges, edge_labels=[]):
     """
     Plots a graph using matplotlib.
-    
+
     Args:
         vertices: A numpy array of shape (N, 3) containing the vertex positions.
         edges: A numpy array of shape (M, 2) containing the vertex indices of the edges.
@@ -427,6 +432,7 @@ def plot_graph(vertices, edges, edge_labels=[]):
     """
     import matplotlib.pyplot as plt
     import networkx as nx
+
     G = nx.DiGraph()
     name_to_index = {}
     for i, name in enumerate(vertices):
@@ -441,7 +447,7 @@ def plot_graph(vertices, edges, edge_labels=[]):
             label = edge_labels[i]
             g_edge_labels[(a, b)] = label
         G.add_edge(a, b, label=label)
-    
+
     # try:
     #     pos = nx.nx_agraph.graphviz_layout(
     #         G, prog='neato', args='-Gnodesep="10" -Granksep="10"')
@@ -452,20 +458,25 @@ def plot_graph(vertices, edges, edge_labels=[]):
     #     pos = nx.spring_layout(G, k=3.5, iterations=200)
     #     # pos = nx.kamada_kawai_layout(G, scale=1.5)
     #     # pos = nx.spectral_layout(G, scale=1.5)
-    pos = nx.nx_agraph.graphviz_layout(
-        G, prog='neato', args='-Gnodesep="20" -Granksep="20"')
-    
-    default_draw_args = dict(
-        alpha=0.9, edgecolors="black", linewidths=0.5)
-    nx.draw_networkx_nodes(G, pos, **default_draw_args)
-    nx.draw_networkx_labels(G, pos, labels={i: v for i, v in enumerate(vertices)}, font_size=8, bbox=dict(facecolor='white', alpha=0.8, edgecolor='none', pad=0.5))
+    pos = nx.nx_agraph.graphviz_layout(G, prog="neato", args='-Gnodesep="20" -Granksep="20"')
 
-    nx.draw_networkx_edges(G, pos, edgelist=G.edges(), arrows=True, edge_color='black', node_size=1000)
+    default_draw_args = dict(alpha=0.9, edgecolors="black", linewidths=0.5)
+    nx.draw_networkx_nodes(G, pos, **default_draw_args)
+    nx.draw_networkx_labels(
+        G,
+        pos,
+        labels={i: v for i, v in enumerate(vertices)},
+        font_size=8,
+        bbox=dict(facecolor="white", alpha=0.8, edgecolor="none", pad=0.5),
+    )
+
+    nx.draw_networkx_edges(G, pos, edgelist=G.edges(), arrows=True, edge_color="black", node_size=1000)
     nx.draw_networkx_edge_labels(
-        G, pos,
+        G,
+        pos,
         edge_labels=g_edge_labels,
-        font_color='darkslategray',
+        font_color="darkslategray",
         font_size=8,
     )
-    plt.axis('off')
+    plt.axis("off")
     plt.show()
