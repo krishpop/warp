@@ -208,7 +208,12 @@ class Environment:
 
         self.env_offsets = to_torch(env_offsets, device=self.device)
 
-        self.model = builder.finalize(requires_grad=self.requires_grad)
+        if self.integrator_type == IntegratorType.EULER:
+            self.integrator = wp.sim.SemiImplicitIntegrator(**self.euler_settings)
+        elif self.integrator_type == IntegratorType.XPBD:
+            self.integrator = wp.sim.XPBDIntegrator(**self.xpbd_settings)
+
+        self.model = builder.finalize(requires_grad=self.requires_grad, integrator=self.integrator)
         self.builder = builder
         self.device = self.model.device
         if not self._device.is_cuda:
@@ -221,11 +226,6 @@ class Environment:
         # set up current and next state to be used by the integrator
         self.state_0 = None
         self.state_1 = None
-
-        if self.integrator_type == IntegratorType.EULER:
-            self.integrator = wp.sim.SemiImplicitIntegrator(**self.euler_settings)
-        elif self.integrator_type == IntegratorType.XPBD:
-            self.integrator = wp.sim.XPBDIntegrator(**self.xpbd_settings)
 
         self.renderer = None
         if self.profile:

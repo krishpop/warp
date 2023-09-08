@@ -1,5 +1,6 @@
 import traceback
 import hydra, os, wandb, yaml, torch
+from hydra.utils import instantiate
 from omegaconf import DictConfig, OmegaConf
 from hydra.core.hydra_config import HydraConfig
 from shac.algorithms.shac import SHAC
@@ -17,12 +18,28 @@ def register_envs(cfg_train, env_name):
     def create_warp_env(**kwargs):
         env_fn = getattr(envs, cfg_train["params"]["diff_env"]["_target_"].split(".")[-1])
         env_kwargs = kwargs
-        skip_keys = ["_target_", "num_envs", "render", "seed", "episode_length", "no_grad", "stochastic_init", "name"]
+        skip_keys = [
+            "_target_",
+            "num_envs",
+            "render",
+            "seed",
+            "episode_length",
+            "no_grad",
+            "stochastic_init",
+            "name",
+            "env_name",
+        ]
         env_kwargs.update({k: v for k, v in cfg_train["params"]["diff_env"].items() if k not in skip_keys})
+        if cfg_train["params"].get("seed", None):
+            seed = cfg_train["params"]["seed"]
+            env_kwargs.pop("seed", None)
+        else:
+            seed = env_kwargs.pop("seed", 42)
+
         env = env_fn(
             num_envs=cfg_train["params"]["config"]["num_actors"],
             render=cfg_train["params"]["render"],
-            seed=cfg_train["params"]["seed"],
+            seed=seed,
             episode_length=cfg_train["params"]["diff_env"].get("episode_length", 1000),
             no_grad=True,
             stochastic_init=cfg_train["params"]["diff_env"]["stochastic_init"],
@@ -112,7 +129,18 @@ def train(cfg: DictConfig):
             print("Task Config:")
             print(yaml.dump(cfg_full["task"]))
 
-        if "shac" in cfg.alg.name:
+        if "_target_" in cfg.alg:
+            # Run with hydra
+            cfg.task.env.no_grad = not cfg.general.train
+
+            traj_optimizer = instantiate(cfg.alg, env_config=cfg.task.env, logdir=cfg.general.logdir)
+
+            if cfg.general.train:
+                traj_optimizer.train()
+            else:
+                traj_optimizer.play(cfg_full)
+
+        elif "shac" in cfg.alg.name:
             if cfg.alg.name == "shac2":
                 traj_optimizer = SHAC2(cfg)
             elif cfg.alg.name == "shac":
@@ -140,7 +168,7 @@ def train(cfg: DictConfig):
             else:
                 traj_optimizer.play(cfg_train)
             wandb.finish()
-        elif cfg.alg.name == "ppo":
+        elif cfg.alg.name in ["ppo", "sac"]:
             cfg_train = cfg_full["alg"]
             cfg_train["params"]["general"] = cfg_full["general"]
             cfg_train["params"]["seed"] = cfg_full["general"]["seed"]

@@ -1,5 +1,198 @@
 # CHANGELOG
 
+## [0.9.0]
+
+- Add support for in-place modifications to vector, matrix, and struct types inside kernels (will warn during backward pass with `wp.verbose` if using gradients)
+- Add support for step-through VSCode debugging of kernel code with standalone LLVM compiler, see `wp.breakpoint()`, and `test_debug.py`
+- Add support for default values on built-in functions
+- Add support for multi-valued `@wp.func` functions
+- Add support for `pass`, `continue`, and `break` statements
+- Add missing `__sincos_stret` symbol for macOS
+- Add support for gradient propagation through `wp.Mesh.points`, and other cases where arrays are passed to native functions
+- Add support for Python `@` operator as an alias for `wp.matmul()`
+- Add XPBD support for particle-particle collision
+- Add support for individual particle radii: `ModelBuilder.add_particle` has a new `radius` argument, `Model.particle_radius` is now a Warp array
+- Add per-particle flags as a `Model.particle_flags` Warp array, introduce `PARTICLE_FLAG_ACTIVE` to define whether a particle is being simulated and participates in contact dynamics
+- Add support for Python bitwise operators `&`, `|`, `~`, `<<`, `>>`
+- Switch to using standalone LLVM compiler by default for `cpu` devices
+- Split `omni.warp` into `omni.warp.core` for Omniverse applications that want to use the Warp Python module with minimal additional dependencies
+- Disable kernel gradient generation by default inside Omniverse for improved compile times
+- Fix for bounds checking on element access of vector/matrix types
+- Fix for stream initialization when a custom (non-primary) external CUDA context has been set on the calling thread
+- Fix for duplicate `@wp.struct` registration during hot reload
+- Fix for array `unot()` operator so kernel writers can use `if not array:` syntax
+- Fix for case where dynamic loops are nested within unrolled loops
+- Change `wp.hash_grid_point_id()` now returns -1 if the `wp.HashGrid` has not been reserved before
+- Deprecate `wp.Model.soft_contact_distance` which is now replaced by `wp.Model.particle_radius`
+- Deprecate single scalar particle radius (should be a per-particle array)
+
+## [0.8.2] - 2023-04-21
+
+- Add `ModelBuilder.soft_contact_max` to control the maximum number of soft contacts that can be registered. Use `Model.allocate_soft_contacts(new_count)` to change count on existing `Model` objects.
+- Add support for `bool` parameters 
+- Add support for logical boolean operators with `int` types
+- Fix for `wp.quat()` default constructor
+- Fix conditional reassignments
+
+## [0.8.1] - 2023-04-13
+
+- Fix for regression when passing flattened numeric lists as matrix arguments to kernels
+- Fix for regressions when passing wp.struct types with uninitialized (None) member attributes
+
+## [0.8.0] - 2023-04-05
+
+- Add `Texture Write` node for updating dynamic RTX textures from Warp kernels / nodes
+- Add multi-dimensional kernel support to Warp Kernel Node
+- Add `wp.load_module()` to pre-load specific modules (pass `recursive=True` to load recursively)
+- Add `wp.poisson()` for sampling Poisson distributions
+- Add support for UsdPhysics schema see `warp.sim.parse_usd()`
+- Add XPBD rigid body implementation plus diff. simulation examples
+- Add support for standalone CPU compilation (no host-compiler) with LLVM backed, enable with `--standalone` build option
+- Add support for per-timer color in `wp.ScopedTimer()`
+- Add support for row-based construction of matrix types outside of kernels
+- Add support for setting and getting row vectors for Python matrices, see `matrix.get_row()`, `matrix.set_row()`
+- Add support for instantiating `wp.struct` types within kernels
+- Add support for indexed arrays, `slice = array[indices]` will now generate a sparse slice of array data
+- Add support for generic kernel params, use `def compute(param: Any):`
+- Add support for `with wp.ScopedDevice("cuda") as device:` syntax (same for `wp.ScopedStream()`, `wp.Tape()`)
+- Add support for creating custom length vector/matrices inside kernels, see `wp.vector()`, and `wp.matrix()`
+- Add support for creating identity matrices in kernels with, e.g.: `I = wp.identity(n=3, dtype=float)`
+- Add support for unary plus operator (`wp.pos()`)
+- Add support for `wp.constant` variables to be used directly in Python without having to use `.val` member
+- Add support for nested `wp.struct` types
+- Add support for returning `wp.struct` from functions
+- Add `--quick` build for faster local dev. iteration (uses a reduced set of SASS arches)
+- Add optional `requires_grad` parameter to `wp.from_torch()` to override gradient allocation
+- Add type hints for generic vector / matrix types in Python stubs
+- Add support for custom user function recording in `wp.Tape()`
+- Add support for registering CUTLASS `wp.matmul()` with tape backward pass
+- Add support for grids with > 2^31 threads (each dimension may be up to INT_MAX in length)
+- Add CPU fallback for `wp.matmul()`
+- Optimizations for `wp.launch()`, up to 3x faster launches in common cases
+- Fix `wp.randf()` conversion to float to reduce bias for uniform sampling
+- Fix capture of `wp.func` and `wp.constant` types from inside Python closures
+- Fix for CUDA on WSL 
+- Fix for matrices in structs
+- Fix for tranpose indexing for some non-square matrices
+- Enable Python faulthandler by default
+- Update to VS2019
+
+Breaking Changes
+----------------
+
+- `wp.constant` variables can now be treated as their true type, accessing the underlying value through `constant.val` is no longer supported
+- `wp.sim.model.ground_plane` is now a `wp.array` to support gradient, users should call `builder.set_ground_plane()` to create the ground 
+- `wp.sim` capsule, cones, and cylinders are now aligned with the default USD up-axis
+
+  
+## [0.7.2] - 2023-02-15
+
+- Reduce test time for vec/math types
+- Clean-up CUDA disabled build pipeline
+- Remove extension.gen.toml to make Kit packages Python version independent
+- Handle additional cases for array indexing inside Python
+
+## [0.7.1] - 2023-02-14
+
+- Disabling some slow tests for Kit
+- Make unit tests run on first GPU only by default
+
+## [0.7.0] - 2023-02-13
+
+- Add support for arbitrary length / type vector and matrices e.g.: `wp.vec(length=7, dtype=wp.float16)`, see `wp.vec()`, and `wp.mat()`
+- Add support for `array.flatten()`, `array.reshape()`, and `array.view()` with NumPy semantics
+- Add support for slicing `wp.array` types in Python
+- Add `wp.from_ptr()` helper to construct arrays from an existing allocation
+- Add support for `break` statements in ranged-for and while loops (backward pass support currently not implemented)
+- Add built-in mathematic constants, see `wp.pi`, `wp.e`, `wp.log2e`, etc
+- Add built-in conversion between degrees and radians, see `wp.degrees()`, `wp.radians()`
+- Add security pop-up for Kernel Node 
+- Improve error handling for kernel return values
+
+## [0.6.3] - 2023-01-31
+
+- Add DLPack utilities, see `wp.from_dlpack()`, `wp.to_dlpack()`
+- Add Jax utilities, see `wp.from_jax()`, `wp.to_jax()`, `wp.device_from_jax()`, `wp.device_to_jax()`
+- Fix for Linux Kit extensions OM-80132, OM-80133
+
+## [0.6.2] - 2023-01-19
+
+- Updated `wp.from_torch()` to support more data types
+- Updated `wp.from_torch()` to automatically determine the target Warp data type if not specified
+- Updated `wp.from_torch()` to support non-contiguous tensors with arbitrary strides
+- Add CUTLASS integration for dense GEMMs, see `wp.matmul()` and `wp.matmul_batched()` 
+- Add QR and Eigen decompositions for `mat33` types, see `wp.qr3()`, and `wp.eig3()`
+- Add default (zero) constructors for matrix types
+- Add a flag to suppress all output except errors and warnings (set `wp.config.quiet = True`)
+- Skip recompilation when Kernel Node attributes are edited
+- Allow optional attributes for Kernel Node
+- Allow disabling backward pass code-gen on a per-kernel basis, use `@wp.kernel(enable_backward=False)`
+- Replace Python `imp` package with `importlib`
+- Fix for quaterion slerp gradients (`wp.quat_slerp()`)
+
+## [0.6.1] - 2022-12-05
+
+- Fix for non-CUDA builds
+- Fix strides computation in array_t constructor, fixes a bug with accessing mesh indices through mesh.indices[]
+- Disable backward pass code generation for kernel node (4-6x faster compilation)
+- Switch to linbuild for universal Linux binaries (affects TeamCity builds only)
+
+## [0.6.0] - 2022-11-28
+
+- Add support for CUDA streams, see `wp.Stream`, `wp.get_stream()`, `wp.set_stream()`, `wp.synchronize_stream()`, `wp.ScopedStream`
+- Add support for CUDA events, see `wp.Event`, `wp.record_event()`, `wp.wait_event()`, `wp.wait_stream()`, `wp.Stream.record_event()`, `wp.Stream.wait_event()`, `wp.Stream.wait_stream()`
+- Add support for PyTorch stream interop, see `wp.stream_from_torch()`, `wp.stream_to_torch()`
+- Add support for allocating host arrays in pinned memory for asynchronous data transfers, use `wp.array(..., pinned=True)` (default is non-pinned)
+- Add support for direct conversions between all scalar types, e.g.: `x = wp.uint8(wp.float64(3.0))`
+- Add per-module option to enable fast math, use `wp.set_module_options({"fast_math": True})`, fast math is now *disabled* by default
+- Add support for generating CUBIN kernels instead of PTX on systems with older drivers
+- Add user preference options for CUDA kernel output ("ptx" or "cubin", e.g.: `wp.config.cuda_output = "ptx"` or per-module `wp.set_module_options({"cuda_output": "ptx"})`)
+- Add kernel node for OmniGraph
+- Add `wp.quat_slerp()`, `wp.quat_to_axis_angle()`, `wp.rotate_rodriquez()` and adjoints for all remaining quaternion operations
+- Add support for unrolling for-loops when range is a `wp.constant`
+- Add support for arithmetic operators on built-in vector / matrix types outside of `wp.kernel`
+- Add support for multiple solution variables in `wp.optim` Adam optimization
+- Add nested attribute support for `wp.struct` attributes
+- Add missing adjoint implementations for spatial math types, and document all functions with missing adjoints
+- Add support for retrieving NanoVDB tiles and voxel size, see `wp.Volume.get_tiles()`, and `wp.Volume.get_voxel_size()`
+- Add support for store operations on integer NanoVDB volumes, see `wp.volume_store_i()`
+- Expose `wp.Mesh` points, indices, as arrays inside kernels, see `wp.mesh_get()`
+- Optimizations for `wp.array` construction, 2-3x faster on average
+- Optimizations for URDF import
+- Fix various deployment issues by statically linking with all CUDA libs
+- Update warp.so/warp.dll to CUDA Toolkit 11.5
+
+## [0.5.1] - 2022-11-01
+
+- Fix for unit tests in Kit
+
+## [0.5.0] - 2022-10-31
+
+- Add smoothed particle hydrodynamics (SPH) example, see `example_sph.py`
+- Add support for accessing `array.shape` inside kernels, e.g.: `width = arr.shape[0]`
+- Add dependency tracking to hot-reload modules if dependencies were modified
+- Add lazy acquisition of CUDA kernel contexts (save ~300Mb of GPU memory in MGPU environments)
+- Add BVH object, see `wp.Bvh` and `bvh_query_ray()`, `bvh_query_aabb()` functions
+- Add component index operations for `spatial_vector`, `spatial_matrix` types
+- Add `wp.lerp()` and `wp.smoothstep()` builtins
+- Add `wp.optim` module with implementation of the Adam optimizer for float and vector types
+- Add support for transient Python modules (fix for Houdini integration)
+- Add `wp.length_sq()`, `wp.trace()` for vector / matrix types respectively
+- Add missing adjoints for `wp.quat_rpy()`, `wp.determinant()`
+- Add `wp.atomic_min()`, `wp.atomic_max()` operators
+- Add vectorized version of `warp.sim.model.add_cloth_mesh()` 
+- Add NVDB volume allocation API, see `wp.Volume.allocate()`, and `wp.Volume.allocate_by_tiles()`
+- Add NVDB volume write methods, see `wp.volume_store_i()`, `wp.volume_store_f()`, `wp.volume_store_v()`
+- Add MGPU documentation
+- Add example showing how to compute Jacobian of multiple environements in parallel, see `example_jacobian_ik.py`
+- Add `wp.Tape.zero()` support for `wp.struct` types
+- Make SampleBrowser an optional dependency for Kit extension
+- Make `wp.Mesh` object accept both 1d and 2d arrays of face vertex indices
+- Fix for reloading of class member kernel / function definitions using `importlib.reload()`
+- Fix for hashing of `wp.constants()` not invalidating kernels
+- Fix for reload when multiple `.ptx` versions are present
+- Improved error reporting during code-gen
+ 
 ## [0.4.3] - 2022-09-20
 
 - Update all samples to use GPU interop path by default

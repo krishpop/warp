@@ -1,16 +1,17 @@
 from omegaconf import OmegaConf
 
-OmegaConf.register_new_resolver("resolve_default", lambda default, arg: default if arg in ["", None] else arg)
 
+try:
+    OmegaConf.register_new_resolver("resolve_default", lambda default, arg: default if arg in ["", None] else arg)
+except ValueError:
+    # already registered
+    pass
 
-def custom_eval(x):
-    import numpy as np  # noqa
-    import torch  # noqa
-
-    return eval(x)
-
-
-OmegaConf.register_new_resolver("eval", custom_eval)
+try:
+    OmegaConf.register_new_resolver("eval", eval)
+except ValueError:
+    # already registered
+    pass
 
 
 def return_enum(x, y):

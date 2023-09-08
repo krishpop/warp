@@ -84,7 +84,7 @@ class Example:
         self.model.joint_attach_ke = 1600.0
         self.model.joint_attach_kd = 20.0
 
-        self.integrator = wp.sim.SemiImplicitIntegrator()
+        self.integrator = self.model.integrator = wp.sim.SemiImplicitIntegrator()
 
         # -----------------------
         # set up Usd renderer

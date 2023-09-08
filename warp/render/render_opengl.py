@@ -233,7 +233,6 @@ def update_vbo_transforms(
     # outputs
     vbo_transforms: wp.array(dtype=wp.mat44),
 ):
-
     tid = wp.tid()
     i = instance_id[tid]
     X_ws = instance_transforms[i]
@@ -275,7 +274,6 @@ def update_vbo_vertices(
     # outputs
     vbo_vertices: wp.array(dtype=float, ndim=2),
 ):
-
     tid = wp.tid()
     p = points[tid]
     vbo_vertices[tid, 0] = p[0]
@@ -290,7 +288,6 @@ def update_points_positions(
     # outputs
     vbo_transforms: wp.array(dtype=wp.mat44),
 ):
-
     tid = wp.tid()
     p = instance_positions[tid]
     s = wp.vec3(1.0)
@@ -312,7 +309,6 @@ def update_line_transforms(
     # outputs
     vbo_transforms: wp.array(dtype=wp.mat44),
 ):
-
     tid = wp.tid()
     p0 = lines[tid, 0]
     p1 = lines[tid, 1]
@@ -343,7 +339,6 @@ def compute_gfx_vertices(
     # outputs
     gfx_vertices: wp.array(dtype=float, ndim=2),
 ):
-
     tid = wp.tid()
     v0 = vertices[indices[tid, 0]]
     v1 = vertices[indices[tid, 1]]
@@ -380,7 +375,6 @@ def compute_average_normals(
     normals: wp.array(dtype=wp.vec3),
     faces_per_vertex: wp.array(dtype=int),
 ):
-
     tid = wp.tid()
     i = indices[tid, 0]
     j = indices[tid, 1]
@@ -405,7 +399,6 @@ def assemble_gfx_vertices(
     # outputs
     gfx_vertices: wp.array(dtype=float, ndim=2),
 ):
-
     tid = wp.tid()
     v = vertices[tid]
     n = normals[tid] / float(faces_per_vertex[tid])
@@ -425,7 +418,6 @@ def copy_frame(
     # outputs
     output_img: wp.array(dtype=float, ndim=3),
 ):
-
     w, v = wp.tid()
     pixel = v * width + w
     pixel *= 3
@@ -449,7 +441,6 @@ def copy_frame_tiles(
     # outputs
     output_img: wp.array(dtype=float, ndim=4),
 ):
-
     tile, x, y = wp.tid()
     p = positions[tile]
     qx = x + p[0]
@@ -482,7 +473,6 @@ def copy_frame_tile(
     # outputs
     output_img: wp.array(dtype=float, ndim=4),
 ):
-
     tile, x, y = wp.tid()
     qx = x + offset_x
     qy = y + offset_y
@@ -505,6 +495,7 @@ def copy_frame_tile(
 
 def check_gl_error():
     from pyglet import gl
+
     error = gl.glGetError()
     if error != gl.GL_NO_ERROR:
         print(f"OpenGL error: {error}")
@@ -534,6 +525,7 @@ class ShapeInstancer:
 
     def __del__(self):
         from pyglet import gl
+
         if self.instance_transform_gl_buffer is not None:
             try:
                 gl.glDeleteBuffers(1, self.instance_transform_gl_buffer)
@@ -551,6 +543,7 @@ class ShapeInstancer:
 
     def register_shape(self, vertices, indices, color1=(1.0, 1.0, 1.0), color2=(0.0, 0.0, 0.0)):
         from pyglet import gl
+
         if color1 is not None and color2 is None:
             color2 = np.clip(np.array(color1) + 0.25, 0.0, 1.0)
         self.color1 = color1
@@ -732,6 +725,7 @@ class ShapeInstancer:
 
     def render(self):
         from pyglet import gl
+
         gl.glUseProgram(self.shape_shader.id)
 
         gl.glBindVertexArray(self.vao)
@@ -741,6 +735,7 @@ class ShapeInstancer:
     # scope exposes VBO transforms to be set directly by a warp kernel
     def __enter__(self):
         from pyglet import gl
+
         gl.glBindVertexArray(self.vao)
         self.vbo_transforms = self._instance_transform_cuda_buffer.map(dtype=wp.mat44, shape=(self.num_instances,))
         return self
@@ -781,14 +776,18 @@ class OpenGLRenderer:
         draw_sky=True,
         draw_axis=True,
         show_info=True,
+        render_wireframe=False,
         axis_scale=1.0,
         vsync=False,
         headless=False,
-        fixed_view=False
+        enable_backface_culling=True,
     ):
-
         try:
             import pyglet
+
+            # disable error checking for performance
+            pyglet.options["debug_gl"] = False
+
             from pyglet import gl
             from pyglet.math import Vec3 as PyVec3
             from pyglet.graphics.shader import Shader, ShaderProgram
@@ -798,13 +797,14 @@ class OpenGLRenderer:
         self.camera_near_plane = near_plane
         self.camera_far_plane = far_plane
         self.camera_fov = camera_fov
-        self.fixed_view = False # intially for setup of camera matrices
 
         self.background_color = background_color
         self.draw_grid = draw_grid
         self.draw_sky = draw_sky
         self.draw_axis = draw_axis
         self.show_info = show_info
+        self.render_wireframe = render_wireframe
+        self.enable_backface_culling = enable_backface_culling
 
         self._device = wp.get_cuda_device()
         self._title = title
@@ -903,7 +903,6 @@ class OpenGLRenderer:
 
         gl.glClearColor(*self.background_color, 1)
         gl.glEnable(gl.GL_DEPTH_TEST)
-        gl.glEnable(gl.GL_CULL_FACE)
 
         self._shape_shader = ShaderProgram(
             Shader(shape_vertex_shader, "vertex"), Shader(shape_fragment_shader, "fragment")
@@ -1103,6 +1102,7 @@ class OpenGLRenderer:
         # set up our own event handling so we can synchronously render frames
         # by calling update() in a loop
         from pyglet.window import Window
+
         Window._enable_event_queue = False
 
         self.window.switch_to()
@@ -1113,7 +1113,6 @@ class OpenGLRenderer:
 
         # start event loop
         self.app.event_loop.dispatch_event("on_enter")
-        self.fixed_view = fixed_view
 
     @property
     def paused(self):
@@ -1133,6 +1132,7 @@ class OpenGLRenderer:
 
     def clear(self):
         from pyglet import gl
+
         self.app.event_loop.dispatch_event("on_exit")
         self.app.platform_event_loop.stop()
 
@@ -1384,9 +1384,7 @@ class OpenGLRenderer:
 
         # allocate memory for PBO
         pixels = np.zeros((self.screen_height, self.screen_width, 3), dtype=np.uint8)
-        gl.glBufferData(
-            gl.GL_PIXEL_PACK_BUFFER, pixels.nbytes, pixels.ctypes.data, gl.GL_DYNAMIC_DRAW
-        )
+        gl.glBufferData(gl.GL_PIXEL_PACK_BUFFER, pixels.nbytes, pixels.ctypes.data, gl.GL_DYNAMIC_DRAW)
         gl.glBindBuffer(gl.GL_PIXEL_PACK_BUFFER, 0)
 
     @staticmethod
@@ -1407,11 +1405,10 @@ class OpenGLRenderer:
         """
 
         from pyglet.math import Mat4 as PyMat4
+
         return np.array(PyMat4.perspective_projection(aspect_ratio, near_plane, far_plane, fov))
 
     def update_projection_matrix(self):
-        if self.fixed_view:
-            return
         if self.screen_height == 0:
             return
         aspect_ratio = self.screen_width / self.screen_height
@@ -1420,16 +1417,14 @@ class OpenGLRenderer:
         )
 
     def update_view_matrix(self):
-        if self.fixed_view:
-            return
         from pyglet.math import Mat4 as PyMat4
+
         cam_pos = self._camera_pos
         self._view_matrix = np.array(PyMat4.look_at(cam_pos, cam_pos + self._camera_front, self._camera_up))
 
     def update_model_matrix(self):
-        if self.fixed_view:
-            return
         from pyglet import gl
+
         # fmt: off
         if self._camera_axis == 0:
             self._model_matrix = np.array((
@@ -1440,7 +1435,7 @@ class OpenGLRenderer:
             ))
         elif self._camera_axis == 2:
             self._model_matrix = np.array((
-                self._scaling, 0, 0, 0,
+                -self._scaling, 0, 0, 0,
                 0, 0, self._scaling, 0,
                 0, self._scaling, 0, 0,
                 0, 0, 0, 1
@@ -1511,33 +1506,39 @@ class OpenGLRenderer:
         self._last_time = self.clock_time
         self._frame_speed = update_duration * 100.0
 
-        self.app.event_loop.idle()
-        self.app.platform_event_loop.step(self._frame_dt)
-
-        self._skip_frame_counter += 1
-        if self._skip_frame_counter > 100:
-            self._skip_frame_counter = 0
-
-        if frame_duration > 0.0:
-            if self._fps_update is None:
-                self._fps_update = 1.0 / frame_duration
-            else:
-                update = 1.0 / frame_duration
-                self._fps_update = (1.0 - self._fps_alpha) * self._fps_update + self._fps_alpha * update
-        if update_duration > 0.0:
-            if self._fps_render is None:
-                self._fps_render = 1.0 / update_duration
-            else:
-                update = 1.0 / update_duration
-                self._fps_render = (1.0 - self._fps_alpha) * self._fps_render + self._fps_alpha * update
+        # self.app.event_loop.idle()
+        self.app.platform_event_loop.step(self._frame_dt * 1e-3)
 
         if not self.skip_rendering:
-            self.app.event_loop._redraw_windows(self._frame_dt)
+            self._skip_frame_counter += 1
+            if self._skip_frame_counter > 100:
+                self._skip_frame_counter = 0
+
+            if frame_duration > 0.0:
+                if self._fps_update is None:
+                    self._fps_update = 1.0 / frame_duration
+                else:
+                    update = 1.0 / frame_duration
+                    self._fps_update = (1.0 - self._fps_alpha) * self._fps_update + self._fps_alpha * update
+            if update_duration > 0.0:
+                if self._fps_render is None:
+                    self._fps_render = 1.0 / update_duration
+                else:
+                    update = 1.0 / update_duration
+                    self._fps_render = (1.0 - self._fps_alpha) * self._fps_render + self._fps_alpha * update
+
+            self.app.event_loop._redraw_windows(self._frame_dt * 1e-3)
 
     def _draw(self):
         from pyglet import gl
+
         # catch key hold events
         self._process_inputs()
+
+        if self.enable_backface_culling:
+            gl.glEnable(gl.GL_CULL_FACE)
+        else:
+            gl.glDisable(gl.GL_CULL_FACE)
 
         if self._frame_fbo is not None:
             gl.glBindFramebuffer(gl.GL_FRAMEBUFFER, self._frame_fbo)
@@ -1562,10 +1563,15 @@ class OpenGLRenderer:
         gl.glUniformMatrix4fv(self._loc_shape_view, 1, gl.GL_FALSE, view_mat_ptr)
         gl.glUniformMatrix4fv(self._loc_shape_projection, 1, gl.GL_FALSE, projection_mat_ptr)
 
+        if self.render_wireframe:
+            gl.glPolygonMode(gl.GL_FRONT_AND_BACK, gl.GL_LINE)
+
         if self._tiled_rendering:
             self._render_scene_tiled()
         else:
             self._render_scene()
+
+        gl.glPolygonMode(gl.GL_FRONT_AND_BACK, gl.GL_FILL)
 
         gl.glBindBuffer(gl.GL_PIXEL_UNPACK_BUFFER, 0)
         gl.glBindFramebuffer(gl.GL_FRAMEBUFFER, 0)
@@ -1607,6 +1613,7 @@ Instances: {len(self._instances)}"""
 
     def _draw_grid(self, is_tiled=False):
         from pyglet import gl
+
         if not is_tiled:
             gl.glUseProgram(self._grid_shader.id)
 
@@ -1619,6 +1626,7 @@ Instances: {len(self._instances)}"""
 
     def _draw_sky(self, is_tiled=False):
         from pyglet import gl
+
         if not is_tiled:
             gl.glUseProgram(self._sky_shader.id)
 
@@ -1632,6 +1640,7 @@ Instances: {len(self._instances)}"""
 
     def _render_scene(self):
         from pyglet import gl
+
         start_instance_idx = 0
 
         for shape, (vao, _, _, tri_count, _) in self._shape_gl_buffers.items():
@@ -1654,6 +1663,7 @@ Instances: {len(self._instances)}"""
 
     def _render_scene_tiled(self):
         from pyglet import gl
+
         for i, viewport in enumerate(self._tile_viewports):
             projection_matrix_ptr = arr_pointer(self._tile_projection_matrices[i])
             view_matrix_ptr = arr_pointer(self._tile_view_matrices[i] or self._view_matrix)
@@ -1699,6 +1709,7 @@ Instances: {len(self._instances)}"""
 
     def _mouse_drag_callback(self, x, y, dx, dy, buttons, modifiers):
         import pyglet
+
         if buttons & pyglet.window.mouse.LEFT:
             sensitivity = 0.1
             dx *= sensitivity
@@ -1754,6 +1765,10 @@ Instances: {len(self._instances)}"""
             self.draw_grid = not self.draw_grid
         if symbol == pyglet.window.key.I:
             self.show_info = not self.show_info
+        if symbol == pyglet.window.key.X:
+            self.render_wireframe = not self.render_wireframe
+        if symbol == pyglet.window.key.B:
+            self.enable_backface_culling = not self.enable_backface_culling
 
     def _window_resize_callback(self, width, height):
         self._first_mouse = True
@@ -2478,7 +2493,9 @@ Instances: {len(self._instances)}"""
             if self.update_shape_instance(name, pos, rot):
                 return shape
         else:
-            vertices, indices = self._create_arrow_mesh(base_radius, base_height, cap_radius, cap_height, up_axis=up_axis)
+            vertices, indices = self._create_arrow_mesh(
+                base_radius, base_height, cap_radius, cap_height, up_axis=up_axis
+            )
             shape = self.register_shape(geo_hash, vertices, indices)
         if not is_template:
             body = self._resolve_body_id(parent_body)
@@ -2516,6 +2533,7 @@ Instances: {len(self._instances)}"""
             wp_points = wp.array(points, dtype=wp.vec3, device=self._device)
 
         if name not in self._shape_instancers:
+            np_points = points.numpy() if isinstance(points, wp.array) else points
             instancer = ShapeInstancer(self._shape_shader, self._device)
             radius_is_scalar = np.isscalar(radius)
             if radius_is_scalar:
@@ -2528,12 +2546,13 @@ Instances: {len(self._instances)}"""
                 color = colors[0]
             instancer.register_shape(vertices, indices, color, color)
             scalings = None if radius_is_scalar else np.tile(radius, (3, 1)).T
-            instancer.allocate_instances(np.array(points), colors1=colors, colors2=colors, scalings=scalings)
+            instancer.allocate_instances(np_points, colors1=colors, colors2=colors, scalings=scalings)
             self._shape_instancers[name] = instancer
         else:
             instancer = self._shape_instancers[name]
             if len(points) != instancer.num_instances:
-                instancer.allocate_instances(np.array(points))
+                np_points = points.numpy() if isinstance(points, wp.array) else points
+                instancer.allocate_instances(np_points)
 
         with instancer:
             wp.launch(
@@ -2551,7 +2570,7 @@ Instances: {len(self._instances)}"""
         if name not in self._shape_instancers:
             instancer = ShapeInstancer(self._shape_shader, self._device)
             vertices, indices = self._create_capsule_mesh(radius, 0.5)
-            if color is None:
+            if color is None or isinstance(color[0], list):
                 color = tab10_color_map(len(self._shape_geo_hash))
             instancer.register_shape(vertices, indices, color, color)
             instancer.allocate_instances(np.zeros((len(lines), 3)))
@@ -2651,7 +2670,7 @@ Instances: {len(self._instances)}"""
 
                 if reverse_winding:
                     indices.extend([first, second, first + 1, second, second + 1, first + 1])
-                else:    
+                else:
                     indices.extend([first, first + 1, second, second, first + 1, second + 1])
 
         return np.array(vertices, dtype=np.float32), np.array(indices, dtype=np.uint32)
@@ -2764,7 +2783,8 @@ Instances: {len(self._instances)}"""
                 cap_vertices.append(vertex)
 
                 indices.extend(
-                    [center_index, i + center_index * segments + 2, (i + 1) % segments + center_index * segments + 2]
+                    [center_index, i + center_index * segments + 2,
+                        (i + 1) % segments + center_index * segments + 2][::-j]
                 )
 
         # Create the cylinder side indices

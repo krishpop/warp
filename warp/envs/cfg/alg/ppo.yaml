@@ -1,5 +1,5 @@
 name: ppo
-num_envs: 2048
+num_envs: ${resolve_default:2048,${..num_envs}}
 
 params:
   algo:

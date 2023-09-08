@@ -1,5 +1,9 @@
-import torch
+from typing import Dict, Union
+
 from hydra.utils import instantiate
+from omegaconf.dictconfig import DictConfig
+import torch
+
 from .torch_utils import quat_conjugate, quat_mul
 
 action_penalty = lambda act: torch.linalg.norm(act, dim=-1)
@@ -34,10 +38,10 @@ def reach_bonus(pose_err, threshold: float = 0.1):
     return torch.where(pose_err < threshold, torch.ones_like(pose_err), torch.zeros_like(pose_err))
 
 
-def parse_reward_params(reward_params_dict):
+def parse_reward_params(reward_params_dict: Union[Dict, DictConfig]):
     rew_params = {}
     for key, value in reward_params_dict.items():
-        if isinstance(value, dict):
+        if isinstance(value, (dict, DictConfig)):
             if not callable(value["reward_fn_partial"]) and "_partial_" in value["reward_fn_partial"]:
                 value = instantiate(value)
             function = value["reward_fn_partial"]

@@ -201,7 +201,7 @@ class WarpEnv(Environment):
 
         if self.use_graph_capture and self.requires_grad:
             # if not self.activate_ground_plane:  # ie no contact
-            backward_model = self.builder.finalize(device=self.device)
+            backward_model = self.builder.finalize(device=self.device, integrator=self.integrator)
             # else:
             # backward_model = self.builder.finalize(
             #     device=self.device,
@@ -279,6 +279,9 @@ class WarpEnv(Environment):
         Get the rand initial state for the environment
         """
         pass
+
+    def _check_early_termination(self, obs_dict):
+        raise NotImplementedError
 
     def reset(self, env_ids=None, force_reset=True):
         self.render_time = 0.0

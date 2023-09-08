@@ -13,7 +13,7 @@ _A selection of physical simulations computed with Warp_
 
 ## Installing 
 
-Warp supports Python versions 3.7.x-3.9.x. The easiest way is to install from PyPi:
+Warp supports Python versions 3.7.x-3.11.x. The easiest way is to install from PyPi:
 
     pip install warp-lang
 
@@ -62,7 +62,7 @@ The `examples` directory contains a number of scripts that show how to implement
 
     pip install usd-core
     
-USD files can be viewed or rendered inside NVIDIA [Omniverse](https://developer.nvidia.com/nvidia-omniverse-platform), Pixar's UsdView, and Blender. Note that Preview in macOS is not recommended as it has limited support for time-sampled animations.
+USD files can be viewed or rendered inside NVIDIA [Omniverse](https://developer.nvidia.com/omniverse), Pixar's UsdView, and Blender. Note that Preview in macOS is not recommended as it has limited support for time-sampled animations.
 
 Built-in unit tests can be run from the command-line as follows:
 
@@ -72,20 +72,20 @@ Built-in unit tests can be run from the command-line as follows:
 
 For developers who want to build the library themselves the following tools are required:
 
-* Microsoft Visual Studio 2017 upwards (Windows)
-* GCC 4.0 upwards (Linux)
-* CUDA Toolkit 11.3 or higher
+* Microsoft Visual Studio 2019 upwards (Windows)
+* GCC 7.2 upwards (Linux)
+* CUDA Toolkit 11.5 or higher
 * Git LFS installed (https://git-lfs.github.com/) 
 
 After cloning the repository, users should run:
 
     python build_lib.py
 
-This will generate the `warp.dll` / `warp.so` core library respectively. When building manually users should ensure that their CUDA_PATH environment variable is set and dynamic libraries can be found at runtime. After building the Warp package should be installed using:
+This will generate the `warp.dll` / `warp.so` core library respectively. When building manually users should ensure that their CUDA_PATH environment variable is set, otherwise Warp will be built without CUDA support. Alternatively, the path to the CUDA toolkit can be passed to the build command as `--cuda_path="..."`. After building the Warp package should be installed using:
 
     pip install -e .
 
-Which ensures that subsequent modifications to the libary will be reflected in the Python package.
+Which ensures that subsequent modifications to the library will be reflected in the Python package.
 
 If you are cloning from Windows, please first ensure that you have enabled "Developer Mode" in Windows settings and symlinks in git:
 
@@ -105,15 +105,15 @@ Enabling the extension will automatically install and initialize the Warp Python
 
 Please see the following resources for additional background on Warp:
 
-* [GTC 2022 Presentation](https://www.nvidia.com/en-us/on-demand/session/gtcspring22-s41599/).
-* [GTC 2021 Presentation](https://www.nvidia.com/en-us/on-demand/session/gtcspring21-s31838/)
+* [GTC 2022 Presentation](https://www.nvidia.com/en-us/on-demand/session/gtcspring22-s41599)
+* [GTC 2021 Presentation](https://www.nvidia.com/en-us/on-demand/session/gtcspring21-s31838)
 * [SIGGRAPH Asia 2021 Differentiable Simulation Course](https://dl.acm.org/doi/abs/10.1145/3476117.3483433)
 
 The underlying technology in Warp has been used in a number of research projects at NVIDIA including the following publications:
 
-* Accelerated Policy Learning with Parallel Differentiable Simulation - Xu, J., Makoviychuk, V., Narang, Y., Ramos, F., Matusik, W., Garg, A., & Macklin, M. [(2022)](https://short-horizon-actor-critic.github.io/)
+* Accelerated Policy Learning with Parallel Differentiable Simulation - Xu, J., Makoviychuk, V., Narang, Y., Ramos, F., Matusik, W., Garg, A., & Macklin, M. [(2022)](https://short-horizon-actor-critic.github.io)
 * DiSECt: Differentiable Simulator for Robotic Cutting - Heiden, E., Macklin, M., Narang, Y., Fox, D., Garg, A., & Ramos, F [(2021)](https://github.com/NVlabs/DiSECt)
-* gradSim: Differentiable Simulation for System Identification and Visuomotor Control - Murthy, J. Krishna, Miles Macklin, Florian Golemo, Vikram Voleti, Linda Petrini, Martin Weiss, Breandan Considine et al. [(2021)](https://krrish94.github.io/publication/2021-gradsim/)
+* gradSim: Differentiable Simulation for System Identification and Visuomotor Control - Murthy, J. Krishna, Miles Macklin, Florian Golemo, Vikram Voleti, Linda Petrini, Martin Weiss, Breandan Considine et al. [(2021)](https://gradsim.github.io)
 
 
 ## Citing
@@ -138,7 +138,7 @@ howpublished = {\url{https://github.com/nvidia/warp}}
 
 Warp is inspired by many of these projects, and is closely related to Numba and Taichi which both expose kernel programming to Python. These frameworks map to traditional GPU programming models, so many of the  high-level concepts are similar, however there are some functionality and implementation differences.
 
-Compared to Numba, Warp supports a smaller subset of Python, but offering auto-differentiation of kernel programs, which is useful for machine learning. Compared to Taichi Warp uses C++/CUDA as an intermediate representation, which makes it convenient to implement and expose low-level routines. In addition, we are building in datastructures to support geometry processing (meshes, sparse volumes, point clouds, USD data) as first-class citizens that are not exposed in other runtimes.
+Compared to Numba, Warp supports a smaller subset of Python, but offering auto-differentiation of kernel programs, which is useful for machine learning. Compared to Taichi Warp uses C++/CUDA as an intermediate representation, which makes it convenient to implement and expose low-level routines. In addition, we are building in data structures to support geometry processing (meshes, sparse volumes, point clouds, USD data) as first-class citizens that are not exposed in other runtimes.
 
 Warp does not offer a full tensor-based programming model like PyTorch and JAX, but is designed to work well with these frameworks through data sharing mechanisms like `__cuda_array_interface__`. For computations that map well to tensors (e.g.: neural-network inference) it makes sense to use these existing tools. For problems with a lot of e.g.: sparsity, conditional logic, hetergenous workloads (like the ones we often find in simulation and graphics), then the kernel-based programming model like the one in Warp are often more convenient since users have control over individual threads.
 
@@ -190,12 +190,12 @@ Most optimizers (particularly ones that exploit stochasticity), are not sensitiv
 ### Does Warp support multi-GPU programming?
 -------
 
-Yes! Since verrsion `0.4.0` we support allocating, launching, and copying between multiple GPUs in a single process. We follow the naming conventions of PyTorch and use aliases such as `cuda:0`, `cuda:1`, `cpu` to identify individual devices.
+Yes! Since version `0.4.0` we support allocating, launching, and copying between multiple GPUs in a single process. We follow the naming conventions of PyTorch and use aliases such as `cuda:0`, `cuda:1`, `cpu` to identify individual devices.
 
 ### Should I switch to Warp over IsaacGym / PhysX?
 -------
 
-Warp is not a replacement for IsaacGym, IsaacSim, or PhysX - while Warp does offer some physical simulation capabilities this is primarily aimed at developers who need differentiable physics, rather than a fully featured physics engine. Warp is also integrated with IsaacGym and is great for performing auxilary tasks such as reward and observation computations for reinforcement learning.
+Warp is not a replacement for IsaacGym, IsaacSim, or PhysX - while Warp does offer some physical simulation capabilities this is primarily aimed at developers who need differentiable physics, rather than a fully featured physics engine. Warp is also integrated with IsaacGym and is great for performing auxiliary tasks such as reward and observation computations for reinforcement learning.
 
 
 

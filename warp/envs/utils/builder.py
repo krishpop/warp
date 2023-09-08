@@ -6,8 +6,8 @@ import math
 import numpy as np
 from pathlib import Path
 from .common import *
-from .tcdm_utils import get_tcdm_trajectory, TCDM_MESH_PATHS, TCDM_TRAJ_PATHS, TCDM_OBJ_NAMES
-from tcdm.envs import asset_abspath
+
+# from .tcdm_utils import get_tcdm_trajectory, TCDM_MESH_PATHS, TCDM_TRAJ_PATHS, TCDM_OBJ_NAMES
 
 
 OBJ_PATHS = {
@@ -88,17 +88,17 @@ def add_object(
     if object_type in OBJ_PATHS:
         add_mesh(builder, link, OBJ_PATHS[object_type], contact_ke=contact_ke, contact_kd=contact_kd, density=density)
 
-    elif object_type in TCDM_TRAJ_PATHS:
-        add_tcdm_mesh(
-            builder,
-            link,
-            model_path,
-            rot,
-            density,
-            contact_ke,
-            contact_kd,
-            1.3,
-        )
+    # elif object_type in TCDM_TRAJ_PATHS:
+    #     add_tcdm_mesh(
+    #         builder,
+    #         link,
+    #         model_path,
+    #         rot,
+    #         density,
+    #         contact_ke,
+    #         contact_kd,
+    #         1.3,
+    #     )
     elif object_type is ObjectType.RECTANGULAR_PRISM_FLAT:
         add_box(
             builder,
@@ -212,6 +212,8 @@ def add_tcdm_mesh(
     kd=1e4,
     scale=1,
 ):
+    from tcdm.envs import asset_abspath
+
     #'hammer-use1' --> ['hammer', 'use1']
     obj_stl_path = asset_abspath(obj_path)
     mesh, _ = parse_mesh(obj_stl_path)
@@ -426,12 +428,12 @@ class ObjectModel:
         self.scale = scale
         self.stiffness = stiffness
         self.damping = damping
-        self.model_path = TCDM_MESH_PATHS.get(self.object_type)
+        self.model_path = None  # TCDM_MESH_PATHS.get(self.object_type)
         self.base_joint_name = base_body_name + "_joint"
-        if self.model_path is not None:
-            self.tcdm_trajectory, self.dex_trajectory = get_tcdm_trajectory(self.object_type)
-        else:
-            self.tcdm_trajectory = self.dex_trajectory = None
+        # if self.model_path is not None:
+        #     self.tcdm_trajectory, self.dex_trajectory = get_tcdm_trajectory(self.object_type)
+        # else:
+        self.tcdm_trajectory = self.dex_trajectory = None
 
     def create_articulation(self, builder, density=100.0):
         self.object_joint = add_joint(
@@ -443,31 +445,31 @@ class ObjectModel:
             damping=self.damping,
             body_name="object",  # self.object_name + "_body_joint",
         )
-        if self.model_path:
-            obj_stl_path = asset_abspath(self.model_path)
-            mesh, _ = parse_mesh(obj_stl_path)
-            geom_size = (self.scale, self.scale, self.scale)
-            builder.add_shape_mesh(
-                body=self.object_joint,
-                pos=(0.0, 0.0, 0.0),  # in Z-up frame, transform applied already
-                rot=(1.0, 0.0, 0.0, 0.0),
-                mesh=mesh,
-                scale=geom_size,
-                density=density,
-                ke=self.contact_ke,
-                kd=self.contact_kd,
-            )
-        else:
-            add_object(
-                builder,
-                self.object_joint,
-                self.object_type,
-                self.base_ori,
-                density,
-                self.contact_ke,
-                self.contact_kd,
-                scale=self.scale,
-            )
+        # if self.model_path:
+        #     obj_stl_path = asset_abspath(self.model_path)
+        #     mesh, _ = parse_mesh(obj_stl_path)
+        #     geom_size = (self.scale, self.scale, self.scale)
+        #     builder.add_shape_mesh(
+        #         body=self.object_joint,
+        #         pos=(0.0, 0.0, 0.0),  # in Z-up frame, transform applied already
+        #         rot=(1.0, 0.0, 0.0, 0.0),
+        #         mesh=mesh,
+        #         scale=geom_size,
+        #         density=density,
+        #         ke=self.contact_ke,
+        #         kd=self.contact_kd,
+        #     )
+        # else:
+        add_object(
+            builder,
+            self.object_joint,
+            self.object_type,
+            self.base_ori,
+            density,
+            self.contact_ke,
+            self.contact_kd,
+            scale=self.scale,
+        )
 
 
 class OperableObjectModel(ObjectModel):
