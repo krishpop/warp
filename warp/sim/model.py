@@ -594,7 +594,7 @@ class Model:
         self.ground_plane = None
         self.up_vector = np.array((0.0, 1.0, 0.0))
         self.up_axis = 1
-        self.gravity = np.array((0.0, -9.81, 0.0))
+        self.gravity = np.array((0.0, -9.80665, 0.0))
 
         self.particle_count = 0
         self.body_count = 0
@@ -1121,7 +1121,7 @@ class ModelBuilder:
         # every simulation substep (can be 0 if only one PBD solver iteration is used)
         self.rigid_contact_margin = 0.1
         # torsional friction coefficient (only considered by XPBD so far)
-        self.rigid_contact_torsional_friction = 0.5
+        self.rigid_contact_torsional_friction = 0.0
         # rolling friction coefficient (only considered by XPBD so far)
         self.rigid_contact_rolling_friction = 0.001
 
