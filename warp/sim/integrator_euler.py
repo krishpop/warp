@@ -1816,7 +1816,8 @@ class SemiImplicitIntegrator:
                 plugin.initialize(model, self)
             plugin.augment_state(model, state)
 
-    def simulate(self, model, state_in, state_out, dt, requires_grad=False):
+    def simulate(self, model, state_in, state_out, dt):
+        requires_grad = state_in.requires_grad
         with wp.ScopedTimer("simulate", False):
             particle_f = None
             body_f = None
