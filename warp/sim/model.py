@@ -8,21 +8,23 @@
 """A module for building simulation models and state.
 """
 
-from .inertia import transform_inertia
-from .inertia import compute_cone_inertia
-from .inertia import compute_cylinder_inertia
-from .inertia import compute_capsule_inertia
-from .inertia import compute_box_inertia
-from .inertia import compute_sphere_inertia
-from .inertia import compute_mesh_inertia
+import copy
+import math
+from typing import List, Optional, Tuple
 
-import warp as wp
 import numpy as np
 
-import math
-import copy
+import warp as wp
 
-from typing import List, Optional, Tuple
+from .inertia import (
+    compute_box_inertia,
+    compute_capsule_inertia,
+    compute_cone_inertia,
+    compute_cylinder_inertia,
+    compute_mesh_inertia,
+    compute_sphere_inertia,
+    transform_inertia,
+)
 
 Vec3 = List[float]
 Vec4 = List[float]
@@ -97,7 +99,7 @@ class JointAxis:
 
     Attributes:
 
-        axis (3D vector): The axis that this JointAxis object describes 
+        axis (3D vector): The axis that this JointAxis object describes
         limit_lower (float): The lower limit of the joint axis
         limit_upper (float): The upper limit of the joint axis
         limit_ke (float): The elastic stiffness of the joint axis limits, only respected by SemiImplicitIntegrator
@@ -134,6 +136,30 @@ class JointAxis:
         self.target_ke = target_ke
         self.target_kd = target_kd
         self.mode = mode
+
+
+class SDF:
+    # Describes a signed distance field for simulation
+    #
+    #    Attributes:
+    #
+    #        Either a NanoVDB file name or a numpy array
+    #
+    def __init__(self, volume=None, I=np.eye(3, dtype=np.float32), mass=1.0, com=np.array((0.0, 0.0, 0.0))):
+        self.volume = volume
+
+        # Need to specify these for now
+        self.has_inertia = True
+        self.is_solid = True
+        self.mass = mass
+        self.com = com
+        self.I = I
+
+    def finalize(self, device=None):
+        return self.volume.id
+
+    def __hash__(self):
+        return hash((self.volume.id))
 
 
 class Mesh:
@@ -246,20 +272,20 @@ class State:
             self.joint_act.zero_()
 
     def flatten(self):
-        """Returns a list of Tensors stored by the state
+        wp.utils.warn(
+            "Model.flatten() will be removed in a future Warp version.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
-        This function is intended to be used internal-only but can be used to obtain
-        a set of all tensors owned by the state.
-        """
-
-        tensors = []
+        arrays = []
 
         # build a list of all tensor attributes
         for attr, value in self.__dict__.items():
-            if wp.is_tensor(value):
-                tensors.append(value)
+            if isinstance(value, wp.array):
+                arrays.append(value)
 
-        return tensors
+        return arrays
 
 
 def compute_shape_mass(type, scale, src, density, is_solid, thickness):
@@ -305,7 +331,7 @@ def compute_shape_mass(type, scale, src, density, is_solid, thickness):
         else:
             hollow = compute_cone_inertia(density, r - thickness, h - 2.0 * thickness)
             return solid[0] - hollow[0], solid[1], solid[2] - hollow[2]
-    elif type == GEO_MESH:
+    elif type == GEO_MESH or type == GEO_SDF:
         if src.has_inertia and src.mass > 0.0 and src.is_solid == is_solid:
             m, c, I = src.mass, src.com, src.I
 
@@ -327,7 +353,7 @@ def compute_shape_mass(type, scale, src, density, is_solid, thickness):
             I_new = np.array([[Ixx, Ixy, Ixz], [Ixy, Iyy, Iyz], [Ixz, Iyz, Izz]])
 
             return m_new, c_new, I_new
-        else:
+        elif type == GEO_MESH:
             # fall back to computing inertia from mesh geometry
             vertices = np.array(src.vertices) * np.array(scale[:3])
             m, c, I, vol = compute_mesh_inertia(density, vertices, src.indices, is_solid, thickness)
@@ -359,6 +385,7 @@ class Model:
         particle_adhesion (wp.array): Particle adhesion strength, shape [particle_count], float
         particle_grid (HashGrid): HashGrid instance used for accelerated simulation of particle interactions
         particle_flags (wp.array): Particle enabled state, shape [particle_count], bool
+        particle_max_velocity (float): Maximum particle velocity (to prevent instability)
 
         shape_transform (wp.array): Rigid shape transforms, shape [shape_count, 7], float
         shape_body (wp.array): Rigid shape body index, shape [shape_count], int
@@ -386,7 +413,7 @@ class Model:
         tri_activations (wp.array): Triangle element activations, shape [tri_count], float
         tri_materials (wp.array): Triangle element materials, shape [tri_count, 5], float
 
-        edge_indices (wp.array): Bending edge indices, shape [edge_count*2], int
+        edge_indices (wp.array): Bending edge indices, shape [edge_count*4], int
         edge_rest_angle (wp.array): Bending edge rest angle, shape [edge_count], float
         edge_bending_properties (wp.array): Bending edge stiffness and damping parameters, shape [edge_count, 2], float
 
@@ -496,6 +523,7 @@ class Model:
         self.particle_adhesion = 0.0
         self.particle_grid = None
         self.particle_flags = None
+        self.particle_max_velocity = 1e5
 
         self.shape_transform = None
         self.shape_body = None
@@ -678,8 +706,8 @@ class Model:
 
     def find_shape_contact_pairs(self):
         # find potential contact pairs based on collision groups and collision mask (pairwise filtering)
-        import itertools
         import copy
+        import itertools
 
         filters = copy.copy(self.shape_collision_filter_pairs)
         for a, b in self.shape_collision_filter_pairs:
@@ -835,9 +863,7 @@ class Model:
         return tensors
 
     def collide(self, state: State):
-        import warnings
-
-        warnings.warn(
+        wp.utils.warn(
             "Model.collide() is not needed anymore and will be removed in a future Warp version.",
             DeprecationWarning,
             stacklevel=2,
@@ -850,9 +876,7 @@ class Model:
 
     @property
     def soft_contact_distance(self):
-        import warnings
-
-        warnings.warn(
+        wp.utils.warn(
             "Model.soft_contact_distance is deprecated and will be removed in a future Warp version. "
             "Particles now have individual radii, returning `Model.particle_max_radius`.",
             DeprecationWarning,
@@ -862,9 +886,7 @@ class Model:
 
     @soft_contact_distance.setter
     def soft_contact_distance(self, value):
-        import warnings
-
-        warnings.warn(
+        wp.utils.warn(
             "Model.soft_contact_distance is deprecated and will be removed in a future Warp version. "
             "Particles now have individual radii, see `Model.particle_radius`.",
             DeprecationWarning,
@@ -879,12 +901,10 @@ class Model:
     @particle_radius.setter
     def particle_radius(self, value):
         if isinstance(value, float):
-            import warnings
-
-            warnings.warn(
+            wp.utils.warn(
                 "Model.particle_radius is an array of per-particle radii, assigning with a scalar value "
                 "is deprecated and will be removed in a future Warp version.",
-                DeprecationWarning,
+                PendingDeprecationWarning,
                 stacklevel=2,
             )
             self._particle_radius.fill_(value)
@@ -951,6 +971,10 @@ class ModelBuilder:
     default_tri_drag = 0.0
     default_tri_lift = 0.0
 
+    # Default distance constraint properties
+    default_spring_ke = 100.0
+    default_spring_kd = 0.0
+
     # Default edge bending properties
     default_edge_ke = 100.0
     default_edge_kd = 0.0
@@ -979,6 +1003,7 @@ class ModelBuilder:
         self.particle_mass = []
         self.particle_radius = []
         self.particle_flags = []
+        self.particle_max_velocity = 1e5
 
         # shapes (each shape has an entry in these arrays)
         # transform from shape to body
@@ -2030,9 +2055,9 @@ class ModelBuilder:
             data = {
                 "type": self.joint_type[i],
                 # 'armature': self.joint_armature[i],
-                "q": self.joint_q[q_start: q_start + q_dim],
-                "qd": self.joint_qd[qd_start: qd_start + qd_dim],
-                "act": self.joint_act[qd_start: qd_start + qd_dim],
+                "q": self.joint_q[q_start : q_start + q_dim],
+                "qd": self.joint_qd[qd_start : qd_start + qd_dim],
+                "act": self.joint_act[qd_start : qd_start + qd_dim],
                 "q_start": q_start,
                 "qd_start": qd_start,
                 "linear_compliance": self.joint_linear_compliance[i],
@@ -2092,7 +2117,7 @@ class ModelBuilder:
                 if verbose:
                     print(
                         f'Remove fixed joint {joint["name"]} between {parent_name} and {child_name}, '
-                        f'merging {child_name} into {last_dynamic_body_name}'
+                        f"merging {child_name} into {last_dynamic_body_name}"
                     )
                 child_id = body_data[child_body]["original_id"]
                 for shape in self.body_shapes[child_id]:
@@ -2693,6 +2718,58 @@ class ModelBuilder:
             has_ground_collision=has_ground_collision,
         )
 
+    def add_shape_sdf(
+        self,
+        body: int,
+        pos: Vec3 = (0.0, 0.0, 0.0),
+        rot: Quat = (0.0, 0.0, 0.0, 1.0),
+        sdf: SDF = None,
+        scale: Vec3 = (1.0, 1.0, 1.0),
+        density: float = default_shape_density,
+        ke: float = default_shape_ke,
+        kd: float = default_shape_kd,
+        kf: float = default_shape_kf,
+        mu: float = default_shape_mu,
+        restitution: float = default_shape_restitution,
+        is_solid: bool = True,
+        thickness: float = default_geo_thickness,
+    ):
+        """Adds SDF collision shape to a body.
+
+        Args:
+            body: The index of the parent body this shape belongs to
+            pos: The location of the shape with respect to the parent frame
+            rot: The rotation of the shape with respect to the parent frame
+            sdf: The sdf object
+            scale: Scale to use for the collider
+            density: The density of the shape
+            ke: The contact elastic stiffness
+            kd: The contact damping stiffness
+            kf: The contact friction stiffness
+            mu: The coefficient of friction
+            restitution: The coefficient of restitution
+            is_solid: If True, the mesh is solid, otherwise it is a hollow surface with the given wall thickness
+            thickness: Thickness to use for computing inertia of a hollow mesh, and for collision handling
+            has_ground_collision: If True, the mesh will collide with the ground plane if `Model.ground` is True
+
+        """
+        return self._add_shape(
+            body,
+            pos,
+            rot,
+            GEO_SDF,
+            (scale[0], scale[1], scale[2], 0.0),
+            sdf,
+            density,
+            ke,
+            kd,
+            kf,
+            mu,
+            restitution,
+            thickness,
+            is_solid,
+        )
+
     def _shape_radius(self, type, scale, src):
         """
         Calculates the radius of a sphere that encloses the shape, used for broadphase collision detection.
@@ -3178,6 +3255,9 @@ class ModelBuilder:
         tri_lift: float = default_tri_lift,
         edge_ke: float = default_edge_ke,
         edge_kd: float = default_edge_kd,
+        add_springs: bool = False,
+        spring_ke: float = default_spring_ke,
+        spring_kd: float = default_spring_kd,
     ):
         """Helper to create a regular planar cloth grid
 
@@ -3264,6 +3344,8 @@ class ModelBuilder:
         # is a good test of the adjacency structure
         adj = wp.utils.MeshAdjacency(self.tri_indices[start_tri:end_tri], end_tri - start_tri)
 
+        spring_indices = set()
+
         for k, e in adj.edges.items():
             # skip open edges
             if e.f0 == -1 or e.f1 == -1:
@@ -3272,6 +3354,19 @@ class ModelBuilder:
             self.add_edge(
                 e.o0, e.o1, e.v0, e.v1, edge_ke=edge_ke, edge_kd=edge_kd
             )  # opposite 0, opposite 1, vertex 0, vertex 1
+
+            spring_indices.add((min(e.o0, e.o1), max(e.o0, e.o1)))
+            spring_indices.add((min(e.o0, e.v0), max(e.o0, e.v0)))
+            spring_indices.add((min(e.o0, e.v1), max(e.o0, e.v1)))
+
+            spring_indices.add((min(e.o1, e.v0), max(e.o1, e.v0)))
+            spring_indices.add((min(e.o1, e.v1), max(e.o1, e.v1)))
+
+            spring_indices.add((min(e.v0, e.v1), max(e.v0, e.v1)))
+
+        if add_springs:
+            for i, j in spring_indices:
+                self.add_spring(i, j, spring_ke, spring_kd, control=0.0)
 
     def add_cloth_mesh(
         self,
@@ -3291,6 +3386,9 @@ class ModelBuilder:
         tri_lift: float = default_tri_lift,
         edge_ke: float = default_edge_ke,
         edge_kd: float = default_edge_kd,
+        add_springs: bool = False,
+        spring_ke: float = default_spring_ke,
+        spring_kd: float = default_spring_kd,
     ):
         """Helper to create a cloth model from a regular triangle mesh
 
@@ -3347,7 +3445,10 @@ class ModelBuilder:
 
         adj = wp.utils.MeshAdjacency(self.tri_indices[start_tri:end_tri], end_tri - start_tri)
 
-        edgeinds = np.array([[e.o0, e.o1, e.v0, e.v1] for k, e in adj.edges.items()])
+        edgeinds = np.fromiter(
+            (x for e in adj.edges.values() if e.f0 != -1 and e.f1 != -1 for x in (e.o0, e.o1, e.v0, e.v1)),
+            int,
+        ).reshape(-1, 4)
         self.add_edges(
             edgeinds[:, 0],
             edgeinds[:, 1],
@@ -3356,6 +3457,21 @@ class ModelBuilder:
             edge_ke=[edge_ke] * len(edgeinds),
             edge_kd=[edge_kd] * len(edgeinds),
         )
+
+        if add_springs:
+            spring_indices = set()
+            for i, j, k, l in edgeinds:
+                spring_indices.add((min(i, j), max(i, j)))
+                spring_indices.add((min(i, k), max(i, k)))
+                spring_indices.add((min(i, l), max(i, l)))
+
+                spring_indices.add((min(j, k), max(j, k)))
+                spring_indices.add((min(j, l), max(j, l)))
+
+                spring_indices.add((min(k, l), max(k, l)))
+
+            for i, j in spring_indices:
+                self.add_spring(i, j, spring_ke, spring_kd, control=0.0)
 
     def add_particle_grid(
         self,
@@ -3711,6 +3827,7 @@ class ModelBuilder:
             m._particle_radius = wp.array(self.particle_radius, dtype=wp.float32, requires_grad=requires_grad)
             m.particle_flags = wp.array([flag_to_int(f) for f in self.particle_flags], dtype=wp.uint32)
             m.particle_max_radius = np.max(self.particle_radius) if len(self.particle_radius) > 0 else 0.0
+            m.particle_max_velocity = self.particle_max_velocity
 
             # hash-grid for particle interactions
             m.particle_grid = wp.HashGrid(128, 128, 128)
@@ -3766,6 +3883,9 @@ class ModelBuilder:
             m.spring_stiffness = wp.array(self.spring_stiffness, dtype=wp.float32, requires_grad=requires_grad)
             m.spring_damping = wp.array(self.spring_damping, dtype=wp.float32, requires_grad=requires_grad)
             m.spring_control = wp.array(self.spring_control, dtype=wp.float32, requires_grad=requires_grad)
+            m.spring_constraint_lambdas = wp.array(
+                shape=len(self.spring_rest_length), dtype=wp.float32, requires_grad=requires_grad
+            )
 
             # ---------------------
             # triangles
@@ -3782,6 +3902,9 @@ class ModelBuilder:
             m.edge_rest_angle = wp.array(self.edge_rest_angle, dtype=wp.float32, requires_grad=requires_grad)
             m.edge_bending_properties = wp.array(
                 self.edge_bending_properties, dtype=wp.float32, requires_grad=requires_grad
+            )
+            m.edge_constraint_lambdas = wp.array(
+                shape=len(self.edge_rest_angle), dtype=wp.float32, requires_grad=requires_grad
             )
 
             # ---------------------

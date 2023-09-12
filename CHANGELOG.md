@@ -1,5 +1,37 @@
 # CHANGELOG
 
+## [1.0.0-beta.2] - 2023-09-01
+
+- Fix for passing bool into `wp.func` functions
+- Fix for deprecation warnings appearing on `stderr`, now redirected to `stdout`
+- Fix for using `for i in wp.hash_grid_query(..)` syntax
+
+## [1.0.0-beta.1] - 2023-08-29
+
+- Fix for `wp.float16` being passed as kernel arguments
+- Fix for compile errors with kernels using structs in backward pass
+- Fix for `wp.Mesh.refit()` not being CUDA graph capturable due to synchronous temp. allocs
+- Fix for dynamic texture example flickering / MGPU crashes demo in Kit by reusing `ui.DynamicImageProvider` instances
+- Fix for a regression that disabled bundle change tracking in samples
+- Fix for incorrect surface velocities when meshes are deforming in `OgnClothSimulate`
+- Fix for incorrect lower-case when setting USD stage "up_axis" in examples
+- Fix for incompatible gradient types when wrapping PyTorch tensor as a vector or matrix type
+- Fix for adding open edges when building cloth constraints from meshes in `wp.sim.ModelBuilder.add_cloth_mesh()`
+- Add support for `wp.fabricarray` to directly access Fabric data from Warp kernels, see https://omniverse.gitlab-master-pages.nvidia.com/usdrt/docs/usdrt_prim_selection.html for examples
+- Add support for user defined gradient functions, see `@wp.func_replay`, and `@wp.func_grad` decorators
+- Add support for more OG attribute types in `omni.warp.from_omni_graph()`
+- Add support for creating NanoVDB `wp.Volume` objects from dense NumPy arrays
+- Add support for `wp.volume_sample_grad_f()` which returns the value + gradient efficiently from an NVDB volume
+- Add support for LLVM fp16 intrinsics for half-precision arithmetic
+- Add implementation of stochastic gradient descent, see `wp.optim.SGD`
+- Add `warp.fem` framework for solving weak-form PDE problems (see https://gdaviet.gitlab-master-pages.nvidia.com/warp/modules/fem.html)
+- Optimizations for `omni.warp` extension load time (2.2s to 625ms cold start)
+- Make all `omni.ui` dependencies optional so that Warp unit tests can run headless
+- Deprecation of `wp.tid()` outside of kernel functions, users should pass `tid()` values to `wp.func` functions explicitly
+- Deprecation of `wp.sim.Model.flatten()` for returning all contained tensors from the model
+- Add support for clamping particle max velocity in `wp.sim.Model.particle_max_velocity`
+- Remove dependency on `urdfpy` package, improve MJCF parser handling of default values
+
 ## [0.10.1] - 2023-07-25
 
 - Fix for large multidimensional kernel launches (> 2^32 threads)
@@ -17,15 +49,15 @@
 
 - Add support for macOS universal binaries (x86 + aarch64) for M1+ support
 - Add additional methods for SDF generation please see the following new methods:
-  -  `wp.mesh_query_point_nosign()` - closest point query with no sign determination
-  -  `wp.mesh_query_point_sign_normal()` - closest point query with sign from angle-weighted normal
-  -  `wp.mesh_query_point_sign_winding_number()` - closest point query with fast winding number sign determination
+  - `wp.mesh_query_point_nosign()` - closest point query with no sign determination
+  - `wp.mesh_query_point_sign_normal()` - closest point query with sign from angle-weighted normal
+  - `wp.mesh_query_point_sign_winding_number()` - closest point query with fast winding number sign determination
 - Add CSR/BSR sparse matrix support, see `warp.sparse` module:
   - `wp.sparse.BsrMatrix`
   - `wp.sparse.bsr_zeros()`, `wp.sparse.bsr_set_from_triplets()` for construction
   - `wp.sparse.bsr_mm()`, `wp.sparse_bsr_mv()` for matrix-matrix and matrix-vector products respectively
 - Add array-wide utilities:
-  - `wp.utils.array_scan()` - prefix sum (inclusive or exlusive)
+  - `wp.utils.array_scan()` - prefix sum (inclusive or exclusive)
   - `wp.utils.array_sum()` - sum across array
   - `wp.utils.radix_sort_pairs()` - in-place radix sort (key,value) pairs
 - Add support for calling `@wp.func` functions from Python (outside of kernel scope)
@@ -140,7 +172,7 @@
 - Fix capture of `wp.func` and `wp.constant` types from inside Python closures
 - Fix for CUDA on WSL 
 - Fix for matrices in structs
-- Fix for tranpose indexing for some non-square matrices
+- Fix for transpose indexing for some non-square matrices
 - Enable Python faulthandler by default
 - Update to VS2019
 
@@ -195,7 +227,7 @@ Breaking Changes
 - Allow optional attributes for Kernel Node
 - Allow disabling backward pass code-gen on a per-kernel basis, use `@wp.kernel(enable_backward=False)`
 - Replace Python `imp` package with `importlib`
-- Fix for quaterion slerp gradients (`wp.quat_slerp()`)
+- Fix for quaternion slerp gradients (`wp.quat_slerp()`)
 
 ## [0.6.1] - 2022-12-05
 
@@ -251,7 +283,7 @@ Breaking Changes
 - Add NVDB volume allocation API, see `wp.Volume.allocate()`, and `wp.Volume.allocate_by_tiles()`
 - Add NVDB volume write methods, see `wp.volume_store_i()`, `wp.volume_store_f()`, `wp.volume_store_v()`
 - Add MGPU documentation
-- Add example showing how to compute Jacobian of multiple environements in parallel, see `example_jacobian_ik.py`
+- Add example showing how to compute Jacobian of multiple environments in parallel, see `example_jacobian_ik.py`
 - Add `wp.Tape.zero()` support for `wp.struct` types
 - Make SampleBrowser an optional dependency for Kit extension
 - Make `wp.Mesh` object accept both 1d and 2d arrays of face vertex indices
@@ -341,7 +373,7 @@ Breaking Changes
 - Add support for retrieving a single row from builtin types, e.g.: `r = m33[i]`
 - Add  `wp.log2()` and `wp.log10()` builtins
 - Add support for quickly instancing `wp.sim.ModelBuilder` objects to improve env. creation performance for RL
-- Remove custom CUB version and improve compatability with CUDA 11.7
+- Remove custom CUB version and improve compatibility with CUDA 11.7
 - Fix to preserve external user-gradients when calling `wp.Tape.zero()`
 - Fix to only allocate gradient of a Torch tensor if `requires_grad=True`
 - Fix for missing `wp.mat22` constructor adjoint
@@ -380,7 +412,7 @@ Breaking Changes
 - Add support for overloading `@wp.func` functions based on argument type
 - Add support for calling built-in functions directly from Python interpreter outside kernels (experimental)
 - Add support for auto-complete and docstring lookup for builtins in IDEs like VSCode, PyCharm, etc
-- Add support for doing partial array copys, see `wp.copy()` for details
+- Add support for doing partial array copies, see `wp.copy()` for details
 - Add support for accessing mesh data directly in kernels, see `wp.mesh_get_point()`, `wp.mesh_get_index()`, `wp.mesh_eval_face_normal()`
 - Change to only compile for targets where kernel is launched (e.g.: will not compile CPU unless explicitly requested)
 
@@ -518,7 +550,7 @@ Breaking Changes
 
 ## [0.1.19] - 2021-10-15
 
-- Publish from 2021.3 to avoid omni.graph database incompatabilities
+- Publish from 2021.3 to avoid omni.graph database incompatibilities
 
 ## [0.1.18] - 2021-10-08
 
@@ -610,7 +642,7 @@ Breaking Changes
 
 - Add support for unary negation operator
 - Add support for mutating variables during dynamic loops (non-differentiable)
-- Add support for inplace operators
+- Add support for in-place operators
 - Improve kernel cache start up times (avoids adjointing before cache check)
 - Update README.md with requirements / examples
 
@@ -631,5 +663,3 @@ Breaking Changes
 ## [0.1.0] - 2021-05-17
 
 - Initial publish for alpha testing
-
-
