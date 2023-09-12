@@ -6,7 +6,7 @@
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
 
-from .model import State, Model, ModelBuilder, Mesh
+from .model import State, Model, ModelBuilder, Mesh, SDF
 
 from .model import GEO_SPHERE
 from .model import GEO_BOX

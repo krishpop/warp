@@ -1,5 +1,113 @@
 # CHANGELOG
 
+## [1.0.0-beta.2] - 2023-09-01
+
+- Fix for passing bool into `wp.func` functions
+- Fix for deprecation warnings appearing on `stderr`, now redirected to `stdout`
+
+## [1.0.0-beta.1] - 2023-08-29
+
+- Fix for `wp.float16` being passed as kernel arguments
+- Fix for compile errors with kernels using structs in backward pass
+- Fix for `wp.Mesh.refit()` not being CUDA graph capturable due to synchronous temp. allocs
+- Fix for example flickering / MGPU crashes with Mandlebrot demo in Kit by reusing `ui.DynamicImageProvider` instances
+- Fix for a regression that disabled bundle change tracking in samples
+- Fix for incorrect surface velocities when meshes are deforming in `OgnClothSimulate`
+- Fix for incorrect lower-case when setting USD stage "up_axis" in examples
+- Fix for incompatible gradient types when wrapping PyTorch tensor as a vector or matrix type
+- Fix for adding open edges when building cloth constraints from meshes in `wp.sim.ModelBuilder.add_cloth_mesh()`
+- Add support for `wp.fabricarray` to directly access Fabric data from Warp kernels, see https://omniverse.gitlab-master-pages.nvidia.com/usdrt/docs/usdrt_prim_selection.html for examples
+- Add support for user defined gradient functions, see `@wp.func_replay`, and `@wp.func_grad` decorators
+- Add support for more OG attribute types in `omni.warp.from_omni_graph()`
+- Add support for creating NanoVDB `wp.Volume` objects from dense NumPy arrays
+- Add support for `wp.volume_sample_grad_f()` which returns the value + gradient efficiently from an NVDB volume
+- Add support for LLVM fp16 intrinsics for half-precision arithmetic
+- Add implementation of stochastic gradient descent, see `wp.optim.SGD`
+- Add `warp.fem` framework for solving weak-form PDE problems (see https://gdaviet.gitlab-master-pages.nvidia.com/warp/modules/fem.html)
+- Optimizations for `omni.warp` extension load time (2.2s to 625ms cold start)
+- Make all `omni.ui` dependencies optional so that Warp unit tests can run headless
+- Deprecation of `wp.tid()` outside of kernel functions, users should pass `tid()` values to `wp.func` functions explicitly
+- Deprecation of `wp.sim.Model.flatten()` for returning all contained tensors from the model
+- Add support for clamping particle max velocity in `wp.sim.Model.particle_max_velocity`
+- Remove dependency on `urdfpy` package, improve MJCF parser handling of default values
+
+## [0.10.0] - 2023-07-05
+
+- Add support for macOS universal binaries (x86 + aarch64) for M1+ support
+- Add additional methods for SDF generation please see the following new methods:
+  -  `wp.mesh_query_point_nosign()` - closest point query with no sign determination
+  -  `wp.mesh_query_point_sign_normal()` - closest point query with sign from angle-weighted normal
+  -  `wp.mesh_query_point_sign_winding_number()` - closest point query with fast winding number sign determination
+- Add CSR/BSR sparse matrix support, see `warp.sparse` module:
+  - `wp.sparse.BsrMatrix`
+  - `wp.sparse.bsr_zeros()`, `wp.sparse.bsr_set_from_triplets()` for construction
+  - `wp.sparse.bsr_mm()`, `wp.sparse_bsr_mv()` for matrix-matrix and matrix-vector products respectively
+- Add array-wide utilities:
+  - `wp.utils.array_scan()` - prefix sum (inclusive or exlusive)
+  - `wp.utils.array_sum()` - sum across array
+  - `wp.utils.radix_sort_pairs()` - in-place radix sort (key,value) pairs
+- Add support for calling `@wp.func` functions from Python (outside of kernel scope)
+- Add support for recording kernel launches using a `wp.Launch` object that can be replayed with low overhead, use `wp.launch(..., record_cmd=True)` to generate a command object
+- Optimizations for `wp.struct` kernel arguments, up to 20x faster launches for kernels with large structs or number of params
+- Refresh USD samples to use bundle based workflow + change tracking
+- Add Python API for manipulating mesh and point bundle data in OmniGraph, see `omni.warp.nodes` module
+  - See `omni.warp.nodes.mesh_create_bundle()`, `omni.warp.nodes.mesh_get_points()`, etc.
+- Improvements to `wp.array`:
+  - Fix a number of array methods misbehaving with empty arrays
+  - Fix a number of bugs and memory leaks related to gradient arrays
+  - Fix array construction when creating arrays in pinned memory from a data source in pageable memory
+  - `wp.empty()` no longer zeroes-out memory and returns an uninitialized array, as intended
+  - `array.zero_()` and `array.fill_()` work with non-contiguous arrays
+  - Support wrapping non-contiguous NumPy arrays without a copy
+  - Support preserving the outer dimensions of NumPy arrays when wrapping them as Warp arrays of vector or matrix types
+  - Improve PyTorch and DLPack interop with Warp arrays of arbitrary vectors and matrices
+  - `array.fill_()` can now take lists or other sequences when filling arrays of vectors or matrices, e.g. `arr.fill_([[1, 2], [3, 4]])`
+  - `array.fill_()` now works with arrays of structs (pass a struct instance)
+  - `wp.copy()` gracefully handles copying between non-contiguous arrays on different devices
+  - Add `wp.full()` and `wp.full_like()`, e.g., `a = wp.full(shape, value)`
+  - Add optional `device` argument to `wp.empty_like()`, `wp.zeros_like()`, `wp.full_like()`, and `wp.clone()`
+  - Add `indexedarray` methods `.zero_()`, `.fill_()`, and `.assign()`
+  - Fix `indexedarray` methods `.numpy()` and `.list()`
+  - Fix `array.list()` to work with arrays of any Warp data type
+  - Fix `array.list()` synchronization issue with CUDA arrays
+  - `array.numpy()` called on an array of structs returns a structured NumPy array with named fields
+  - Improve the performance of creating arrays
+- Fix for `Error: No module named 'omni.warp.core'` when running some Kit configurations (e.g.: stubgen)
+- Fix for `wp.struct` instance address being included in module content hash
+- Fix codegen with overridden function names
+- Fix for kernel hashing so it occurs after code generation and before loading to fix a bug with stale kernel cache
+- Fix for `wp.BVH.refit()` when executed on the CPU
+- Fix adjoint of `wp.struct` constructor
+- Fix element accessors for `wp.float16` vectors and matrices in Python
+- Fix `wp.float16` members in structs
+- Remove deprecated `wp.ScopedCudaGuard()`, please use `wp.ScopedDevice()` instead
+
+## [0.9.0] - 2023-06-01
+
+- Add support for in-place modifications to vector, matrix, and struct types inside kernels (will warn during backward pass with `wp.verbose` if using gradients)
+- Add support for step-through VSCode debugging of kernel code with standalone LLVM compiler, see `wp.breakpoint()`, and `test_debug.py`
+- Add support for default values on built-in functions
+- Add support for multi-valued `@wp.func` functions
+- Add support for `pass`, `continue`, and `break` statements
+- Add missing `__sincos_stret` symbol for macOS
+- Add support for gradient propagation through `wp.Mesh.points`, and other cases where arrays are passed to native functions
+- Add support for Python `@` operator as an alias for `wp.matmul()`
+- Add XPBD support for particle-particle collision
+- Add support for individual particle radii: `ModelBuilder.add_particle` has a new `radius` argument, `Model.particle_radius` is now a Warp array
+- Add per-particle flags as a `Model.particle_flags` Warp array, introduce `PARTICLE_FLAG_ACTIVE` to define whether a particle is being simulated and participates in contact dynamics
+- Add support for Python bitwise operators `&`, `|`, `~`, `<<`, `>>`
+- Switch to using standalone LLVM compiler by default for `cpu` devices
+- Split `omni.warp` into `omni.warp.core` for Omniverse applications that want to use the Warp Python module with minimal additional dependencies
+- Disable kernel gradient generation by default inside Omniverse for improved compile times
+- Fix for bounds checking on element access of vector/matrix types
+- Fix for stream initialization when a custom (non-primary) external CUDA context has been set on the calling thread
+- Fix for duplicate `@wp.struct` registration during hot reload
+- Fix for array `unot()` operator so kernel writers can use `if not array:` syntax
+- Fix for case where dynamic loops are nested within unrolled loops
+- Change `wp.hash_grid_point_id()` now returns -1 if the `wp.HashGrid` has not been reserved before
+- Deprecate `wp.Model.soft_contact_distance` which is now replaced by `wp.Model.particle_radius`
+- Deprecate single scalar particle radius (should be a per-particle array)
+
 ## [0.8.2] - 2023-04-21
 
 - Add `ModelBuilder.soft_contact_max` to control the maximum number of soft contacts that can be registered. Use `Model.allocate_soft_contacts(new_count)` to change count on existing `Model` objects.
