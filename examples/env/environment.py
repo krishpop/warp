@@ -172,6 +172,10 @@ class Environment:
         self.num_envs = args.num_envs
         self.profile = args.profile
 
+    @property
+    def control(self):
+        return self.state.joint_act
+
     def init(self):
         if self.integrator_type == IntegratorType.EULER:
             self.sim_substeps = self.sim_substeps_euler
@@ -197,12 +201,12 @@ class Environment:
         builder = wp.sim.ModelBuilder(up_vector=up_vector, gravity=self.gravity)
         builder.rigid_mesh_contact_max = self.rigid_mesh_contact_max
         builder.rigid_contact_margin = self.rigid_contact_margin
+        self.env_offsets = compute_env_offsets(self.num_envs, self.env_offset, self.up_axis)
         try:
             articulation_builder = wp.sim.ModelBuilder(up_vector=up_vector, gravity=self.gravity)
             self.create_articulation(articulation_builder)
-            env_offsets = compute_env_offsets(self.num_envs, self.env_offset, self.up_axis)
             for i in range(self.num_envs):
-                xform = wp.transform(env_offsets[i], wp.quat_identity())
+                xform = wp.transform(self.env_offsets[i], wp.quat_identity())
                 builder.add_builder(
                     articulation_builder, xform, separate_collision_group=self.separate_collision_group_per_env
                 )
@@ -288,6 +292,9 @@ class Environment:
     def custom_update(self):
         pass
 
+    def custom_render(self, render_state):
+        pass
+
     @property
     def state(self):
         # shortcut to current state
@@ -341,9 +348,11 @@ class Environment:
                 # render state 1 (swapped with state 0 just before)
                 if self.requires_grad:
                     # ensure we do not render beyond the last state
-                    self.renderer.render(state or self.states[min(self.sim_steps, self.sim_step + 1)])
+                    render_state = state or self.states[min(self.sim_steps, self.sim_step + 1)]
                 else:
-                    self.renderer.render(state or self.next_state)
+                    render_state = state or self.next_state
+                self.custom_render(render_state)
+                self.renderer.render(render_state)
                 self.renderer.end_frame()
 
     def reset(self):
