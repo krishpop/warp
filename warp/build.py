@@ -45,7 +45,7 @@ def build_cpu(obj_path, cpp_path, mode="release", verify_fp=False, fast_math=Fal
         inc_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "native").encode("utf-8")
         obj_path = obj_path.encode("utf-8")
 
-        warp.context.runtime.llvm.compile_cpp(src, cpp_path, inc_path, obj_path, mode == "debug")
+        warp.context.runtime.llvm.compile_cpp(src, cpp_path, inc_path, obj_path, mode == "debug", verify_fp)
 
 
 kernel_bin_dir = None
