@@ -36,7 +36,7 @@ from .model import JOINT_UNIVERSAL
 from .model import JOINT_DISTANCE
 from .model import JOINT_D6
 
-from .integrator_euler import SemiImplicitIntegrator
+from .integrator_euler import SemiImplicitIntegrator, SemiImplicitIntegratorPlugin
 from .integrator_euler import VariationalImplicitIntegrator
 
 from .integrator_xpbd import XPBDIntegrator

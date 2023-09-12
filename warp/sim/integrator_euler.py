@@ -1748,6 +1748,32 @@ def compute_forces(model, state, particle_f, body_f, requires_grad):
     state.body_f = body_f
 
 
+class SemiImplicitIntegratorPlugin:
+
+    def __init__(self):
+        self.initialized = False
+
+    def initialize(self, model, integrator):
+        self.initialized = True
+        self.on_init(model, integrator)
+
+    def on_init(self, model, integrator):
+        # to be implemented by subclasses
+        pass
+
+    def before_integrate(self, model, state_in, state_out, dt, requires_grad):
+        # to be implemented by subclasses
+        pass
+
+    def after_integrate(self, model, state_in, state_out, dt, requires_grad):
+        # to be implemented by subclasses
+        pass
+
+    def augment_state(self, model, state):
+        # to be implemented by subclasses
+        pass
+
+
 class SemiImplicitIntegrator:
     """A semi-implicit integrator using symplectic Euler
 
@@ -1773,8 +1799,18 @@ class SemiImplicitIntegrator:
 
     """
 
-    def __init__(self, angular_damping=0.05):
+    def __init__(self, angular_damping=0.05, plugins=[]):
         self.angular_damping = angular_damping
+        self.plugins = plugins
+
+    def register_plugin(self, plugin):
+        self.plugins.append(plugin)
+
+    def augment_state(self, model, state):
+        for plugin in self.plugins:
+            if not plugin.initialized:
+                plugin.initialize(model, self)
+            plugin.augment_state(model, state)
 
     def simulate(self, model, state_in, state_out, dt, requires_grad=False):
         with wp.ScopedTimer("simulate", False):
@@ -1788,6 +1824,9 @@ class SemiImplicitIntegrator:
                 body_f = state_in.body_f
 
             compute_forces(model, state_in, particle_f, body_f, requires_grad=requires_grad)
+
+            for plugin in self.plugins:
+                plugin.before_integrate(model, state_in, state_out, dt, requires_grad)
 
             # -------------------------------------
             # integrate bodies
@@ -1832,6 +1871,9 @@ class SemiImplicitIntegrator:
                     outputs=[state_out.particle_q, state_out.particle_qd],
                     device=model.device,
                 )
+
+            for plugin in self.plugins:
+                plugin.after_integrate(model, state_in, state_out, dt, requires_grad)
 
             return state_out
 
