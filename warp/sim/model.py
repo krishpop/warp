@@ -2376,6 +2376,7 @@ class ModelBuilder:
         is_solid: bool = True,
         thickness: float = default_geo_thickness,
         has_ground_collision: bool = True,
+        collision_group: int = -1,
     ):
         """Adds a sphere collision shape to a body.
 
@@ -2393,6 +2394,7 @@ class ModelBuilder:
             is_solid: Whether the sphere is solid or hollow
             thickness: Thickness to use for computing inertia of a hollow sphere, and for collision handling
             has_ground_collision: If True, the mesh will collide with the ground plane if `Model.ground` is True
+            collision_group: The collision group of the shape
 
         """
 
@@ -2412,6 +2414,7 @@ class ModelBuilder:
             thickness + radius,
             is_solid,
             has_ground_collision=has_ground_collision,
+            collision_group=collision_group,
         )
 
     def add_shape_box(
@@ -2431,6 +2434,7 @@ class ModelBuilder:
         is_solid: bool = True,
         thickness: float = default_geo_thickness,
         has_ground_collision: bool = True,
+        collision_group: int = -1,
     ):
         """Adds a box collision shape to a body.
 
@@ -2450,6 +2454,7 @@ class ModelBuilder:
             is_solid: Whether the box is solid or hollow
             thickness: Thickness to use for computing inertia of a hollow box, and for collision handling
             has_ground_collision: If True, the mesh will collide with the ground plane if `Model.ground` is True
+            collision_group: The collision group of the shape
 
         """
 
@@ -2469,6 +2474,7 @@ class ModelBuilder:
             thickness,
             is_solid,
             has_ground_collision=has_ground_collision,
+            collision_group=collision_group,
         )
 
     def add_shape_capsule(
@@ -2488,6 +2494,7 @@ class ModelBuilder:
         is_solid: bool = True,
         thickness: float = default_geo_thickness,
         has_ground_collision: bool = True,
+        collision_group: int = -1,
     ):
         """Adds a capsule collision shape to a body.
 
@@ -2507,6 +2514,7 @@ class ModelBuilder:
             is_solid: Whether the capsule is solid or hollow
             thickness: Thickness to use for computing inertia of a hollow capsule, and for collision handling
             has_ground_collision: If True, the mesh will collide with the ground plane if `Model.ground` is True
+            collision_group: The collision group of the shape
 
         """
 
@@ -2533,6 +2541,7 @@ class ModelBuilder:
             thickness + radius,
             is_solid,
             has_ground_collision=has_ground_collision,
+            collision_group=collision_group,
         )
 
     def add_shape_cylinder(
@@ -2552,6 +2561,7 @@ class ModelBuilder:
         is_solid: bool = True,
         thickness: float = default_geo_thickness,
         has_ground_collision: bool = True,
+        collision_group: int = -1,
     ):
         """Adds a cylinder collision shape to a body.
 
@@ -2571,6 +2581,7 @@ class ModelBuilder:
             is_solid: Whether the cylinder is solid or hollow
             thickness: Thickness to use for computing inertia of a hollow cylinder, and for collision handling
             has_ground_collision: If True, the mesh will collide with the ground plane if `Model.ground` is True
+            collision_group: The collision group of the shape
 
         """
 
@@ -2597,6 +2608,7 @@ class ModelBuilder:
             thickness,
             is_solid,
             has_ground_collision=has_ground_collision,
+            collision_group=collision_group,
         )
 
     def add_shape_cone(
@@ -2616,6 +2628,7 @@ class ModelBuilder:
         is_solid: bool = True,
         thickness: float = default_geo_thickness,
         has_ground_collision: bool = True,
+        collision_group: int = -1,
     ):
         """Adds a cone collision shape to a body.
 
@@ -2635,6 +2648,7 @@ class ModelBuilder:
             is_solid: Whether the cone is solid or hollow
             thickness: Thickness to use for computing inertia of a hollow cone, and for collision handling
             has_ground_collision: If True, the mesh will collide with the ground plane if `Model.ground` is True
+            collision_group: The collision group of the shape
 
         """
 
@@ -2661,6 +2675,7 @@ class ModelBuilder:
             thickness,
             is_solid,
             has_ground_collision=has_ground_collision,
+            collision_group=collision_group,
         )
 
     def add_shape_mesh(
@@ -2679,6 +2694,7 @@ class ModelBuilder:
         is_solid: bool = True,
         thickness: float = default_geo_thickness,
         has_ground_collision: bool = True,
+        collision_group: int = -1,
     ):
         """Adds a triangle mesh collision shape to a body.
 
@@ -2697,6 +2713,7 @@ class ModelBuilder:
             is_solid: If True, the mesh is solid, otherwise it is a hollow surface with the given wall thickness
             thickness: Thickness to use for computing inertia of a hollow mesh, and for collision handling
             has_ground_collision: If True, the mesh will collide with the ground plane if `Model.ground` is True
+            collision_group: The collision group of the shape
 
         """
 
@@ -2716,6 +2733,7 @@ class ModelBuilder:
             thickness,
             is_solid,
             has_ground_collision=has_ground_collision,
+            collision_group=collision_group,
         )
 
     def add_shape_sdf(
