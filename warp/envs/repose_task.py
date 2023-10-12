@@ -27,7 +27,7 @@ class ReposeTask(HandObjectTask):
         stochastic_init=True,
         device="cuda",
         render_mode=RenderMode.OPENGL,
-        stage_path=None,
+        logdir=None,
         stiffness=5000.0,
         damping=10.0,
         reward_params=None,
@@ -35,9 +35,9 @@ class ReposeTask(HandObjectTask):
         hand_start_position: Tuple = (0.1, 0.3, 0.0),
         hand_start_orientation: Tuple = (-np.pi / 2, np.pi * 0.75, np.pi / 2),
         use_autograd: bool = True,
-        use_graph_capture: bool = True,
+        use_graph_capture: bool = False,
         reach_threshold: float = 0.1,
-        headless=False
+        headless=False,
     ):
         object_type = ObjectType.REPOSE_CUBE
         object_id = 0
@@ -52,7 +52,7 @@ class ReposeTask(HandObjectTask):
             stochastic_init=stochastic_init,
             device=device,
             render_mode=render_mode,
-            stage_path=stage_path,
+            stage_path=logdir,
             object_type=object_type,
             object_id=object_id,
             stiffness=stiffness,
@@ -65,7 +65,7 @@ class ReposeTask(HandObjectTask):
             grasp_id=None,
             use_autograd=use_autograd,
             use_graph_capture=use_graph_capture,
-            headless=headless
+            headless=headless,
         )
         self.reward_extras["reach_threshold"] = reach_threshold
         # stay in center of hand
@@ -115,10 +115,17 @@ class ReposeTask(HandObjectTask):
             rot_dist,
         )
 
+    # def _post_step(self):
+    #     # add computed reward from rew_buf
+    #     self.rew_buf += wp.to_torch(self.simulate_params["rew_buf"])
+
     def _check_early_termination(self, obs_dict):
         # check if object is dropped
         object_body_pos = obs_dict["object_pos"]
-        self.reset_buf = self.reset_buf | (object_body_pos[:, 1] < self.drop_height)
+        termination = object_body_pos[:, 1] < self.drop_height
+        self.termination_buf = self.termination_buf | termination
+        self.reset_buf = self.reset_buf | termination
+        return termination
 
     def _get_obs_dict(self):
         obs_dict = super()._get_obs_dict()
@@ -141,7 +148,8 @@ class ReposeTask(HandObjectTask):
             ).squeeze()
         else:
             self.extras["net_energy"] = torch.zeros_like(self.rew_buf)
-        self._check_early_termination(obs_dict)
+        termination = self._check_early_termination(obs_dict)
+        self.extras["termination"] = termination
         return obs_dict
 
     def render(self, **kwargs):

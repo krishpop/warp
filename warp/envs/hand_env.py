@@ -90,10 +90,11 @@ class HandObjectTask(ObjectTask):
         self.hand_damping = damping
         # self.gravity = 0.0
 
+        num_act = HAND_ACT_COUNT[(hand_type, action_type)]
         super().__init__(
             num_envs=num_envs,
             num_obs=num_obs,
-            num_act=HAND_ACT_COUNT[(hand_type, action_type)],
+            num_act=num_act,
             episode_length=episode_length,
             action_type=action_type,
             seed=seed,
@@ -187,7 +188,7 @@ class HandObjectTask(ObjectTask):
                 self.num_envs,
                 joint_indices=xform_indices,
             )
-        
+
         if self.action_type == ActionType.POSITION_DELTA:
             hand_pos = self.joint_q.view(self.num_envs, -1)[:, self.env_joint_target_indices]
             lower, upper = self.action_bounds
