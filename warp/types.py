@@ -1599,7 +1599,13 @@ class array(Array):
     # equivalent to wrapping src data in an array and copying to self
     def assign(self, src):
         if isinstance(src, array):
-            warp.copy(self, src)
+            if warp.context.runtime.tape is not None:
+                # assert self.ndim == 1, "Assigning arrays with ndim > 1 is not supported in tape mode"
+                warp.launch(warp.builtins.array_assign, dim=self.shape, inputs=[src], outputs=[self], device=self.device)
+                # warp.context.runtime.tape.record_func(lambda *_: warp.copy(self, src), [])
+                # warp.copy(self, src)
+            else:
+                warp.copy(self, src)
         else:
             warp.copy(self, array(src, dtype=self.dtype, copy=False, device="cpu"))
 
