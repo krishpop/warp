@@ -8,26 +8,33 @@ from shac.utils.common import *
 from warp.envs.utils.rlgames_utils import RLGPUEnvAlgoObserver, RLGPUEnv
 from warp import envs
 from gym import wrappers
+from hydra.utils import instantiate
 from rl_games.torch_runner import Runner
 from rl_games.common import env_configurations, vecenv
 from warp.envs.utils import hydra_resolvers
 
+def register_envs(env_config, env_type='warp'):
+    def create_dflex_env(**kwargs):
+        # create env without grads since PPO doesn't need them
+        if isinstance(env_config, dict):
+            env_config.pop("name")
+        else:
+            env = instantiate(env_config, no_grad=True)
+        print("num_envs = ", env.num_envs)
+        print("num_actions = ", env.num_actions)
+        print("num_obs = ", env.num_obs)
 
-def register_envs(cfg_train, env_name):
+        frames = kwargs.pop("frames", 1)
+        if frames > 1:
+            env = wrappers.FrameStack(env, frames, False)
+        return env
+
     def create_warp_env(**kwargs):
-        env_fn = getattr(envs, cfg_train["params"]["diff_env"]["_target_"].split(".")[-1])
-        env_kwargs = kwargs
-        skip_keys = ["_target_", "num_envs", "render", "seed", "episode_length", "no_grad", "stochastic_init", "name"]
-        env_kwargs.update({k: v for k, v in cfg_train["params"]["diff_env"].items() if k not in skip_keys})
-        env = env_fn(
-            num_envs=cfg_train["params"]["config"]["num_actors"],
-            render=cfg_train["params"]["render"],
-            seed=cfg_train["params"]["seed"],
-            episode_length=cfg_train["params"]["diff_env"].get("episode_length", 1000),
-            no_grad=True,
-            stochastic_init=cfg_train["params"]["diff_env"]["stochastic_init"],
-            **env_kwargs,
-        )
+        # create env without grads since PPO doesn't need them
+        if isinstance(env_config, dict):
+            env_config.pop("name")
+        else:
+            env = instantiate(env_config, no_grad=True)
 
         print("num_envs = ", env.num_envs)
         print("num_actions = ", env.num_actions)
@@ -39,38 +46,82 @@ def register_envs(cfg_train, env_name):
 
         return env
 
-    vecenv.register(
-        "WARP",
-        lambda config_name, num_actors, **kwargs: RLGPUEnv(config_name, num_actors, **kwargs),
-    )
-    env_configurations.register(
-        env_name,
-        {"env_creator": lambda **kwargs: create_warp_env(**kwargs), "vecenv_type": "WARP"},
-    )
+    if env_type == 'dflex':
+        vecenv.register(
+            "DFLEX",
+            lambda config_name, num_actors, **kwargs: RLGPUEnv(
+                config_name, num_actors, **kwargs
+            ),
+        )
+        env_configurations.register(
+            "dflex",
+            {
+                "env_creator": lambda **kwargs: create_dflex_env(**kwargs),
+                "vecenv_type": "DFLEX",
+            },
+        )
+    if env_type == 'warp':
+        vecenv.register(
+            "WARP",
+            lambda config_name, num_actors, **kwargs: RLGPUEnv(
+                config_name, num_actors, **kwargs
+            ),
+        )
+        env_configurations.register(
+            "warp",
+            {
+                "env_creator": lambda **kwargs: create_warp_env(**kwargs),
+                "vecenv_type": "WARP",
+            },
+        )
 
 
-def create_wandb_run(wandb_cfg, job_config, run_id=None, run_wandb=False):
+def create_wandb_run(wandb_cfg, job_config, run_id=None):
+    """
+    Creates and initializes a run in Weights & Biases (wandb).
+
+    Args:
+        wandb_cfg (dict): Configuration for wandb.
+        job_config (dict): Configuration for the job.
+        run_id (str, optional): ID of the run to resume. Defaults to None.
+
+    Returns:
+        WandbRun: The initialized wandb run.
+    """
+    # Get environment name from job_config
+    env_name = job_config["task"]["env"]["_target_"].split(".")[-1]
+
     try:
+        # Get algorithm name from job_config
+        alg_name = job_config["alg"]["_target_"].split(".")[-1]
+    except:
+        # Use default algorithm name if not found in job_config
+        alg_name = "PPO"
+
+    try:
+        # Multirun config
         job_id = HydraConfig().get().job.num
         override_dirname = HydraConfig().get().job.override_dirname
         name = f"{wandb_cfg.sweep_name_prefix}-{job_id}"
         notes = f"{override_dirname}"
     except:
-        name, notes = None, None
-    if run_wandb:
-        return wandb.init(
-            project=wandb_cfg.project,
-            config=job_config,
-            group=wandb_cfg.group,
-            sync_tensorboard=True,
-            monitor_gym=True,
-            save_code=True,
-            name=name,
-            notes=notes,
-            id=run_id,
-            resume=run_id is not None,
-        )
+        # Normal (singular) run config
+        name = f"{alg_name}_{env_name}"
+        notes = wandb_cfg["notes"]  # force user to make notes
 
+    return wandb.init(
+        project=wandb_cfg.project,
+        config=job_config,
+        group=wandb_cfg.group,
+        entity=wandb_cfg.entity,
+        sync_tensorboard=True,
+        monitor_gym=True,
+        save_code=True,
+        name=name,
+        notes=notes,
+        id=run_id,
+        resume=run_id is not None,
+    )
 
 cfg_path = os.path.dirname(__file__)
 cfg_path = os.path.join(cfg_path, "cfg")
@@ -80,28 +131,31 @@ cfg_path = os.path.join(cfg_path, "cfg")
 def train(cfg: DictConfig):
     if cfg.debug:
         import warp as wp
+
         wp.config.mode = "debug"
         wp.config.verify_cuda = True
-        wp.config.print_launches=True
+        wp.config.print_launches = True
 
     torch.set_default_dtype(torch.float32)
     try:
         cfg_full = OmegaConf.to_container(cfg, resolve=True)
         cfg_yaml = yaml.dump(cfg_full["alg"])
         resume_model = cfg.resume_model
+        run = None
         if os.path.exists("exp_config.yaml"):
             loaded_config = yaml.load(open("exp_config.yaml", "r"))
             params, wandb_id = loaded_config["params"], loaded_config["wandb_id"]
-            run = create_wandb_run(cfg.wandb, params, wandb_id, run_wandb=cfg.general.run_wandb)
-            resume_model = "restore_checkpoint.zip"
-            assert os.path.exists(resume_model), "restore_checkpoint.zip does not exist!"
+            if cfg.general.run_wandb:
+                run = create_wandb_run(cfg.wandb, params, wandb_id)
+                resume_model = "restore_checkpoint.zip"
+                assert os.path.exists(resume_model), "restore_checkpoint.zip does not exist!"
         else:
             defaults = HydraConfig.get().runtime.choices
 
             params = yaml.safe_load(cfg_yaml)
             params["defaults"] = {k: defaults[k] for k in ["alg"]}
-
-            run = create_wandb_run(cfg.wandb, params, run_wandb=cfg.general.run_wandb)
+            if cfg.general.run_wandb:
+                run = create_wandb_run(cfg.wandb, params)
             # wandb_id = run.id if run != None else None
             save_dict = dict(wandb_id=run.id if run != None else None, params=params)
             yaml.dump(save_dict, open("exp_config.yaml", "w"))
@@ -110,7 +164,23 @@ def train(cfg: DictConfig):
             print("Task Config:")
             print(yaml.dump(cfg_full["task"]))
 
-        if "shac" in cfg.alg.name:
+        logdir = HydraConfig.get()["runtime"]["output_dir"]
+        logdir = os.path.join(logdir, cfg.general.logdir)
+
+        if "_target_" in cfg.alg:
+            # Run with hydra
+            cfg.task.env.no_grad = not cfg.general.train
+
+            traj_optimizer = instantiate(cfg.alg, env_config=cfg.task.env, logdir=logdir)
+
+            if cfg.general.checkpoint:
+                traj_optimizer.load(cfg.general.checkpoint)
+
+            if cfg.general.train:
+                traj_optimizer.train()
+            else:
+                traj_optimizer.run(cfg.task.player.games_num)
+        elif "shac" in cfg.alg.name:
             if cfg.alg.name == "shac2":
                 traj_optimizer = SHAC2(cfg)
             elif cfg.alg.name == "shac":
@@ -138,27 +208,35 @@ def train(cfg: DictConfig):
             else:
                 traj_optimizer.play(cfg_train)
             wandb.finish()
-        elif cfg.alg.name == "ppo":
+        elif cfg.alg.name in ["ppo", "sac"]:
             cfg_train = cfg_full["alg"]
+            cfg_train['params']['config']['num_actors'] = cfg.task.env.num_envs # This is the only number that works, at least for humanoid. Maybe because task yaml specifies 64 envs?
             cfg_train["params"]["general"] = cfg_full["general"]
             cfg_train["params"]["seed"] = cfg_full["general"]["seed"]
             cfg_train["params"]["render"] = cfg_full["render"]
             env_name = cfg_train["params"]["config"]["env_name"]
+
+            if env_name.split("_")[0] == "df":
+                cfg_train["params"]["config"]["env_name"] = env_type = "dflex"
+            elif env_name.split("_")[0] == "warp":
+                cfg_train["params"]["config"]["env_name"] = env_type = "warp"
+
             cfg_train["params"]["diff_env"] = cfg_full["task"]["env"]
             assert cfg_train["params"]["diff_env"].get("no_grad", True), "diffsim should be disabled for ppo"
-            cfg_train["params"]["diff_env"]["use_graph_capture"] = True
-            cfg_train["params"]["diff_env"]["use_autograd"] = True
+            # cfg_train["params"]["diff_env"]["use_graph_capture"] = True
+            # cfg_train["params"]["diff_env"]["use_autograd"] = True
             # env_name = cfg_train["params"]["diff_env"].pop("_target_").split(".")[-1]
             cfg_train["params"]["diff_env"]["name"] = env_name
 
             # save config
             if cfg_train["params"]["general"]["train"]:
-                log_dir = cfg_train["params"]["general"]["logdir"]
-                os.makedirs(log_dir, exist_ok=True)
+                cfg_train["params"]["general"]["logdir"] = logdir
+                os.makedirs(logdir, exist_ok=True)
                 # save config
-                yaml.dump(cfg_train, open(os.path.join(log_dir, "cfg.yaml"), "w"))
+                yaml.dump(cfg_train, open(os.path.join(logdir, "cfg.yaml"), "w"))
             # register envs
-            register_envs(cfg_train, env_name)
+
+            register_envs(cfg.task.env, env_type)
 
             # add observer to score keys
             if cfg_train["params"]["config"].get("score_keys"):
@@ -169,6 +247,11 @@ def train(cfg: DictConfig):
             runner.load(cfg_train)
             runner.reset()
             runner.run(cfg_train["params"]["general"])
+            # if running first with train=True with render=True
+            if cfg.general.train:  
+                cfg_train["params"]["render"] = True
+                runner.load_config(cfg_train)
+                runner.run_play(cfg_train["params"]["general"])
     except:
         traceback.print_exc(file=open("exception.log", "w"))
         with open("exception.log", "r") as f:

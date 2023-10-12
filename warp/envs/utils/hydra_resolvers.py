@@ -21,6 +21,21 @@ def return_enum(x, y):
 
 OmegaConf.register_new_resolver("enum", return_enum)
 
+
+def resolve_child(default, node, arg):
+    """
+    Attempts to get a child node parameter `arg` from `node`. If not
+        present, the return `default`
+    """
+    if arg in node:
+        return node[arg]
+    else:
+        return default
+
+
+OmegaConf.register_new_resolver("resolve_child", resolve_child)
+
+
 from warp.envs.utils.common import ActionType, HandType, ObjectType, GoalType, RewardType
 from warp.envs.environment import RenderMode
 

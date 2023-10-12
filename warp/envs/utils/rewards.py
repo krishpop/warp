@@ -1,4 +1,5 @@
 import torch
+from omegaconf import DictConfig
 from hydra.utils import instantiate
 from .torch_utils import quat_conjugate, quat_mul
 
@@ -37,14 +38,11 @@ def reach_bonus(pose_err, threshold: float = 0.1):
 def parse_reward_params(reward_params_dict):
     rew_params = {}
     for key, value in reward_params_dict.items():
-        if isinstance(value, dict):
-            if not callable(value["reward_fn_partial"]) and "_partial_" in value["reward_fn_partial"]:
-                value = instantiate(value)
+        if isinstance(value, (DictConfig, dict)):
             function = value["reward_fn_partial"]
-            # function = instantiate(function_name)
             arguments = value["args"]
             if isinstance(arguments, str):
-                arguments = (arguments,)
+                arguments = [arguments]
             coefficient = value["scale"]
         else:
             function, arguments, coefficient = value
