@@ -85,7 +85,7 @@ class HandObjectTask(ObjectTask):
             self.grasps = None
 
         # unset stochastic init if grasp_id not specified
-        stochastic_init = (self.grasps is not None and grasp_id is None) and stochastic_init
+        stochastic_init = stochastic_init
         self.hand_stiffness = stiffness
         self.hand_damping = damping
         # self.gravity = 0.0
