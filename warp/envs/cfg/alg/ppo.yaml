@@ -52,7 +52,7 @@ params:
     lr_schedule: adaptive
     lr_threshold: 0.008
     kl_threshold: 0.008
-    score_to_win: ${resolve_default:100000,${task.ppo.score_to_win}}}
+    score_to_win: 100000
     max_epochs: ${resolve_default:5000,${task.ppo.max_epochs}}
     save_best_after: ${resolve_default:100,${task.ppo.save_best_after}}
     save_frequency: ${resolve_default:400,${task.ppo.save_interval}}
@@ -61,8 +61,8 @@ params:
     truncate_grads: True
     e_clip: 0.2
     num_actors: ${resolve_default:2048,${num_envs}}
-    steps_num: ${resolve_default:32,${task.ppo.steps_num}}
-    minibatch_size: ${resolve_default:16384,${task.ppo.minibatch_size}}
+    horizon_length: ${resolve_child:32,${task.ppo},steps_num}
+    minibatch_size: ${resolve_child:16384,${task.ppo},minibatch_size}
     mini_epochs: 5
     critic_coef: 4
     clip_value: True

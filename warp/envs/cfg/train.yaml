@@ -20,7 +20,7 @@ resume_model: null
 
 general:
   play: False
-  logdir: logs/${alg.name}/${task.name}/
+  logdir: logs/
   save_interval: False
   no_time_stamp: False
   device: cuda:0
@@ -89,4 +89,4 @@ task:
 wandb:
   project: warp-envs
   group: ${exp_name}
-  sweep_name_prefix: ${task.name}_${alg.name}-run
+  sweep_name_prefix: ${task.name}_run
