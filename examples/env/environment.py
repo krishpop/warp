@@ -188,6 +188,9 @@ class Environment:
             self.episode_frames = int(self.episode_duration / self.frame_dt)
         self.sim_dt = self.frame_dt / self.sim_substeps
         self.sim_steps = self.episode_frames * self.sim_substeps
+        self.sim_step = 0
+        self.sim_time = 0.0
+        self.invalidate_cuda_graph = False
 
         if self.use_tiled_rendering and self.render_mode == RenderMode.OPENGL:
             # no environment offset when using tiled rendering
@@ -310,6 +313,10 @@ class Environment:
         return self.state_1
 
     def update_nograd(self):
+        if self.use_graph_capture:
+            state_0_dict = self.state_0.__dict__
+            state_1_dict = self.state_1.__dict__
+            state_temp_dict = self.state_temp.__dict__ if self.state_temp is not None else None
         for i in range(self.sim_substeps):
             self.state_0.clear_forces()
             self.custom_update()
@@ -322,11 +329,11 @@ class Environment:
                 assert hasattr(self, "state_temp") and self.state_temp is not None, \
                     "state_temp must be allocated when using graph capture"
                 # swap states by actually copying the state arrays to make sure the graph capture works
-                for key, value in self.state_0.__dict__.items():
+                for key, value in state_0_dict.items():
                     if isinstance(value, wp.array):
-                        self.state_temp.__dict__[key].assign(value)
-                        self.state_0.__dict__[key].assign(self.state_1.__dict__[key])
-                        self.state_1.__dict__[key].assign(self.state_temp.__dict__[key])
+                        state_temp_dict[key].assign(value)
+                        state_0_dict[key].assign(state_1_dict[key])
+                        state_1_dict[key].assign(state_temp_dict[key])
             self.sim_time += self.sim_dt
             self.sim_step += 1
 
@@ -343,12 +350,12 @@ class Environment:
     def render(self, state=None):
         if self.renderer is not None:
             with wp.ScopedTimer("render", False):
-                self.render_time += self.frame_dt
-                self.renderer.begin_frame(self.render_time)
+                self.renderer.begin_frame(self.sim_time)
                 # render state 1 (swapped with state 0 just before)
                 if self.requires_grad:
                     # ensure we do not render beyond the last state
-                    render_state = state or self.states[min(self.sim_steps, self.sim_step + 1)]
+                    # render_state = state or self.states[min(self.sim_steps, self.sim_step + 1)]
+                    render_state = state or self.states[min(self.sim_steps, self.sim_step)]
                 else:
                     render_state = state or self.next_state
                 self.custom_render(render_state)
@@ -358,7 +365,6 @@ class Environment:
     def reset(self):
         self.sim_time = 0.0
         self.sim_step = 0
-        self.render_time = 0.0
 
         if self.eval_fk:
             wp.sim.eval_fk(self.model, self.model.joint_q, self.model.joint_qd, None, self.state)
@@ -410,7 +416,7 @@ class Environment:
                         wp.capture_launch(graph)
                         self.sim_time += self.frame_dt
                         self.sim_step += self.sim_substeps
-                    else:
+                    elif not self.requires_grad or self.sim_step < self.sim_steps:
                         self.update()
 
                         if not self.profile:
