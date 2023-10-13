@@ -3007,3 +3007,30 @@ for t in int_types:
 
 
 add_builtin("unot", input_types={"a": array(dtype=Any)}, value_type=builtins.bool, doc="", group="Operators")
+
+
+@warp.kernel
+def array_assign(src: array(dtype=Any), dst: array(dtype=Any)):
+    i = warp.tid()
+    dst[i] = src[i]
+    
+@warp.kernel
+def array_zero_float(arr: array(dtype=float)):
+    i = warp.tid()
+    arr[i] = 0.0
+
+@warp.kernel
+def array_zero_int(arr: array(dtype=int)):
+    i = warp.tid()
+    arr[i] = 0
+
+@warp.kernel
+def array_zero_spatial_vector(arr: array(dtype=spatial_vector)):
+    i = warp.tid()
+    arr[i] = spatial_vector(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+
+@warp.kernel
+def array_zero_vec3(arr: array(dtype=vec3)):
+    i = warp.tid()
+    arr[i] = vec3(0.0)
+

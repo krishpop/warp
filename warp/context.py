@@ -3441,7 +3441,9 @@ def launch(
 
     # record on tape if one is active
     if runtime.tape and record_tape:
-        runtime.tape.record_launch(kernel, dim, max_blocks, inputs, outputs, device)
+        import traceback
+        stack_trace = ''.join(traceback.extract_stack().format()[:-1])
+        runtime.tape.record_launch(kernel, dim, max_blocks, inputs, outputs, device, meta_data={"stack_trace": stack_trace})
 
 
 def synchronize():
