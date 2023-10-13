@@ -1411,12 +1411,17 @@ def collide(model, state, edge_sdf_iter: int = 10):
     """
 
     # generate soft contacts for particles and shapes except ground plane (last shape)
-    if model.particle_count and model.shape_count > 1:
+    if model.particle_count and model.shape_count:
+        # determine where the contact variables are stored
+        if state.has_soft_contact_vars:
+            contact_state = state
+        else:
+            contact_state = model
         # clear old count
-        model.soft_contact_count.zero_()
+        contact_state.soft_contact_count.zero_()
         wp.launch(
             kernel=create_soft_contacts,
-            dim=(model.particle_count, model.shape_count - 1),
+            dim=(model.particle_count, model.shape_count),
             inputs=[
                 state.particle_q,
                 model.particle_radius,
@@ -1429,12 +1434,12 @@ def collide(model, state, edge_sdf_iter: int = 10):
                 model.soft_contact_max,
             ],
             outputs=[
-                model.soft_contact_count,
-                model.soft_contact_particle,
-                model.soft_contact_shape,
-                model.soft_contact_body_pos,
-                model.soft_contact_body_vel,
-                model.soft_contact_normal,
+                contact_state.soft_contact_count,
+                contact_state.soft_contact_particle,
+                contact_state.soft_contact_shape,
+                contact_state.soft_contact_body_pos,
+                contact_state.soft_contact_body_vel,
+                contact_state.soft_contact_normal,
             ],
             device=model.device,
         )

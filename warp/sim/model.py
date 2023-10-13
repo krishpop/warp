@@ -235,6 +235,7 @@ class State:
 
         particle_count (int): Number of particles
         body_count (int): Number of rigid bodies
+        requires_grad (bool): Whether the state's arrays have requires_grad enabled
 
         particle_q (wp.array): Tensor of particle positions
         particle_qd (wp.array): Tensor of particle velocities
@@ -244,6 +245,7 @@ class State:
         body_qd (wp.array): Tensor of body velocities
         body_f (wp.array): Tensor of body forces
 
+        has_soft_contact_vars (bool): Indicates whether the state has soft contact variables (default False, contact variables are stored only in the state if needed for differentiable simulation, i.e. model.requires_grad==True, otherwise the contact variables are stored in the Model)
         has_rigid_contact_vars (bool): Indicates whether the state has rigid contact variables (default False, contact variables are stored only in the state if needed for differentiable simulation, i.e. model.requires_grad==True, otherwise the contact variables are stored in the Model)
 
     """
@@ -251,6 +253,7 @@ class State:
     def __init__(self):
         self.particle_count = 0
         self.body_count = 0
+        self.requires_grad = False
 
         self.particle_q = None
         self.particle_qd = None
@@ -260,6 +263,7 @@ class State:
         self.body_qd = None
         self.body_f = None
 
+        self.has_soft_contact_vars = False
         self.has_rigid_contact_vars = False
 
     def clear_forces(self):
@@ -669,6 +673,10 @@ class Model:
             s.particle_qd.requires_grad = requires_grad
             s.particle_f.requires_grad = requires_grad
 
+            if requires_grad and self.soft_contact_max:
+                self._allocate_soft_contacts(s, self.soft_contact_max, requires_grad=requires_grad)
+                s.has_soft_contact_vars = True
+
         # articulations
         if self.body_count:
             s.body_q = wp.clone(self.body_q)
@@ -696,13 +704,16 @@ class Model:
 
         return s
 
+    def _allocate_soft_contacts(self, target, count, requires_grad=False):
+        target.soft_contact_count = wp.zeros(1, dtype=wp.int32, device=self.device)
+        target.soft_contact_particle = wp.zeros(count, dtype=int, device=self.device)
+        target.soft_contact_shape = wp.zeros(count, dtype=int, device=self.device)
+        target.soft_contact_body_pos = wp.zeros(count, dtype=wp.vec3, device=self.device, requires_grad=requires_grad)
+        target.soft_contact_body_vel = wp.zeros(count, dtype=wp.vec3, device=self.device, requires_grad=requires_grad)
+        target.soft_contact_normal = wp.zeros(count, dtype=wp.vec3, device=self.device, requires_grad=requires_grad)
+
     def allocate_soft_contacts(self, count, requires_grad=False):
-        self.soft_contact_count = wp.zeros(1, dtype=wp.int32, device=self.device)
-        self.soft_contact_particle = wp.zeros(count, dtype=int, device=self.device)
-        self.soft_contact_shape = wp.zeros(count, dtype=int, device=self.device)
-        self.soft_contact_body_pos = wp.zeros(count, dtype=wp.vec3, device=self.device, requires_grad=requires_grad)
-        self.soft_contact_body_vel = wp.zeros(count, dtype=wp.vec3, device=self.device, requires_grad=requires_grad)
-        self.soft_contact_normal = wp.zeros(count, dtype=wp.vec3, device=self.device, requires_grad=requires_grad)
+        self._allocate_soft_contacts(self, count, requires_grad)
 
     def find_shape_contact_pairs(self):
         # find potential contact pairs based on collision groups and collision mask (pairwise filtering)
@@ -1220,6 +1231,25 @@ class ModelBuilder:
             separate_collision_group: if True, the shapes from the articulation will all be put into a single new collision group, otherwise, only the shapes in collision group > -1 will be moved to a new group.
         """
 
+        start_particle_idx = self.particle_count
+        if articulation.particle_count:
+            self.particle_max_velocity = articulation.particle_max_velocity
+            if xform is not None:
+                pos_offset = wp.transform_get_translation(xform)
+            else:
+                pos_offset = np.zeros(3)
+            self.particle_q.extend((np.array(articulation.particle_q) + pos_offset).tolist())
+            # other particle attributes are added below
+
+        if articulation.spring_count:
+            self.spring_indices.extend((np.array(articulation.spring_indices, dtype=np.int32) + start_particle_idx).tolist())
+        if articulation.edge_count:
+            self.edge_indices.extend((np.array(articulation.edge_indices, dtype=np.int32) + start_particle_idx).tolist())
+        if articulation.tri_count:
+            self.tri_indices.extend((np.array(articulation.tri_indices, dtype=np.int32) + start_particle_idx).tolist())
+        if articulation.tet_count:
+            self.tet_indices.extend((np.array(articulation.tet_indices, dtype=np.int32) + start_particle_idx).tolist())
+
         start_body_idx = self.body_count
         start_shape_idx = self.shape_count
         for s, b in enumerate(articulation.shape_body):
@@ -1298,7 +1328,7 @@ class ModelBuilder:
         elif articulation.last_collision_group > -1:
             self.last_collision_group += articulation.last_collision_group
 
-        rigid_articulation_attrs = [
+        more_builder_attrs = [
             "body_inertia",
             "body_mass",
             "body_inv_inertia",
@@ -1337,9 +1367,25 @@ class ModelBuilder:
             "shape_material_restitution",
             "shape_collision_radius",
             "shape_ground_collision",
+            "particle_qd",
+            "particle_mass",
+            "particle_radius",
+            "particle_flags",
+            "edge_rest_angle",
+            "edge_bending_properties",
+            "spring_rest_length",
+            "spring_stiffness",
+            "spring_damping",
+            "spring_control",
+            "tri_poses",
+            "tri_activations",
+            "tri_materials",
+            "tet_poses",
+            "tet_activations",
+            "tet_materials",
         ]
 
-        for attr in rigid_articulation_attrs:
+        for attr in more_builder_attrs:
             getattr(self, attr).extend(getattr(articulation, attr))
 
         self.joint_dof_count += articulation.joint_dof_count
@@ -3817,13 +3863,7 @@ class ModelBuilder:
             self._create_ground_plane()
 
         # construct particle inv masses
-        particle_inv_mass = []
-
-        for m in self.particle_mass:
-            if m > 0.0:
-                particle_inv_mass.append(1.0 / m)
-            else:
-                particle_inv_mass.append(0.0)
+        particle_inv_mass = 1.0 / np.array(self.particle_mass, dtype=np.float32)
 
         with wp.ScopedDevice(device):
             # -------------------------------------
