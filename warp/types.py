@@ -1819,6 +1819,9 @@ class array(Array):
         return array._vars
 
     def zero_(self):
+        # if warp.context.runtime.tape is not None:
+        #     warp.launch(warp.builtins.array_zero, dim=self.shape, inputs=[self], device=self.device)
+        # else:
         if self.is_contiguous:
             # simple memset is usually faster than generic fill
             self.device.memset(self.ptr, 0, self.size * type_size_in_bytes(self.dtype))
@@ -1875,7 +1878,13 @@ class array(Array):
     # equivalent to wrapping src data in an array and copying to self
     def assign(self, src):
         if is_array(src):
-            warp.copy(self, src)
+            if warp.context.runtime.tape is not None:
+                # assert self.ndim == 1, "Assigning arrays with ndim > 1 is not supported in tape mode"
+                warp.launch(warp.builtins.array_assign, dim=self.shape, inputs=[src], outputs=[self], device=self.device)
+                # warp.context.runtime.tape.record_func(lambda *_: warp.copy(self, src), [])
+                # warp.copy(self, src)
+            else:
+                warp.copy(self, src)
         else:
             warp.copy(self, array(data=src, dtype=self.dtype, copy=False, device="cpu"))
 
