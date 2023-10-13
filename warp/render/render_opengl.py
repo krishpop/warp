@@ -835,6 +835,7 @@ class OpenGLRenderer:
         self._first_mouse = True
         self._left_mouse_pressed = False
         self._keys_pressed = defaultdict(bool)
+        self._key_callbacks = []
 
         self.update_view_matrix()
         self.update_projection_matrix()
@@ -1772,6 +1773,12 @@ Instances: {len(self._instances)}"""
             self.render_wireframe = not self.render_wireframe
         if symbol == pyglet.window.key.B:
             self.enable_backface_culling = not self.enable_backface_culling
+
+        for cb in self._key_callbacks:
+            cb(symbol, modifiers)
+
+    def register_key_press_callback(self, callback):
+        self._key_callbacks.append(callback)
 
     def _window_resize_callback(self, width, height):
         self._first_mouse = True
