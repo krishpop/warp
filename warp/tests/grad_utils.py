@@ -978,10 +978,10 @@ def check_backward_pass(
         # return G, array_nodes, kernel_nodes, manipulated_nodes, node_labels, edge_labels
 
         # try:
-        pos = nx.nx_agraph.graphviz_layout(
-            G, prog='dot', args='-Grankdir="LR"')
         # pos = nx.nx_agraph.graphviz_layout(
-        #     G, prog='dot', args='-Grankdir="TB" -Goverlap_scaling="10" -Gsize="10" -Gpad="0.0" -Gnodesep="0.5" -Gsep="10" -Granksep="3" -Gmindist="1.0"')
+        #     G, prog='dot', args='-Grankdir="LR"')
+        pos = nx.nx_agraph.graphviz_layout(
+            G, prog='dot', args='-Grankdir="TB" -Goverlap_scaling="10" -Gsize="10" -Gpad="0.0" -Gnodesep="0.5" -Gsep="10" -Granksep="3" -Gmindist="1.0"')
         # pos = nx.nx_agraph.graphviz_layout(
         #     G, prog='neato', args='-Grankdir="TB" -Goverlap_scaling="10" -Gsize="10" -Gpad="0.0" -Gnodesep="0.5" -Gsep="10" -Granksep="3" -Gmindist="1.0"')
         # pos = nx.nx_pydot.pydot_layout(G)
@@ -1004,15 +1004,7 @@ def check_backward_pass(
         
         import pydot
         
-        # # for nodes in nx.strongly_connected_components(G):
-        # #     print(nodes)
-        # #     print("---\n\n")
-        
         graph: pydot.Graph = nx.drawing.nx_pydot.to_pydot(G)
-        
-        # graph = nx.nx_agraph.to_agraph(G)
-        
-        # return graph
     
         graph.set_rankdir("TB")
         # graph.set_ranksep(2)
@@ -1057,8 +1049,8 @@ def check_backward_pass(
         legend = plt.legend(handles=handles, loc="upper right", prop={'size': 2})
         legend.get_frame().set_linewidth(0.2)
 
-        node_size = 15
-        font_size = 0.01
+        node_size = 150
+        font_size = 5 # 0.01
         default_draw_args = dict(
             alpha=0.9, edgecolors="black", linewidths=0.1, node_size=node_size)
         ax = plt.gca()
@@ -1068,7 +1060,7 @@ def check_backward_pass(
         for key, p in pos.items():
             if key not in kernel_nodes:
                 continue
-            w, h = node_size*10, node_size*18
+            w, h = node_size, node_size
             p = patches.Rectangle(
                 (p[0]-w/2, p[1]-h/2), w, h,
                 fill=True, clip_on=False,
@@ -1088,10 +1080,11 @@ def check_backward_pass(
         nx.draw_networkx_labels(G, pos, labels=shortened_node_labels, font_size=font_size, bbox=dict(
             facecolor='white', alpha=0.8, edgecolor='none', pad=0.0))
 
-        try:
-            nx.draw_networkx_edges(G, pos, edgelist=G.edges(), arrows=True, edge_color='black', node_size=node_size, width=0.1, arrowsize=2.0)
-        except:
-            pass
+        nx.draw_networkx_edges(G, pos, edgelist=G.edges(), arrows=True, edge_color='black', node_size=node_size) #, width=0.1, arrowsize=2.0)
+        # try:
+        #     nx.draw_networkx_edges(G, pos, edgelist=G.edges(), arrows=True, edge_color='black', node_size=node_size, width=0.1, arrowsize=2.0)
+        # except:
+        #     pass
         # nx.draw_networkx_edge_labels(
         #     G, pos,
         #     edge_labels={
