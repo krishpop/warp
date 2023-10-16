@@ -50,7 +50,7 @@ class Example:
         wp.sim.parse_urdf(
             os.path.join(os.path.dirname(__file__), "assets/cartpole.urdf"),
             articulation_builder,
-            xform=wp.transform(np.zeros(3), wp.quat_from_axis_angle((1.0, 0.0, 0.0), -math.pi * 0.5)),
+            xform=wp.transform(wp.vec3(0.0, -3.0, 0.0), wp.quat_from_axis_angle((1.0, 0.0, 0.0), -math.pi * 0.5)),
             floating=False,
             density=100,
             armature=0.1,
@@ -77,20 +77,22 @@ class Example:
 
             builder.joint_target[:3] = [0.0, 0.0, 0.0]
 
+        self.integrator = wp.sim.SemiImplicitIntegrator()
+        self.integrator = wp.sim.XPBDIntegrator()
+
         # finalize model
-        self.model = builder.finalize()
+        self.model = builder.finalize(integrator=self.integrator)
         self.model.ground = False
 
         self.model.joint_attach_ke = 1600.0
         self.model.joint_attach_kd = 20.0
-
-        self.integrator = wp.sim.SemiImplicitIntegrator()
 
         # -----------------------
         # set up Usd renderer
         self.renderer = None
         if render:
             self.renderer = wp.sim.render.SimRenderer(self.model, stage, scaling=15.0)
+            # self.renderer = wp.sim.render.SimRendererOpenGL(self.model, stage, scaling=2.0)
 
     def update(self):
         for _ in range(self.sim_substeps):
@@ -133,7 +135,6 @@ class Example:
                 if self.enable_rendering:
                     with wp.ScopedTimer("render", active=True):
                         self.render()
-                    # self.renderer.save()
 
             wp.synchronize()
 
@@ -141,6 +142,8 @@ class Example:
         avg_steps_second = 1000.0 * float(self.num_envs) / avg_time
 
         print(f"envs: {self.num_envs} steps/second {avg_steps_second} avg_time {avg_time}")
+
+        self.renderer.save()
 
         return 1000.0 * float(self.num_envs) / avg_time
 
