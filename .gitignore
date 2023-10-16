@@ -35,3 +35,5 @@ warp/envs/partnet-mobility-dataset/
 
 warp/envs/checkpoints
 *.ipynb
+
+**multirun/

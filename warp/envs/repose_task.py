@@ -26,7 +26,7 @@ class ReposeTask(HandObjectTask):
         render=True,
         stochastic_init=True,
         device="cuda",
-        render_mode=RenderMode.OPENGL,
+        render_mode=RenderMode.USD,
         logdir=None,
         stiffness=5000.0,
         damping=10.0,

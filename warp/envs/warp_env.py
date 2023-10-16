@@ -126,6 +126,7 @@ class WarpEnv(Environment):
         self.progress_buf = torch.zeros(self.num_envs, device=self.device, dtype=torch.long, requires_grad=False)
 
         self._model = None
+        self.render_time = 0.0
 
     @property
     def device(self):
@@ -281,7 +282,6 @@ class WarpEnv(Environment):
         pass
 
     def reset(self, env_ids=None, force_reset=True):
-        self.render_time = 0.0
         if env_ids is None:
             if force_reset:
                 env_ids = np.arange(self.num_envs, dtype=int)
@@ -352,10 +352,7 @@ class WarpEnv(Environment):
         )
         # swap states so start from correct next state
         if not self.use_graph_capture:
-            (
-                self.simulate_params["state_in"],
-                self.simulate_params["state_out"],
-            ) = (
+            (self.simulate_params["state_in"], self.simulate_params["state_out"],) = (
                 self.state_1,
                 self.state_0,
             )
@@ -471,6 +468,7 @@ class WarpEnv(Environment):
                 # render next_state (swapped with state 0 in update())
                 self.renderer.render(self.state_0)
                 self.renderer.end_frame()
+                self.renderer.save()
                 if mode == "rgb_array":
                     self.renderer.get_pixels(pixels, split_up_tiles=False)
                     return pixels.numpy()

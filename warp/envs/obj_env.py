@@ -197,15 +197,15 @@ class ObjectTask(WarpEnv):
         print("upper bound", upper)
         actions = scale(actions.clamp(-1, 1).view(self.num_envs, -1), lower, upper)
         self.warp_actions.zero_()
-        self.warp_actions.assign(wp.from_torch(actions.flatten()))
         if self.action_type is ActionType.TORQUE:
             self.model.joint_act.zero_()
         else:
             self.model.joint_target.zero_()
 
-        # env manages grad tape, and action setting happens with autograd utils
+        # env manages grad tape, and action setting happens within autograd
         if self.use_autograd and self.requires_grad:
             return
+
         assign_act(
             self.warp_actions,
             self.model.joint_target,

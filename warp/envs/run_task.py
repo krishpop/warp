@@ -41,16 +41,17 @@ def run(cfg: DictConfig):
     print("Run Params:")
     print(cfg_yaml)
 
-    # instantiate the environment
-    if cfg.task.name.lower() == "repose_task":
-        env = instantiate(cfg.task.env, _convert_="partial")
-    elif cfg.task.name.lower() == "hand_object_task":
-        env = instantiate(cfg.task.env, _convert_="partial")
-    elif cfg.task.name.lower() == "object_task":
-        env = instantiate(cfg.task.env, _convert_="partial")
+    # instantiate the environment if not created by rl_games runner
+    if cfg.alg.name not in ["ppo", "sac"]:
+        if cfg.env.name.lower() == "repose_task":
+            env = instantiate(cfg.env.config, _convert_="partial")
+        elif cfg.env.name.lower() == "hand_object_task":
+            env = instantiate(cfg.env.config, _convert_="partial")
+        elif cfg.env.name.lower() == "object_task":
+            env = instantiate(cfg.env.config, _convert_="partial")
 
-    if env.opengl_render_settings.get('headless', False):
-        env = Monitor(env, "outputs/videos/{}".format(get_time_stamp()))
+        if env.opengl_render_settings.get('headless', False):
+            env = Monitor(env, "outputs/videos/{}".format(get_time_stamp()))
 
     # get a policy
     if cfg.alg.name in ["default", "random", "zero", "sine"]:
@@ -61,9 +62,10 @@ def run(cfg: DictConfig):
         cfg_eval["params"]["general"] = cfg_full["general"]
         cfg_eval["params"]["seed"] = cfg_full["general"]["seed"]
         cfg_eval["params"]["render"] = cfg_full["render"]
-        cfg_eval["params"]["diff_env"] = cfg_full["task"]["env"]
-        env_name = cfg_full["task"]["name"]
-        register_envs(cfg_eval, env_name)
+        cfg_eval["params"]["diff_env"] = cfg_full["env"]["config"]
+        env_name = cfg_full["env"]["name"]
+        cfg_eval["params"]["config"]["env_name"] = env_name.split('_')[0]
+        register_envs(cfg.env)
         # add observer to score keys
         if cfg_eval["params"]["config"].get("score_keys"):
             algo_observer = RLGPUEnvAlgoObserver()
@@ -88,7 +90,7 @@ def run(cfg: DictConfig):
             cfg_train["params"]["general"] = cfg_full["general"]
             cfg_train["params"]["render"] = cfg_full["render"]
             cfg_train["params"]["general"]["render"] = cfg_full["render"]
-            cfg_train["params"]["diff_env"] = cfg_full["task"]["env"]
+            cfg_train["params"]["diff_env"] = cfg_full["env"]["config"]
             env_name = cfg_train["params"]["diff_env"].pop("_target_")
             cfg_train["params"]["diff_env"]["name"] = env_name.split(".")[-1]
             # TODO: Comment to disable autograd/graph capture for diffsim

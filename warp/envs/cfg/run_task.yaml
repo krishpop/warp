@@ -1,6 +1,6 @@
 defaults:
   - _self_
-  - task: repose
+  - env: repose
   - alg: control_test
   # - override hydra/launcher: submitit_local
 
@@ -12,7 +12,7 @@ hydra:
 # rlgames runner args
 general:
   play: True
-  logdir: logs/${alg.name}/${task.name}/
+  logdir: logs/${alg.name}/${env.name}/
   save_interval: False
   no_time_stamp: False
   device: cuda:0
@@ -25,13 +25,13 @@ general:
 
 
 # global defaults 
-num_envs: ${task.player.num_actors}
-num_steps: ${task.env.episode_length}
+num_envs: ${env.player.num_actors}
+num_steps: ${env.config.episode_length}
 num_rollouts: 5
 render: true
 
-# task defaults
-task:
+# env defaults
+env:
   gamma: 0.99
   player:
     games_num: 12

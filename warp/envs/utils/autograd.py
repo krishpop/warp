@@ -238,7 +238,7 @@ class IntegratorSimulate(torch.autograd.Function):
         ctx.act = act_params["act"]
         ctx.joint_act = act_params["joint_act"]
         ctx.act_pt = action
-        ctx.act.assign(wp.from_torch(ctx.act_pt.flatten()))
+        ctx.act.assign(wp.from_torch(ctx.act_pt.flatten(), requires_grad=True))
         ctx.body_q_pt = body_q.clone()
         ctx.body_qd_pt = body_qd.clone()
         ctx.joint_q_end = graph_capture_params["joint_q_end"]
