@@ -1,20 +1,19 @@
 defaults:
   - _self_
-  - task: repose
+  - env: repose
   - alg: shac2
   # - override hydra/launcher: submitit_local
 
-
-hydra:
-  sweep:
-    dir: checkpoints/${exp_name}/${now:%Y-%m-%d}/${now:%H-%M-%S}
-    subdir: ${wandb.sweep_name_prefix}-${hydra.job.num}
-  # launcher: # submitit_slurm launcher params
-  #   gpus_per_node: 1
-  #   tasks_per_node: 4
-  #   cpus_per_task: 8
-  #
-exp_name: warp_benchmarks
+# hydra:
+#   sweep:
+#     dir: checkpoints/${exp_name}/${now:%Y-%m-%d}/${now:%H-%M-%S}
+#     subdir: ${wandb.sweep_name_prefix}-${hydra.job.num}
+#   # launcher: # submitit_slurm launcher params
+#   #   gpus_per_node: 1
+#   #   tasks_per_node: 4
+#   #   cpus_per_task: 8
+#   #
+# exp_name: warp_benchmarks
 
 resume_model: null
 
@@ -31,13 +30,12 @@ general:
   multi_gpu: False
   mixed_precision: False
 
-num_envs: 
+num_envs:
 render: False
 debug: false
 
-
 # env-specific defaults for different algs
-task:
+env:
   score_keys: []
   gamma: 0.99
   player:
@@ -45,14 +43,14 @@ task:
     num_actors: 4
 
   ppo:
-    max_epochs: 2000 
+    max_epochs: 2000
     minibatch_size: 1920
     save_interval: 400
     save_best_after: 100
     num_actors: 1024
     steps_num: 240
     actor_mlp:
-      units: 
+      units:
         - 128
         - 64
         - 32
@@ -62,7 +60,7 @@ task:
         - 64
     lr: 3e-4
     lr_schedule: adaptive
-    score_to_win: 
+    score_to_win:
 
   shac:
     lambda: 0.95
@@ -80,13 +78,11 @@ task:
     max_epochs: 2000
     save_interval: 400
     steps_num: 32
-    betas: 
+    betas:
       - 0.7
       - 0.95
 
-  shac2: ${.shac}
-
 wandb:
-  project: warp-envs
-  group: ${exp_name}
-  sweep_name_prefix: ${task.name}_run
+  project: diff_manip
+  entity: dmanip-rss
+  group: warp_benchmarks
