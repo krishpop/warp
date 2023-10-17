@@ -26,12 +26,13 @@ def run(cfg: DictConfig):
     print(cfg_yaml)
 
     # instantiate the environment
-    if cfg.task.name.lower() == "repose_task":
-        env = instantiate(cfg.task.env, no_grad=False, use_autograd=False, _convert_="partial")
-    elif cfg.task.name.lower() == "hand_object_task":
-        env = instantiate(cfg.task.env, no_grad=False, use_autograd=False, _convert_="partial")
-    elif cfg.task.name.lower() == "object_task":
-        env = instantiate(cfg.task.env, no_grad=False, use_autograd=False, _convert_="partial")
+    env_name = cfg.env.name.lower().lstrip("warp_")
+    if env_name == "repose_task":
+        env = instantiate(cfg.env.config, no_grad=False, use_autograd=False, _convert_="partial")
+    elif env_name == "hand_object_task":
+        env = instantiate(cfg.env.config, no_grad=False, use_autograd=False, _convert_="partial")
+    elif env_name == "object_task":
+        env = instantiate(cfg.env.config, no_grad=False, use_autograd=False, _convert_="partial")
     optimize_actions(env, cfg)
 
 

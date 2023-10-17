@@ -23,7 +23,7 @@ import warp.envs.utils.hydra_resolvers
 def get_policy(cfg):
     if cfg.alg is None or cfg.alg.name == "default":
         return None
-    num_act = 16 if cfg.task.env.hand_type == HandType.ALLEGRO else 24
+    num_act = 16 if cfg.env.config.hand_type == HandType.ALLEGRO else 24
     if cfg.alg.name == "zero":
         return lambda x, t: torch.zeros((x.shape[0], num_act), device=x.device)
     if cfg.alg.name == "random":
@@ -43,9 +43,9 @@ def run(cfg: DictConfig):
     # instantiate the environment
     if "_target_" in cfg.alg:
         # Run with hydra
-        cfg.task.env.no_grad = not cfg.general.train
+        cfg.env.config.no_grad = not cfg.general.train
 
-        traj_optimizer = instantiate(cfg.alg, env_config=cfg.task.env, logdir=cfg.general.logdir)
+        traj_optimizer = instantiate(cfg.alg, env_config=cfg.env.config, logdir=cfg.general.logdir)
 
         if cfg.general.checkpoint:
             traj_optimizer.load(cfg.general.checkpoint)
@@ -54,12 +54,13 @@ def run(cfg: DictConfig):
 
     elif cfg.alg.name in ["default", "random", "zero", "sine"]:
         # instantiate the environment
-        if cfg.task.name.lower().endswith("repose_task"):
-            env = instantiate(cfg.task.env, _convert_="partial", logdir=cfg.general.logdir)
-        elif cfg.task.name.lower().endswith("hand_object_task"):
-            env = instantiate(cfg.task.env, _convert_="partial", logdir=cfg.general.logdir)
-        elif cfg.task.name.lower().endswith("object_task"):
-            env = instantiate(cfg.task.env, _convert_="partial", logdir=cfg.general.logdir)
+        env_name = cfg.env.name.lower().lstrip("warp_")
+        if env_name == "repose_task":
+            env = instantiate(cfg.env.config, _convert_="partial", logdir=cfg.general.logdir)
+        elif env_name == "hand_object_task":
+            env = instantiate(cfg.env.config, _convert_="partial", logdir=cfg.general.logdir)
+        elif env_name == "object_task":
+            env = instantiate(cfg.env.config, _convert_="partial", logdir=cfg.general.logdir)
 
         if env.opengl_render_settings.get("headless", False):
             env = Monitor(env, "outputs/videos/{}".format(get_time_stamp()))
@@ -72,8 +73,8 @@ def run(cfg: DictConfig):
         cfg_eval["params"]["general"] = cfg_full["general"]
         cfg_eval["params"]["seed"] = cfg_full["general"]["seed"]
         cfg_eval["params"]["render"] = cfg_full["render"]
-        cfg_eval["params"]["diff_env"] = cfg_full["task"]["env"]
-        env_name = cfg_full["task"]["name"]
+        cfg_eval["params"]["diff_env"] = cfg_full["env"]["config"]
+        env_name = cfg_full["env"]["name"].split("_")[0]
         register_envs(cfg_eval, env_name)
         # add observer to score keys
         if cfg_eval["params"]["config"].get("score_keys"):
@@ -99,7 +100,7 @@ def run(cfg: DictConfig):
             cfg_train["params"]["general"] = cfg_full["general"]
             cfg_train["params"]["render"] = cfg_full["render"]
             cfg_train["params"]["general"]["render"] = cfg_full["render"]
-            cfg_train["params"]["diff_env"] = cfg_full["task"]["env"]
+            cfg_train["params"]["diff_env"] = cfg_full["env"]["config"]
             env_name = cfg_train["params"]["diff_env"].pop("_target_")
             cfg_train["params"]["diff_env"]["name"] = env_name.split(".")[-1]
             # TODO: Comment to disable autograd/graph capture for diffsim

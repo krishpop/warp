@@ -4,9 +4,9 @@ defaults:
     - action_penalty
     - object_pos_err
 
-name: articulate_task
+name: warp_articulate_task
 
-env:
+config:
   _target_: warp.envs.ArticulateTask
   num_envs: ${resolve_default:256,${...num_envs}}
   episode_length: 500

@@ -7,7 +7,7 @@ defaults:
 
 name: repose_task
 
-env:
+config:
   _target_: warp.envs.ObjectTask
   num_envs: ${resolve_default:1,${...num_envs}}
   episode_length: 500
