@@ -228,9 +228,9 @@ class Controller:
 
     noise_scale = 0.1
 
-    # interpolation_mode = InterpolationMode.INTERPOLATE_LINEAR
+    interpolation_mode = InterpolationMode.INTERPOLATE_LINEAR
     # interpolation_mode = InterpolationMode.INTERPOLATE_CUBIC
-    interpolation_mode = InterpolationMode.INTERPOLATE_HOLD
+    # interpolation_mode = InterpolationMode.INTERPOLATE_HOLD
 
     def __init__(self, env_fn):
 
@@ -238,18 +238,18 @@ class Controller:
         self.traj_length = 15000
 
         # time steps between control points
-        self.control_step = 10
+        self.control_step = 30
         # number of control horizon points to interpolate between
         self.num_control_points = 3
         # total number of horizon time steps
         self.horizon_length = self.num_control_points * self.control_step
         # number of trajectories to sample for optimization
-        self.num_threads = 1
+        self.num_threads = 100
         # number of steps to follow before optimizing again
         self.optimization_interval = 1
 
         # whether env_rollout requires gradients
-        self.use_diff_sim = True
+        self.use_diff_sim = False
 
         # create environment for sampling trajectories for optimization
         self.env_rollout = env_fn()
@@ -456,7 +456,7 @@ class Controller:
         self.env_ref.after_simulate()
         self.env_rollout.after_simulate()
 
-    def optimize2(self, state):
+    def optimize(self, state):
         # predictive sampling algorithm
         if self.use_graph_capture:
             if self._opt_graph is None:
@@ -471,7 +471,7 @@ class Controller:
             self.rollout(state, self.rollout_trajectories)
         self.pick_best_control()
 
-    def optimize(self, state):
+    def optimize2(self, state):
         num_opt_steps = 15
         # gradient-based optimization
         if self._optimizer is None:
@@ -796,7 +796,7 @@ if __name__ == "__main__":
 
     # mpc = Controller(AntEnvironment)
     # mpc = Controller(HopperEnvironment)
-    # mpc = Controller(CartpoleEnvironment)
-    mpc = Controller(DroneEnvironment)
+    mpc = Controller(CartpoleEnvironment)
+    # mpc = Controller(DroneEnvironment)
 
     mpc.run()
