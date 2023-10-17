@@ -9,7 +9,7 @@ import warp as wp
 import warp.sim
 import warp.sim.render
 
-from .environment import Environment, RenderMode
+from .environment import Environment, RenderMode, IntegratorType
 from .utils import dr_params
 from .utils.autograd import forward_ag, get_compute_graph
 from .utils.warp_utils import integrate_body_f
@@ -249,11 +249,16 @@ class WarpEnv(Environment):
             self.state_1.body_q.requires_grad = True
             self.state_0.body_qd.requires_grad = True
             self.state_1.body_qd.requires_grad = True
-            self.state_0.body_f.requires_grad = True
-            self.state_1.body_f.requires_grad = True
+            if self.integrator_type == IntegratorType.EULER:
+                self.state_0.body_f.requires_grad = True
+                self.state_1.body_f.requires_grad = True
+            if self.integrator_type == IntegratorType.XPBD:
+                # self.state_0.body_deltas.requires_grad = True
+                self.state_1.body_deltas.requires_grad = True
             self._joint_q.requires_grad = True
             self._joint_qd.requires_grad = True
         self.body_q, self.body_qd = wp.to_torch(self.state_0.body_q), wp.to_torch(self.state_0.body_qd)
+        self.render_time = 0.0
 
         start_joint_q = wp.to_torch(self.model.joint_q)
         start_joint_qd = wp.to_torch(self.model.joint_qd)
@@ -315,10 +320,14 @@ class WarpEnv(Environment):
             # only check body state requires_grad, assumes rest of state is correct
             assert self.state_0.body_q.requires_grad == self.requires_grad
             assert self.state_0.body_qd.requires_grad == self.requires_grad
-            assert self.state_0.body_f.requires_grad == self.requires_grad
+            if self.integrator_type == IntegratorType.EULER:
+                assert self.state_0.body_f.requires_grad == self.requires_grad
+            if self.integrator_type == IntegratorType.XPBD:
+                assert self.state_1.body_deltas.requires_grad == self.requires_grad
 
             # updates state body positions after reset
             wp.sim.eval_fk(self.model, self._joint_q, self._joint_qd, None, self.state_0)
+            # self.model.allocate_rigid_contacts(requires_grad=True)
             self.body_q = wp.to_torch(self.state_0.body_q).requires_grad_(self.requires_grad)
             self.body_qd = wp.to_torch(self.state_0.body_qd).requires_grad_(self.requires_grad)
             self.simulate_params["state_in"] = self.state_0
@@ -441,11 +450,15 @@ class WarpEnv(Environment):
             if self.state_0.body_q.grad is not None:
                 self.state_0.body_q.grad.zero_()
                 self.state_0.body_qd.grad.zero_()
-                self.state_0.body_f.grad.zero_()
+                if self.integrator_type == IntegratorType.EULER:
+                    self.state_0.body_f.grad.zero_()
+                if self.integrator_type == IntegratorType.XPBD:
+                    self.state_1.body_deltas.grad.zero_()
             if self.state_1.body_q.grad is not None:
                 self.state_1.body_q.grad.zero_()
                 self.state_1.body_qd.grad.zero_()
-                self.state_1.body_f.grad.zero_()
+                if self.integrator_type == IntegratorType.EULER:
+                    self.state_1.body_f.grad.zero_()
 
         if self.requires_grad:
             assert self.model.joint_q.requires_grad, "joint_q requires_grad not set"

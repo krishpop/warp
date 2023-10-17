@@ -36,11 +36,12 @@ class ReposeTask(HandObjectTask):
         hand_start_orientation: Tuple = (-np.pi / 2, np.pi * 0.75, np.pi / 2),
         use_autograd: bool = True,
         use_graph_capture: bool = False,
-        reach_threshold: float = 0.1,
+        reach_threshold: float = 0.05,
         headless=False,
     ):
         object_type = ObjectType.REPOSE_CUBE
         object_id = 0
+        env_name = hand_type.name + "_" + object_type.name
         super().__init__(
             num_envs=num_envs,
             num_obs=num_obs,
@@ -66,6 +67,7 @@ class ReposeTask(HandObjectTask):
             use_autograd=use_autograd,
             use_graph_capture=use_graph_capture,
             headless=headless,
+            env_name=env_name,
         )
         self.reward_extras["reach_threshold"] = reach_threshold
         # stay in center of hand
@@ -121,10 +123,10 @@ class ReposeTask(HandObjectTask):
 
     def _check_early_termination(self, obs_dict):
         # check if object is dropped
+        termination = super()._check_early_termination(obs_dict)
         object_body_pos = obs_dict["object_pos"]
-        termination = object_body_pos[:, 1] < self.drop_height
+        termination = termination | (object_body_pos[:, 1] < self.drop_height)
         self.termination_buf = self.termination_buf | termination
-        self.reset_buf = self.reset_buf | termination
         return termination
 
     def _get_obs_dict(self):
@@ -167,24 +169,33 @@ if __name__ == "__main__":
     parser.add_argument("--num_episodes", "-ne", type=int, default=1)
     parser.add_argument("--profile", action="store_true")
     parser.add_argument("--norender", action="store_true")
+    parser.add_argument("--use_grad", action="store_true")
     args = parser.parse_args()
 
     reach_bonus = lambda x, y: torch.where(x < y, torch.ones_like(x), torch.zeros_like(x))
     reward_params = {
-        "object_pos_err": (l2_dist, ("target_pos", "object_pos"), -10.0),
+        # "object_pos_err": (l2_dist, ("target_pos", "object_pos"), -10.0),
         # "rot_reward": (rot_reward, ("object_rot", "target_rot"), 1.0),
         "action_penalty": (action_penalty, ("action",), -0.0002),
-        "reach_bonus": (reach_bonus, ("object_pose_err", "reach_threshold"), 250.0),
+        # "reach_bonus": (reach_bonus, ("object_pose_err", "reach_threshold"), 250.0),
     }
     if args.profile or args.norender:
         render_mode = RenderMode.NONE
     else:
         render_mode = RenderMode.OPENGL
     env = ReposeTask(
-        num_envs=args.num_envs, num_obs=38, episode_length=1000, reward_params=reward_params, render_mode=render_mode
+        num_envs=args.num_envs,
+        num_obs=38,
+        episode_length=1000,
+        reward_params=reward_params,
+        render_mode=render_mode,
+        render=(not args.norender),
+        no_grad=(not args.use_grad),
+        use_autograd=args.use_grad,
     )
     if args.profile:
         profile(env)
     else:
-        env.load_camera_params()
-        run_env(env, pi=None, num_rollouts=args.num_rollouts, logdir="outputs/")
+        if env.visualize:
+            env.load_camera_params()
+        run_env(env, pi=None, num_rollouts=args.num_episodes, logdir="outputs/", use_grad=args.use_grad)

@@ -55,10 +55,11 @@ class HandObjectTask(ObjectTask):
         fix_position: bool = True,
         fix_orientation: bool = True,
         headless: bool = False,
+        env_name: str = None,
     ):
         self.fix_position = fix_position
         self.fix_orientation = fix_orientation
-        env_name = hand_type.name + "Env"
+        env_name = env_name or hand_type.name + "Env"
         self.hand_start_position = hand_start_position
         self.hand_start_orientation = hand_start_orientation
         self.hand_type = hand_type

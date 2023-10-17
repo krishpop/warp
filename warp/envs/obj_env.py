@@ -223,28 +223,32 @@ class ObjectTask(WarpEnv):
         self._prev_obs = self.extras.get("obs_dict", None)
         del self.extras
         self.extras = OrderedDict(actions=self.actions)
-        self.assign_actions(actions)
         self._pre_step()
         if self.requires_grad and self.use_autograd:
             self.record_forward_simulate(actions)
         else:
+            self.assign_actions(actions)
             self.update()
         self._post_step()
         self.calculateObservations()
         self.calculateReward()
         self.progress_buf += 1
         self.num_frames += 1
-        truncation = self.progress_buf >= self.episode_length
-        self.extras["truncation"] = truncation
-        self.reset_buf = self.reset_buf | truncation
+        self.extras["truncation"] = truncation = self.progress_buf >= self.episode_length
+        self.extras["termination"] = termination = self._check_early_termination(self.extras["obs_dict"])
+        self.reset_buf = self.reset_buf | truncation | termination
+        dones = self.reset_buf.clone()
         env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
         self.obs_buf_before_reset = self.obs_buf.clone()
-        self.extras.update({"obs_before_reset": self.obs_buf_before_reset, "episode_end": self.termination_buf})
+        self.extras.update({"obs_before_reset": self.obs_buf_before_reset, "episode_end": termination})
         if len(env_ids) > 0 and self.self_reset:
             self.reset(env_ids)
         if self.visualize:
             self.render()
-        return self.obs_buf, self.rew_buf, self.reset_buf, self.extras
+        return self.obs_buf, self.rew_buf, dones, self.extras
+
+    def _check_early_termination(self, obs_dict):
+        return torch.zeros_like(self.reset_buf)
 
     def _get_rew_dict(self):
         rew_dict = {}
@@ -278,6 +282,7 @@ class ObjectTask(WarpEnv):
 
     def calculateReward(self):
         rew_dict = self._get_rew_dict()
+
         self.rew_buf = torch.sum(torch.cat([v.view(self.num_envs, 1) for v in rew_dict.values()], dim=1), dim=-1).view(
             self.num_envs
         )

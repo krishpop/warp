@@ -5,6 +5,8 @@ from typing import Union
 from inspect import getmembers
 from warp.sim.model import State, Model
 from torch.cuda.amp import custom_fwd, custom_bwd
+
+from warp.tests.grad_utils import check_backward_pass, check_tape_safety
 from .warp_utils import integrate_body_f, assign_act
 
 # from warp.tests.grad_utils import check_kernel_jacobian, check_backward_pass, plot_jacobian_comparison
@@ -184,13 +186,11 @@ def forward_simulate(ctx, forward=False, requires_grad=False):
         if forward or step == ctx.substeps - 1:
             # reuse state_out for last substep
             state_temp = state_out
-        elif not ctx.capture_graph:
+        elif ctx.state_list is None:
             state_temp = model.state()
         else:
             state_temp = ctx.state_list[step]
         if model.ground:
-            if not forward and step == 0:
-                model.allocate_rigid_contacts()
             wp.sim.collide(model, state_in)
         state_temp = ctx.integrator.simulate(
             model,
@@ -262,6 +262,8 @@ class IntegratorSimulate(torch.autograd.Function):
         ctx.state_in.body_qd.requires_grad = True
         ctx.state_out.body_q.requires_grad = True
         ctx.state_out.body_qd.requires_grad = True
+        if ctx.state_out.body_deltas is not None:
+            ctx.state_out.body_deltas.requires_grad = True
 
         if ctx.capture_graph:
             ctx.tape = graph_capture_params["tape"]
@@ -278,6 +280,14 @@ class IntegratorSimulate(torch.autograd.Function):
             ctx.tape = wp.Tape()
             with ctx.tape:
                 forward_simulate(ctx, forward=False, requires_grad=True)
+            # check_tape_safety(forward_simulate, [ctx, False, True])
+            # check_backward_pass(
+            #     ctx.tape,
+            #     track_input_names=["body_q_in", "action"],
+            #     track_output_names=["joint_q_out", "body_q_out"],
+            #     track_inputs=[ctx.state_in.body_q, ctx.act],
+            #     track_outputs=[ctx.joint_q_end, ctx.state_out.body_q],
+            # )
 
         joint_q_end = wp.to_torch(ctx.graph_capture_params["joint_q_end"]).clone()
         joint_qd_end = wp.to_torch(ctx.graph_capture_params["joint_qd_end"]).clone()
@@ -365,10 +375,11 @@ class IntegratorSimulate(torch.autograd.Function):
             ctx.graph_capture_params["joint_qd_end"].grad.assign(wp.from_torch(adj_joint_qd))
 
             ctx.tape.backward()
-            joint_act_grad = wp.to_torch(ctx.tape.gradients[act]).clone()
+            joint_act_grad = wp.to_torch(ctx.tape.gradients[act]).clone()  # .clamp(-1, 1)
+            joint_act_grad /= joint_act_grad.norm(dim=-1)
             # Unnecessary copying of grads, grads should already be recorded by context
-            body_q_grad = wp.to_torch(ctx.tape.gradients[state_in.body_q]).clone()
-            body_qd_grad = wp.to_torch(ctx.tape.gradients[state_in.body_qd]).clone()
+            body_q_grad = wp.to_torch(ctx.tape.gradients[state_in.body_q]).clone()  # .clamp(-1, 1)
+            body_qd_grad = wp.to_torch(ctx.tape.gradients[state_in.body_qd]).clone()  # .clamp(-1, 1)
             ctx.tape.zero()
 
         # return adjoint w.r.t. inputs

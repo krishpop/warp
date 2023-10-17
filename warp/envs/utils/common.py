@@ -256,17 +256,16 @@ def parse_grasp_data(grasp):
     return dict(xform=np.concatenate([pose_t, pose_r]), joint_pos=qpos, hand_type=hand_type)
 
 
-def load_grasps_npy(object_type: ObjectType, object_id: Optional[int], hand_type: HandType,
-                    grasp_params=None) -> List[GraspParams]:
+def load_grasps_npy(
+    object_type: ObjectType, object_id: Optional[int], hand_type: HandType, grasp_params=None
+) -> List[GraspParams]:
     if object_id:
         object_filename = f"{object_type.name.lower().capitalize()}_{object_id}_merged.npy"
     else:
         object_filename = f"{object_type.name.lower()}_merged.npy"
     path = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)),
-            "graspdata",
-            hand_type.name.lower(),
-            object_filename)
+        os.path.dirname(os.path.dirname(__file__)), "graspdata", hand_type.name.lower(), object_filename
+    )
 
     data = np.load(path, allow_pickle=True)
 
@@ -335,9 +334,9 @@ def profile(env):
     plt.show()
 
 
-def run_env(env, pi=None, num_steps=600, num_rollouts=1, logdir=None):
+def run_env(env, pi=None, num_steps=600, num_rollouts=1, logdir=None, use_grad=False):
     if pi is None:
-        period = 50 #150
+        period = 50  # 150
         joint_target_indices = env.env_joint_target_indices
 
         lower, upper = env.action_bounds
@@ -349,13 +348,13 @@ def run_env(env, pi=None, num_steps=600, num_rollouts=1, logdir=None):
             del obs
             act = np.sin(np.ones((env.num_envs, env.num_acts)) * t / period) * 0.9  # [-1, 1]
             # joint_q_targets = act * (upper - lower) / 2 + (upper - lower) / 2
-            i = (t // (period*2)) % len(joint_target_indices)
+            i = (t // (period * 2)) % len(joint_target_indices)
             action = joint_start.copy()
             action[:, i] = act.reshape(1, -1).repeat(env.num_envs, axis=0)[:, i]
             return torch.tensor(action, device=str(env.device))
 
     for ep in range(num_rollouts):
-        actions, states, rewards, _ = collect_rollout(env, num_steps, pi)
+        actions, states, rewards, _ = collect_rollout(env, num_steps, pi, use_grad=use_grad)
         if logdir:
             logdir = logdir.rstrip("/")
             np.savez(
@@ -366,7 +365,7 @@ def run_env(env, pi=None, num_steps=600, num_rollouts=1, logdir=None):
             )
 
 
-def collect_rollout(env, n_steps, pi, loss_fn=None, plot_body_coords=False, plot_joint_coords=False):
+def collect_rollout(env, n_steps, pi, loss_fn=None, plot_body_coords=False, plot_joint_coords=False, use_grad=False):
     o = env.reset()
     net_cost = 0.0
     states = []
@@ -387,7 +386,10 @@ def collect_rollout(env, n_steps, pi, loss_fn=None, plot_body_coords=False, plot
 
     with trange(n_steps, desc=f"cost={net_cost:.2f}") as pbar:
         for t in pbar:
-            ac = pi(o, t)
+            if t == 0 or not use_grad:
+                ac = pi(o, t).requires_grad_(use_grad)
+            elif use_grad:
+                ac = ac.clone() + ac.grad  # assumes reward.backward() was called
             actions.append(ac.cpu().detach().numpy())
             o, rew, done, info = env.step(ac)
             if done.sum() > 0 and not env.self_reset:
@@ -402,11 +404,15 @@ def collect_rollout(env, n_steps, pi, loss_fn=None, plot_body_coords=False, plot
             if plot_joint_coords:
                 joint_q_history.append(env.state_0.joint_q.numpy().copy())
 
-            rew = rew.mean(dim=0).cpu().detach().item()
+            rew = rew.mean(dim=0)
+            if use_grad:
+                __import__("ipdb").set_trace()
+                rew.backward()
+            rew_npy = rew.cpu().detach().item()
             if loss_fn is not None:
                 loss_fn()
 
-            net_cost += rew
+            net_cost += rew_npy
             pbar.set_description(f"mean_cost_per_env={net_cost:.2f}")
             states.append(o.cpu().detach().numpy())
             rewards.append(rew)

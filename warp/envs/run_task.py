@@ -30,7 +30,6 @@ def get_policy(cfg):
         return lambda x, t: torch.rand((x.shape[0], num_act), device=x.device).clamp_(-1.0, 1.0)
     if cfg.alg.name == "sine":
         return lambda x, t: torch.sin(torch.ones((x.shape[0], num_act)).to(x) * t * 2 * np.pi * 0.1)
-    
 
 
 @hydra.main(config_path="cfg", config_name="run_task.yaml")
@@ -41,31 +40,41 @@ def run(cfg: DictConfig):
     print("Run Params:")
     print(cfg_yaml)
 
-    # instantiate the environment if not created by rl_games runner
-    if cfg.alg.name not in ["ppo", "sac"]:
-        if cfg.env.name.lower() == "repose_task":
-            env = instantiate(cfg.env.config, _convert_="partial")
-        elif cfg.env.name.lower() == "hand_object_task":
-            env = instantiate(cfg.env.config, _convert_="partial")
-        elif cfg.env.name.lower() == "object_task":
-            env = instantiate(cfg.env.config, _convert_="partial")
+    # instantiate the environment
+    if "_target_" in cfg.alg:
+        # Run with hydra
+        cfg.task.env.no_grad = not cfg.general.train
 
-        if env.opengl_render_settings.get('headless', False):
+        traj_optimizer = instantiate(cfg.alg, env_config=cfg.task.env, logdir=cfg.general.logdir)
+
+        if cfg.general.checkpoint:
+            traj_optimizer.load(cfg.general.checkpoint)
+
+        traj_optimizer.run(cfg.num_rollouts)
+
+    elif cfg.alg.name in ["default", "random", "zero", "sine"]:
+        # instantiate the environment
+        if cfg.task.name.lower().endswith("repose_task"):
+            env = instantiate(cfg.task.env, _convert_="partial", logdir=cfg.general.logdir)
+        elif cfg.task.name.lower().endswith("hand_object_task"):
+            env = instantiate(cfg.task.env, _convert_="partial", logdir=cfg.general.logdir)
+        elif cfg.task.name.lower().endswith("object_task"):
+            env = instantiate(cfg.task.env, _convert_="partial", logdir=cfg.general.logdir)
+
+        if env.opengl_render_settings.get("headless", False):
             env = Monitor(env, "outputs/videos/{}".format(get_time_stamp()))
 
-    # get a policy
-    if cfg.alg.name in ["default", "random", "zero", "sine"]:
         policy = get_policy(cfg)
         run_env(env, policy, cfg_full["num_steps"], cfg_full["num_rollouts"])
+
     elif cfg.alg.name in ["ppo", "sac"]:
         cfg_eval = cfg_full["alg"]
         cfg_eval["params"]["general"] = cfg_full["general"]
         cfg_eval["params"]["seed"] = cfg_full["general"]["seed"]
         cfg_eval["params"]["render"] = cfg_full["render"]
-        cfg_eval["params"]["diff_env"] = cfg_full["env"]["config"]
-        env_name = cfg_full["env"]["name"]
-        cfg_eval["params"]["config"]["env_name"] = env_name.split('_')[0]
-        register_envs(cfg.env)
+        cfg_eval["params"]["diff_env"] = cfg_full["task"]["env"]
+        env_name = cfg_full["task"]["name"]
+        register_envs(cfg_eval, env_name)
         # add observer to score keys
         if cfg_eval["params"]["config"].get("score_keys"):
             algo_observer = RLGPUEnvAlgoObserver()
@@ -90,7 +99,7 @@ def run(cfg: DictConfig):
             cfg_train["params"]["general"] = cfg_full["general"]
             cfg_train["params"]["render"] = cfg_full["render"]
             cfg_train["params"]["general"]["render"] = cfg_full["render"]
-            cfg_train["params"]["diff_env"] = cfg_full["env"]["config"]
+            cfg_train["params"]["diff_env"] = cfg_full["task"]["env"]
             env_name = cfg_train["params"]["diff_env"].pop("_target_")
             cfg_train["params"]["diff_env"]["name"] = env_name.split(".")[-1]
             # TODO: Comment to disable autograd/graph capture for diffsim

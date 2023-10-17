@@ -1,9 +1,12 @@
 import torch
+import warp as wp
 from omegaconf import DictConfig
 from hydra.utils import instantiate
 from .torch_utils import quat_conjugate, quat_mul
+from .warp_utils import quat_ang_err, compute_ctrl_reward
 
 action_penalty = lambda act: torch.linalg.norm(act, dim=-1)
+action_penalty_kernel = compute_ctrl_reward
 l2_dist = lambda x, y: torch.linalg.norm(x - y, dim=-1)
 l1_dist = lambda x, y: torch.abs(x - y).sum(dim=-1)
 
@@ -35,16 +38,35 @@ def reach_bonus(pose_err, threshold: float = 0.1):
     return torch.where(pose_err < threshold, torch.ones_like(pose_err), torch.zeros_like(pose_err))
 
 
-def parse_reward_params(reward_params_dict):
+def parse_reward_params(reward_params):
     rew_params = {}
-    for key, value in reward_params_dict.items():
-        if isinstance(value, (DictConfig, dict)):
-            function = value["reward_fn_partial"]
-            arguments = value["args"]
-            if isinstance(arguments, str):
-                arguments = [arguments]
-            coefficient = value["scale"]
-        else:
-            function, arguments, coefficient = value
-        rew_params[key] = (function, arguments, coefficient)
+    if isinstance(reward_params, list):
+        for value in reward_params:
+            value.rstrip("_kernel")
+            if value == "action_penalty":
+                rew_params[value] = action_penalty_kernel
+            # elif value == "l2_dist":
+            #     rew_params[value] = l2_dist_kernel
+            # elif value == "l1_dist":
+            #     rew_params[value] = l1_dist_kernel
+            # elif value == "object_pos_err":
+            #     rew_params[value] = pos_dist_kernel
+            # elif value == "l2_dist_exp":
+            #     rew_params[value] = l2_dist_exp_kernel
+            # elif value == "rot_dist":
+            #     rew_params[value] = rot_dist_kernel
+            # elif value == "rot_reward":
+            #     rew_params[value] = rot_reward_kernel
+
+    else:
+        for key, value in reward_params.items():
+            if isinstance(value, (DictConfig, dict)):
+                function = value["reward_fn_partial"]
+                arguments = value["args"]
+                if isinstance(arguments, str):
+                    arguments = [arguments]
+                coefficient = value["scale"]
+            else:
+                function, arguments, coefficient = value
+            rew_params[key] = (function, arguments, coefficient)
     return rew_params
