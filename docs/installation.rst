@@ -49,29 +49,29 @@ tools are required:
 
 After cloning the repository, users should run:
 
-.. code-block:: sh
+.. code-block:: console
 
-   $ python build_lib.py
+    $ python build_lib.py
 
 This will generate the ``warp.dll`` / ``warp.so`` core library
 respectively. When building manually users should ensure that their
-CUDA_PATH environment variable is set, otherwise Warp will be built
+``CUDA_PATH`` environment variable is set, otherwise Warp will be built
 without CUDA support. Alternatively, the path to the CUDA toolkit can be
-passed to the build command as ``--cuda_path="..."``. After building the
+passed to the build command as ``--cuda_path="..."``. After building, the
 Warp package should be installed using:
 
-.. code-block:: sh
+.. code-block:: console
 
-   $ pip install -e .
+    $ pip install -e .
 
 Which ensures that subsequent modifications to the library will be
 reflected in the Python package.
 
 If you are cloning from Windows, please first ensure that you have
-enabled “Developer Mode” in Windows settings and symlinks in git:
+enabled “Developer Mode” in Windows settings and symlinks in Git:
 
-.. code-block:: sh
+.. code-block:: console
 
-   $ git config --global core.symlinks true
+    $ git config --global core.symlinks true
 
 This will ensure symlinks inside ``exts/omni.warp`` work upon cloning.

@@ -473,7 +473,7 @@ def runlength_encode(values, run_values, run_lengths, run_count=None, value_coun
     else:
         host_return = False
         if run_count.device != values.device:
-            raise RuntimeError("run_count storage devices does not match other arrays")
+            raise RuntimeError("run_count storage device does not match other arrays")
         if run_count.dtype != wp.int32:
             raise RuntimeError("run_count array must be of type int32")
 
@@ -661,29 +661,16 @@ def array_inner(a, b, out=None, count=None, axis=None):
             return out
 
 
-_copy_kernel_cache = dict()
+@wp.kernel
+def _array_cast_kernel(
+    dest: Any,
+    src: Any,
+):
+    i = wp.tid()
+    dest[i] = dest.dtype(src[i])
 
 
 def array_cast(in_array, out_array, count=None):
-    def make_copy_kernel(dest_dtype, src_dtype):
-        import re
-
-        import warp.context
-
-        def copy_kernel(
-            dest: Any,
-            src: Any,
-        ):
-            dest[wp.tid()] = dest_dtype(src[wp.tid()])
-
-        module = wp.get_module(copy_kernel.__module__)
-        key = f"{copy_kernel.__name__}_{warp.context.type_str(src_dtype)}_{warp.context.type_str(dest_dtype)}"
-        key = re.sub("[^0-9a-zA-Z_]+", "", key)
-
-        if key not in _copy_kernel_cache:
-            _copy_kernel_cache[key] = wp.Kernel(func=copy_kernel, key=key, module=module)
-        return _copy_kernel_cache[key]
-
     if in_array.device != out_array.device:
         raise RuntimeError("Array storage devices do not match")
 
@@ -738,8 +725,7 @@ def array_cast(in_array, out_array, count=None):
         # Same data type, can simply copy
         wp.copy(dest=out_array, src=in_array, count=count)
     else:
-        copy_kernel = make_copy_kernel(src_dtype=in_array.dtype, dest_dtype=out_array.dtype)
-        wp.launch(kernel=copy_kernel, dim=dim, inputs=[out_array, in_array], device=out_array.device)
+        wp.launch(kernel=_array_cast_kernel, dim=dim, inputs=[out_array, in_array], device=out_array.device)
 
 
 # code snippet for invoking cProfile

@@ -8,16 +8,17 @@ import argparse
 
 import warp as wp
 
-from warp.fem.types import *
-from warp.fem.geometry import Grid2D, Trimesh2D
-from warp.fem.space import make_polynomial_space
-from warp.fem.field import make_test, make_trial
-from warp.fem.domain import Cells, BoundarySides
-from warp.fem.integrate import integrate
-from warp.fem.operator import grad, normal, integrand
-from warp.fem.dirichlet import project_linear_system
-
 from warp.sparse import bsr_axpy
+
+from warp.fem import Sample, Field, Domain
+from warp.fem import Grid2D, Trimesh2D
+from warp.fem import make_polynomial_space, ElementBasis
+from warp.fem import make_test, make_trial
+from warp.fem import Cells, BoundarySides
+from warp.fem import integrate
+from warp.fem import grad, normal, integrand
+from warp.fem import project_linear_system
+
 from warp.fem.utils import array_axpy
 
 from plot_utils import plot_surface
@@ -25,7 +26,6 @@ from bsr_utils import bsr_cg
 from mesh_utils import gen_trimesh
 
 import matplotlib.pyplot as plt
-
 
 @integrand
 def linear_form(
@@ -67,12 +67,14 @@ def y_boundary_projector_form(
 
 
 if __name__ == "__main__":
+
     wp.init()
     wp.set_module_options({"enable_backward": False})
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--resolution", type=int, default=50)
     parser.add_argument("--degree", type=int, default=2)
+    parser.add_argument("--serendipity", action="store_true", default=False)
     parser.add_argument("--viscosity", type=float, default=2.0)
     parser.add_argument("--boundary_value", type=float, default=5.0)
     parser.add_argument("--boundary_compliance", type=float, default=0, help="Dirichlet boundary condition compliance")
@@ -81,18 +83,20 @@ if __name__ == "__main__":
 
     # Grid or triangle mesh geometry
     if args.tri_mesh:
-        positions, tri_vidx = gen_trimesh(res=vec2i(args.resolution))
+        positions, tri_vidx = gen_trimesh(res=wp.vec2i(args.resolution))
         geo = Trimesh2D(tri_vertex_indices=tri_vidx, positions=positions)
     else:
-        geo = Grid2D(res=vec2i(args.resolution))
+        geo = Grid2D(res=wp.vec2i(args.resolution))
 
     # Domain and function spaces
     domain = Cells(geometry=geo)
-    scalar_space = make_polynomial_space(geo, degree=args.degree)
+    element_basis = ElementBasis.SERENDIPITY if args.serendipity else None
+    scalar_space = make_polynomial_space(geo, degree=args.degree, element_basis=element_basis)
 
     # Right-hand-side (forcing term)
     test = make_test(space=scalar_space, domain=domain)
     rhs = integrate(linear_form, fields={"v": test})
+
 
     # Diffusion form
     trial = make_trial(space=scalar_space, domain=domain)

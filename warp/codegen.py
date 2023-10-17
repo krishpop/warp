@@ -361,6 +361,22 @@ class Struct:
         return instance
 
 
+class Reference:
+    def __init__(self, value_type):
+        self.value_type = value_type
+
+
+def is_reference(type):
+    return isinstance(type, Reference)
+
+
+def strip_reference(arg):
+    if is_reference(arg):
+        return arg.value_type
+    else:
+        return arg
+
+
 def compute_type_str(base_name, template_params):
     if template_params is None or len(template_params) == 0:
         return base_name
@@ -375,7 +391,7 @@ def compute_type_str(base_name, template_params):
 
 
 class Var:
-    def __init__(self, label, type, requires_grad=False, constant=None, prefix=True, is_adjoint=False):
+    def __init__(self, label, type, requires_grad=False, constant=None, prefix=True):
         # convert built-in types to wp types
         if type == float:
             type = float32
@@ -387,33 +403,45 @@ class Var:
         self.requires_grad = requires_grad
         self.constant = constant
         self.prefix = prefix
-        self.is_adjoint = is_adjoint
 
     def __str__(self):
         return self.label
 
-    def ctype(self):
-        if is_array(self.type):
-            if hasattr(self.type.dtype, "_wp_generic_type_str_"):
-                dtypestr = compute_type_str(self.type.dtype._wp_generic_type_str_, self.type.dtype._wp_type_params_)
-            elif isinstance(self.type.dtype, Struct):
-                dtypestr = make_full_qualified_name(self.type.dtype.cls)
+    @staticmethod
+    def type_to_ctype(t, value_type=False):
+        if is_array(t):
+            if hasattr(t.dtype, "_wp_generic_type_str_"):
+                dtypestr = compute_type_str(t.dtype._wp_generic_type_str_, t.dtype._wp_type_params_)
+            elif isinstance(t.dtype, Struct):
+                dtypestr = make_full_qualified_name(t.dtype.cls)
             else:
-                dtypestr = str(self.type.dtype.__name__)
-            classstr = type(self.type).__name__
+                dtypestr = str(t.dtype.__name__)
+            classstr = type(t).__name__
             return f"{classstr}_t<{dtypestr}>"
-        elif isinstance(self.type, Struct):
-            return make_full_qualified_name(self.type.cls)
-        elif hasattr(self.type, "_wp_generic_type_str_"):
-            return compute_type_str(self.type._wp_generic_type_str_, self.type._wp_type_params_)
+        elif isinstance(t, Struct):
+            return make_full_qualified_name(t.cls)
+        elif is_reference(t):
+            if not value_type:
+                return Var.type_to_ctype(t.value_type) + "*"
+            else:
+                return Var.type_to_ctype(t.value_type)
+        elif hasattr(t, "_wp_generic_type_str_"):
+            return compute_type_str(t._wp_generic_type_str_, t._wp_type_params_)
         else:
-            return str(self.type.__name__)
+            return str(t.__name__)
 
-    def emit(self, prefix: str = "var"):
+    def ctype(self, value_type=False):
+        return Var.type_to_ctype(self.type, value_type)
+
+    def emit(self, prefix: str = "var", dereference: bool = True):
+        star = "*" if is_reference(self.type) and dereference else ""
         if self.prefix:
-            return f"{prefix}_{self.label}"
+            return f"{star}{prefix}_{self.label}"
         else:
-            return self.label
+            return f"{star}{self.label}"
+
+    def emit_adj(self):
+        return self.emit("adj", dereference=False)
 
 
 class Block:
@@ -501,6 +529,7 @@ class Adjoint:
             adj.arg_types = overload_annotations.copy()
 
         adj.args = []
+        adj.symbols = {}
 
         for name, type in adj.arg_types.items():
             # skip return hint
@@ -511,8 +540,23 @@ class Adjoint:
             arg = Var(name, type, False)
             adj.args.append(arg)
 
+            # pre-populate symbol dictionary with function argument names
+            # this is to avoid registering false references to overshadowed modules
+            adj.symbols[name] = arg
+
+        # There are cases where a same module might be rebuilt multiple times,
+        # for example when kernels are nested inside of functions, or when
+        # a kernel's launch raises an exception. Ideally we'd always want to
+        # avoid rebuilding kernels but some corner cases seem to depend on it,
+        # so we only avoid rebuilding kernels that errored out to give a chance
+        # for unit testing errors being spit out from kernels.
+        adj.skip_build = False
+
     # generate function ssa form and adjoint
     def build(adj, builder):
+        if adj.skip_build:
+            return
+
         adj.builder = builder
 
         adj.symbols = {}  # map from symbols to adjoint variables
@@ -526,7 +570,7 @@ class Adjoint:
         adj.loop_blocks = []
 
         # holds current indent level
-        adj.prefix = ""
+        adj.indentation = ""
 
         # used to generate new label indices
         adj.label_count = 0
@@ -550,6 +594,7 @@ class Adjoint:
                 ex, data, traceback = sys.exc_info()
                 e = ex(";".join([msg] + [str(a) for a in data.args])).with_traceback(traceback)
             finally:
+                adj.skip_build = True
                 raise e
 
         if builder is not None:
@@ -568,7 +613,7 @@ class Adjoint:
         return s
 
     # generates a list of formatted args
-    def format_args(adj, prefix, args):
+    def format_args(adj, prefix, args, adjoints=False):
         arg_strs = []
 
         for a in args:
@@ -578,6 +623,11 @@ class Adjoint:
                     arg_strs.append(a.key)
                 else:
                     arg_strs.append(f"{prefix}_{a.key}")
+            elif is_reference(a.type):
+                if not adjoints:
+                    arg_strs.append(f"*{prefix}_{a}")
+                else:
+                    arg_strs.append(f"{prefix}_{a}")
             elif isinstance(a, Var):
                 arg_strs.append(a.emit(prefix))
             else:
@@ -601,9 +651,13 @@ class Adjoint:
         if has_output_args and len(args_out) > 1:
             formatted_out = adj.format_args("var", args_out)
         formatted_var_adj = adj.format_args(
-            "&adj" if use_initializer_list else "adj", [a for i, a in enumerate(args) if i not in non_adjoint_args]
+            "&adj" if use_initializer_list else "adj",
+            [a for i, a in enumerate(args) if i not in non_adjoint_args],
+            adjoints=True,
         )
-        formatted_out_adj = adj.format_args("adj", [a for i, a in enumerate(args_out) if i not in non_adjoint_outputs])
+        formatted_out_adj = adj.format_args(
+            "adj", [a for i, a in enumerate(args_out) if i not in non_adjoint_outputs], adjoints=True
+        )
 
         if len(formatted_var_adj) == 0 and len(formatted_out_adj) == 0:
             # there are no adjoint arguments, so we don't need to call the reverse function
@@ -623,10 +677,10 @@ class Adjoint:
         return arg_str
 
     def indent(adj):
-        adj.prefix = adj.prefix + "    "
+        adj.indentation = adj.indentation + "    "
 
     def dedent(adj):
-        adj.prefix = adj.prefix[:-4]
+        adj.indentation = adj.indentation[:-4]
 
     def begin_block(adj):
         b = Block()
@@ -641,10 +695,9 @@ class Adjoint:
     def end_block(adj):
         return adj.blocks.pop()
 
-    def add_var(adj, type=None, constant=None, name=None):
-        if name is None:
-            index = len(adj.variables)
-            name = str(index)
+    def add_var(adj, type=None, constant=None):
+        index = len(adj.variables)
+        name = str(index)
 
         # allocate new variable
         v = Var(name, type=type, constant=constant)
@@ -657,19 +710,19 @@ class Adjoint:
 
     # append a statement to the forward pass
     def add_forward(adj, statement, replay=None, skip_replay=False):
-        adj.blocks[-1].body_forward.append(adj.prefix + statement)
+        adj.blocks[-1].body_forward.append(adj.indentation + statement)
 
         if not skip_replay:
             if replay:
                 # if custom replay specified then output it
-                adj.blocks[-1].body_replay.append(adj.prefix + replay)
+                adj.blocks[-1].body_replay.append(adj.indentation + replay)
             else:
                 # by default just replay the original statement
-                adj.blocks[-1].body_replay.append(adj.prefix + statement)
+                adj.blocks[-1].body_replay.append(adj.indentation + statement)
 
     # append a statement to the reverse pass
     def add_reverse(adj, statement):
-        adj.blocks[-1].body_reverse.append(adj.prefix + statement)
+        adj.blocks[-1].body_reverse.append(adj.indentation + statement)
 
     def add_constant(adj, n):
         output = adj.add_var(type=type(n), constant=n)
@@ -696,11 +749,11 @@ class Adjoint:
         return output
 
     def add_call(adj, func, args, min_outputs=None, templates=[], kwds=None):
+        arg_types = [strip_reference(a.type) for a in args if not isinstance(a, warp.context.Function)]
+
         # if func is overloaded then perform overload resolution here
         # we validate argument types before they go to generated native code
         resolved_func = None
-
-        arg_types = [a.type for a in args if not isinstance(a, warp.context.Function)]
 
         if func.is_builtin():
             for f in func.overloads:
@@ -728,7 +781,7 @@ class Adjoint:
                                     return False
                             else:
                                 # otherwise check arg type matches input variable type
-                                if not types_equal(arg_type, args[i].type, match_generic=True):
+                                if not types_equal(arg_type, strip_reference(args[i].type), match_generic=True):
                                     return False
 
                         return True
@@ -768,13 +821,8 @@ class Adjoint:
                         arg_type = x.type[0]
                     else:
                         arg_type = x.type
-                    if not hasattr(arg_type, "__name__"):
-                        arg_types.append(str(arg_type))
-                    else:
-                        if arg_type.__module__ == "warp.types":
-                            arg_types.append(arg_type.__name__)
-                        else:
-                            arg_types.append(arg_type.__module__ + "." + arg_type.__name__)
+
+                    arg_types.append(type_repr(arg_type))
 
                 if isinstance(x, warp.context.Function):
                     arg_types.append("function")
@@ -799,6 +847,7 @@ class Adjoint:
             adj.builder.build_function(func)
 
         # evaluate the function type based on inputs
+
         value_type = func.value_func(arg_types, kwds, templates)
 
         func_name = compute_type_str(func.native_func, templates)
@@ -956,17 +1005,14 @@ class Adjoint:
         reverse = []
 
         # reverse iterator
-        reverse.append(adj.prefix + f"{iter.emit()} = wp::iter_reverse({iter.emit()});")
+        reverse.append(adj.indentation + f"{iter.emit()} = wp::iter_reverse({iter.emit()});")
 
         for i in cond_block.body_forward:
             reverse.append(i)
 
         # zero adjoints
         for i in body_block.vars:
-            if isinstance(i.type, Struct):
-                reverse.append(adj.prefix + f"\tadj_{i} = {i.ctype()}{{}};")
-            else:
-                reverse.append(adj.prefix + f"\tadj_{i} = {i.ctype()}(0);")
+            reverse.append(adj.indentation + f"\t{i.emit_adj()} = {{}};")
 
         # replay
         for i in body_block.body_replay:
@@ -976,8 +1022,8 @@ class Adjoint:
         for i in reversed(body_block.body_reverse):
             reverse.append(i)
 
-        reverse.append(adj.prefix + f"\tgoto for_start_{cond_block.label};")
-        reverse.append(adj.prefix + f"for_end_{cond_block.label}:;")
+        reverse.append(adj.indentation + f"\tgoto for_start_{cond_block.label};")
+        reverse.append(adj.indentation + f"for_end_{cond_block.label}:;")
 
         adj.blocks[-1].body_reverse.extend(reversed(reverse))
 
@@ -1025,10 +1071,7 @@ class Adjoint:
 
         # zero adjoints of local vars
         for i in body_block.vars:
-            if isinstance(i.type, Struct):
-                reverse.append(f"adj_{i} = {i.ctype()}{{}};")
-            else:
-                reverse.append(f"adj_{i} = {i.ctype()}(0);")
+            reverse.append(f"{i.emit_adj()} = {{}};")
 
         # replay
         for i in body_block.body_replay:
@@ -1047,6 +1090,10 @@ class Adjoint:
     def emit_FunctionDef(adj, node):
         for f in node.body:
             adj.eval(f)
+
+        if adj.return_var is not None:
+            if not isinstance(node.body[-1], ast.Return):
+                adj.add_forward("return {};", skip_replay=True)
 
     def emit_If(adj, node):
         if len(node.body) == 0:
@@ -1153,26 +1200,85 @@ class Adjoint:
         # pass it back to the caller for processing
         return obj
 
-    def emit_Attribute(adj, node):
-        try:
-            val = adj.eval(node.value)
+    @staticmethod
+    def resolve_type_attribute(var_type: type, attr: str):
+        if isinstance(var_type, type) and type_is_value(var_type):
+            if attr == "dtype":
+                return type_scalar_type(var_type)
+            elif attr == "length":
+                return type_length(var_type)
 
-            if isinstance(val, types.ModuleType) or isinstance(val, type):
-                out = getattr(val, node.attr)
+        return getattr(var_type, attr, None)
+
+    def vector_component_index(adj, component, vector_type):
+        if len(component) != 1:
+            raise AttributeError(f"Vector swizzle must be single character, got .{component}")
+
+        dim = vector_type._shape_[0]
+        swizzles = "xyzw"[0:dim]
+        if component not in swizzles:
+            raise AttributeError(f"Vector swizzle for {vector_type} must be one of {swizzles}, got {component}")
+
+        index = swizzles.index(component)
+        index = adj.add_constant(index)
+        return index
+
+    def emit_Attribute(adj, node):
+        if hasattr(node, "is_adjoint"):
+            node.value.is_adjoint = True
+
+        aggregate = adj.eval(node.value)
+
+        try:
+            if isinstance(aggregate, types.ModuleType) or isinstance(aggregate, type):
+                out = getattr(aggregate, node.attr)
 
                 if warp.types.is_value(out):
                     return adj.add_constant(out)
 
                 return out
 
-            # create a Var that points to the struct attribute, i.e.: directly generates `struct.attr` when used
-            attr_name = val.label + "." + node.attr
-            attr_type = val.type.vars[node.attr].type
+            if hasattr(node, "is_adjoint"):
+                # create a Var that points to the struct attribute, i.e.: directly generates `struct.attr` when used
+                attr_name = aggregate.label + "." + node.attr
+                attr_type = aggregate.type.vars[node.attr].type
 
-            return Var(attr_name, attr_type)
+                return Var(attr_name, attr_type)
 
-        except KeyError:
-            raise RuntimeError(f"Error, `{node.attr}` is not an attribute of '{val.label}' ({val.type})")
+            aggregate_type = strip_reference(aggregate.type)
+
+            # reading a vector component
+            if type_is_vector(aggregate_type):
+                index = adj.vector_component_index(node.attr, aggregate_type)
+
+                return adj.add_call(warp.context.builtin_functions["index"], [aggregate, index])
+
+            else:
+                attr_type = Reference(aggregate_type.vars[node.attr].type)
+                attr = adj.add_var(attr_type)
+
+                if is_reference(aggregate.type):
+                    adj.add_forward(
+                        f"{attr.emit(dereference=False)} = &({aggregate.emit(dereference=False)}->{node.attr});"
+                    )
+                    adj.add_reverse(f"{aggregate.emit_adj()}.{node.attr} = {attr.emit_adj()};")
+                else:
+                    adj.add_forward(f"{attr.emit(dereference=False)} = &({aggregate.emit()}.{node.attr});")
+                    adj.add_reverse(f"{aggregate.emit_adj()}.{node.attr} = {attr.emit_adj()};")
+
+                return attr
+
+        except (KeyError, AttributeError):
+            # Try resolving as type attribute
+            if isinstance(aggregate, Var):
+                aggregate = aggregate.type
+            aggregate = adj.resolve_type_attribute(aggregate, node.attr)
+            if aggregate is not None:
+                return aggregate
+
+            raise RuntimeError(
+                f"Error, `{node.attr}` is not an attribute of '{aggregate.label}' ({type_repr(aggregate.type)})"
+            )
 
     def emit_String(adj, node):
         # string constant
@@ -1264,35 +1370,16 @@ class Adjoint:
 
         adj.end_while()
 
-    def is_num(adj, a):
-        # simple constant
-        if isinstance(a, ast.Num):
-            return True
-        # expression of form -constant
-        elif isinstance(a, ast.UnaryOp) and isinstance(a.op, ast.USub) and isinstance(a.operand, ast.Num):
-            return True
-        else:
-            # try and resolve the expression to an object
-            # e.g.: wp.constant in the globals scope
-            obj, path = adj.resolve_path(a)
-            if warp.types.is_int(obj):
-                return True
-            else:
-                return False
-
     def eval_num(adj, a):
         if isinstance(a, ast.Num):
-            return a.n
-        elif isinstance(a, ast.UnaryOp) and isinstance(a.op, ast.USub) and isinstance(a.operand, ast.Num):
-            return -a.operand.n
-        else:
-            # try and resolve the expression to an object
-            # e.g.: wp.constant in the globals scope
-            obj, path = adj.resolve_path(a)
-            if warp.types.is_int(obj):
-                return obj
-            else:
-                return False
+            return True, a.n
+        if isinstance(a, ast.UnaryOp) and isinstance(a.op, ast.USub) and isinstance(a.operand, ast.Num):
+            return True, -a.operand.n
+
+        # try and resolve the expression to an object
+        # e.g.: wp.constant in the globals scope
+        obj, path = adj.resolve_static_expression(a)
+        return warp.types.is_int(obj), obj
 
     # detects whether a loop contains a break (or continue) statement
     def contains_break(adj, body):
@@ -1319,58 +1406,75 @@ class Adjoint:
             not isinstance(loop.iter, ast.Call)
             or not isinstance(loop.iter.func, ast.Name)
             or loop.iter.func.id != "range"
+            or len(loop.iter.args) == 0
+            or len(loop.iter.args) > 3
         ):
             return None
 
-        for a in loop.iter.args:
-            # if all range() arguments are numeric constants we will unroll
-            # note that this only handles trivial constants, it will not unroll
-            # constant compile-time expressions e.g.: range(0, 3*2)
-            if not adj.is_num(a):
-                return None
+        # if all range() arguments are numeric constants we will unroll
+        # note that this only handles trivial constants, it will not unroll
+        # constant compile-time expressions e.g.: range(0, 3*2)
 
-        # range(end)
-        if len(loop.iter.args) == 1:
-            start = 0
-            end = adj.eval_num(loop.iter.args[0])
-            step = 1
+        # Evaluate the arguments and check that they are numeric constants
+        # It is important to do that in one pass, so that if evaluating these arguments have side effects
+        # the code does not get generated more than once
+        range_args = [adj.eval_num(arg) for arg in loop.iter.args]
+        arg_is_numeric, arg_values = zip(*range_args)
 
-        # range(start, end)
-        elif len(loop.iter.args) == 2:
-            start = adj.eval_num(loop.iter.args[0])
-            end = adj.eval_num(loop.iter.args[1])
-            step = 1
+        if all(arg_is_numeric):
+            # All argument are numeric constants
 
-        # range(start, end, step)
-        elif len(loop.iter.args) == 3:
-            start = adj.eval_num(loop.iter.args[0])
-            end = adj.eval_num(loop.iter.args[1])
-            step = adj.eval_num(loop.iter.args[2])
+            # range(end)
+            if len(loop.iter.args) == 1:
+                start = 0
+                end = arg_values[0]
+                step = 1
 
-        # test if we're above max unroll count
-        max_iters = abs(end - start) // abs(step)
-        max_unroll = adj.builder.options["max_unroll"]
+            # range(start, end)
+            elif len(loop.iter.args) == 2:
+                start = arg_values[0]
+                end = arg_values[1]
+                step = 1
 
-        if max_iters > max_unroll:
-            if warp.config.verbose:
-                print(
-                    f"Warning: fixed-size loop count of {max_iters} is larger than the module 'max_unroll' limit of {max_unroll}, will generate dynamic loop."
-                )
-            return None
+            # range(start, end, step)
+            elif len(loop.iter.args) == 3:
+                start = arg_values[0]
+                end = arg_values[1]
+                step = arg_values[2]
 
-        if adj.contains_break(loop.body):
-            if warp.config.verbose:
-                print("Warning: 'break' or 'continue' found in loop body, will generate dynamic loop.")
-            return None
+            # test if we're above max unroll count
+            max_iters = abs(end - start) // abs(step)
+            max_unroll = adj.builder.options["max_unroll"]
 
-        # unroll
-        return range(start, end, step)
+            ok_to_unroll = True
+
+            if max_iters > max_unroll:
+                if warp.config.verbose:
+                    print(
+                        f"Warning: fixed-size loop count of {max_iters} is larger than the module 'max_unroll' limit of {max_unroll}, will generate dynamic loop."
+                    )
+                ok_to_unroll = False
+
+            elif adj.contains_break(loop.body):
+                if warp.config.verbose:
+                    print("Warning: 'break' or 'continue' found in loop body, will generate dynamic loop.")
+                ok_to_unroll = False
+
+            if ok_to_unroll:
+                return range(start, end, step)
+
+        # Unroll is not possible, range needs to be valuated dynamically
+        range_call = adj.add_call(
+            warp.context.builtin_functions["range"],
+            [adj.add_constant(val) if is_numeric else val for is_numeric, val in range_args],
+        )
+        return range_call
 
     def emit_For(adj, node):
         # try and unroll simple range() statements that use constant args
         unroll_range = adj.get_unroll_range(node)
 
-        if unroll_range:
+        if isinstance(unroll_range, range):
             for i in unroll_range:
                 const_iter = adj.add_constant(i)
                 var_iter = adj.add_call(warp.context.builtin_functions["int"], [const_iter])
@@ -1382,8 +1486,12 @@ class Adjoint:
 
         # otherwise generate a dynamic loop
         else:
-            # evaluate the Iterable
-            iter = adj.eval(node.iter)
+            # evaluate the Iterable -- only if not previously evaluated when trying to unroll
+            if unroll_range is not None:
+                # Range has already been evaluated when trying to unroll, do not re-evaluate
+                iter = unroll_range
+            else:
+                iter = adj.eval(node.iter)
 
             adj.symbols[node.target.id] = adj.begin_for(iter)
 
@@ -1428,7 +1536,7 @@ class Adjoint:
 
         # try and lookup function in globals by
         # resolving path (e.g.: module.submodule.attr)
-        func, path = adj.resolve_path(node.func)
+        func, path = adj.resolve_static_expression(node.func)
         templates = []
 
         if not isinstance(func, warp.context.Function):
@@ -1474,9 +1582,14 @@ class Adjoint:
             if isinstance(kw.value, ast.Num):
                 return kw.value.n
             elif isinstance(kw.value, ast.Tuple):
-                return tuple(adj.eval_num(e) for e in kw.value.elts)
+                arg_is_numeric, arg_values = zip(*(adj.eval_num(e) for e in kw.value.elts))
+                if not all(arg_is_numeric):
+                    raise RuntimeError(
+                        f"All elements of the tuple keyword argument '{kw.name}' must be numeric constants, got '{arg_values}'"
+                    )
+                return arg_values
             else:
-                return adj.resolve_path(kw.value)[0]
+                return adj.resolve_static_expression(kw.value)[0]
 
         kwds = {kw.arg: kwval(kw) for kw in node.keywords}
 
@@ -1493,14 +1606,19 @@ class Adjoint:
         # the ast.Index node appears in 3.7 versions
         # when performing array slices, e.g.: x = arr[i]
         # but in version 3.8 and higher it does not appear
+
+        if hasattr(node, "is_adjoint"):
+            node.value.is_adjoint = True
+
         return adj.eval(node.value)
 
     def emit_Subscript(adj, node):
         if hasattr(node.value, "attr") and node.value.attr == "adjoint":
             # handle adjoint of a variable, i.e. wp.adjoint[var]
+            node.slice.is_adjoint = True
             var = adj.eval(node.slice)
             var_name = var.label
-            var = Var(f"adj_{var_name}", type=var.type, constant=None, prefix=False, is_adjoint=True)
+            var = Var(f"adj_{var_name}", type=var.type, constant=None, prefix=False)
             adj.symbols[var.label] = var
             return var
 
@@ -1524,10 +1642,11 @@ class Adjoint:
             var = adj.eval(node.slice)
             indices.append(var)
 
-        if is_array(target.type):
-            if len(indices) == target.type.ndim:
+        target_type = strip_reference(target.type)
+        if is_array(target_type):
+            if len(indices) == target_type.ndim:
                 # handles array loads (where each dimension has an index specified)
-                out = adj.add_call(warp.context.builtin_functions["load"], [target, *indices])
+                out = adj.add_call(warp.context.builtin_functions["address"], [target, *indices])
             else:
                 # handles array views (fewer indices than dimensions)
                 out = adj.add_call(warp.context.builtin_functions["view"], [target, *indices])
@@ -1536,17 +1655,21 @@ class Adjoint:
             # handles non-array type indexing, e.g: vec3, mat33, etc
             out = adj.add_call(warp.context.builtin_functions["index"], [target, *indices])
 
-        out.is_adjoint = target.is_adjoint
         return out
 
     def emit_Assign(adj, node):
+        if len(node.targets) != 1:
+            raise RuntimeError("Assigning the same value to multiple variables is not supported")
+
+        lhs = node.targets[0]
+
         # handle the case where we are assigning multiple output variables
-        if isinstance(node.targets[0], ast.Tuple):
+        if isinstance(lhs, ast.Tuple):
             # record the expected number of outputs on the node
             # we do this so we can decide which function to
             # call based on the number of expected outputs
             if isinstance(node.value, ast.Call):
-                node.value.expects = len(node.targets[0].elts)
+                node.value.expects = len(lhs.elts)
 
             # evaluate values
             if isinstance(node.value, ast.Tuple):
@@ -1555,7 +1678,7 @@ class Adjoint:
                 out = adj.eval(node.value)
 
             names = []
-            for v in node.targets[0].elts:
+            for v in lhs.elts:
                 if isinstance(v, ast.Name):
                     names.append(v.id)
                 else:
@@ -1580,20 +1703,21 @@ class Adjoint:
             return out
 
         # handles the case where we are assigning to an array index (e.g.: arr[i] = 2.0)
-        elif isinstance(node.targets[0], ast.Subscript):
-            if hasattr(node.targets[0].value, "attr") and node.targets[0].value.attr == "adjoint":
+        elif isinstance(lhs, ast.Subscript):
+            if hasattr(lhs.value, "attr") and lhs.value.attr == "adjoint":
                 # handle adjoint of a variable, i.e. wp.adjoint[var]
-                src_var = adj.eval(node.targets[0].slice)
+                lhs.slice.is_adjoint = True
+                src_var = adj.eval(lhs.slice)
                 var = Var(f"adj_{src_var.label}", type=src_var.type, constant=None, prefix=False)
                 adj.symbols[var.label] = var
                 value = adj.eval(node.value)
                 adj.add_forward(f"{var.emit()} = {value.emit()};")
                 return var
 
-            target = adj.eval(node.targets[0].value)
+            target = adj.eval(lhs.value)
             value = adj.eval(node.value)
 
-            slice = node.targets[0].slice
+            slice = lhs.slice
             indices = []
 
             if isinstance(slice, ast.Tuple):
@@ -1601,7 +1725,6 @@ class Adjoint:
                 for arg in slice.elts:
                     var = adj.eval(arg)
                     indices.append(var)
-
             elif isinstance(slice, ast.Index) and isinstance(slice.value, ast.Tuple):
                 # handles the x[i, j] case (Python 3.7.x)
                 for arg in slice.value.elts:
@@ -1612,16 +1735,18 @@ class Adjoint:
                 var = adj.eval(slice)
                 indices.append(var)
 
-            if is_array(target.type):
+            target_type = strip_reference(target.type)
+
+            if is_array(target_type):
                 adj.add_call(warp.context.builtin_functions["store"], [target, *indices, value])
 
-            elif type_is_vector(target.type) or type_is_matrix(target.type):
+            elif type_is_vector(target_type) or type_is_matrix(target_type):
                 adj.add_call(warp.context.builtin_functions["indexset"], [target, *indices, value])
 
                 if warp.config.verbose and not adj.custom_reverse_mode:
                     lineno = adj.lineno + adj.fun_lineno
                     line = adj.source.splitlines()[adj.lineno]
-                    node_source = adj.get_node_source(node.targets[0].value)
+                    node_source = adj.get_node_source(lhs.value)
                     print(
                         f"Warning: mutating {node_source} in function {adj.fun_name} at {adj.filename}:{lineno}: this is a non-differentiable operation.\n{line}\n"
                     )
@@ -1631,23 +1756,23 @@ class Adjoint:
 
             return var
 
-        elif isinstance(node.targets[0], ast.Name):
+        elif isinstance(lhs, ast.Name):
             # symbol name
-            name = node.targets[0].id
+            name = lhs.id
 
             # evaluate rhs
             rhs = adj.eval(node.value)
 
             # check type matches if symbol already defined
             if name in adj.symbols:
-                if not types_equal(rhs.type, adj.symbols[name].type):
+                if not types_equal(strip_reference(rhs.type), adj.symbols[name].type):
                     raise TypeError(
                         f"Error, assigning to existing symbol {name} ({adj.symbols[name].type}) with different type ({rhs.type})"
                     )
 
             # handle simple assignment case (a = b), where we generate a value copy rather than reference
-            if isinstance(node.value, ast.Name):
-                out = adj.add_var(rhs.type)
+            if isinstance(node.value, ast.Name) or is_reference(rhs.type):
+                out = adj.add_var(strip_reference(rhs.type))
                 adj.add_call(warp.context.builtin_functions["copy"], [out, rhs])
             else:
                 out = rhs
@@ -1656,16 +1781,26 @@ class Adjoint:
             adj.symbols[name] = out
             return out
 
-        elif isinstance(node.targets[0], ast.Attribute):
+        elif isinstance(lhs, ast.Attribute):
             rhs = adj.eval(node.value)
-            attr = adj.emit_Attribute(node.targets[0])
-            adj.add_call(warp.context.builtin_functions["copy"], [attr, rhs])
+            aggregate = adj.eval(lhs.value)
+            aggregate_type = strip_reference(aggregate.type)
 
-            if warp.config.verbose and not adj.custom_reverse_mode:
-                lineno = adj.lineno + adj.fun_lineno
-                line = adj.source.splitlines()[adj.lineno]
-                msg = f'Warning: detected mutated struct {attr.label} during function "{adj.fun_name}" at {adj.filename}:{lineno}: this is a non-differentiable operation.\n{line}\n'
-                print(msg)
+            # assigning to a vector component
+            if type_is_vector(aggregate_type):
+                index = adj.vector_component_index(lhs.attr, aggregate_type)
+
+                adj.add_call(warp.context.builtin_functions["indexset"], [aggregate, index, rhs])
+
+            else:
+                attr = adj.emit_Attribute(lhs)
+                adj.add_call(warp.context.builtin_functions["copy"], [attr, rhs])
+
+                if warp.config.verbose and not adj.custom_reverse_mode:
+                    lineno = adj.lineno + adj.fun_lineno
+                    line = adj.source.splitlines()[adj.lineno]
+                    msg = f'Warning: detected mutated struct {attr.label} during function "{adj.fun_name}" at {adj.filename}:{lineno}: this is a non-differentiable operation.\n{line}\n'
+                    print(msg)
 
         else:
             raise RuntimeError("Error, unsupported assignment statement.")
@@ -1679,37 +1814,26 @@ class Adjoint:
             var = (adj.eval(node.value),)
 
         if adj.return_var is not None:
-            old_ctypes = tuple(v.ctype() for v in adj.return_var)
-            new_ctypes = tuple(v.ctype() for v in var)
+            old_ctypes = tuple(v.ctype(value_type=True) for v in adj.return_var)
+            new_ctypes = tuple(v.ctype(value_type=True) for v in var)
             if old_ctypes != new_ctypes:
                 raise TypeError(
                     f"Error, function returned different types, previous: [{', '.join(old_ctypes)}], new [{', '.join(new_ctypes)}]"
                 )
-        else:
-            adj.return_var = var
 
-        adj.add_return(var)
+        if var is not None:
+            adj.return_var = tuple()
+            for ret in var:
+                out = adj.add_var(strip_reference(ret.type))
+                adj.add_call(warp.context.builtin_functions["copy"], [out, ret])
+                adj.return_var += (out,)
+
+        adj.add_return(adj.return_var)
 
     def emit_AugAssign(adj, node):
-        # convert inplace operations (+=, -=, etc) to ssa form, e.g.: c = a + b
-        left = adj.eval(node.target)
-
-        if left.is_adjoint:
-            # replace augassign with assignment statement + binary op
-            new_node = ast.Assign(targets=[node.target], value=ast.BinOp(node.target, node.op, node.value))
-            adj.eval(new_node)
-            return
-
-        right = adj.eval(node.value)
-
-        # lookup
-        name = builtin_operators[type(node.op)]
-        func = warp.context.builtin_functions[name]
-
-        out = adj.add_call(func, [left, right])
-
-        # update symbol map
-        adj.symbols[node.target.id] = out
+        # replace augmented assignment with assignment statement + binary op
+        new_node = ast.Assign(targets=[node.target], value=ast.BinOp(node.target, node.op, node.value))
+        adj.eval(new_node)
 
     def emit_Tuple(adj, node):
         # LHS for expressions, such as i, j, k = 1, 2, 3
@@ -1757,21 +1881,13 @@ class Adjoint:
 
     # helper to evaluate expressions of the form
     # obj1.obj2.obj3.attr in the function's global scope
-    def resolve_path(adj, node):
-        modules = []
-
-        while isinstance(node, ast.Attribute):
-            modules.append(node.attr)
-            node = node.value
-
-        if isinstance(node, ast.Name):
-            modules.append(node.id)
-
-        # reverse list since ast presents it backward order
-        path = [*reversed(modules)]
-
+    def resolve_path(adj, path):
         if len(path) == 0:
-            return None, path
+            return None
+
+        # if root is overshadowed by local symbols, bail out
+        if path[0] in adj.symbols:
+            return None
 
         # try and evaluate object path
         try:
@@ -1792,8 +1908,8 @@ class Adjoint:
 
             vars_dict = {**adj.func.__globals__, **capturedvars}
             func = eval(".".join(path), vars_dict)
-            return func, path
-        except Exception:
+            return func
+        except Exception as e:
             pass
 
         # I added this so people can eg do this kind of thing
@@ -1806,21 +1922,82 @@ class Adjoint:
         # needs to be looked up by digging some information out of the
         # python object it actually came from.
 
-        # Before this fix, resolve_path was returning None, as the
+        # Before this fix, resolve_static_expression was returning None, as the
         # "vec3" symbol is not available. In this situation I'm assuming
         # it's a member of the warp module and trying to look it up:
         try:
             evalstr = ".".join(["warp"] + path)
             func = eval(evalstr, {"warp": warp})
-            return func, path
+            return func
         except Exception:
-            return None, path
+            pass
+
+        return None
+
+    # Evaluates a static expression that does not depend on runtime values
+    # if eval_types is True, try resolving the path using evaluated type information as well
+    def resolve_static_expression(adj, root_node, eval_types=True):
+        attributes = []
+
+        node = root_node
+        while isinstance(node, ast.Attribute):
+            attributes.append(node.attr)
+            node = node.value
+
+        if eval_types and isinstance(node, ast.Call):
+            # support for operators returning modules
+            # i.e. operator_name(*operator_args).x.y.z
+            operator_args = node.args
+            operator_name = getattr(node.func, "id", None)
+
+            if operator_name is None:
+                raise RuntimeError(
+                    f"Invalid operator call syntax, expected a plain name, got {ast.dump(node.func, annotate_fields=False)}"
+                )
+
+            if operator_name == "type":
+                if len(operator_args) != 1:
+                    raise RuntimeError(f"type() operator expects exactly one argument, got {len(operator_args)}")
+
+                # type() operator
+                var = adj.eval(operator_args[0])
+
+                if isinstance(var, Var):
+                    var_type = strip_reference(var.type)
+                    # Allow accessing type attributes, for instance array.dtype
+                    while attributes:
+                        var_type = adj.resolve_type_attribute(var_type, attributes.pop())
+                    return var_type, [type_repr(var_type)]
+                else:
+                    raise RuntimeError(f"Cannot deduce the type of {var}")
+
+            raise RuntimeError(f"Unknown operator '{operator_name}'")
+
+        # reverse list since ast presents it backward order
+        path = [*reversed(attributes)]
+        if isinstance(node, ast.Name):
+            path.insert(0, node.id)
+
+        # Try resolving path from captured context
+        captured_obj = adj.resolve_path(path)
+        if captured_obj is not None:
+            return captured_obj, path
+
+        # Still nothing found, maybe this is a predefined type attribute like `dtype`
+        if eval_types:
+            try:
+                val = adj.eval(root_node)
+                return [val, type_repr(val)]
+            except Exception:
+                pass
+
+        return None, path
 
     # annotate generated code with the original source code line
     def set_lineno(adj, lineno):
         if adj.lineno is None or adj.lineno != lineno:
             line = lineno + adj.fun_lineno
-            source = adj.raw_source[lineno].strip().ljust(80 - len(adj.prefix), " ")
+            source = adj.raw_source[lineno].strip().ljust(80 - len(adj.indentation), " ")
             adj.add_forward(f"// {source}       <L {line}>")
             adj.add_reverse(f"// adj: {source}  <L {line}>")
         adj.lineno = lineno
@@ -2156,7 +2333,7 @@ def codegen_func_forward(adj, func_type="kernel", device="cpu"):
 
     for var in adj.variables:
         if var.constant is None:
-            s += f"    {var.ctype()} {var.emit()};\n"
+            s += f"    {var.ctype()} {var.emit(dereference=False)};\n"
         else:
             s += f"    const {var.ctype()} {var.emit()} = {constant_str(var.constant)};\n"
 
@@ -2212,7 +2389,7 @@ def codegen_func_reverse(adj, func_type="kernel", device="cpu"):
 
     for var in adj.variables:
         if var.constant is None:
-            s += f"    {var.ctype()} {var.emit()};\n"
+            s += f"    {var.ctype()} {var.emit(dereference=False)};\n"
         else:
             s += f"    const {var.ctype()} {var.emit()} = {constant_str(var.constant)};\n"
 
@@ -2221,10 +2398,7 @@ def codegen_func_reverse(adj, func_type="kernel", device="cpu"):
     s += "    // dual vars\n"
 
     for var in adj.variables:
-        if isinstance(var.type, Struct):
-            s += f"    {var.ctype()} {var.emit('adj')};\n"
-        else:
-            s += f"    {var.ctype()} {var.emit('adj')}(0);\n"
+        s += f"    {var.ctype(value_type=True)} {var.emit_adj()} = {{}};\n"
 
     if device == "cpu":
         s += codegen_func_reverse_body(adj, device=device, indent=4)
