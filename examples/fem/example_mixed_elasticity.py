@@ -8,18 +8,18 @@ import warp as wp
 
 import numpy as np
 
-from warp.fem.types import *
-from warp.fem.geometry import Grid2D, Trimesh2D
-from warp.fem.field import make_test, make_trial
-from warp.fem.space import make_polynomial_space, SymmetricTensorMapper
-from warp.fem.domain import Cells, BoundarySides
-from warp.fem.integrate import integrate
-from warp.fem.operator import normal, integrand, D
-from warp.fem.dirichlet import project_linear_system
+from warp.fem import Sample, Field, Domain
+from warp.fem import Grid2D, Trimesh2D
+from warp.fem import make_test, make_trial
+from warp.fem import make_polynomial_space, SymmetricTensorMapper, ElementBasis
+from warp.fem import Cells, BoundarySides
+from warp.fem import integrate
+from warp.fem import normal, integrand, D
+from warp.fem import project_linear_system
 
 from warp.sparse import bsr_transposed, bsr_mm
 
-from plot_utils import plot_velocities 
+from plot_utils import plot_velocities
 from bsr_utils import bsr_cg, invert_diagonal_bsr_mass_matrix
 from mesh_utils import gen_trimesh
 
@@ -94,13 +94,16 @@ if __name__ == "__main__":
     parser.add_argument("--young_modulus", type=float, default=1.0)
     parser.add_argument("--poisson_ratio", type=float, default=0.5)
     parser.add_argument("--tri_mesh", action="store_true", help="Use a triangular mesh")
+    parser.add_argument(
+        "--nonconforming_stresses", action="store_true", help="For grid, use non-conforming stresses (Q_d/P_d)"
+    )
     args = parser.parse_args()
 
     if args.tri_mesh:
-        positions, tri_vidx = gen_trimesh(res=vec2i(args.resolution))
+        positions, tri_vidx = gen_trimesh(res=wp.vec2i(args.resolution))
         geo = Trimesh2D(tri_vertex_indices=tri_vidx, positions=positions)
     else:
-        geo = Grid2D(res=vec2i(args.resolution))
+        geo = Grid2D(res=wp.vec2i(args.resolution))
 
     boundary = BoundarySides(geo)
 
@@ -117,11 +120,12 @@ if __name__ == "__main__":
 
     domain = Cells(geometry=geo)
 
-    # Function spaces -- Q_k for displacement, Q_{k-1}d for stress
-    u_space = make_polynomial_space(geo, degree=args.degree, dtype=wp.vec2)
+    # Function spaces -- S_k for displacement, Q_{k-1}d for stress
+    u_space = make_polynomial_space(geo, degree=args.degree, dtype=wp.vec2, element_basis=ElementBasis.SERENDIPITY)
     # Store stress degrees of freedom as symmetric tensors (3 dof) rather than full 2x2 matrices
+    tau_basis = ElementBasis.NONCONFORMING_POLYNOMIAL if args.nonconforming_stresses else ElementBasis.LAGRANGE
     tau_space = make_polynomial_space(
-        geo, degree=args.degree - 1, discontinuous=True, dof_mapper=SymmetricTensorMapper(wp.mat22)
+        geo, degree=args.degree - 1, discontinuous=True, element_basis=tau_basis, dof_mapper=SymmetricTensorMapper(wp.mat22)
     )
 
     # Displacement boundary conditions

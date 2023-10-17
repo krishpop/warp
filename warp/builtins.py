@@ -9,6 +9,7 @@ import builtins
 from typing import Any, Callable, Dict, List, Tuple
 
 from warp.types import *
+from warp.codegen import Reference
 
 from .context import add_builtin
 
@@ -254,6 +255,15 @@ add_builtin(
     value_func=sametype_value_func(Float),
     group="Scalar Math",
     doc="""Calculate the smallest integer that is greater than or equal to x.""",
+)
+
+add_builtin(
+    "frac",
+    input_types={"x": Float},
+    value_func=sametype_value_func(Float),
+    group="Scalar Math",
+    doc="""Retrieve the fractional part of x.
+    In other words, it discards the integer part of x and is equivalent to ``x - trunc(x)``.""",
 )
 
 
@@ -635,6 +645,13 @@ def vector_constructor_func(arg_types, kwds, templates):
                 )
 
             if "dtype" in kwds:
+                # casting constructor
+                if len(arg_types) == 1 and types_equal(arg_types[0], vector(length=Any, dtype=Scalar), match_generic=True):
+                    veclen = arg_types[0]._length_
+                    vectype = kwds["dtype"]
+                    templates.append(veclen)
+                    templates.append(vectype)
+                    return vector(length=veclen, dtype=vectype)
                 raise RuntimeError(
                     "vec() should not have dtype specified if numeric arguments are given, the dtype will be inferred from the argument types"
                 )
@@ -712,9 +729,9 @@ def matrix_constructor_func(arg_types, kwds, templates):
 
             if len(arg_types) == 1 and getattr(dtype, "_wp_generic_type_str_", None) == "mat_t":
                 # constructor from another matrix
-                if types[0]._shape_ != shape:
+                if arg_types[0]._shape_ != shape:
                     raise RuntimeError(
-                        f"Incompatible matrix sizes for casting copy constructor, {shape} vs {types[0]._shape_}"
+                        f"Incompatible matrix sizes for casting copy constructor, {shape} vs {arg_types[0]._shape_}"
                     )
                 dtype = dtype._wp_scalar_type_
             elif len(arg_types) > 1 and len(arg_types) != shape[0] * shape[1]:
@@ -732,12 +749,11 @@ def matrix_constructor_func(arg_types, kwds, templates):
         dtype = templates[2]
 
         if len(arg_types) > 0:
-            types = [t for t in arg_types]
-            if len(arg_types) == 1 and getattr(types[0], "_wp_generic_type_str_", None) == "mat_t":
+            if len(arg_types) == 1 and getattr(arg_types[0], "_wp_generic_type_str_", None) == "mat_t":
                 # constructor from another matrix with same dimension but possibly different type
-                if types[0]._shape_ != shape:
+                if arg_types[0]._shape_ != shape:
                     raise RuntimeError(
-                        f"Incompatible matrix sizes for casting copy constructor, {shape} vs {types[0]._shape_}"
+                        f"Incompatible matrix sizes for casting copy constructor, {shape} vs {arg_types[0]._shape_}"
                     )
             else:
                 # check scalar arg type matches declared type
@@ -745,14 +761,14 @@ def matrix_constructor_func(arg_types, kwds, templates):
                     raise RuntimeError("Wrong scalar type for mat {} constructor".format(",".join(map(str, templates))))
 
                 # check vector arg type matches declared type
-                if all(hasattr(a, "_wp_generic_type_str_") and a._wp_generic_type_str_ == "vec_t" for a in types):
-                    cols = len(types)
+                if all(hasattr(a, "_wp_generic_type_str_") and a._wp_generic_type_str_ == "vec_t" for a in arg_types):
+                    cols = len(arg_types)
                     if shape[1] != cols:
                         raise RuntimeError(
                             "Wrong number of vectors when attempting to construct a matrix with column vectors"
                         )
 
-                    if not all(a._length_ == shape[0] for a in types):
+                    if not all(a._length_ == shape[0] for a in arg_types):
                         raise RuntimeError(
                             "Wrong vector row count when attempting to construct a matrix with column vectors"
                         )
@@ -906,11 +922,15 @@ add_builtin(
 
 def quaternion_value_func(arg_types, kwds, templates):
     if arg_types is None:
-        return quaternion(dtype=Scalar)
+        return quaternion(dtype=Float)
 
-    # if constructing anonymous quat type then infer output type from arguments
     if len(templates) == 0:
-        dtype = infer_scalar_type(arg_types)
+        if "dtype" in kwds:
+            # casting constructor
+            dtype = kwds["dtype"]
+        else:
+            # if constructing anonymous quat type then infer output type from arguments
+            dtype = infer_scalar_type(arg_types)
         templates.append(dtype)
     else:
         # if constructing predeclared type then check arg_types match expectation
@@ -918,6 +938,18 @@ def quaternion_value_func(arg_types, kwds, templates):
             raise RuntimeError("Wrong scalar type for quat {} constructor".format(",".join(map(str, templates))))
 
     return quaternion(dtype=templates[0])
+
+
+def quat_cast_value_func(arg_types, kwds, templates):
+    if arg_types is None:
+        raise RuntimeError("Missing quaternion argument.")
+    if "dtype" not in kwds:
+        raise RuntimeError("Missing 'dtype' kwd.")
+
+    dtype = kwds["dtype"]
+    templates.append(dtype)
+
+    return quaternion(dtype=dtype)
 
 
 add_builtin(
@@ -947,6 +979,15 @@ add_builtin(
     group="Quaternion Math",
     doc="Create a quaternion using the supplied vector/scalar (type inferred from scalar type)",
     export=False,
+)
+add_builtin(
+    "quaternion",
+    input_types={"q": quaternion(dtype=Float)},
+    value_func=quat_cast_value_func,
+    native_func="quat_t",
+    group="Quaternion Math",
+    doc="Construct a quaternion of type dtype from another quaternion of a different dtype.",
+    export=False
 )
 
 
@@ -2044,7 +2085,8 @@ add_builtin(
 
 add_builtin(
     "curlnoise",
-    input_types={"state": uint32, "xy": vec2},
+    input_types={"state": uint32, "xy": vec2, "octaves": uint32, "lacunarity": float, "gain": float},
+    defaults={"octaves": 1, "lacunarity": 2.0, "gain": 0.5},
     value_type=vec2,
     group="Random",
     doc="Divergence-free vector field based on the gradient of a Perlin noise function.",
@@ -2052,7 +2094,8 @@ add_builtin(
 )
 add_builtin(
     "curlnoise",
-    input_types={"state": uint32, "xyz": vec3},
+    input_types={"state": uint32, "xyz": vec3, "octaves": uint32, "lacunarity": float, "gain": float},
+    defaults={"octaves": 1, "lacunarity": 2.0, "gain": 0.5},
     value_type=vec3,
     group="Random",
     doc="Divergence-free vector field based on the curl of three Perlin noise functions.",
@@ -2060,7 +2103,8 @@ add_builtin(
 )
 add_builtin(
     "curlnoise",
-    input_types={"state": uint32, "xyzt": vec4},
+    input_types={"state": uint32, "xyzt": vec4, "octaves": uint32, "lacunarity": float, "gain": float},
+    defaults={"octaves": 1, "lacunarity": 2.0, "gain": 0.5},
     value_type=vec3,
     group="Random",
     doc="Divergence-free vector field based on the curl of three Perlin noise functions.",
@@ -2187,7 +2231,7 @@ def load_value_func(arg_types, kwds, _):
         if not type_is_int(t):
             raise RuntimeError(f"load() index arguments must be of integer type, got index of type {t}")
 
-    return arg_types[0].dtype
+    return Reference(arg_types[0].dtype)
 
 
 # does argument checking and type propagation for view()
@@ -2251,7 +2295,7 @@ def store_value_func(arg_types, kwds, _):
     return None
 
 
-add_builtin("load", variadic=True, hidden=True, value_func=load_value_func, group="Utility")
+add_builtin("address", variadic=True, hidden=True, value_func=load_value_func, group="Utility")
 add_builtin("view", variadic=True, hidden=True, value_func=view_value_func, group="Utility")
 add_builtin("store", variadic=True, hidden=True, value_func=store_value_func, skip_replay=True, group="Utility")
 

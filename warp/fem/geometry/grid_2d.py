@@ -1,6 +1,7 @@
 import warp as wp
 
-from warp.fem.types import ElementIndex, Coords, vec2i, Sample, NULL_QP_INDEX, NULL_DOF_INDEX
+from warp.fem.types import ElementIndex, Coords, Sample, make_free_sample, OUTSIDE
+from warp.fem.cache import cached_arg_value
 
 from .geometry import Geometry
 from .element import Square, LinearEdge
@@ -8,18 +9,20 @@ from .element import Square, LinearEdge
 
 @wp.struct
 class Grid2DCellArg:
-    res: vec2i
+    res: wp.vec2i
     cell_size: wp.vec2
     origin: wp.vec2
 
 
 class Grid2D(Geometry):
     """Two-dimensional regular grid geometry"""
+        
+    dimension = 2
 
     Permutation = wp.types.matrix(shape=(2, 2), dtype=int)
     ROTATION = wp.constant(Permutation(0, 1, 1, 0))
 
-    def __init__(self, res: vec2i, bounds_lo: wp.vec2 = wp.vec2(0.0), bounds_hi: wp.vec2 = wp.vec2(1.0)):
+    def __init__(self, res: wp.vec2i, bounds_lo: wp.vec2 = wp.vec2(0.0), bounds_hi: wp.vec2 = wp.vec2(1.0)):
         """Constructs a dense 2D grid
 
         Args:
@@ -28,15 +31,18 @@ class Grid2D(Geometry):
             bounds_up: Position of the upper bound of the axis-aligned grid
         """
 
-        self.dimension = 2
         self.bounds_lo = bounds_lo
         self.bounds_hi = bounds_hi
 
         self._res = res
 
     @property
-    def extents(self) -> wp.vec2:
-        return self.bounds_hi - self.bounds_lo
+    def extents(self) -> wp.vec3:
+        # Avoid using native sub due to higher over of calling builtins from Python
+        return wp.vec2(
+            self.bounds_hi[0] - self.bounds_lo[0],
+            self.bounds_hi[1] - self.bounds_lo[1],
+        )
 
     @property
     def cell_size(self) -> wp.vec2:
@@ -74,46 +80,46 @@ class Grid2D(Geometry):
 
     @property
     def strides(self):
-        return vec2i(self.res[1], 1)
+        return wp.vec2i(self.res[1], 1)
 
     # Utility device functions
     CellArg = Grid2DCellArg
-    Cell = vec2i
+    Cell = wp.vec2i
 
     @wp.func
     def _to_2d_index(x_stride: int, index: int):
         x = index // x_stride
         y = index - x_stride * x
-        return vec2i(x, y)
+        return wp.vec2i(x, y)
 
     @wp.func
-    def _from_2d_index(x_stride: int, index: vec2i):
+    def _from_2d_index(x_stride: int, index: wp.vec2i):
         return x_stride * index[0] + index[1]
 
     @wp.func
-    def cell_index(res: vec2i, cell: Cell):
+    def cell_index(res: wp.vec2i, cell: Cell):
         return Grid2D._from_2d_index(res[1], cell)
 
     @wp.func
-    def get_cell(res: vec2i, cell_index: ElementIndex):
+    def get_cell(res: wp.vec2i, cell_index: ElementIndex):
         return Grid2D._to_2d_index(res[1], cell_index)
 
     @wp.struct
     class Side:
         axis: int  # normal; 0: horizontal, 1: vertical
-        origin: vec2i  # index of vertex at corner (0,0)
+        origin: wp.vec2i  # index of vertex at corner (0,0)
 
     @wp.struct
     class SideArg:
         cell_count: int
-        axis_offsets: vec2i
+        axis_offsets: wp.vec2i
         cell_arg: Grid2DCellArg
 
     SideIndexArg = SideArg
 
     @wp.func
-    def _rotate(axis: int, vec: vec2i):
-        return vec2i(
+    def _rotate(axis: int, vec: wp.vec2i):
+        return wp.vec2i(
             vec[Grid2D.ROTATION[axis, 0]],
             vec[Grid2D.ROTATION[axis, 1]],
         )
@@ -124,7 +130,6 @@ class Grid2D(Geometry):
             vec[Grid2D.ROTATION[axis, 0]],
             vec[Grid2D.ROTATION[axis, 1]],
         )
-
 
     @wp.func
     def side_index(arg: SideArg, side: Side):
@@ -154,11 +159,12 @@ class Grid2D(Geometry):
         altitude = arg.cell_arg.res[Grid2D.ROTATION[axis, 0]]
         longitude = axis_side_index - arg.axis_offsets[axis]
 
-        origin_loc = vec2i(altitude, longitude)
+        origin_loc = wp.vec2i(altitude, longitude)
         return Grid2D.Side(axis, origin_loc)
 
     # Geometry device interface
 
+    @cached_arg_value
     def cell_arg_value(self, device) -> CellArg:
         args = self.CellArg()
         args.res = self.res
@@ -189,7 +195,7 @@ class Grid2D(Geometry):
         coords = Coords(x - x_cell, y - y_cell, 0.0)
         cell_index = Grid2D.cell_index(args.res, Grid2D.Cell(int(x_cell), int(y_cell)))
 
-        return Sample(cell_index, coords, NULL_QP_INDEX, 0.0, NULL_DOF_INDEX, NULL_DOF_INDEX)
+        return make_free_sample(cell_index, coords)
 
     @wp.func
     def cell_lookup(args: CellArg, pos: wp.vec2, guess: Sample):
@@ -211,24 +217,29 @@ class Grid2D(Geometry):
     def cell_normal(args: CellArg, s: Sample):
         return wp.vec2(0.0)
 
+    @wp.func
+    def cell_transform_reference_gradient(args: CellArg, cell_index: ElementIndex, coords: Coords, ref_grad: wp.vec2):
+        return wp.cw_div(ref_grad, args.cell_size)
+
+    @cached_arg_value
     def side_arg_value(self, device) -> SideArg:
         args = self.SideArg()
-        
-        args.axis_offsets = vec2i(
+
+        args.axis_offsets = wp.vec2i(
             0,
             self.res[0],
         )
         args.cell_count = self.cell_count()
         args.cell_arg = self.cell_arg_value(device)
         return args
-    
+
     def side_index_arg_value(self, device) -> SideIndexArg:
         return self.side_arg_value(device)
 
     @wp.func
     def boundary_side_index(args: SideArg, boundary_side_index: int):
         """Boundary side to side index"""
-        
+
         axis_side_index = boundary_side_index // 2
         border = boundary_side_index - 2 * axis_side_index
 
@@ -240,7 +251,7 @@ class Grid2D(Geometry):
         longitude = axis_side_index - args.axis_offsets[axis]
         altitude = border * args.cell_arg.res[axis]
 
-        side = Grid2D.Side(axis, vec2i(altitude, longitude))
+        side = Grid2D.Side(axis, wp.vec2i(altitude, longitude))
         return Grid2D.side_index(args, side)
 
     @wp.func
@@ -293,7 +304,7 @@ class Grid2D(Geometry):
         else:
             inner_alt = side.origin[0] - 1
 
-        inner_origin = vec2i(inner_alt, side.origin[1])
+        inner_origin = wp.vec2i(inner_alt, side.origin[1])
 
         cell = Grid2D._rotate(side.axis, inner_origin)
         return Grid2D.cell_index(arg.cell_arg.res, cell)
@@ -309,7 +320,52 @@ class Grid2D(Geometry):
         else:
             outer_alt = side.origin[0]
 
-        outer_origin = vec2i(outer_alt, side.origin[1])
+        outer_origin = wp.vec2i(outer_alt, side.origin[1])
 
         cell = Grid2D._rotate(side.axis, outer_origin)
         return Grid2D.cell_index(arg.cell_arg.res, cell)
+
+    @wp.func
+    def side_inner_cell_coords(args: SideArg, side_index: ElementIndex, side_coords: Coords):
+        side = Grid2D.get_side(args, side_index)
+
+        if side.origin[0] == 0:
+            inner_alt = 0.0
+        else:
+            inner_alt = 1.0
+
+        coords = Grid2D._rotate(side.axis, wp.vec2(inner_alt, side_coords[0]))
+        return Coords(coords[0], coords[1], 0.0)
+
+    @wp.func
+    def side_outer_cell_coords(args: SideArg, side_index: ElementIndex, side_coords: Coords):
+        side = Grid2D.get_side(args, side_index)
+
+        alt_axis = Grid2D.ROTATION[side.axis, 0]
+        if side.origin[0] == args.cell_arg.res[alt_axis]:
+            outer_alt = 1.0
+        else:
+            outer_alt = 0.0
+
+        coords = Grid2D._rotate(side.axis, wp.vec2(outer_alt, side_coords[0]))
+        return Coords(coords[0], coords[1], 0.0)
+
+    @wp.func
+    def side_from_cell_coords(
+        args: SideArg,
+        side_index: ElementIndex,
+        element_index: ElementIndex,
+        element_coords: Coords,
+    ):
+        side = Grid2D.get_side(args, side_index)
+        cell = Grid2D.get_cell(args.cell_arg.res, element_index)
+
+        if float(side.origin[0] - cell[side.axis]) == element_coords[side.axis]:
+            long_axis = Grid2D.ROTATION[side.axis, 1]
+            return Coords(element_coords[long_axis], 0.0, 0.0)
+
+        return Coords(OUTSIDE)
+
+    @wp.func
+    def side_to_cell_arg(side_arg: SideArg):
+        return side_arg.cell_arg

@@ -155,6 +155,12 @@ def vector(length, dtype):
             else:
                 raise KeyError(f"Invalid key {key}, expected int or slice")
 
+        def __getattr__(self, name):
+            return self.__getitem__("xyzw".index(name))
+
+        def __setattr__(self, name, value):
+            return self.__setitem__("xyzw".index(name), value)
+
         def __add__(self, y):
             return warp.add(self, y)
 
@@ -999,7 +1005,7 @@ def type_scalar_type(dtype):
 def type_size_in_bytes(dtype):
     if dtype.__module__ == "ctypes":
         return ctypes.sizeof(dtype)
-    elif type_is_struct(dtype):
+    elif isinstance(dtype, warp.codegen.Struct):
         return ctypes.sizeof(dtype.ctype)
     elif dtype == float or dtype == int:
         return 4
@@ -1020,8 +1026,6 @@ def type_to_warp(dtype):
 
 
 def type_typestr(dtype):
-    from warp.codegen import Struct
-
     if dtype == bool:
         return "?"
     elif dtype == float16:
@@ -1046,7 +1050,7 @@ def type_typestr(dtype):
         return "<i8"
     elif dtype == uint64:
         return "<u8"
-    elif isinstance(dtype, Struct):
+    elif isinstance(dtype, warp.codegen.Struct):
         return f"|V{ctypes.sizeof(dtype.ctype)}"
     elif issubclass(dtype, ctypes.Array):
         return type_typestr(dtype._wp_scalar_type_)
@@ -1060,9 +1064,16 @@ def type_repr(t):
         return str(f"array(ndim={t.ndim}, dtype={t.dtype})")
     if type_is_vector(t):
         return str(f"vector(length={t._shape_[0]}, dtype={t._wp_scalar_type_})")
-    elif type_is_matrix(t):
+    if type_is_matrix(t):
         return str(f"matrix(shape=({t._shape_[0]}, {t._shape_[1]}), dtype={t._wp_scalar_type_})")
-    else:
+    if isinstance(t, warp.codegen.Struct):
+        return type_repr(t.cls)
+    if t in scalar_types:
+        return t.__name__
+
+    try:
+        return t.__module__ + "." + t.__qualname__
+    except AttributeError:
         return str(t)
 
 
@@ -1078,15 +1089,6 @@ def type_is_float(t):
         t = float32
 
     return t in float_types
-
-
-def type_is_struct(dtype):
-    from warp.codegen import Struct
-
-    if isinstance(dtype, Struct):
-        return True
-    else:
-        return False
 
 
 # returns True if the passed *type* is a vector
@@ -1819,9 +1821,7 @@ class array(Array):
         return array._vars
 
     def zero_(self):
-        # if warp.context.runtime.tape is not None:
-        #     warp.launch(warp.builtins.array_zero, dim=self.shape, inputs=[self], device=self.device)
-        # else:
+        """Zeroes-out the array entires."""
         if self.is_contiguous:
             # simple memset is usually faster than generic fill
             self.device.memset(self.ptr, 0, self.size * type_size_in_bytes(self.dtype))
@@ -1829,6 +1829,32 @@ class array(Array):
             self.fill_(0)
 
     def fill_(self, value):
+        """Set all array entries to `value`
+
+        args:
+            value: The value to set every array entry to. Must be convertible to the array's ``dtype``.
+
+        Raises:
+            ValueError: If `value` cannot be converted to the array's ``dtype``.
+
+        Examples:
+            ``fill_()`` can take lists or other sequences when filling arrays of vectors or matrices.
+
+            >>> arr = wp.zeros(2, dtype=wp.mat22)
+            >>> arr.numpy()
+            array([[[0., 0.],
+                    [0., 0.]],
+            <BLANKLINE>
+                   [[0., 0.],
+                    [0., 0.]]], dtype=float32)
+            >>> arr.fill_([[1, 2], [3, 4]])
+            >>> arr.numpy()
+            array([[[1., 2.],
+                    [3., 4.]],
+            <BLANKLINE>
+                   [[1., 2.],
+                    [3., 4.]]], dtype=float32)
+        """
         if self.size == 0:
             return
 
@@ -1875,8 +1901,8 @@ class array(Array):
             else:
                 warp.context.runtime.core.array_fill_host(carr_ptr, ARRAY_TYPE_REGULAR, cvalue_ptr, cvalue_size)
 
-    # equivalent to wrapping src data in an array and copying to self
     def assign(self, src):
+        """Wraps ``src`` in an :class:`warp.array` if it is not already one and copies the contents to ``self``."""
         if is_array(src):
             if warp.context.runtime.tape is not None:
                 # assert self.ndim == 1, "Assigning arrays with ndim > 1 is not supported in tape mode"
@@ -1888,8 +1914,11 @@ class array(Array):
         else:
             warp.copy(self, array(data=src, dtype=self.dtype, copy=False, device="cpu"))
 
-    # convert array to ndarray (alias memory through array interface)
     def numpy(self):
+        """Converts the array to a :class:`numpy.ndarray` (aliasing memory through the array interface protocol)
+        If the array is on the GPU, a synchronous device-to-host copy (on the CUDA default stream) will be
+        automatically performed to ensure that any outstanding work is completed.
+        """
         if self.ptr:
             # use the CUDA default stream for synchronous behaviour with other streams
             with warp.ScopedStream(self.device.null_stream):
@@ -1910,12 +1939,16 @@ class array(Array):
                 npshape = self.shape
             return np.empty(npshape, dtype=npdtype)
 
-    # return a ctypes cast of the array address
-    # note #1: only CPU arrays support this method
-    # note #2: the array must be contiguous
-    # note #3: accesses to this object are *not* bounds checked
-    # note #4: for float16 types, a pointer to the internal uint16 representation is returned
     def cptr(self):
+        """Return a ctypes cast of the array address.
+
+        Notes:
+
+        #. Only CPU arrays support this method.
+        #. The array must be contiguous.
+        #. Accesses to this object are **not** bounds checked.
+        #. For ``float16`` types, a pointer to the internal ``uint16`` representation is returned.
+        """
         if not self.ptr:
             return None
 
@@ -1934,8 +1967,8 @@ class array(Array):
 
         return p
 
-    # returns a flattened list of items in the array as a Python list
     def list(self):
+        """Returns a flattened list of items in the array as a Python list."""
         a = self.numpy()
 
         if isinstance(self.dtype, warp.codegen.Struct):
@@ -1954,8 +1987,8 @@ class array(Array):
             # scalar
             return list(a.flatten())
 
-    # convert data from one device to another, nop if already on device
     def to(self, device):
+        """Returns a Warp array with this array's data moved to the specified device, no-op if already on device."""
         device = warp.get_device(device)
         if self.device == device:
             return self
@@ -1963,6 +1996,7 @@ class array(Array):
             return warp.clone(self, device=device)
 
     def flatten(self):
+        """Returns a zero-copy view of the array collapsed to 1-D. Only supported for contiguous arrays."""
         if self.ndim == 1:
             return self
 
@@ -1985,6 +2019,11 @@ class array(Array):
         return a
 
     def reshape(self, shape):
+        """Returns a reshaped array. Only supported for contiguous arrays.
+
+        Args:
+            shape : An int or tuple of ints specifying the shape of the returned array.
+        """
         if not self.is_contiguous:
             raise RuntimeError("Reshaping non-contiguous arrays is unsupported.")
 
@@ -2042,6 +2081,9 @@ class array(Array):
         return a
 
     def view(self, dtype):
+        """Returns a zero-copy view of this array's memory with a different data type.
+        ``dtype`` must have the same byte size of the array's native ``dtype``.
+        """
         if type_size_in_bytes(dtype) != type_size_in_bytes(self.dtype):
             raise RuntimeError("Cannot cast dtypes of unequal byte size")
 
@@ -2062,6 +2104,7 @@ class array(Array):
         return a
 
     def contiguous(self):
+        """Returns a contiguous array with this array's data. No-op if array is already contiguous."""
         if self.is_contiguous:
             return self
 
@@ -2069,8 +2112,14 @@ class array(Array):
         warp.copy(a, self)
         return a
 
-    # note: transpose operation will return an array with a non-contiguous access pattern
     def transpose(self, axes=None):
+        """Returns an zero-copy view of the array with axes transposed.
+
+        Note: The transpose operation will return an array with a non-contiguous access pattern.
+
+        Args:
+            axes (optional): Specifies the how the axes are permuted. If not specified, the axes order will be reversed.
+        """
         # noop if 1d array
         if self.ndim == 1:
             return self
@@ -2956,7 +3005,7 @@ def matmul(
         1,
     )
     if not ret:
-        raise RuntimeError("Matmul failed.")
+        raise RuntimeError("matmul failed.")
 
 
 def adj_matmul(
@@ -3158,7 +3207,7 @@ def batched_matmul(
 
     if runtime.tape:
         runtime.tape.record_func(
-            backward=lambda: adj_matmul(
+            backward=lambda: adj_batched_matmul(
                 a, b, c, a.grad, b.grad, c.grad, d.grad, alpha, beta, allow_tf32x3_arith, device
             ),
             arrays=[a, b, c, d],
@@ -3296,7 +3345,7 @@ def adj_batched_matmul(
         batch_count,
     )
     if not ret:
-        raise RuntimeError("adj_matmul failed.")
+        raise RuntimeError("adj_batched_matmul failed.")
 
     # adj_b
     ret = runtime.core.cutlass_gemm(
@@ -3317,7 +3366,7 @@ def adj_batched_matmul(
         batch_count,
     )
     if not ret:
-        raise RuntimeError("adj_matmul failed.")
+        raise RuntimeError("adj_batched_matmul failed.")
 
     # adj_c
     ret = runtime.core.cutlass_gemm(
@@ -3338,7 +3387,7 @@ def adj_batched_matmul(
         batch_count,
     )
     if not ret:
-        raise RuntimeError("adj_matmul failed.")
+        raise RuntimeError("adj_batched_matmul failed.")
 
 
 class HashGrid:

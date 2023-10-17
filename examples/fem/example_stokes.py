@@ -13,13 +13,13 @@ import warp as wp
 
 import numpy as np
 
-from warp.fem.types import *
-from warp.fem.geometry import Grid2D, Trimesh2D
-from warp.fem.field import make_test, make_trial, make_restriction
-from warp.fem.space import make_polynomial_space
-from warp.fem.domain import Cells, BoundarySides
-from warp.fem.integrate import integrate, interpolate
-from warp.fem.operator import normal, integrand, D, div
+from warp.fem import Field, Domain, Sample
+from warp.fem import Grid2D, Trimesh2D
+from warp.fem import make_test, make_trial, make_restriction
+from warp.fem import make_polynomial_space, ElementBasis
+from warp.fem import Cells, BoundarySides
+from warp.fem import integrate, interpolate
+from warp.fem import normal, integrand, D, div
 
 from plot_utils import plot_velocities, plot_surface
 from bsr_utils import bsr_to_scipy
@@ -83,22 +83,26 @@ if __name__ == "__main__":
     parser.add_argument("--viscosity", type=float, default=1.0)
     parser.add_argument("--boundary_strength", type=float, default=100.0)
     parser.add_argument("--tri_mesh", action="store_true", help="Use a triangular mesh")
+    parser.add_argument("--nonconforming_pressures", action="store_true", help="For grid, use non-conforming pressure (Q_d/P_{d-1})")
     args = parser.parse_args()
     
     top_velocity = wp.vec2(args.top_velocity, 0.0)
 
     if args.tri_mesh:
-        positions, tri_vidx = gen_trimesh(res=vec2i(args.resolution))
+        positions, tri_vidx = gen_trimesh(res=wp.vec2i(args.resolution))
         geo = Trimesh2D(tri_vertex_indices=tri_vidx, positions=positions)
     else:
-        geo = Grid2D(res=vec2i(args.resolution))
+        geo = Grid2D(res=wp.vec2i(args.resolution))
     
     domain = Cells(geometry=geo)
     boundary = BoundarySides(geo)
 
-    # Function spaces -- Q_d for vel, Q_{d-1} for pressure
+    # Function spaces -- Q_d for vel, P_{d-1} for pressure
     u_space = make_polynomial_space(geo, degree=args.degree, dtype=wp.vec2)
-    p_space = make_polynomial_space(geo, degree=args.degree-1)
+    if not args.tri_mesh and args.nonconforming_pressures:
+        p_space = make_polynomial_space(geo, degree=args.degree-1, element_basis=ElementBasis.NONCONFORMING_POLYNOMIAL)
+    else:
+        p_space = make_polynomial_space(geo, degree=args.degree-1)
 
     # Interpolate initial condition on boundary (mostly for testing)
     f = u_space.make_field()
