@@ -340,8 +340,8 @@ def run_env(env, pi=None, num_steps=600, num_rollouts=1, logdir=None, use_grad=F
         joint_target_indices = env.env_joint_target_indices
 
         lower, upper = env.action_bounds
-        lower, upper = lower.cpu().numpy(), upper.cpu().numpy()
-        joint_start = env.start_joint_q.cpu().numpy()[:, joint_target_indices]
+        lower, upper = to_numpy(lower), to_numpy(upper)
+        joint_start = to_numpy(env.start_joint_q)[:, joint_target_indices]
         joint_start = unscale_np(joint_start, lower, upper)
 
         def pi(obs, t):
@@ -390,7 +390,7 @@ def collect_rollout(env, n_steps, pi, loss_fn=None, plot_body_coords=False, plot
                 ac = pi(o, t).requires_grad_(use_grad)
             elif use_grad:
                 ac = ac.clone() + ac.grad  # assumes reward.backward() was called
-            actions.append(ac.cpu().detach().numpy())
+            actions.append(to_numpy(ac))
             o, rew, done, info = env.step(ac)
             if done.sum() > 0 and not env.self_reset:
                 env_ids = done.nonzero(as_tuple=False).squeeze(-1)
@@ -408,14 +408,14 @@ def collect_rollout(env, n_steps, pi, loss_fn=None, plot_body_coords=False, plot
             if use_grad:
                 __import__("ipdb").set_trace()
                 rew.backward()
-            rew_npy = rew.cpu().detach().item()
+            rew_npy = to_numpy(rew).item()
             if loss_fn is not None:
                 loss_fn()
 
             net_cost += rew_npy
             pbar.set_description(f"mean_cost_per_env={net_cost:.2f}")
-            states.append(o.cpu().detach().numpy())
-            rewards.append(rew)
+            states.append(to_numpy(o))
+            rewards.append(rew_npy)
     history = {}
     if plot_body_coords:
         history["q"] = np.stack(q_history)

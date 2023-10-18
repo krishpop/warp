@@ -170,6 +170,7 @@ if __name__ == "__main__":
     parser.add_argument("--profile", action="store_true")
     parser.add_argument("--norender", action="store_true")
     parser.add_argument("--use_grad", action="store_true")
+    parser.add_argument("--logdir", default="repose_task")
     args = parser.parse_args()
 
     reach_bonus = lambda x, y: torch.where(x < y, torch.ones_like(x), torch.zeros_like(x))
@@ -182,7 +183,7 @@ if __name__ == "__main__":
     if args.profile or args.norender:
         render_mode = RenderMode.NONE
     else:
-        render_mode = RenderMode.OPENGL
+        render_mode = RenderMode.USD
     env = ReposeTask(
         num_envs=args.num_envs,
         num_obs=38,
@@ -192,6 +193,7 @@ if __name__ == "__main__":
         render=(not args.norender),
         no_grad=(not args.use_grad),
         use_autograd=args.use_grad,
+        logdir=args.logdir,
     )
     if args.profile:
         profile(env)
