@@ -29,6 +29,7 @@ num_envs: ${env.player.num_actors}
 num_steps: ${env.config.episode_length}
 num_rollouts: 5
 render: true
+debug_grad: false
 
 # env defaults
 env:

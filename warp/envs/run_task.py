@@ -54,19 +54,14 @@ def run(cfg: DictConfig):
 
     elif cfg.alg.name in ["default", "random", "zero", "sine"]:
         # instantiate the environment
-        env_name = cfg.env.name.lower().lstrip("warp_")
-        if env_name == "repose_task":
-            env = instantiate(cfg.env.config, _convert_="partial", logdir=cfg.general.logdir)
-        elif env_name == "hand_object_task":
-            env = instantiate(cfg.env.config, _convert_="partial", logdir=cfg.general.logdir)
-        elif env_name == "object_task":
-            env = instantiate(cfg.env.config, _convert_="partial", logdir=cfg.general.logdir)
+        env_name = cfg.env.name.lower().lstrip("warp").lstrip("_")
+        env = instantiate(cfg.env.config, _convert_="partial", logdir=cfg.general.logdir)
 
         if env.opengl_render_settings.get("headless", False):
             env = Monitor(env, "outputs/videos/{}".format(get_time_stamp()))
 
         policy = get_policy(cfg)
-        run_env(env, policy, cfg_full["num_steps"], cfg_full["num_rollouts"])
+        run_env(env, policy, cfg_full["num_steps"], cfg_full["num_rollouts"], use_grad=cfg.debug_grad)
 
     elif cfg.alg.name in ["ppo", "sac"]:
         cfg_eval = cfg_full["alg"]
