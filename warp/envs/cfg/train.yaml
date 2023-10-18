@@ -17,6 +17,8 @@ defaults:
 
 resume_model: null
 
+exp_dir: warp_benchmarks
+
 general:
   play: False
   logdir: logs/
@@ -85,4 +87,4 @@ env:
 wandb:
   project: diff_manip
   entity: dmanip-rss
-  group: warp_benchmarks
+  group: ${exp_dir}

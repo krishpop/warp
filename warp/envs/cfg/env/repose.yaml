@@ -5,6 +5,7 @@ defaults:
       - object_pos_err
       - reach_bonus
       - rot_reward_delta
+      - rot_reward
       - hand_joint_pos_err
 
 name: warp_repose_task
@@ -24,9 +25,10 @@ config:
   reward_params:
     action_penalty: ${env.rewards.action_penalty}
     object_pos_err: ${env.rewards.object_pos_err}
-    hand_joint_pos_err: ${env.rewards.hand_joint_pos_err}
+    # hand_joint_pos_err: ${env.rewards.hand_joint_pos_err}
     rot_reward_delta: ${env.rewards.rot_reward_delta}
-    reach_bonus: ${env.rewards.reach_bonus}
+    rot_reward: ${env.rewards.rot_reward}
+    # reach_bonus: ${env.rewards.reach_bonus}
   hand_type: ${hand:allegro}
   stochastic_init: true
   use_autograd: true

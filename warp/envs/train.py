@@ -209,7 +209,13 @@ def train(cfg: DictConfig):
             with open_dict(cfg):
                 cfg.env.config.jacobian_norm = cfg.env.ahac.jacobian_norm
 
-        traj_optimizer = instantiate(cfg.alg, env_config=cfg.env.config, logdir=logdir)
+        score_keys = []
+        try:
+            score_keys = cfg.env.score_keys
+        except:
+            pass
+
+        traj_optimizer = instantiate(cfg.alg, env_config=cfg.env.config, logdir=logdir, score_keys=score_keys)
 
         if cfg.general.checkpoint:
             traj_optimizer.load(cfg.general.checkpoint)
