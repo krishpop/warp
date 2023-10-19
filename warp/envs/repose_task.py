@@ -26,7 +26,7 @@ class ReposeTask(HandObjectTask):
         render=True,
         stochastic_init=True,
         device="cuda",
-        render_mode=RenderMode.OPENGL,
+        render_mode=RenderMode.USD,
         stage_path=None,
         logdir=None,
         stiffness=5000.0,
@@ -164,7 +164,9 @@ if __name__ == "__main__":
     parser.add_argument("--num_envs", type=int, default=1)
     parser.add_argument("--num_episodes", "-ne", type=int, default=1)
     parser.add_argument("--profile", action="store_true")
+    parser.add_argument("--use_grad", action="store_true")
     parser.add_argument("--norender", action="store_true")
+    parser.add_argument("--logdir", default="repose_task")
     args = parser.parse_args()
 
     reach_bonus = lambda x, y: torch.where(x < y, torch.ones_like(x), torch.zeros_like(x))
@@ -172,17 +174,31 @@ if __name__ == "__main__":
         "object_pos_err": (l2_dist, ("target_pos", "object_pos"), -10.0),
         # "rot_reward": (rot_reward, ("object_rot", "target_rot"), 1.0),
         "action_penalty": (action_penalty, ("action",), -0.0002),
-        "reach_bonus": (reach_bonus, ("object_pose_err", "reach_threshold"), 250.0),
+        # "reach_bonus": (reach_bonus, ("object_pose_err", "reach_threshold"), 250.0),
     }
     if args.profile or args.norender:
         render_mode = RenderMode.NONE
     else:
-        render_mode = RenderMode.OPENGL
+        render_mode = RenderMode.USD
     env = ReposeTask(
-        num_envs=args.num_envs, num_obs=38, episode_length=1000, reward_params=reward_params, render_mode=render_mode
+        num_envs=args.num_envs,
+        num_obs=38,
+        episode_length=1000,
+        reward_params=reward_params,
+        render_mode=render_mode,
+        no_grad=not args.use_grad,
+        use_autograd=not args.use_grad,
+        logdir=args.logdir,
     )
     if args.profile:
         profile(env)
     else:
         env.load_camera_params()
-        run_env(env, pi=None, num_rollouts=args.num_rollouts, logdir="outputs/")
+        run_env(
+            env,
+            pi=None,
+            num_rollouts=args.num_episodes,
+            logdir="outputs/",
+            use_grad=args.use_grad,
+            num_steps=env.episode_length,
+        )

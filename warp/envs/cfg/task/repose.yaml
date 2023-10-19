@@ -5,9 +5,10 @@ defaults:
     - object_pos_err
     - reach_bonus
     - rot_reward_delta
+    - rot_reward
     - hand_joint_pos_err
 
-name: repose_task
+name: warp_repose_task
 
 score_keys:
   - object_rot_diff
@@ -18,35 +19,59 @@ score_keys:
 
 env:
   _target_: warp.envs.ReposeTask
-  num_envs: ${resolve_default:256,${num_envs}}
+  num_envs: 128
   episode_length: 250
   render: ${render}
-  reward_params: 
+  reward_params:
     action_penalty: ${task.rewards.action_penalty}
     object_pos_err: ${task.rewards.object_pos_err}
-    hand_joint_pos_err: ${task.rewards.hand_joint_pos_err}
+    # hand_joint_pos_err: ${task.rewards.hand_joint_pos_err}
     rot_reward_delta: ${task.rewards.rot_reward_delta}
-    reach_bonus: ${task.rewards.reach_bonus}
+    rot_reward: ${task.rewards.rot_reward}
+    # reach_bonus: ${task.rewards.reach_bonus}
   hand_type: ${hand:allegro}
   stochastic_init: true
-  use_autograd: false
+  use_autograd: true
   use_graph_capture: false
+  reach_threshold: 0.05
   # use_graph_capture: ${eval:'("shac" not in "${alg.name}")'}
   no_grad: false
 
+shac:
+  actor_lr: 2e-3
+  critic_lr: 2e-3
+  max_epochs: 2000
+  target_critic_alpha: 0.2
+  actor_mlp:
+    units: [256, 128]
+  critic_mlp:
+    units: [256, 128]
 
 ppo:
-  max_epochs: 1000
+  max_epochs: 5000
   save_best_after: 100
-  save_frequency: 400
-  num_actors: 2048
-  minibatch_size: 16384
+  save_frequency: 500
+  num_actors: 512
+  minibatch_size: 4096
   steps_num: 32
   actor_mlp:
-    units: [64, 64]
-  score_to_win: 60000
+    units: [256, 128]
+
+sac:
+  max_epochs: 5000
+  batch_size: 2048
+  num_actors: 64
+  save_frequency: 500
+  save_best_after: 100
+  actor_critic_mlp:
+    units: [256, 128]
+
+# Note SVG doesn't like floats so we use ints
+svg:
+  num_train_steps: 11000000 # 11M
+  replay_buffer_capacity: 1000000
 
 player:
   deterministic: true
-  games_num: 100000
+  games_num: 100
   print_stats: true

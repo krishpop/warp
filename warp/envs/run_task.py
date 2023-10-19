@@ -11,8 +11,7 @@ from shac.utils.rlgames_utils import RLGPUEnvAlgoObserver, RLGPUEnv
 from shac.algorithms.shac import SHAC
 from shac.algorithms.shac2 import SHAC as SHAC2
 from rl_games.torch_runner import Runner
-from warp.envs import ObjectTask, HandObjectTask, ReposeTask
-from warp.envs.utils.common import run_env, HandType, ActionType, get_time_stamp
+from warp.envs.utils.common import run_env, HandType, get_time_stamp
 from warp.envs.train import register_envs
 from warp.envs.wrappers import Monitor
 
@@ -30,7 +29,6 @@ def get_policy(cfg):
         return lambda x, t: torch.rand((x.shape[0], num_act), device=x.device).clamp_(-1.0, 1.0)
     if cfg.alg.name == "sine":
         return lambda x, t: torch.sin(torch.ones((x.shape[0], num_act)).to(x) * t * 2 * np.pi * 0.1)
-    
 
 
 @hydra.main(config_path="cfg", config_name="run_task.yaml")
@@ -41,19 +39,24 @@ def run(cfg: DictConfig):
     print("Run Params:")
     print(cfg_yaml)
 
-    # instantiate the environment
-    if cfg.task.name.lower() == "repose_task":
-        env = instantiate(cfg.task.env, _convert_="partial")
-    elif cfg.task.name.lower() == "hand_object_task":
-        env = instantiate(cfg.task.env, _convert_="partial")
-    elif cfg.task.name.lower() == "object_task":
-        env = instantiate(cfg.task.env, _convert_="partial")
+    # instantiate the policy and environment
+    if "_target_" in cfg.alg:
+        # Run with hydra
+        cfg.task.env.no_grad = not cfg.general.train
 
-    if env.opengl_render_settings.get('headless', False):
-        env = Monitor(env, "outputs/videos/{}".format(get_time_stamp()))
+        traj_optimizer = instantiate(cfg.alg, env_config=cfg.task.env, logdir=cfg.general.logdir)
 
-    # get a policy
-    if cfg.alg.name in ["default", "random", "zero", "sine"]:
+        if cfg.general.checkpoint:
+            traj_optimizer.load(cfg.general.checkpoint)
+
+        traj_optimizer.run(cfg.num_rollouts)
+
+    elif cfg.alg.name in ["default", "random", "zero", "sine"]:
+        env = instantiate(cfg.task.env, _convert_="partial")
+        if env.opengl_render_settings.get("headless", False):
+            env = Monitor(env, "outputs/videos/{}".format(get_time_stamp()))
+
+        # get a policy
         policy = get_policy(cfg)
         run_env(env, policy, cfg_full["num_steps"], cfg_full["num_rollouts"])
     elif cfg.alg.name in ["ppo", "sac"]:

@@ -411,9 +411,13 @@ class ObjectModel:
         contact_ke=1e3,
         contact_kd=1e2,
         scale=0.4,
+        density=1e2,
         stiffness=0.0,
         damping=0.5,
         base_body_name="base",
+        model_path=None,
+        floating=None,
+        base_joint=None,
     ):
         self.object_type = object_type
         self.object_name = object_type.name.lower()
@@ -428,48 +432,77 @@ class ObjectModel:
         self.scale = scale
         self.stiffness = stiffness
         self.damping = damping
-        self.model_path = None  # TCDM_MESH_PATHS.get(self.object_type)
+        self.model_path = model_path  # TCDM_MESH_PATHS.get(self.object_type)
         self.base_joint_name = base_body_name + "_joint"
+        self.density = density
+        self.base_joint = base_joint
+        self.floating = floating
         # if self.model_path is not None:
         #     self.tcdm_trajectory, self.dex_trajectory = get_tcdm_trajectory(self.object_type)
         # else:
         self.tcdm_trajectory = self.dex_trajectory = None
 
-    def create_articulation(self, builder, density=100.0):
-        self.object_joint = add_joint(
-            builder,
-            pos=self.base_pos,
-            ori=self.base_ori,
-            joint_type=self.joint_type,
-            stiffness=self.stiffness,
-            damping=self.damping,
-            body_name="object",  # self.object_name + "_body_joint",
-        )
-        # if self.model_path:
-        #     obj_stl_path = asset_abspath(self.model_path)
-        #     mesh, _ = parse_mesh(obj_stl_path)
-        #     geom_size = (self.scale, self.scale, self.scale)
-        #     builder.add_shape_mesh(
-        #         body=self.object_joint,
-        #         pos=(0.0, 0.0, 0.0),  # in Z-up frame, transform applied already
-        #         rot=(1.0, 0.0, 0.0, 0.0),
-        #         mesh=mesh,
-        #         scale=geom_size,
-        #         density=density,
-        #         ke=self.contact_ke,
-        #         kd=self.contact_kd,
-        #     )
-        # else:
-        add_object(
-            builder,
-            self.object_joint,
-            self.object_type,
-            self.base_ori,
-            density,
-            self.contact_ke,
-            self.contact_kd,
-            scale=self.scale,
-        )
+    def create_articulation(self, builder):
+        if not self.floating:
+            self.object_joint = self.base_joint = add_joint(
+                builder,
+                pos=self.base_pos,
+                ori=self.base_ori,
+                joint_type=self.joint_type,
+                stiffness=self.stiffness,
+                damping=self.damping,
+                body_name="object",  # self.object_name + "_body_joint",
+            )
+        if self.model_path and self.model_path.endswith(".stl"):
+            from tcdm.envs import asset_abspath
+
+            obj_stl_path = asset_abspath(self.model_path)
+            mesh, _ = parse_mesh(obj_stl_path)
+            geom_size = (self.scale, self.scale, self.scale)
+            builder.add_shape_mesh(
+                body=self.object_joint,
+                pos=(0.0, 0.0, 0.0),  # in Z-up frame, transform applied already
+                rot=(1.0, 0.0, 0.0, 0.0),
+                mesh=mesh,
+                scale=geom_size,
+                density=self.density,
+                ke=self.contact_ke,
+                kd=self.contact_kd,
+            )
+        elif self.model_path and self.model_path.endswith(".urdf"):
+            asset_dir = os.path.join(os.path.dirname(__file__), "../assets")
+            wp.sim.parse_urdf(
+                os.path.join(asset_dir, self.model_path),
+                builder,
+                xform=wp.transform(self.base_pos, self.base_ori),
+                floating=self.floating,
+                base_joint=self.base_joint,
+                density=self.density,
+                scale=self.scale,
+                armature=1e-4,
+                stiffness=self.stiffness,
+                damping=self.damping,
+                shape_ke=self.contact_ke,
+                shape_kd=self.contact_kd,
+                shape_kf=1.0e2,
+                shape_mu=1.0,
+                limit_ke=1.0e4,
+                limit_kd=1.0e1,
+                enable_self_collisions=True,
+                parse_visuals_as_colliders=False,
+                collapse_fixed_joints=True,
+            )
+        else:
+            add_object(
+                builder,
+                self.object_joint,
+                self.object_type,
+                self.base_ori,
+                self.density,
+                self.contact_ke,
+                self.contact_kd,
+                scale=self.scale,
+            )
 
 
 class OperableObjectModel(ObjectModel):
@@ -505,12 +538,12 @@ class OperableObjectModel(ObjectModel):
             scale=scale,
             stiffness=stiffness,
             damping=damping,
+            density=density,
             base_body_name=base_body_name,
         )
         self.use_mesh_extents = use_mesh_extents
         self.floating = floating
         self.base_joint = base_joint
-        self.density = density
         assert model_path and os.path.splitext(model_path)[1] == ".urdf"
         self.model_path = model_path
         self.continuous_joint_type = continuous_joint_type
@@ -572,7 +605,8 @@ class OperableObjectModel(ObjectModel):
 
 def object_generator(object_type, **kwargs):
     class __DexObj__(ObjectModel):
-        def __init__(self):
+        def __init__(self, **override_kwargs):
+            kwargs.update(override_kwargs)
             super().__init__(object_type=object_type, **kwargs)
 
     return __DexObj__
@@ -599,7 +633,7 @@ def get_object_xform(object_type, object_id=None, **obj_kwargs):
 StaplerObject = object_generator(ObjectType.TCDM_STAPLER, base_pos=(0.0, 0.01756801, 0.0), scale=1.3)
 OctprismObject = object_generator(ObjectType.OCTPRISM, scale=1.0)
 
-ReposeCubeObject = operable_object_generator(
+ReposeCubeObject = object_generator(
     ObjectType.REPOSE_CUBE,
     base_pos=(0.0, 0.35, 0.0),
     base_ori=(0.0, 0.0, 0.0),

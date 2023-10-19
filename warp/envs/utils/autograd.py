@@ -263,6 +263,8 @@ class IntegratorSimulate(torch.autograd.Function):
         ctx.state_in.body_qd.requires_grad = True
         ctx.state_out.body_q.requires_grad = True
         ctx.state_out.body_qd.requires_grad = True
+        if hasattr(ctx.state_out, "body_deltas"):
+            ctx.state_out.body_deltas.requires_grad = True
 
         if ctx.capture_graph:
             ctx.tape = graph_capture_params["tape"]
