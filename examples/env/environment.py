@@ -341,7 +341,7 @@ class Environment:
         for i in range(self.sim_substeps):
             self.states[self.sim_step].clear_forces()
             self.custom_update()
-            wp.sim.collide(self.model, self.states[self.sim_step])
+            wp.sim.collide(self.model, self.states[self.sim_step], edge_sdf_iter=self.edge_sdf_iter)
             self.integrator.simulate(self.model, self.states[self.sim_step],
                                      self.states[self.sim_step + 1], self.sim_dt)
             self.sim_time += self.sim_dt
