@@ -1,6 +1,15 @@
 from omegaconf import OmegaConf
 
-OmegaConf.register_new_resolver("resolve_default", lambda default, arg: default if arg in ["", None] else arg)
+
+def maybe_register(name, func):
+    try:
+        OmegaConf.register_new_resolver(name, func)
+    except ValueError:
+        print(f"{name} already registered")
+    return
+
+
+maybe_register("resolve_default", lambda default, arg: default if arg in ["", None] else arg)
 
 
 def custom_eval(x):
@@ -10,16 +19,7 @@ def custom_eval(x):
     return eval(x)
 
 
-OmegaConf.register_new_resolver("eval", custom_eval)
-
-
-def return_enum(x, y):
-    from warp.envs.utils.common import ActionType, HandType, ObjectType, GoalType, RewardType
-
-    return eval(x)[y.upper()]
-
-
-OmegaConf.register_new_resolver("enum", return_enum)
+maybe_register("eval", custom_eval)
 
 
 def resolve_child(default, node, arg):
@@ -33,15 +33,15 @@ def resolve_child(default, node, arg):
         return default
 
 
-OmegaConf.register_new_resolver("resolve_child", resolve_child)
+maybe_register("resolve_child", resolve_child)
 
 
 from warp.envs.utils.common import ActionType, HandType, ObjectType, GoalType, RewardType
 from warp.envs.environment import RenderMode
 
-OmegaConf.register_new_resolver("object", lambda x: ObjectType[x.upper()])
-OmegaConf.register_new_resolver("hand", lambda x: HandType[x.upper()])
-OmegaConf.register_new_resolver("action", lambda x: ActionType[x.upper()])
-OmegaConf.register_new_resolver("goal", lambda x: GoalType[x.upper()])
-OmegaConf.register_new_resolver("reward", lambda x: RewardType[x.upper()])
-OmegaConf.register_new_resolver("render", lambda x: RenderMode[x.upper()])
+maybe_register("object", lambda x: ObjectType[x.upper()])
+maybe_register("hand", lambda x: HandType[x.upper()])
+maybe_register("action", lambda x: ActionType[x.upper()])
+maybe_register("goal", lambda x: GoalType[x.upper()])
+maybe_register("reward", lambda x: RewardType[x.upper()])
+maybe_register("render", lambda x: RenderMode[x.upper()])
