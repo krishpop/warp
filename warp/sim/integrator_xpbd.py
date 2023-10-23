@@ -3211,15 +3211,13 @@ class XPBDIntegrator:
                 ):
                     rigid_contact_inv_weight = None
                     if requires_grad:
-                        rigid_active_contact_distance = wp.zeros_like(model.rigid_active_contact_distance)
-                        rigid_active_contact_point0 = wp.empty_like(
-                            model.rigid_active_contact_point0, requires_grad=True
-                        )
-                        rigid_active_contact_point1 = wp.empty_like(
-                            model.rigid_active_contact_point1, requires_grad=True
-                        )
+                        rigid_active_contact_distance = state_out.rigid_active_contact_distance
+                        rigid_active_contact_distance.zero_()
+                        rigid_active_contact_point0 = state_out.rigid_active_contact_point0
+                        rigid_active_contact_point1 = state_out.rigid_active_contact_point1
                         if self.rigid_contact_con_weighting:
-                            rigid_contact_inv_weight = wp.zeros_like(model.rigid_contact_inv_weight)
+                            rigid_contact_inv_weight = state_out.rigid_contact_inv_weight
+                            rigid_active_contact_distance.zero_()
                     else:
                         rigid_active_contact_distance = model.rigid_active_contact_distance
                         rigid_active_contact_point0 = model.rigid_active_contact_point0
@@ -3265,6 +3263,7 @@ class XPBDIntegrator:
                     )
 
                     if self.enable_restitution and i == 0:
+                        raise NotImplementedError("restitution needs some more work")
                         # remember the contacts from the first iteration
                         if requires_grad:
                             model.rigid_active_contact_distance_prev = wp.clone(rigid_active_contact_distance)
@@ -3335,14 +3334,17 @@ class XPBDIntegrator:
                         state_out.particle_qd.assign(particle_qd)
 
             if model.body_count:
-
-                if not requires_grad:
-                    if self._body_delta_counter == 0:
-                        state_out.body_q.assign(state_in.body_q)
-                        state_out.body_qd.assign(state_in.body_qd)
-                else:
+                if body_q.ptr != state_out.body_q.ptr:
                     state_out.body_q.assign(body_q)
                     state_out.body_qd.assign(body_qd)
+
+                # if not requires_grad:
+                #     if self._body_delta_counter == 1:
+                #         state_out.body_q.assign(state_in.body_q)
+                #         state_out.body_qd.assign(state_in.body_qd)
+                # else:
+                #     state_out.body_q.assign(body_q)
+                #     state_out.body_qd.assign(body_qd)
 
                 # if requires_grad:
                 #     if i == self.iterations - 1:
