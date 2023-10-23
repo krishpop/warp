@@ -45,6 +45,7 @@ class WarpEnv(Environment):
     )
     activate_ground_plane: bool = True
     ag_return_body: bool = False
+    num_rigid_contacts_per_env: int = 0
 
     def __init__(
         self,
@@ -144,6 +145,8 @@ class WarpEnv(Environment):
     @model.setter
     def model(self, model):
         self._model = model
+        self.model.rigid_contact_max_limited = self.num_rigid_contacts_per_env * self.num_envs
+        # self._model.num_rigid_contacts_per_env = self.num_rigid_contacts_per_env
 
     @property
     def observation_space(self):
@@ -239,8 +242,8 @@ class WarpEnv(Environment):
 
     def init_sim(self):
         self.init()
-        self.state_0 = self.model.state(requires_grad=self.requires_grad)
-        self.state_1 = self.model.state(requires_grad=self.requires_grad)
+        self.state_0 = self.model.state()
+        self.state_1 = self.model.state()
         self._joint_q = wp.zeros_like(self.model.joint_q)
         self._joint_qd = wp.zeros_like(self.model.joint_qd)
         if self.requires_grad:
@@ -252,7 +255,7 @@ class WarpEnv(Environment):
                 self.state_0.body_f.requires_grad = True
                 self.state_1.body_f.requires_grad = True
             if self.integrator_type == IntegratorType.XPBD:
-                self.state_0.body_deltas.requires_grad = True
+                # self.state_0.body_deltas.requires_grad = True
                 self.state_1.body_deltas.requires_grad = True
             self._joint_q.requires_grad = True
             self._joint_qd.requires_grad = True
@@ -324,7 +327,7 @@ class WarpEnv(Environment):
             assert self.state_0.body_qd.requires_grad == self.requires_grad
             if self.integrator_type == IntegratorType.EULER:
                 assert self.state_0.body_f.requires_grad == self.requires_grad
-            if self.integrator_type == IntegratorType.XPBD and self.requires_grad:
+            if self.integrator_type == IntegratorType.XPBD:
                 assert self.state_1.body_deltas.requires_grad == self.requires_grad
 
             # updates state body positions after reset
@@ -461,9 +464,8 @@ class WarpEnv(Environment):
             if self.state_1.body_q.grad is not None:
                 self.state_1.body_q.grad.zero_()
                 self.state_1.body_qd.grad.zero_()
-                self.state_1.body_f.grad.zero_()
-                if self.integrator_type == IntegratorType.XPBD:
-                    self.state_1.body_deltas.grad.zero()
+                if self.integrator_type == IntegratorType.EULER:
+                    self.state_1.body_f.grad.zero_()
 
         if self.requires_grad:
             assert self.model.joint_q.requires_grad, "joint_q requires_grad not set"

@@ -14,6 +14,7 @@ class ReposeTask(HandObjectTask):
     obs_keys = ["hand_joint_pos", "hand_joint_vel", "object_pos", "target_pos"]
     debug_visualization = False
     drop_height: float = 0.23
+    num_rigid_contacts_per_env: int = 4100
 
     def __init__(
         self,

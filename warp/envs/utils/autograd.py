@@ -281,6 +281,14 @@ class IntegratorSimulate(torch.autograd.Function):
             ctx.tape = wp.Tape()
             with ctx.tape:
                 forward_simulate(ctx, forward=False, requires_grad=True)
+            # check_tape_safety(forward_simulate, [ctx, False, True])
+            # check_backward_pass(
+            #     ctx.tape,
+            #     track_input_names=["body_q_in", "action"],
+            #     track_output_names=["joint_q_out", "body_q_out"],
+            #     track_inputs=[ctx.state_in.body_q, ctx.act],
+            #     track_outputs=[ctx.joint_q_end, ctx.state_out.body_q],
+            # )
 
         joint_q_end = wp.to_torch(ctx.graph_capture_params["joint_q_end"]).clone()
         joint_qd_end = wp.to_torch(ctx.graph_capture_params["joint_qd_end"]).clone()
@@ -368,7 +376,8 @@ class IntegratorSimulate(torch.autograd.Function):
             ctx.graph_capture_params["joint_qd_end"].grad.assign(wp.from_torch(adj_joint_qd))
 
             ctx.tape.backward()
-            joint_act_grad = wp.to_torch(ctx.tape.gradients[act]).clone()
+            joint_act_grad = wp.to_torch(ctx.tape.gradients[act]).clone()  # .clamp(-1, 1)
+            joint_act_grad /= joint_act_grad.norm(dim=-1)
             # Unnecessary copying of grads, grads should already be recorded by context
             body_q_grad = wp.to_torch(ctx.tape.gradients[state_in.body_q]).clone()
             body_qd_grad = wp.to_torch(ctx.tape.gradients[state_in.body_qd]).clone()
