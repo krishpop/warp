@@ -1823,8 +1823,12 @@ class array(Array):
     def zero_(self):
         """Zeroes-out the array entires."""
         if self.is_contiguous:
-            # simple memset is usually faster than generic fill
-            self.device.memset(self.ptr, 0, self.size * type_size_in_bytes(self.dtype))
+            if warp.context.runtime.tape is not None and self.dtype in warp.builtins.fill_kernels:
+                cvalue = 0.0 if self.dtype in float_types else 0
+                warp.launch(warp.builtins.fill_kernels[self.dtype], dim=self.shape, inputs=[self, cvalue], device=self.device)
+            else:
+                # simple memset is usually faster than generic fill
+                self.device.memset(self.ptr, 0, self.size * type_size_in_bytes(self.dtype))
         else:
             self.fill_(0)
 
@@ -1889,7 +1893,10 @@ class array(Array):
 
         # prefer using memtile for contiguous arrays, because it should be faster than generic fill
         if self.is_contiguous:
-            self.device.memtile(self.ptr, cvalue_ptr, cvalue_size, self.size)
+            if warp.context.runtime.tape is not None and self.dtype in warp.builtins.fill_kernels:
+                warp.launch(warp.builtins.fill_kernels[self.dtype], dim=self.shape, inputs=[self, value], device=self.device)
+            else:
+                self.device.memtile(self.ptr, cvalue_ptr, cvalue_size, self.size)
         else:
             carr = self.__ctype__()
             carr_ptr = ctypes.pointer(carr)
@@ -1904,11 +1911,12 @@ class array(Array):
     def assign(self, src):
         """Wraps ``src`` in an :class:`warp.array` if it is not already one and copies the contents to ``self``."""
         if is_array(src):
-            if warp.context.runtime.tape is not None:
+            if warp.context.runtime.tape is not None and self.dtype in warp.builtins.assign_kernels:
                 # assert self.ndim == 1, "Assigning arrays with ndim > 1 is not supported in tape mode"
-                warp.launch(warp.builtins.array_assign, dim=self.shape, inputs=[src], outputs=[self], device=self.device)
+                # warp.launch(warp.builtins.array_assign, dim=self.shape, inputs=[src], outputs=[self], device=self.device)
                 # warp.context.runtime.tape.record_func(lambda *_: warp.copy(self, src), [])
                 # warp.copy(self, src)
+                warp.launch(warp.builtins.assign_kernels[self.dtype], dim=self.shape, inputs=[src], outputs=[self], device=self.device)
             else:
                 warp.copy(self, src)
         else:
