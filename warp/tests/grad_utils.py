@@ -6,9 +6,8 @@
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
 from collections import defaultdict
-from typing import Callable, List, Literal, Tuple
+from typing import Callable, Dict, List, Literal, Set, Tuple
 import warp as wp
-from warp.context import Devicelike
 import numpy as np
 
 
@@ -29,75 +28,79 @@ class FontColors:
     UNDERLINE = '\033[4m'
 
 
-def assert_np_equal(result, expect, tol=0.0):
-    a = result.flatten()
-    b = expect.flatten()
-
-    if tol == 0.0:
-        if (a == b).all() == False:
-            raise AssertionError(f"Unexpected result, got: {a} expected: {b}")
-
-    else:
-        delta = a - b
-        err = np.max(np.abs(delta))
-        if err > tol:
-            raise AssertionError(
-                f"Maximum expected error exceeds tolerance got: {a}, expected: {b}, with err: {err} > {tol}"
-            )
-
-
-def check_gradient(func: Callable, func_name: str, inputs: List, device: Devicelike, eps: float = 1e-4, tol: float = 1e-2):
-    """
-    Checks that the gradient of the Warp kernel is correct by comparing it to the
-    numerical gradient computed using finite differences.
-    Note that this function only works for kernels with an output scalar array of length 1.
-    """
-
-    module = wp.get_module(func.__module__)
-    kernel = wp.Kernel(func=func, key=func_name, module=module)
-
-    def f(xs):
-        # call the kernel without taping for finite differences
-        wp_xs = [
-            wp.array(xs[i], ndim=1, dtype=inputs[i].dtype, device=device)
-            for i in range(len(inputs))
-        ]
-        output = wp.zeros(1, dtype=wp.float32, device=device)
-        wp.launch(kernel, dim=1, inputs=wp_xs, outputs=[output], device=device)
-        return output.numpy()[0]
-
-    # compute numerical gradient
-    numerical_grad = []
-    np_xs = []
-    for i in range(len(inputs)):
-        np_xs.append(inputs[i].numpy().flatten().copy())
-        numerical_grad.append(np.zeros_like(np_xs[-1]))
-        inputs[i].requires_grad = True
-
-    for i in range(len(np_xs)):
-        for j in range(len(np_xs[i])):
-            np_xs[i][j] += eps
-            y1 = f(np_xs)
-            np_xs[i][j] -= 2 * eps
-            y2 = f(np_xs)
-            np_xs[i][j] += eps
-            numerical_grad[i][j] = (y1 - y2) / (2 * eps)
-
-    # compute analytical gradient
+def function_jacobian(func: Callable, inputs: List, max_outputs_per_var: int = -1):
     tape = wp.Tape()
-    output = wp.zeros(1, dtype=wp.float32, device=device, requires_grad=True)
     with tape:
-        wp.launch(kernel, dim=1, inputs=inputs,
-                  outputs=[output], device=device)
+        outputs = func(*inputs)
+    if isinstance(outputs, wp.array):
+        outputs = [outputs]
+    jac, ad_in, ad_out = tape_jacobian(tape, inputs, outputs, max_outputs_per_var=max_outputs_per_var)
+    return jac, outputs, ad_in, ad_out
 
-    tape.backward(loss=output)
 
-    # compare gradients
-    for i in range(len(inputs)):
-        grad = tape.gradients[inputs[i]]
-        assert_np_equal(grad.numpy(), numerical_grad[i], tol=tol)
+def function_jacobian_fd(func: Callable, inputs: List, eps: float = 1e-4, max_fd_dims_per_var: int = 500):
+    diff_in = flatten_arrays(inputs)
 
-    tape.zero()
+    num_in = len(diff_in)
+
+    assert num_in > 0, "Must specify at least one input"
+
+    # compute numerical Jacobian
+    jac_fd = None
+
+    def eval_row(var, col_id):
+        nonlocal jac_fd
+        np_in = var.numpy().copy()
+        np_in_original = np_in.copy()
+        in_shape = np_in.shape
+        np_in = np_in.flatten()
+        limit = min(max_fd_dims_per_var, len(np_in)) if max_fd_dims_per_var > 0 else len(np_in)
+        for j in range(limit):
+            np_in[j] += eps
+            var.assign(normalize_inputs(wp.array(np_in.reshape(in_shape), dtype=var.dtype, device=var.device)))
+            y1 = flatten_arrays(func(*inputs))
+            if jac_fd is None:
+                num_out = len(y1)
+                jac_fd = np.zeros((num_out, num_in), dtype=np.float32)
+            np_in[j] -= 2 * eps
+            var.assign(normalize_inputs(wp.array(np_in.reshape(in_shape), dtype=var.dtype, device=var.device)))
+            y2 = flatten_arrays(func(*inputs))
+            var.assign(wp.array(np_in_original, dtype=var.dtype, device=var.device))
+            jac_fd[:, col_id] = (y1 - y2) / (2 * eps)
+            col_id += 1
+        return col_id
+
+    col_id = 0
+    for input in inputs:
+        if isinstance(input, wp.codegen.StructInstance):
+            for varname, var in get_struct_vars(input).items():
+                if is_differentiable(var):
+                    col_id = eval_row(var, col_id)
+        elif is_differentiable(input):
+            col_id = eval_row(input, col_id)
+
+    return jac_fd
+
+
+def check_jacobian(func: Callable, inputs: List,
+                   input_names, output_names,
+                   eps: float = 1e-4,
+                   jacobian_name: str = "", max_fd_dims_per_var: int = 500, max_outputs_per_var: int = 500,
+                   atol: float = 0.1, rtol: float = 0.1, plot_jac_on_fail: bool = False, tabulate_errors: bool = True):
+    """
+    Checks that the autodiff Jacobian of the function is correct by comparing it to the
+    numerical Jacobian computed using finite differences.
+    """
+
+    jac_ad, outputs, ad_in, ad_out = function_jacobian(func, inputs, max_outputs_per_var=max_outputs_per_var)
+    jac_fd = function_jacobian_fd(func, inputs, eps=eps, max_fd_dims_per_var=max_fd_dims_per_var)
+    return compare_jacobians(jac_ad, jac_fd, inputs, outputs, input_names, output_names,
+                             jacobian_name=jacobian_name, max_fd_dims_per_var=max_fd_dims_per_var,
+                             max_outputs_per_var=max_outputs_per_var,
+                             ad_in=ad_in, ad_out=ad_out,
+                             atol=atol, rtol=rtol,
+                             plot_jac_on_fail=plot_jac_on_fail,
+                             tabulate_errors=tabulate_errors)
 
 
 def is_differentiable(x):
@@ -111,6 +114,8 @@ def get_struct_vars(x: wp.codegen.StructInstance):
 
 def flatten_arrays(xs):
     # flatten arrays that are potentially differentiable
+    if isinstance(xs, wp.array):
+        return xs.numpy().flatten()
     arrays = []
     for x in xs:
         if isinstance(x, wp.codegen.StructInstance):
@@ -212,6 +217,10 @@ def tape_jacobian(tape: wp.Tape, inputs: List[wp.array], outputs: List[wp.array]
 
     row_id = 0
 
+    for input_id, input in enumerate(inputs):
+        if is_differentiable(input) and not input.requires_grad:
+            print(f"{FontColors.WARNING}Error while evaluating tape Jacobian: input {input_id} (array of {input.dtype}) does not have requires_grad enabled{FontColors.ENDC}")
+
     def eval_row(out):
         nonlocal row_id
         nonlocal tape
@@ -233,9 +242,12 @@ def tape_jacobian(tape: wp.Tape, inputs: List[wp.array], outputs: List[wp.array]
                             jac_ad[row_id, col_id:col_id + len(grad)] = grad
                             col_id += len(grad)
                 elif is_differentiable(input):
-                    grad = tape.gradients[input].numpy().flatten()
-                    jac_ad[row_id, col_id:col_id + len(grad)] = grad
-                    col_id += len(grad)
+                    if input not in tape.gradients:
+                        col_id += len(input.numpy().flatten())
+                    else:
+                        grad = tape.gradients[input].numpy().flatten()
+                        jac_ad[row_id, col_id:col_id + len(grad)] = grad
+                        col_id += len(grad)
             tape.zero()
             row_id += 1
 
@@ -249,6 +261,34 @@ def tape_jacobian(tape: wp.Tape, inputs: List[wp.array], outputs: List[wp.array]
             eval_row(out)
 
     return jac_ad, flatten_arrays(inputs), flatten_arrays(outputs)
+
+
+def zero_vars(vars):
+    # zero out the vars before executing tape operations, in case
+    # there is no operation on the tape that resets the vars
+    # (a loss function is often simply accumulated; array.zero_() is
+    # not an operation that can be recorded on the tape)
+    if isinstance(vars, (list, tuple)):
+        for output in vars:
+            zero_vars(output)
+    elif isinstance(vars, wp.array):
+        vars.zero_()
+    elif isinstance(vars, wp.codegen.StructInstance):
+        for varname, var in get_struct_vars(vars).items():
+            zero_vars(var)
+
+
+def randomize_vars(vars):
+    # assign random numbers to variables
+    if isinstance(vars, (list, tuple)):
+        for output in vars:
+            randomize_vars(output)
+    elif isinstance(vars, wp.array):
+        np_array = vars.numpy()
+        vars.assign(np.random.rand(*np_array.shape).astype(np_array.dtype))
+    elif isinstance(vars, wp.codegen.StructInstance):
+        for varname, var in get_struct_vars(vars).items():
+            randomize_vars(var)
 
 
 def tape_jacobian_fd(tape: wp.Tape, inputs: List[wp.array], outputs: List[wp.array], eps: float = 1e-4, max_fd_dims_per_var: int = 500):
@@ -266,9 +306,13 @@ def tape_jacobian_fd(tape: wp.Tape, inputs: List[wp.array], outputs: List[wp.arr
     assert num_in > 0, "Must specify at least one input"
     assert num_out > 0, "Must specify at least one output"
 
+    zero_vars(outputs)
+
     def f():
         tape.forward()
-        return flatten_arrays(outputs)
+        out = flatten_arrays(outputs)
+        zero_vars(outputs)
+        return out
 
     # compute numerical Jacobian
     jac_fd = np.zeros((num_out, num_in), dtype=np.float32)
@@ -766,12 +810,14 @@ def check_backward_pass(
     plot_jac_on_fail=False,
     jacobian_fd_eps=1e-4,
     plotting: Literal["matplotlib", "plotly", "none"] = "matplotlib",
-    track_inputs=[],
-    track_outputs=[],
-    track_input_names=[],
-    track_output_names=[],
-    blacklist_kernels=set(),
-    whitelist_kernels=set(),
+    track_inputs: List[wp.array] = [],
+    track_outputs: List[wp.array] = [],
+    track_input_names: List[str] = [],
+    track_output_names: List[str] = [],
+    array_names: Dict[wp.array, str] = {},
+    blacklist_kernels: Set[str] = set(),
+    whitelist_kernels: Set[str] = set(),
+    choose_longest_node_name: bool = True,
 ):
     """
     Runs various checks of the backward pass given the tape of recorded kernel launches.
@@ -786,6 +832,11 @@ def check_backward_pass(
             else:
                 target[k].append(v)
 
+    for arr, name in zip(track_inputs, track_input_names):
+        array_names[arr] = name
+    for arr, name in zip(track_outputs, track_output_names):
+        array_names[arr] = name
+
     import networkx as nx
     G = nx.DiGraph()
     node_labels = {}
@@ -794,6 +845,7 @@ def check_backward_pass(
     # array -> list of kernels that modify it
     manipulated_nodes = defaultdict(list)
     kernel_nodes = set()
+    kernel_instances = dict()
     array_nodes = set()
 
     input_output_ptr = set()
@@ -802,16 +854,22 @@ def check_backward_pass(
     for output in track_outputs:
         input_output_ptr.add(output.ptr)
 
-    def add_node(G, x, name):
+    def add_node(G: nx.DiGraph, x: wp.array, name: str):
         nonlocal node_labels
+        if x in array_names:
+            name = array_names[x]
         if x.ptr in node_labels:
             if x.ptr not in input_output_ptr:
                 # update name unless it is an input/output array
-                node_labels[x.ptr] = name
+                if choose_longest_node_name:
+                    if len(name) > len(node_labels[x.ptr]):
+                        node_labels[x.ptr] = name
+                else:
+                    node_labels[x.ptr] = name
             return
         nondifferentiable = (x.dtype in [
                              wp.int8, wp.uint8, wp.int16, wp.uint16, wp.int32, wp.uint32, wp.int64, wp.uint64])
-        G.add_node(x.ptr, name=name, requires_grad=x.requires_grad,
+        G.add_node(x.ptr, label=f'"{name}"', requires_grad=x.requires_grad,
                    is_kernel=False, nondifferentiable=nondifferentiable)
         node_labels[x.ptr] = name
 
@@ -827,35 +885,48 @@ def check_backward_pass(
         else:
             name = f"output_{i}"
         add_node(G, x, name)
+    # add arrays which are output of a kernel (used to simplify the graph)
+    computed_nodes = set()
+    for output in track_outputs:
+        computed_nodes.add(output.ptr)
+    simplify_graph = True
     for launch in tape.launches:
-        kernel, dim, inputs, outputs, device = tuple(launch)
-        kernel_name = f"{kernel.key}:{kernel_launch_count[kernel.key]}"
+        kernel, dim, _max_blocks, inputs, outputs, _device, meta_data = tuple(launch)
+        kernel_name = f"{kernel.key}/{kernel_launch_count[kernel.key]}"
         kernel_nodes.add(kernel_name)
+        kernel_instances[kernel_name] = {
+            "kernel": kernel,
+            "meta_data": meta_data,
+        }
         # store kernel as node with requires_grad so that the path search works
-        G.add_node(kernel_name, is_kernel=True, dim=dim, requires_grad=True)
+        G.add_node(kernel_name, label=f'"{kernel_name}"', is_kernel=True, dim=dim, requires_grad=True)
         node_labels[kernel_name] = kernel_name
         input_arrays = []
         for id, x in enumerate(inputs):
             name = kernel.adj.args[id].label
             if isinstance(x, wp.array):
-                add_node(G, x, name)
-                input_arrays.append(x.ptr)
+                if not simplify_graph or x.ptr in computed_nodes or x.ptr in input_output_ptr:
+                    add_node(G, x, name)
+                    input_arrays.append(x.ptr)
             elif isinstance(x, wp.codegen.StructInstance):
                 for varname, var in get_struct_vars(x).items():
                     if isinstance(var, wp.array):
-                        add_node(G, var, f"{name}.{varname}")
-                        input_arrays.append(var.ptr)
+                        if not simplify_graph or var.ptr in computed_nodes or var.ptr in input_output_ptr:
+                            add_node(G, var, f"{name}.{varname}")
+                            input_arrays.append(var.ptr)
         output_arrays = []
         for id, x in enumerate(outputs):
             name = kernel.adj.args[id + len(inputs)].label
             if isinstance(x, wp.array):
                 add_node(G, x, name)
                 output_arrays.append(x.ptr)
+                computed_nodes.add(x.ptr)
             elif isinstance(x, wp.codegen.StructInstance):
                 for varname, var in get_struct_vars(x).items():
                     if isinstance(var, wp.array):
                         add_node(G, var, f"{name}.{varname}")
                         output_arrays.append(var.ptr)
+                        computed_nodes.add(var.ptr)
         for input_x in input_arrays:
             G.add_edge(input_x, kernel_name)
         for output_x in output_arrays:
@@ -903,16 +974,58 @@ def check_backward_pass(
     if visualize_graph:
         import matplotlib as mpl
         import matplotlib.pyplot as plt
+        import xml.etree.ElementTree as ET
+        # return G, array_nodes, kernel_nodes, manipulated_nodes, node_labels, edge_labels
 
-        try:
-            pos = nx.nx_agraph.graphviz_layout(
-                G, prog='neato', args='-Grankdir="LR" -Gnodesep="5" -Granksep="10"')
-            # pos = nx.spring_layout(G, seed=42, pos=pos, iterations=1)
-        except:
-            print(
-                "Warning: could not use graphviz to layout graph. Falling back to spring layout.")
-            print("To get better layouts, install graphviz and pygraphviz.")
-            pos = nx.spring_layout(G)
+        # try:
+        # pos = nx.nx_agraph.graphviz_layout(
+        #     G, prog='dot', args='-Grankdir="LR"')
+        pos = nx.nx_agraph.graphviz_layout(
+            G, prog='dot', args='-Grankdir="TB" -Goverlap_scaling="10" -Gsize="10" -Gpad="0.0" -Gnodesep="0.5" -Gsep="10" -Granksep="3" -Gmindist="1.0"')
+        # pos = nx.nx_agraph.graphviz_layout(
+        #     G, prog='neato', args='-Grankdir="TB" -Goverlap_scaling="10" -Gsize="10" -Gpad="0.0" -Gnodesep="0.5" -Gsep="10" -Granksep="3" -Gmindist="1.0"')
+        # pos = nx.nx_pydot.pydot_layout(G)
+        # pos = nx.nx_agraph.graphviz_layout(G)
+        # pos = nx.nx_agraph.graphviz_layout(G, prog="dot")
+        # pos = nx.kamada_kawai_layout(G, scale=1e6)
+        # pos = nx.spring_layout(G, seed=42, pos=pos, iterations=1, scale=100.0)
+        # except:
+        #     print(
+        #         "Warning: could not use graphviz to layout graph. Falling back to spring layout.")
+        #     print("To get better layouts, install graphviz and pygraphviz.")
+        #     # pos = nx.spring_layout(G, k=100.0)
+        #     pos = nx.spectral_layout(G)
+
+        def shorten_label(label):
+            import re
+            return "\n".join(re.split(r'__|_|\.', label))
+        
+        shortened_node_labels = {key: shorten_label(label) for key, label in node_labels.items()}
+        
+        import pydot
+        
+        graph: pydot.Graph = nx.drawing.nx_pydot.to_pydot(G)
+    
+        graph.set_rankdir("TB")
+        # graph.set_ranksep(2)
+        # print(graph.get_nodes())
+        for n in graph.get_nodes():
+            n.set("label", shorten_label(n.get_attributes()['label']))
+            n.set("color", "black")
+            n.set("style", "filled")
+            n.set("fontname", "Arial")
+            if n.get_attributes()['is_kernel'] == "True":
+                n.set("shape", "rectangle")
+                n.set("fillcolor", "yellow")
+            else:
+                n.set("shape", "ellipse")
+                if n.get_attributes()['requires_grad'] == "True":
+                    n.set("fillcolor", "#00B7FF4E")
+                else:
+                    n.set("fillcolor", "#A7A7A74E")
+
+        graph.write_png('graph_dot.png')
+            
 
         fig = plt.figure()
         fig.canvas.manager.set_window_title("Kernel launch graph")
@@ -933,26 +1046,73 @@ def check_backward_pass(
             mpl.patches.Patch(color="lightgray", label="no grad"),
             mpl.patches.Patch(color="yellow", label="kernel"),
         ]
-        plt.legend(handles=handles)
+        legend = plt.legend(handles=handles, loc="upper right", prop={'size': 2})
+        legend.get_frame().set_linewidth(0.2)
 
+        node_size = 150
+        font_size = 5 # 0.01
         default_draw_args = dict(
-            alpha=0.9, edgecolors="black", linewidths=0.5, node_size=1000)
+            alpha=0.9, edgecolors="black", linewidths=0.1, node_size=node_size)
+        ax = plt.gca()
+        # print(pos)
+        import matplotlib.patches as patches
+        from io import BytesIO
+        for key, p in pos.items():
+            if key not in kernel_nodes:
+                continue
+            w, h = node_size, node_size
+            p = patches.Rectangle(
+                (p[0]-w/2, p[1]-h/2), w, h,
+                fill=True, clip_on=False,
+                facecolor='yellow',
+                edgecolor='black',
+                linewidth=0.1,
+                )
+            p.set_gid(key)
+            ax.add_artist(p)
         # first draw kernels
-        nx.draw_networkx_nodes(G, pos, nodelist=kernel_nodes, node_color='yellow', node_shape='s', **default_draw_args)
+        # node_artists = nx.draw_networkx_nodes(G, pos, nodelist=kernel_nodes, node_color='yellow', node_shape='s', **default_draw_args)
+        # for artist, (kernel_name, kernel_data) in zip(node_artists, kernel_instances.items()):
+        #     kernel_instances[kernel_name]["gid"] = artist.get_gid()
+        #     print(f"Kernel {kernel_name} has gid {artist.get_gid()}")
         # then draw arrays
         nx.draw_networkx_nodes(G, pos, nodelist=array_nodes, node_color=node_colors, **default_draw_args)
-        nx.draw_networkx_labels(G, pos, labels=node_labels, font_size=8, bbox=dict(
-            facecolor='white', alpha=0.8, edgecolor='none', pad=0.5))
+        nx.draw_networkx_labels(G, pos, labels=shortened_node_labels, font_size=font_size, bbox=dict(
+            facecolor='white', alpha=0.8, edgecolor='none', pad=0.0))
 
-        nx.draw_networkx_edges(G, pos, edgelist=G.edges(), arrows=True, edge_color='black', node_size=1000)
-        nx.draw_networkx_edge_labels(
-            G, pos,
-            edge_labels={
-                uv: f"{d['kernel']}:{d['launch']}" for uv, d in edge_labels.items()},
-            font_color='darkslategray'
-        )
+        nx.draw_networkx_edges(G, pos, edgelist=G.edges(), arrows=True, edge_color='black', node_size=node_size) #, width=0.1, arrowsize=2.0)
+        # try:
+        #     nx.draw_networkx_edges(G, pos, edgelist=G.edges(), arrows=True, edge_color='black', node_size=node_size, width=0.1, arrowsize=2.0)
+        # except:
+        #     pass
+        # nx.draw_networkx_edge_labels(
+        #     G, pos,
+        #     edge_labels={
+        #         uv: f"{d['kernel']}:{d['launch']}" for uv, d in edge_labels.items()},
+        #     font_color='darkslategray', font_size=font_size
+        # )
         plt.axis('off')
+        plt.savefig("tape_graph.png", dpi=1100, bbox_inches="tight", pad_inches=0.0)
+        
+        f = BytesIO()
+        plt.savefig(f, format="svg", dpi=1200)
+        plt.savefig("tape_graph.svg", format='svg', dpi=1200)
+        
+        
+        tree, xmlid = ET.XMLID(f.getvalue())
+
+        for key, kernel_data in kernel_instances.items():
+            kernel_rect = tree.find(f'.//*[@id="{key}"]')
+            tooltip = ET.Element('ns0:title')
+            tooltip.text = kernel_data['meta_data']['stack_trace']
+            kernel_rect.append(tooltip)
+
+        ET.ElementTree(tree).write("tape_graph.svg")
+        
         plt.show()
+        
+        import sys
+        sys.exit(0)
 
     if check_input_output_jacobian and len(track_inputs) > 0 and len(track_outputs) > 0:
         assert len(track_inputs) == len(track_input_names), "track_inputs and track_input_names must have the same length"
@@ -970,7 +1130,7 @@ def check_backward_pass(
     kernel_launch_count = defaultdict(int)
     hide_non_arrays = True
     for launch in tape.launches:
-        kernel, dim, inputs, outputs, device = tuple(launch)
+        kernel, dim, _max_blocks, inputs, outputs, _device, _meta_data = tuple(launch)
         if len(whitelist_kernels) > 0 and kernel.key not in whitelist_kernels:
             continue
         if check_kernel_jacobians and kernel.key not in blacklist_kernels:
@@ -1261,7 +1421,7 @@ def check_backward_pass(
             app.run()
 
 
-def check_tape_safety(function: Callable, inputs: list, outputs: list = None, tol: float = 1e-5):
+def check_tape_safety(function: Callable, inputs: list, outputs: list = None, tol: float = 1e-5, check_nans: bool = False):
     """
     Check if all operations in the given function are recordable by a Warp tape so that the results from `tape.forward()` match the function outputs.
     """
@@ -1271,28 +1431,21 @@ def check_tape_safety(function: Callable, inputs: list, outputs: list = None, to
         else:
             return outputs.numpy().flatten().copy()
 
-    def randomize_vars(outputs):
-        if isinstance(outputs, (list, tuple)):
-            for output in outputs:
-                randomize_vars(output)
-        elif isinstance(outputs, wp.array):
-            np_array = outputs.numpy()
-            outputs.assign(np.random.rand(*np_array.shape).astype(np_array.dtype))
-
     tape = wp.Tape()
     with tape:
         fun_outputs = function(*inputs)
     outputs = outputs or fun_outputs
     ref_output = flatten_outputs(outputs)
     # reset output arrays to a random value to ensure the tape will actually update them
-    randomize_vars(outputs)
-    tape.forward()
+    # randomize_vars(outputs)
+    zero_vars(outputs)
+    tape.forward(check_nans=check_nans)
     tape_output = flatten_outputs(outputs)
     print("Output from direct fn call:", ref_output)
     print("Output from tape.forward():", tape_output)
     delta = ref_output - tape_output
     err = np.max(np.abs(delta))
-    if err > tol:
+    if err > tol or np.isnan(err):
         print(FontColors.FAIL + "Tape output does not match function output!" + FontColors.ENDC)
         return False
     else:

@@ -67,6 +67,10 @@ import warp.tests.test_generics
 import warp.tests.test_indexedarray
 import warp.tests.test_copy
 import warp.tests.test_mesh
+import warp.tests.test_fabricarray
+import warp.tests.test_bool
+import warp.tests.test_fem
+import warp.tests.test_lvalue
 
 
 def register_tests(parent):
@@ -123,6 +127,10 @@ def register_tests(parent):
     tests.append(warp.tests.test_indexedarray.register(parent))
     tests.append(warp.tests.test_copy.register(parent))
     tests.append(warp.tests.test_mesh.register(parent))
+    tests.append(warp.tests.test_fabricarray.register(parent))
+    tests.append(warp.tests.test_bool.register(parent))
+    tests.append(warp.tests.test_fem.register(parent))
+    tests.append(warp.tests.test_lvalue.register(parent))
 
     return tests
 

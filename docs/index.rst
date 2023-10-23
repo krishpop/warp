@@ -1,11 +1,12 @@
 NVIDIA Warp Documentation
 =========================
 
-Warp is a Python framework for writing high-performance simulation and graphics code. Kernels are defined in Python syntax and JIT converted to C++/CUDA and compiled at runtime.
+Warp is a Python framework for writing high-performance simulation and graphics code. Warp takes
+regular Python functions and JIT compiles them to efficient kernel code that can run on the CPU or GPU.
 
-Warp is comes with a rich set of primitives that make it easy to write programs for physics simulation, geometry
-processing, and procedural animation. In addition, Warp kernels are differentiable, and can be used as part of
-machine-learning training pipelines with other frameworks such as PyTorch.
+Warp is designed for spatial computing and comes with a rich set of primitives that make it easy to write 
+programs for physics simulation, perception, robotics, and geometry processing. In addition, Warp kernels 
+are differentiable and can be used as part of machine-learning pipelines with frameworks such as PyTorch and JAX.
 
 Below are some examples of simulations implemented using Warp:
 
@@ -13,6 +14,18 @@ Below are some examples of simulations implemented using Warp:
 
 Quickstart
 ==========
+
+The easiest way is to install Warp is from PyPi:
+
+.. code-block:: sh
+
+    $ pip install warp-lang
+
+Pre-built binary packages for Windows, Linux and macOS are also available on the `Releases <https://github.com/NVIDIA/warp/releases>`__ page. To install in your local Python environment extract the archive and run the following command from the root directory:
+
+.. code-block:: sh
+
+    $ pip install .
 
 Basic example
 -------------
@@ -28,7 +41,7 @@ An example first program that computes the lengths of random 3D vectors is given
 
     @wp.kernel
     def length(points: wp.array(dtype=wp.vec3),
-            lengths: wp.array(dtype=float)):
+               lengths: wp.array(dtype=float)):
 
         # thread index
         tid = wp.tid()
@@ -43,8 +56,8 @@ An example first program that computes the lengths of random 3D vectors is given
 
     # launch kernel
     wp.launch(kernel=length,
-            dim=len(points),
-            inputs=[points, lengths])
+              dim=len(points),
+              inputs=[points, lengths])
 
     print(lengths)
 
@@ -59,7 +72,7 @@ ensure that the ``usd-core`` package is installed using:
 
 ::
 
-   pip install usd-core
+    pip install usd-core
 
 USD files can be viewed or rendered inside NVIDIA
 `Omniverse <https://developer.nvidia.com/omniverse>`__,
@@ -70,18 +83,17 @@ Built-in unit tests can be run from the command-line as follows:
 
 ::
 
-   python -m warp.tests
+    python -m warp.tests
 
 Omniverse
 ---------
 
 A Warp Omniverse extension is available in the extension registry inside
-Omniverse Kit or Create:
+Omniverse Kit or USD Composer.
 
 Enabling the extension will automatically install and initialize the
 Warp Python module inside the Kit Python environment. Please see the
-`Omniverse Warp
-Documentation <http://docs.omniverse.nvidia.com/extensions/warp.html>`__
+`Omniverse Warp Documentation <https://docs.omniverse.nvidia.com/extensions/latest/ext_warp.html>`__
 for more details on how to use Warp in Omniverse.
 
 
@@ -120,14 +132,14 @@ If you use Warp in your research please use the following citation:
 
 .. code:: bibtex
 
-   @misc{warp2022,
-      title= {Warp: A High-performance Python Framework for GPU Simulation and Graphics},
-      author = {Miles Macklin},
-      month = {March},
-      year = {2022},
-      note= {NVIDIA GPU Technology Conference (GTC)},
-      howpublished = {\url{https://github.com/nvidia/warp}}
-   }
+    @misc{warp2022,
+        title= {Warp: A High-performance Python Framework for GPU Simulation and Graphics},
+        author = {Miles Macklin},
+        month = {March},
+        year = {2022},
+        note= {NVIDIA GPU Technology Conference (GTC)},
+        howpublished = {\url{https://github.com/nvidia/warp}}
+    }
 
 License
 -------
@@ -142,36 +154,44 @@ User's Guide
 ------------
 
 .. toctree::
-   :maxdepth: 2
-   :caption: User's Guide
+    :maxdepth: 2
+    :caption: User's Guide
 
-   installation
-   basics
-   modules/devices
-   modules/profiling
-   debugging
-   faq
+    installation
+    basics
+    modules/devices
+    modules/profiling
+    modules/interoperability
+    configuration
+    debugging
+    faq
 
 API Reference
 -------------
 
 .. toctree::
-   :maxdepth: 2
-   :caption: API Reference
+    :maxdepth: 2
+    :caption: Core Reference
    
-   modules/runtime
-   modules/functions
-   modules/sim
-   modules/interoperability
-   modules/sparse
-   genindex
+    modules/runtime
+    modules/functions
    
+Simulation Reference
+--------------------
 
 .. toctree::
-   :hidden:
-   :caption: Project Links
+    :maxdepth: 2
+    :caption: Simulation Reference
+   
+    modules/sim
+    modules/sparse
+    modules/fem
 
-   GitHub <https://github.com/NVIDIA/warp>
-   PyPI <https://pypi.org/project/warp-lang>
-   Discord <https://discord.com/channels/827959428476174346/953756751977648148>
+.. toctree::
+    :hidden:
+    :caption: Project Links
+
+    GitHub <https://github.com/NVIDIA/warp>
+    PyPI <https://pypi.org/project/warp-lang>
+    Discord <https://discord.com/channels/827959428476174346/953756751977648148>
    

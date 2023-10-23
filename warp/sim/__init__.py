@@ -6,7 +6,7 @@
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
 
-from .model import State, Model, ModelBuilder, Mesh
+from .model import State, Model, ModelBuilder, Mesh, SDF
 
 from .model import GEO_SPHERE
 from .model import GEO_BOX
@@ -36,7 +36,7 @@ from .model import JOINT_UNIVERSAL
 from .model import JOINT_DISTANCE
 from .model import JOINT_D6
 
-from .integrator_euler import SemiImplicitIntegrator
+from .integrator_euler import SemiImplicitIntegrator, SemiImplicitIntegratorPlugin
 from .integrator_euler import VariationalImplicitIntegrator
 
 from .integrator_xpbd import XPBDIntegrator
@@ -47,7 +47,6 @@ from .articulation import eval_fk, eval_ik
 from .import_mjcf import parse_mjcf
 from .import_urdf import parse_urdf
 from .import_snu import parse_snu
-from .import_partnet import parse_partnet_urdf
 from .import_usd import parse_usd
 
 from .utils import quat_from_euler, quat_between_vectors, remesh, load_mesh, plot_graph

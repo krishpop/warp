@@ -20,6 +20,7 @@ Scalar Types
 .. class:: float16
 .. class:: float32
 .. class:: float64
+.. class:: bool
 
 
 Vector Types
@@ -278,6 +279,12 @@ Scalar Math
    Calculate the smallest integer that is greater than or equal to x.
 
 
+.. function:: frac(x: Float) -> Float
+
+   Retrieve the fractional part of x.
+    In other words, it discards the integer part of x and is equivalent to ``x - trunc(x)``.
+
+
 
 
 Vector Math
@@ -447,7 +454,7 @@ Vector Math
    Construct a 6d screw vector from two 3d vectors.
 
 
-.. function:: vector(*args: Scalar, length: int32, dtype: Scalar) -> Vector[Any,Scalar]
+.. function:: vector(*arg_types: Scalar, length: int32, dtype: Scalar) -> Vector[Any,Scalar]
    :noindex:
    :nocontentsentry:
 
@@ -459,11 +466,11 @@ Vector Math
    Construct a 4x4 transformation matrix that applies the transformations as Translation(pos)*Rotation(rot)*Scale(scale) when applied to column vectors, i.e.: y = (TRS)*x
 
 
-.. function:: matrix(*args: Scalar, shape: Tuple[int, int], dtype: Scalar) -> Matrix[Any,Any,Scalar]
+.. function:: matrix(*arg_types: Scalar, shape: Tuple[int, int], dtype: Scalar) -> Matrix[Any,Any,Scalar]
    :noindex:
    :nocontentsentry:
 
-   Construct a matrix, if positional args are not given then matrix will be zero-initialized.
+   Construct a matrix, if positional arg_types are not given then matrix will be zero-initialized.
 
 
 .. function:: identity(n: int32, dtype: Scalar) -> Matrix[Any,Any,Scalar]
@@ -489,26 +496,49 @@ Vector Math
 
 
 
+Other
+---------------
+.. function:: lower_bound(arr: Array[Scalar], value: Scalar) -> int
+
+   Search a sorted array for the closest element greater than or equal to value.
+
+
+.. function:: lower_bound(arr: Array[Scalar], arr_begin: int32, arr_end: int32, value: Scalar) -> int
+   :noindex:
+   :nocontentsentry:
+
+   Search a sorted array range [arr_begin, arr_end) for the closest element greater than or equal to value.
+
+
+
+
 Quaternion Math
 ---------------
-.. function:: quaternion() -> Quaternion[Scalar]
+.. function:: quaternion() -> Quaternion[Float]
 
    Construct a zero-initialized quaternion, quaternions are laid out as
    [ix, iy, iz, r], where ix, iy, iz are the imaginary part, and r the real part.
 
 
-.. function:: quaternion(x: Float, y: Float, z: Float, w: Float) -> Quaternion[Scalar]
+.. function:: quaternion(x: Float, y: Float, z: Float, w: Float) -> Quaternion[Float]
    :noindex:
    :nocontentsentry:
 
    Create a quaternion using the supplied components (type inferred from component type)
 
 
-.. function:: quaternion(i: Vector[3,Float], r: Float) -> Quaternion[Scalar]
+.. function:: quaternion(i: Vector[3,Float], r: Float) -> Quaternion[Float]
    :noindex:
    :nocontentsentry:
 
    Create a quaternion using the supplied vector/scalar (type inferred from scalar type)
+
+
+.. function:: quaternion(q: Quaternion[Float])
+   :noindex:
+   :nocontentsentry:
+
+   Construct a quaternion of type dtype from another quaternion of a different dtype.
 
 
 .. function:: quat_identity() -> quatf
@@ -728,6 +758,13 @@ Utility
    Select between two arguments, if cond is false then return ``arg1``, otherwise return ``arg2``
 
 
+.. function:: select(cond: bool, arg1: Any, arg2: Any)
+   :noindex:
+   :nocontentsentry:
+
+   Select between two arguments, if cond is false then return ``arg1``, otherwise return ``arg2``
+
+
 .. function:: select(cond: int8, arg1: Any, arg2: Any)
    :noindex:
    :nocontentsentry:
@@ -817,6 +854,62 @@ Utility
    Atomically add ``value`` onto the array at location given by indices.
 
 
+.. function:: atomic_add(a: FabricArray[Any], i: int32, value: Any)
+   :noindex:
+   :nocontentsentry:
+
+   Atomically add ``value`` onto the array at location given by index.
+
+
+.. function:: atomic_add(a: FabricArray[Any], i: int32, j: int32, value: Any)
+   :noindex:
+   :nocontentsentry:
+
+   Atomically add ``value`` onto the array at location given by indices.
+
+
+.. function:: atomic_add(a: FabricArray[Any], i: int32, j: int32, k: int32, value: Any)
+   :noindex:
+   :nocontentsentry:
+
+   Atomically add ``value`` onto the array at location given by indices.
+
+
+.. function:: atomic_add(a: FabricArray[Any], i: int32, j: int32, k: int32, l: int32, value: Any)
+   :noindex:
+   :nocontentsentry:
+
+   Atomically add ``value`` onto the array at location given by indices.
+
+
+.. function:: atomic_add(a: IndexedFabricArray[Any], i: int32, value: Any)
+   :noindex:
+   :nocontentsentry:
+
+   Atomically add ``value`` onto the array at location given by index.
+
+
+.. function:: atomic_add(a: IndexedFabricArray[Any], i: int32, j: int32, value: Any)
+   :noindex:
+   :nocontentsentry:
+
+   Atomically add ``value`` onto the array at location given by indices.
+
+
+.. function:: atomic_add(a: IndexedFabricArray[Any], i: int32, j: int32, k: int32, value: Any)
+   :noindex:
+   :nocontentsentry:
+
+   Atomically add ``value`` onto the array at location given by indices.
+
+
+.. function:: atomic_add(a: IndexedFabricArray[Any], i: int32, j: int32, k: int32, l: int32, value: Any)
+   :noindex:
+   :nocontentsentry:
+
+   Atomically add ``value`` onto the array at location given by indices.
+
+
 .. function:: atomic_sub(a: Array[Any], i: int32, value: Any)
 
    Atomically subtract ``value`` onto the array at location given by index.
@@ -837,6 +930,62 @@ Utility
 
 
 .. function:: atomic_sub(a: Array[Any], i: int32, j: int32, k: int32, l: int32, value: Any)
+   :noindex:
+   :nocontentsentry:
+
+   Atomically subtract ``value`` onto the array at location given by indices.
+
+
+.. function:: atomic_sub(a: FabricArray[Any], i: int32, value: Any)
+   :noindex:
+   :nocontentsentry:
+
+   Atomically subtract ``value`` onto the array at location given by index.
+
+
+.. function:: atomic_sub(a: FabricArray[Any], i: int32, j: int32, value: Any)
+   :noindex:
+   :nocontentsentry:
+
+   Atomically subtract ``value`` onto the array at location given by indices.
+
+
+.. function:: atomic_sub(a: FabricArray[Any], i: int32, j: int32, k: int32, value: Any)
+   :noindex:
+   :nocontentsentry:
+
+   Atomically subtract ``value`` onto the array at location given by indices.
+
+
+.. function:: atomic_sub(a: FabricArray[Any], i: int32, j: int32, k: int32, l: int32, value: Any)
+   :noindex:
+   :nocontentsentry:
+
+   Atomically subtract ``value`` onto the array at location given by indices.
+
+
+.. function:: atomic_sub(a: IndexedFabricArray[Any], i: int32, value: Any)
+   :noindex:
+   :nocontentsentry:
+
+   Atomically subtract ``value`` onto the array at location given by index.
+
+
+.. function:: atomic_sub(a: IndexedFabricArray[Any], i: int32, j: int32, value: Any)
+   :noindex:
+   :nocontentsentry:
+
+   Atomically subtract ``value`` onto the array at location given by indices.
+
+
+.. function:: atomic_sub(a: IndexedFabricArray[Any], i: int32, j: int32, k: int32, value: Any)
+   :noindex:
+   :nocontentsentry:
+
+   Atomically subtract ``value`` onto the array at location given by indices.
+
+
+.. function:: atomic_sub(a: IndexedFabricArray[Any], i: int32, j: int32, k: int32, l: int32, value: Any)
    :noindex:
    :nocontentsentry:
 
@@ -869,6 +1018,62 @@ Utility
    Compute the minimum of ``value`` and ``array[index]`` and atomically update the array. Note that for vectors and matrices the operation is only atomic on a per-component basis.
 
 
+.. function:: atomic_min(a: FabricArray[Any], i: int32, value: Any)
+   :noindex:
+   :nocontentsentry:
+
+   Compute the minimum of ``value`` and ``array[index]`` and atomically update the array. Note that for vectors and matrices the operation is only atomic on a per-component basis.
+
+
+.. function:: atomic_min(a: FabricArray[Any], i: int32, j: int32, value: Any)
+   :noindex:
+   :nocontentsentry:
+
+   Compute the minimum of ``value`` and ``array[index]`` and atomically update the array. Note that for vectors and matrices the operation is only atomic on a per-component basis.
+
+
+.. function:: atomic_min(a: FabricArray[Any], i: int32, j: int32, k: int32, value: Any)
+   :noindex:
+   :nocontentsentry:
+
+   Compute the minimum of ``value`` and ``array[index]`` and atomically update the array. Note that for vectors and matrices the operation is only atomic on a per-component basis.
+
+
+.. function:: atomic_min(a: FabricArray[Any], i: int32, j: int32, k: int32, l: int32, value: Any)
+   :noindex:
+   :nocontentsentry:
+
+   Compute the minimum of ``value`` and ``array[index]`` and atomically update the array. Note that for vectors and matrices the operation is only atomic on a per-component basis.
+
+
+.. function:: atomic_min(a: IndexedFabricArray[Any], i: int32, value: Any)
+   :noindex:
+   :nocontentsentry:
+
+   Compute the minimum of ``value`` and ``array[index]`` and atomically update the array. Note that for vectors and matrices the operation is only atomic on a per-component basis.
+
+
+.. function:: atomic_min(a: IndexedFabricArray[Any], i: int32, j: int32, value: Any)
+   :noindex:
+   :nocontentsentry:
+
+   Compute the minimum of ``value`` and ``array[index]`` and atomically update the array. Note that for vectors and matrices the operation is only atomic on a per-component basis.
+
+
+.. function:: atomic_min(a: IndexedFabricArray[Any], i: int32, j: int32, k: int32, value: Any)
+   :noindex:
+   :nocontentsentry:
+
+   Compute the minimum of ``value`` and ``array[index]`` and atomically update the array. Note that for vectors and matrices the operation is only atomic on a per-component basis.
+
+
+.. function:: atomic_min(a: IndexedFabricArray[Any], i: int32, j: int32, k: int32, l: int32, value: Any)
+   :noindex:
+   :nocontentsentry:
+
+   Compute the minimum of ``value`` and ``array[index]`` and atomically update the array. Note that for vectors and matrices the operation is only atomic on a per-component basis.
+
+
 .. function:: atomic_max(a: Array[Any], i: int32, value: Any)
 
    Compute the maximum of ``value`` and ``array[index]`` and atomically update the array. Note that for vectors and matrices the operation is only atomic on a per-component basis.
@@ -889,6 +1094,62 @@ Utility
 
 
 .. function:: atomic_max(a: Array[Any], i: int32, j: int32, k: int32, l: int32, value: Any)
+   :noindex:
+   :nocontentsentry:
+
+   Compute the maximum of ``value`` and ``array[index]`` and atomically update the array. Note that for vectors and matrices the operation is only atomic on a per-component basis.
+
+
+.. function:: atomic_max(a: FabricArray[Any], i: int32, value: Any)
+   :noindex:
+   :nocontentsentry:
+
+   Compute the maximum of ``value`` and ``array[index]`` and atomically update the array. Note that for vectors and matrices the operation is only atomic on a per-component basis.
+
+
+.. function:: atomic_max(a: FabricArray[Any], i: int32, j: int32, value: Any)
+   :noindex:
+   :nocontentsentry:
+
+   Compute the maximum of ``value`` and ``array[index]`` and atomically update the array. Note that for vectors and matrices the operation is only atomic on a per-component basis.
+
+
+.. function:: atomic_max(a: FabricArray[Any], i: int32, j: int32, k: int32, value: Any)
+   :noindex:
+   :nocontentsentry:
+
+   Compute the maximum of ``value`` and ``array[index]`` and atomically update the array. Note that for vectors and matrices the operation is only atomic on a per-component basis.
+
+
+.. function:: atomic_max(a: FabricArray[Any], i: int32, j: int32, k: int32, l: int32, value: Any)
+   :noindex:
+   :nocontentsentry:
+
+   Compute the maximum of ``value`` and ``array[index]`` and atomically update the array. Note that for vectors and matrices the operation is only atomic on a per-component basis.
+
+
+.. function:: atomic_max(a: IndexedFabricArray[Any], i: int32, value: Any)
+   :noindex:
+   :nocontentsentry:
+
+   Compute the maximum of ``value`` and ``array[index]`` and atomically update the array. Note that for vectors and matrices the operation is only atomic on a per-component basis.
+
+
+.. function:: atomic_max(a: IndexedFabricArray[Any], i: int32, j: int32, value: Any)
+   :noindex:
+   :nocontentsentry:
+
+   Compute the maximum of ``value`` and ``array[index]`` and atomically update the array. Note that for vectors and matrices the operation is only atomic on a per-component basis.
+
+
+.. function:: atomic_max(a: IndexedFabricArray[Any], i: int32, j: int32, k: int32, value: Any)
+   :noindex:
+   :nocontentsentry:
+
+   Compute the maximum of ``value`` and ``array[index]`` and atomically update the array. Note that for vectors and matrices the operation is only atomic on a per-component basis.
+
+
+.. function:: atomic_max(a: IndexedFabricArray[Any], i: int32, j: int32, k: int32, l: int32, value: Any)
    :noindex:
    :nocontentsentry:
 
@@ -1154,6 +1415,11 @@ Volumes
    Sample the volume given by ``id`` at the volume local-space point ``uvw``. Interpolation should be ``wp.Volume.CLOSEST``, or ``wp.Volume.LINEAR.``
 
 
+.. function:: volume_sample_grad_f(id: uint64, uvw: vec3f, sampling_mode: int32, grad: vec3f) -> float
+
+   Sample the volume and its gradient given by ``id`` at the volume local-space point ``uvw``. Interpolation should be ``wp.Volume.CLOSEST``, or ``wp.Volume.LINEAR.``
+
+
 .. function:: volume_lookup_f(id: uint64, i: int32, j: int32, k: int32) -> float
 
    Returns the value of voxel with coordinates ``i``, ``j``, ``k``, if the voxel at this index does not exist this function returns the background value
@@ -1371,39 +1637,23 @@ Random
    Periodic Perlin-style noise in 4d.
 
 
-.. function:: curlnoise(state: uint32, xy: vec2f) -> vec2f
+.. function:: curlnoise(state: uint32, xy: vec2f, octaves: uint32, lacunarity: float32, gain: float32) -> vec2f
 
    Divergence-free vector field based on the gradient of a Perlin noise function. [1]_
 
 
-.. function:: curlnoise(state: uint32, xyz: vec3f) -> vec3f
+.. function:: curlnoise(state: uint32, xyz: vec3f, octaves: uint32, lacunarity: float32, gain: float32) -> vec3f
    :noindex:
    :nocontentsentry:
 
    Divergence-free vector field based on the curl of three Perlin noise functions. [1]_
 
 
-.. function:: curlnoise(state: uint32, xyzt: vec4f) -> vec3f
+.. function:: curlnoise(state: uint32, xyzt: vec4f, octaves: uint32, lacunarity: float32, gain: float32) -> vec3f
    :noindex:
    :nocontentsentry:
 
    Divergence-free vector field based on the curl of three Perlin noise functions. [1]_
-
-
-
-
-Other
----------------
-.. function:: lower_bound(arr: Array[Scalar], value: Scalar) -> int
-
-   Search a sorted array for the closest element greater than or equal to value.
-
-
-.. function:: lower_bound(arr: Array[Scalar], arr_begin: int32, arr_end: int32, value: Scalar) -> int
-   :noindex:
-   :nocontentsentry:
-
-   Search a sorted array range [arr_begin, arr_end) for the closest element greater than or equal to value.
 
 
 
@@ -1598,6 +1848,11 @@ Operators
 
 
 .. function:: unot(b: bool) -> bool
+
+
+.. function:: unot(b: bool) -> bool
+   :noindex:
+   :nocontentsentry:
 
 
 .. function:: unot(b: int8) -> bool

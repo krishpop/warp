@@ -8,21 +8,23 @@
 """A module for building simulation models and state.
 """
 
-from .inertia import transform_inertia
-from .inertia import compute_cone_inertia
-from .inertia import compute_cylinder_inertia
-from .inertia import compute_capsule_inertia
-from .inertia import compute_box_inertia
-from .inertia import compute_sphere_inertia
-from .inertia import compute_mesh_inertia
+import copy
+import math
+from typing import List, Optional, Tuple
 
-import warp as wp
 import numpy as np
 
-import math
-import copy
+import warp as wp
 
-from typing import List, Optional, Tuple
+from .inertia import (
+    compute_box_inertia,
+    compute_capsule_inertia,
+    compute_cone_inertia,
+    compute_cylinder_inertia,
+    compute_mesh_inertia,
+    compute_sphere_inertia,
+    transform_inertia,
+)
 
 Vec3 = List[float]
 Vec4 = List[float]
@@ -97,11 +99,11 @@ class JointAxis:
 
     Attributes:
 
-        axis (3D vector): The axis that this JointAxis object describes 
+        axis (3D vector or JointAxis): The 3D axis that this JointAxis object describes, or alternatively another JointAxis object to copy from
         limit_lower (float): The lower limit of the joint axis
         limit_upper (float): The upper limit of the joint axis
-        limit_ke (float): The elastic stiffness of the joint axis limits, only respected by SemiImplicitIntegrator
-        limit_kd (float): The damping stiffness of the joint axis limits, only respected by SemiImplicitIntegrator
+        limit_ke (float): The elastic stiffness of the joint axis limits, only respected by :class:`SemiImplicitIntegrator`
+        limit_kd (float): The damping stiffness of the joint axis limits, only respected by :class:`SemiImplicitIntegrator`
         target (float): The target position or velocity (depending on the mode, see `Joint modes`_) of the joint axis
         target_ke (float): The proportional gain of the joint axis target drive PD controller
         target_kd (float): The derivative gain of the joint axis target drive PD controller
@@ -120,30 +122,92 @@ class JointAxis:
         target_kd=0.0,
         mode=JOINT_MODE_TARGET_POSITION,
     ):
-        self.axis = np.array(wp.normalize(np.array(axis, dtype=np.float32)))
-        self.limit_lower = limit_lower
-        self.limit_upper = limit_upper
-        self.limit_ke = limit_ke
-        self.limit_kd = limit_kd
-        if target is not None:
-            self.target = target
-        elif limit_lower > 0.0 or limit_upper < 0.0:
-            self.target = 0.5 * (limit_lower + limit_upper)
+        if isinstance(axis, JointAxis):
+            self.axis = axis.axis
+            self.limit_lower = axis.limit_lower
+            self.limit_upper = axis.limit_upper
+            self.limit_ke = axis.limit_ke
+            self.limit_kd = axis.limit_kd
+            self.target = axis.target
+            self.target_ke = axis.target_ke
+            self.target_kd = axis.target_kd
+            self.mode = axis.mode
         else:
-            self.target = 0.0
-        self.target_ke = target_ke
-        self.target_kd = target_kd
-        self.mode = mode
+            self.axis = np.array(wp.normalize(np.array(axis, dtype=np.float32)))
+            self.limit_lower = limit_lower
+            self.limit_upper = limit_upper
+            self.limit_ke = limit_ke
+            self.limit_kd = limit_kd
+            if target is not None:
+                self.target = target
+            elif limit_lower > 0.0 or limit_upper < 0.0:
+                self.target = 0.5 * (limit_lower + limit_upper)
+            else:
+                self.target = 0.0
+            self.target_ke = target_ke
+            self.target_kd = target_kd
+            self.mode = mode
+
+
+class SDF:
+    """Describes a signed distance field for simulation
+    
+    Attributes:
+
+        volume (Volume): The volume defining the SDF
+        I (Mat33): 3x3 inertia matrix of the SDF
+        mass (float): The total mass of the SDF
+        com (Vec3): The center of mass of the SDF
+    """
+    def __init__(self, volume=None, I=np.eye(3, dtype=np.float32), mass=1.0, com=np.array((0.0, 0.0, 0.0))):
+        self.volume = volume
+        self.I = I
+        self.mass = mass
+        self.com = com
+
+        # Need to specify these for now
+        self.has_inertia = True
+        self.is_solid = True
+
+    def finalize(self, device=None):
+        return self.volume.id
+
+    def __hash__(self):
+        return hash((self.volume.id))
 
 
 class Mesh:
     """Describes a triangle collision mesh for simulation
+    
+    Example mesh creation from a triangle OBJ mesh file:
+    ====================================================
+
+    .. code-block:: python
+
+        import numpy as np
+        import warp as wp
+        import warp.sim
+
+        def load_mesh(self, filename, use_meshio=True):
+            if use_meshio:
+                import meshio
+                m = meshio.read(filename)
+                mesh_points = np.array(m.points)
+                mesh_indices = np.array(m.cells[0].data, dtype=np.int32).flatten()
+            else:
+                import openmesh
+                m = openmesh.read_trimesh(filename)
+                mesh_points = np.array(m.points())
+                mesh_indices = np.array(m.face_vertex_indices(), dtype=np.int32).flatten()
+            return wp.sim.Mesh(mesh_points, mesh_indices)
+        
+        mesh = load_mesh("mesh.obj")
 
     Attributes:
 
-        vertices (List[Vec3]): Mesh vertices
-        indices (List[int]): Mesh indices
-        I (Mat33): Inertia tensor of the mesh assuming density of 1.0 (around the center of mass)
+        vertices (List[Vec3]): Mesh 3D vertices points
+        indices (List[int]): Mesh indices as a flattened list of vertex indices describing triangles
+        I (Mat33): 3x3 inertia matrix of the mesh assuming density of 1.0 (around the center of mass)
         mass (float): The total mass of the body assuming density of 1.0
         com (Vec3): The center of mass of the body
     """
@@ -184,6 +248,15 @@ class Mesh:
 
     # construct simulation ready buffers from points
     def finalize(self, device=None):
+        """
+        Constructs a simulation-ready :class:`Mesh` object from the mesh data and returns its ID.
+        
+        Args:
+            device: The device on which to allocate the mesh buffers
+
+        Returns:
+            The ID of the simulation-ready :class:`Mesh`
+        """
         with wp.ScopedDevice(device):
             pos = wp.array(self.vertices, dtype=wp.vec3)
             vel = wp.zeros_like(pos)
@@ -193,6 +266,9 @@ class Mesh:
             return self.mesh.id
 
     def __hash__(self):
+        """
+        Computes a hash of the mesh data for use in caching. The hash considers the mesh vertices, indices, and whether the mesh is solid or not.
+        """
         return hash((tuple(np.array(self.vertices).flatten()), tuple(np.array(self.indices).flatten()), self.is_solid))
 
 
@@ -209,15 +285,17 @@ class State:
 
         particle_count (int): Number of particles
         body_count (int): Number of rigid bodies
+        requires_grad (bool): Whether the state's arrays have requires_grad enabled
 
-        particle_q (wp.array): Tensor of particle positions
-        particle_qd (wp.array): Tensor of particle velocities
-        particle_f (wp.array): Tensor of particle forces
+        particle_q (array): Tensor of particle positions
+        particle_qd (array): Tensor of particle velocities
+        particle_f (array): Tensor of particle forces
 
-        body_q (wp.array): Tensor of body coordinates
-        body_qd (wp.array): Tensor of body velocities
-        body_f (wp.array): Tensor of body forces
+        body_q (array): Tensor of body coordinates
+        body_qd (array): Tensor of body velocities
+        body_f (array): Tensor of body forces
 
+        has_soft_contact_vars (bool): Indicates whether the state has soft contact variables (default False, contact variables are stored only in the state if needed for differentiable simulation, i.e. model.requires_grad==True, otherwise the contact variables are stored in the Model)
         has_rigid_contact_vars (bool): Indicates whether the state has rigid contact variables (default False, contact variables are stored only in the state if needed for differentiable simulation, i.e. model.requires_grad==True, otherwise the contact variables are stored in the Model)
 
     """
@@ -225,6 +303,7 @@ class State:
     def __init__(self):
         self.particle_count = 0
         self.body_count = 0
+        self.requires_grad = False
 
         self.particle_q = None
         self.particle_qd = None
@@ -234,6 +313,7 @@ class State:
         self.body_qd = None
         self.body_f = None
 
+        self.has_soft_contact_vars = False
         self.has_rigid_contact_vars = False
 
     def clear_forces(self):
@@ -246,20 +326,20 @@ class State:
             self.joint_act.zero_()
 
     def flatten(self):
-        """Returns a list of Tensors stored by the state
+        wp.utils.warn(
+            "Model.flatten() will be removed in a future Warp version.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
-        This function is intended to be used internal-only but can be used to obtain
-        a set of all tensors owned by the state.
-        """
-
-        tensors = []
+        arrays = []
 
         # build a list of all tensor attributes
         for attr, value in self.__dict__.items():
-            if wp.is_tensor(value):
-                tensors.append(value)
+            if isinstance(value, wp.array):
+                arrays.append(value)
 
-        return tensors
+        return arrays
 
 
 def compute_shape_mass(type, scale, src, density, is_solid, thickness):
@@ -305,7 +385,7 @@ def compute_shape_mass(type, scale, src, density, is_solid, thickness):
         else:
             hollow = compute_cone_inertia(density, r - thickness, h - 2.0 * thickness)
             return solid[0] - hollow[0], solid[1], solid[2] - hollow[2]
-    elif type == GEO_MESH:
+    elif type == GEO_MESH or type == GEO_SDF:
         if src.has_inertia and src.mass > 0.0 and src.is_solid == is_solid:
             m, c, I = src.mass, src.com, src.I
 
@@ -327,7 +407,7 @@ def compute_shape_mass(type, scale, src, density, is_solid, thickness):
             I_new = np.array([[Ixx, Ixy, Ixz], [Ixy, Iyy, Iyz], [Ixz, Iyz, Izz]])
 
             return m_new, c_new, I_new
-        else:
+        elif type == GEO_MESH:
             # fall back to computing inertia from mesh geometry
             vertices = np.array(src.vertices) * np.array(scale[:3])
             m, c, I, vol = compute_mesh_inertia(density, vertices, src.indices, is_solid, thickness)
@@ -345,23 +425,24 @@ class Model:
         requires_grad (float): Indicates whether the model was finalized with gradient computation enabled
         num_envs (int): Number of articulation environments that were added to the ModelBuilder via `add_builder`
 
-        particle_q (wp.array): Particle positions, shape [particle_count, 3], float
-        particle_qd (wp.array): Particle velocities, shape [particle_count, 3], float
-        particle_mass (wp.array): Particle mass, shape [particle_count], float
-        particle_inv_mass (wp.array): Particle inverse mass, shape [particle_count], float
-        particle_radius (wp.array): Particle radius, shape [particle_count], float
+        particle_q (array): Particle positions, shape [particle_count, 3], float
+        particle_qd (array): Particle velocities, shape [particle_count, 3], float
+        particle_mass (array): Particle mass, shape [particle_count], float
+        particle_inv_mass (array): Particle inverse mass, shape [particle_count], float
+        particle_radius (array): Particle radius, shape [particle_count], float
         particle_max_radius (float): Maximum particle radius (useful for HashGrid construction)
-        particle_ke (wp.array): Particle normal contact stiffness (used by SemiImplicitIntegrator), shape [particle_count], float
-        particle_kd (wp.array): Particle normal contact damping (used by SemiImplicitIntegrator), shape [particle_count], float
-        particle_kf (wp.array): Particle friction force stiffness (used by SemiImplicitIntegrator), shape [particle_count], float
-        particle_mu (wp.array): Particle friction coefficient, shape [particle_count], float
-        particle_cohesion (wp.array): Particle cohesion strength, shape [particle_count], float
-        particle_adhesion (wp.array): Particle adhesion strength, shape [particle_count], float
+        particle_ke (array): Particle normal contact stiffness (used by :class:`SemiImplicitIntegrator`), shape [particle_count], float
+        particle_kd (array): Particle normal contact damping (used by :class:`SemiImplicitIntegrator`), shape [particle_count], float
+        particle_kf (array): Particle friction force stiffness (used by :class:`SemiImplicitIntegrator`), shape [particle_count], float
+        particle_mu (array): Particle friction coefficient, shape [particle_count], float
+        particle_cohesion (array): Particle cohesion strength, shape [particle_count], float
+        particle_adhesion (array): Particle adhesion strength, shape [particle_count], float
         particle_grid (HashGrid): HashGrid instance used for accelerated simulation of particle interactions
-        particle_flags (wp.array): Particle enabled state, shape [particle_count], bool
+        particle_flags (array): Particle enabled state, shape [particle_count], bool
+        particle_max_velocity (float): Maximum particle velocity (to prevent instability)
 
-        shape_transform (wp.array): Rigid shape transforms, shape [shape_count, 7], float
-        shape_body (wp.array): Rigid shape body index, shape [shape_count], int
+        shape_transform (array): Rigid shape transforms, shape [shape_count, 7], float
+        shape_body (array): Rigid shape body index, shape [shape_count], int
         body_shapes (dict): Mapping from body index to list of attached shape indices
         shape_materials (ModelShapeMaterials): Rigid shape contact materials, shape [shape_count], float
         shape_shape_geo (ModelShapeGeometry): Shape geometry properties (geo type, scale, thickness, etc.), shape [shape_count, 3], float
@@ -370,68 +451,68 @@ class Model:
         shape_collision_group (list): Collision group of each shape, shape [shape_count], int
         shape_collision_group_map (dict): Mapping from collision group to list of shape indices
         shape_collision_filter_pairs (set): Pairs of shape indices that should not collide
-        shape_collision_radius (wp.array): Collision radius of each shape used for bounding sphere broadphase collision checking, shape [shape_count], float
+        shape_collision_radius (array): Collision radius of each shape used for bounding sphere broadphase collision checking, shape [shape_count], float
         shape_ground_collision (list): Indicates whether each shape should collide with the ground, shape [shape_count], bool
-        shape_contact_pairs (wp.array): Pairs of shape indices that may collide, shape [contact_pair_count, 2], int
-        shape_ground_contact_pairs (wp.array): Pairs of shape, ground indices that may collide, shape [ground_contact_pair_count, 2], int
+        shape_contact_pairs (array): Pairs of shape indices that may collide, shape [contact_pair_count, 2], int
+        shape_ground_contact_pairs (array): Pairs of shape, ground indices that may collide, shape [ground_contact_pair_count, 2], int
 
-        spring_indices (wp.array): Particle spring indices, shape [spring_count*2], int
-        spring_rest_length (wp.array): Particle spring rest length, shape [spring_count], float
-        spring_stiffness (wp.array): Particle spring stiffness, shape [spring_count], float
-        spring_damping (wp.array): Particle spring damping, shape [spring_count], float
-        spring_control (wp.array): Particle spring activation, shape [spring_count], float
+        spring_indices (array): Particle spring indices, shape [spring_count*2], int
+        spring_rest_length (array): Particle spring rest length, shape [spring_count], float
+        spring_stiffness (array): Particle spring stiffness, shape [spring_count], float
+        spring_damping (array): Particle spring damping, shape [spring_count], float
+        spring_control (array): Particle spring activation, shape [spring_count], float
 
-        tri_indices (wp.array): Triangle element indices, shape [tri_count*3], int
-        tri_poses (wp.array): Triangle element rest pose, shape [tri_count, 2, 2], float
-        tri_activations (wp.array): Triangle element activations, shape [tri_count], float
-        tri_materials (wp.array): Triangle element materials, shape [tri_count, 5], float
+        tri_indices (array): Triangle element indices, shape [tri_count*3], int
+        tri_poses (array): Triangle element rest pose, shape [tri_count, 2, 2], float
+        tri_activations (array): Triangle element activations, shape [tri_count], float
+        tri_materials (array): Triangle element materials, shape [tri_count, 5], float
 
-        edge_indices (wp.array): Bending edge indices, shape [edge_count*2], int
-        edge_rest_angle (wp.array): Bending edge rest angle, shape [edge_count], float
-        edge_bending_properties (wp.array): Bending edge stiffness and damping parameters, shape [edge_count, 2], float
+        edge_indices (array): Bending edge indices, shape [edge_count*4], int
+        edge_rest_angle (array): Bending edge rest angle, shape [edge_count], float
+        edge_bending_properties (array): Bending edge stiffness and damping parameters, shape [edge_count, 2], float
 
-        tet_indices (wp.array): Tetrahedral element indices, shape [tet_count*4], int
-        tet_poses (wp.array): Tetrahedral rest poses, shape [tet_count, 3, 3], float
-        tet_activations (wp.array): Tetrahedral volumetric activations, shape [tet_count], float
-        tet_materials (wp.array): Tetrahedral elastic parameters in form :math:`k_{mu}, k_{lambda}, k_{damp}`, shape [tet_count, 3]
+        tet_indices (array): Tetrahedral element indices, shape [tet_count*4], int
+        tet_poses (array): Tetrahedral rest poses, shape [tet_count, 3, 3], float
+        tet_activations (array): Tetrahedral volumetric activations, shape [tet_count], float
+        tet_materials (array): Tetrahedral elastic parameters in form :math:`k_{mu}, k_{lambda}, k_{damp}`, shape [tet_count, 3]
 
-        body_q (wp.array): Poses of rigid bodies used for state initialization, shape [body_count, 7], float
-        body_qd (wp.array): Velocities of rigid bodies used for state initialization, shape [body_count, 6], float
-        body_com (wp.array): Rigid body center of mass (in local frame), shape [body_count, 7], float
-        body_inertia (wp.array): Rigid body inertia tensor (relative to COM), shape [body_count, 3, 3], float
-        body_inv_inertia (wp.array): Rigid body inverse inertia tensor (relative to COM), shape [body_count, 3, 3], float
-        body_mass (wp.array): Rigid body mass, shape [body_count], float
-        body_inv_mass (wp.array): Rigid body inverse mass, shape [body_count], float
+        body_q (array): Poses of rigid bodies used for state initialization, shape [body_count, 7], float
+        body_qd (array): Velocities of rigid bodies used for state initialization, shape [body_count, 6], float
+        body_com (array): Rigid body center of mass (in local frame), shape [body_count, 7], float
+        body_inertia (array): Rigid body inertia tensor (relative to COM), shape [body_count, 3, 3], float
+        body_inv_inertia (array): Rigid body inverse inertia tensor (relative to COM), shape [body_count, 3, 3], float
+        body_mass (array): Rigid body mass, shape [body_count], float
+        body_inv_mass (array): Rigid body inverse mass, shape [body_count], float
         body_name (list): Rigid body names, shape [body_count], str
 
-        joint_q (wp.array): Generalized joint positions used for state initialization, shape [joint_coord_count], float
-        joint_qd (wp.array): Generalized joint velocities used for state initialization, shape [joint_dof_count], float
-        joint_act (wp.array): Generalized joint actuation force, shape [joint_dof_count], float
-        joint_type (wp.array): Joint type, shape [joint_count], int
-        joint_parent (wp.array): Joint parent body indices, shape [joint_count], int
-        joint_child (wp.array): Joint child body indices, shape [joint_count], int
-        joint_X_p (wp.array): Joint transform in parent frame, shape [joint_count, 7], float
-        joint_X_c (wp.array): Joint mass frame in child frame, shape [joint_count, 7], float
-        joint_axis (wp.array): Joint axis in child frame, shape [joint_axis_count, 3], float
-        joint_armature (wp.array): Armature for each joint, shape [joint_count], float
-        joint_target (wp.array): Joint target position/velocity (depending on joint axis mode), shape [joint_axis_count], float
-        joint_target_ke (wp.array): Joint stiffness, shape [joint_axis_count], float
-        joint_target_kd (wp.array): Joint damping, shape [joint_axis_count], float
-        joint_axis_start (wp.array): Start index of the first axis per joint, shape [joint_count], int
-        joint_axis_dim (wp.array): Number of linear and angular axes per joint, shape [joint_count, 2], int
-        joint_axis_mode (wp.array): Joint axis mode, shape [joint_axis_count], int
-        joint_linear_compliance (wp.array): Joint linear compliance, shape [joint_count], float
-        joint_angular_compliance (wp.array): Joint linear compliance, shape [joint_count], float
-        joint_enabled (wp.array): Joint enabled, shape [joint_count], int
-        joint_limit_lower (wp.array): Joint lower position limits, shape [joint_count], float
-        joint_limit_upper (wp.array): Joint upper position limits, shape [joint_count], float
-        joint_limit_ke (wp.array): Joint position limit stiffness (used by SemiImplicitIntegrator), shape [joint_count], float
-        joint_limit_kd (wp.array): Joint position limit damping (used by SemiImplicitIntegrator), shape [joint_count], float
-        joint_twist_lower (wp.array): Joint lower twist limit, shape [joint_count], float
-        joint_twist_upper (wp.array): Joint upper twist limit, shape [joint_count], float
-        joint_q_start (wp.array): Start index of the first position coordinate per joint, shape [joint_count], int
-        joint_qd_start (wp.array): Start index of the first velocity coordinate per joint, shape [joint_count], int
-        articulation_start (wp.array): Articulation start index, shape [articulation_count], int
+        joint_q (array): Generalized joint positions used for state initialization, shape [joint_coord_count], float
+        joint_qd (array): Generalized joint velocities used for state initialization, shape [joint_dof_count], float
+        joint_act (array): Generalized joint actuation force, shape [joint_dof_count], float
+        joint_type (array): Joint type, shape [joint_count], int
+        joint_parent (array): Joint parent body indices, shape [joint_count], int
+        joint_child (array): Joint child body indices, shape [joint_count], int
+        joint_X_p (array): Joint transform in parent frame, shape [joint_count, 7], float
+        joint_X_c (array): Joint mass frame in child frame, shape [joint_count, 7], float
+        joint_axis (array): Joint axis in child frame, shape [joint_axis_count, 3], float
+        joint_armature (array): Armature for each joint, shape [joint_count], float
+        joint_target (array): Joint target position/velocity (depending on joint axis mode), shape [joint_axis_count], float
+        joint_target_ke (array): Joint stiffness, shape [joint_axis_count], float
+        joint_target_kd (array): Joint damping, shape [joint_axis_count], float
+        joint_axis_start (array): Start index of the first axis per joint, shape [joint_count], int
+        joint_axis_dim (array): Number of linear and angular axes per joint, shape [joint_count, 2], int
+        joint_axis_mode (array): Joint axis mode, shape [joint_axis_count], int
+        joint_linear_compliance (array): Joint linear compliance, shape [joint_count], float
+        joint_angular_compliance (array): Joint linear compliance, shape [joint_count], float
+        joint_enabled (array): Joint enabled, shape [joint_count], int
+        joint_limit_lower (array): Joint lower position limits, shape [joint_count], float
+        joint_limit_upper (array): Joint upper position limits, shape [joint_count], float
+        joint_limit_ke (array): Joint position limit stiffness (used by SemiImplicitIntegrator), shape [joint_count], float
+        joint_limit_kd (array): Joint position limit damping (used by SemiImplicitIntegrator), shape [joint_count], float
+        joint_twist_lower (array): Joint lower twist limit, shape [joint_count], float
+        joint_twist_upper (array): Joint upper twist limit, shape [joint_count], float
+        joint_q_start (array): Start index of the first position coordinate per joint, shape [joint_count], int
+        joint_qd_start (array): Start index of the first velocity coordinate per joint, shape [joint_count], int
+        articulation_start (array): Articulation start index, shape [articulation_count], int
         joint_name (list): Joint names, shape [joint_count], str
         joint_attach_ke (float): Joint attachment force stiffness (used by SemiImplicitIntegrator)
         joint_attach_kd (float): Joint attachment force damping (used by SemiImplicitIntegrator)
@@ -451,7 +532,7 @@ class Model:
         rigid_contact_rolling_friction (float): Rolling friction coefficient for rigid body contacts (used by XPBDIntegrator)
 
         ground (bool): Whether the ground plane and ground contacts are enabled
-        ground_plane (wp.array): Ground plane 3D normal and offset, shape [4], float
+        ground_plane (array): Ground plane 3D normal and offset, shape [4], float
         up_vector (np.ndarray): Up vector of the world, shape [3], float
         up_axis (int): Up axis, 0 for x, 1 for y, 2 for z
         gravity (np.ndarray): Gravity vector, shape [3], float
@@ -496,6 +577,7 @@ class Model:
         self.particle_adhesion = 0.0
         self.particle_grid = None
         self.particle_flags = None
+        self.particle_max_velocity = 1e5
 
         self.shape_transform = None
         self.shape_body = None
@@ -594,7 +676,7 @@ class Model:
         self.ground_plane = None
         self.up_vector = np.array((0.0, 1.0, 0.0))
         self.up_axis = 1
-        self.gravity = np.array((0.0, -9.81, 0.0))
+        self.gravity = np.array((0.0, -9.80665, 0.0))
 
         self.particle_count = 0
         self.body_count = 0
@@ -641,6 +723,10 @@ class Model:
             s.particle_qd.requires_grad = requires_grad
             s.particle_f.requires_grad = requires_grad
 
+            if requires_grad and self.soft_contact_max:
+                self._allocate_soft_contacts(s, self.soft_contact_max, requires_grad=requires_grad)
+                s.has_soft_contact_vars = True
+
         # articulations
         if self.body_count:
             s.body_q = wp.clone(self.body_q)
@@ -668,18 +754,21 @@ class Model:
 
         return s
 
+    def _allocate_soft_contacts(self, target, count, requires_grad=False):
+        target.soft_contact_count = wp.zeros(1, dtype=wp.int32, device=self.device)
+        target.soft_contact_particle = wp.zeros(count, dtype=int, device=self.device)
+        target.soft_contact_shape = wp.zeros(count, dtype=int, device=self.device)
+        target.soft_contact_body_pos = wp.zeros(count, dtype=wp.vec3, device=self.device, requires_grad=requires_grad)
+        target.soft_contact_body_vel = wp.zeros(count, dtype=wp.vec3, device=self.device, requires_grad=requires_grad)
+        target.soft_contact_normal = wp.zeros(count, dtype=wp.vec3, device=self.device, requires_grad=requires_grad)
+
     def allocate_soft_contacts(self, count, requires_grad=False):
-        self.soft_contact_count = wp.zeros(1, dtype=wp.int32, device=self.device)
-        self.soft_contact_particle = wp.zeros(count, dtype=int, device=self.device)
-        self.soft_contact_shape = wp.zeros(count, dtype=int, device=self.device)
-        self.soft_contact_body_pos = wp.zeros(count, dtype=wp.vec3, device=self.device, requires_grad=requires_grad)
-        self.soft_contact_body_vel = wp.zeros(count, dtype=wp.vec3, device=self.device, requires_grad=requires_grad)
-        self.soft_contact_normal = wp.zeros(count, dtype=wp.vec3, device=self.device, requires_grad=requires_grad)
+        self._allocate_soft_contacts(self, count, requires_grad)
 
     def find_shape_contact_pairs(self):
         # find potential contact pairs based on collision groups and collision mask (pairwise filtering)
-        import itertools
         import copy
+        import itertools
 
         filters = copy.copy(self.shape_collision_filter_pairs)
         for a, b in self.shape_collision_filter_pairs:
@@ -835,9 +924,7 @@ class Model:
         return tensors
 
     def collide(self, state: State):
-        import warnings
-
-        warnings.warn(
+        wp.utils.warn(
             "Model.collide() is not needed anymore and will be removed in a future Warp version.",
             DeprecationWarning,
             stacklevel=2,
@@ -850,9 +937,7 @@ class Model:
 
     @property
     def soft_contact_distance(self):
-        import warnings
-
-        warnings.warn(
+        wp.utils.warn(
             "Model.soft_contact_distance is deprecated and will be removed in a future Warp version. "
             "Particles now have individual radii, returning `Model.particle_max_radius`.",
             DeprecationWarning,
@@ -862,9 +947,7 @@ class Model:
 
     @soft_contact_distance.setter
     def soft_contact_distance(self, value):
-        import warnings
-
-        warnings.warn(
+        wp.utils.warn(
             "Model.soft_contact_distance is deprecated and will be removed in a future Warp version. "
             "Particles now have individual radii, see `Model.particle_radius`.",
             DeprecationWarning,
@@ -873,18 +956,16 @@ class Model:
 
     @property
     def particle_radius(self):
-        """Array of per-particle radii"""
+        # Array of per-particle radii
         return self._particle_radius
 
     @particle_radius.setter
     def particle_radius(self, value):
         if isinstance(value, float):
-            import warnings
-
-            warnings.warn(
+            wp.utils.warn(
                 "Model.particle_radius is an array of per-particle radii, assigning with a scalar value "
                 "is deprecated and will be removed in a future Warp version.",
-                DeprecationWarning,
+                PendingDeprecationWarning,
                 stacklevel=2,
             )
             self._particle_radius.fill_(value)
@@ -951,6 +1032,10 @@ class ModelBuilder:
     default_tri_drag = 0.0
     default_tri_lift = 0.0
 
+    # Default distance constraint properties
+    default_spring_ke = 100.0
+    default_spring_kd = 0.0
+
     # Default edge bending properties
     default_edge_ke = 100.0
     default_edge_kd = 0.0
@@ -979,6 +1064,7 @@ class ModelBuilder:
         self.particle_mass = []
         self.particle_radius = []
         self.particle_flags = []
+        self.particle_max_velocity = 1e5
 
         # shapes (each shape has an entry in these arrays)
         # transform from shape to body
@@ -1189,11 +1275,30 @@ class ModelBuilder:
         """Copies a rigid articulation from `articulation`, another `ModelBuilder`.
 
         Args:
-            articulation: a model builder to add rigid articulation from.
-            xform: offset transform applied to root bodies.
-            update_num_env_count: if True, the number of environments is incremented by 1.
-            separate_collision_group: if True, the shapes from the articulation will all be put into a single new collision group, otherwise, only the shapes in collision group > -1 will be moved to a new group.
+            articulation (ModelBuilder): a model builder to add rigid articulation from.
+            xform (:ref:`transform <transform>`): offset transform applied to root bodies.
+            update_num_env_count (bool): if True, the number of environments is incremented by 1.
+            separate_collision_group (bool): if True, the shapes from the articulation will all be put into a single new collision group, otherwise, only the shapes in collision group > -1 will be moved to a new group.
         """
+
+        start_particle_idx = self.particle_count
+        if articulation.particle_count:
+            self.particle_max_velocity = articulation.particle_max_velocity
+            if xform is not None:
+                pos_offset = wp.transform_get_translation(xform)
+            else:
+                pos_offset = np.zeros(3)
+            self.particle_q.extend((np.array(articulation.particle_q) + pos_offset).tolist())
+            # other particle attributes are added below
+
+        if articulation.spring_count:
+            self.spring_indices.extend((np.array(articulation.spring_indices, dtype=np.int32) + start_particle_idx).tolist())
+        if articulation.edge_count:
+            self.edge_indices.extend((np.array(articulation.edge_indices, dtype=np.int32) + start_particle_idx).tolist())
+        if articulation.tri_count:
+            self.tri_indices.extend((np.array(articulation.tri_indices, dtype=np.int32) + start_particle_idx).tolist())
+        if articulation.tet_count:
+            self.tet_indices.extend((np.array(articulation.tet_indices, dtype=np.int32) + start_particle_idx).tolist())
 
         start_body_idx = self.body_count
         start_shape_idx = self.shape_count
@@ -1273,7 +1378,7 @@ class ModelBuilder:
         elif articulation.last_collision_group > -1:
             self.last_collision_group += articulation.last_collision_group
 
-        rigid_articulation_attrs = [
+        more_builder_attrs = [
             "body_inertia",
             "body_mass",
             "body_inv_inertia",
@@ -1312,9 +1417,25 @@ class ModelBuilder:
             "shape_material_restitution",
             "shape_collision_radius",
             "shape_ground_collision",
+            "particle_qd",
+            "particle_mass",
+            "particle_radius",
+            "particle_flags",
+            "edge_rest_angle",
+            "edge_bending_properties",
+            "spring_rest_length",
+            "spring_stiffness",
+            "spring_damping",
+            "spring_control",
+            "tri_poses",
+            "tri_activations",
+            "tri_materials",
+            "tet_poses",
+            "tet_activations",
+            "tet_materials",
         ]
 
-        for attr in rigid_articulation_attrs:
+        for attr in more_builder_attrs:
             getattr(self, attr).extend(getattr(articulation, attr))
 
         self.joint_dof_count += articulation.joint_dof_count
@@ -1405,16 +1526,19 @@ class ModelBuilder:
             linear_axes: The linear axes (see :class:`JointAxis`) of the joint
             angular_axes: The angular axes (see :class:`JointAxis`) of the joint
             name: The name of the joint
-            parent_xform: The transform of the joint in the parent body's local frame
-            child_xform: The transform of the joint in the child body's local frame
+            parent_xform (:ref:`transform <transform>`): The transform of the joint in the parent body's local frame
+            child_xform (:ref:`transform <transform>`): The transform of the joint in the child body's local frame
             linear_compliance: The linear compliance of the joint
             angular_compliance: The angular compliance of the joint
             collision_filter_parent: Whether to filter collisions between shapes of the parent and child bodies
             enabled: Whether the joint is enabled
 
         Returns:
-            The index of the child body
+            The index of the added joint
         """
+        if len(self.articulation_start) == 0:
+            # automatically add an articulation if none exists
+            self.add_articulation()
         self.joint_type.append(joint_type)
         self.joint_parent.append(parent)
         if child not in self.joint_parents:
@@ -1466,7 +1590,7 @@ class ModelBuilder:
         elif joint_type == JOINT_BALL:
             dof_count = 3
             coord_count = 4
-        elif joint_type == JOINT_FREE:
+        elif joint_type == JOINT_FREE or joint_type == JOINT_DISTANCE:
             dof_count = 6
             coord_count = 7
         elif joint_type == JOINT_FIXED:
@@ -1478,10 +1602,6 @@ class ModelBuilder:
         elif joint_type == JOINT_COMPOUND:
             dof_count = 3
             coord_count = 3
-        elif joint_type == JOINT_DISTANCE:
-            # todo use free joint dofs?
-            dof_count = 0
-            coord_count = 0
         elif joint_type == JOINT_D6:
             dof_count = len(linear_axes) + len(angular_axes)
             coord_count = dof_count
@@ -1493,7 +1613,7 @@ class ModelBuilder:
             self.joint_qd.append(0.0)
             self.joint_act.append(0.0)
 
-        if joint_type == JOINT_FREE or joint_type == JOINT_BALL:
+        if joint_type == JOINT_FREE or joint_type == JOINT_DISTANCE or joint_type == JOINT_BALL:
             # ensure that a valid quaternion is used for the angular dofs
             self.joint_q[-1] = 1.0
 
@@ -1531,14 +1651,14 @@ class ModelBuilder:
         collision_filter_parent: bool = True,
         enabled: bool = True,
     ) -> int:
-        """Adds a revolute joint to the model
+        """Adds a revolute (hinge) joint to the model. It has one degree of freedom.
 
         Args:
             parent: The index of the parent body
             child: The index of the child body
-            parent_xform: The transform of the joint in the parent body's local frame
-            child_xform: The transform of the joint in the child body's local frame
-            axis: The axis of rotation in the parent body's local frame
+            parent_xform (:ref:`transform <transform>`): The transform of the joint in the parent body's local frame
+            child_xform (:ref:`transform <transform>`): The transform of the joint in the child body's local frame
+            axis (3D vector or JointAxis): The axis of rotation in the parent body's local frame, can be a JointAxis object whose settings will be used instead of the other arguments
             target: The target angle (in radians) of the joint
             target_ke: The stiffness of the joint target
             target_kd: The damping of the joint target
@@ -1553,7 +1673,7 @@ class ModelBuilder:
             enabled: Whether the joint is enabled
 
         Returns:
-            The index of the child body
+            The index of the added joint
 
         """
         ax = JointAxis(
@@ -1602,14 +1722,14 @@ class ModelBuilder:
         collision_filter_parent: bool = True,
         enabled: bool = True,
     ) -> int:
-        """Adds a prismatic joint to the model
+        """Adds a prismatic (sliding) joint to the model. It has one degree of freedom.
 
         Args:
             parent: The index of the parent body
             child: The index of the child body
-            parent_xform: The transform of the joint in the parent body's local frame
-            child_xform: The transform of the joint in the child body's local frame
-            axis: The axis of rotation in the parent body's local frame
+            parent_xform (:ref:`transform <transform>`): The transform of the joint in the parent body's local frame
+            child_xform (:ref:`transform <transform>`): The transform of the joint in the child body's local frame
+            axis (3D vector or JointAxis): The axis of rotation in the parent body's local frame, can be a JointAxis object whose settings will be used instead of the other arguments
             target: The target position of the joint
             target_ke: The stiffness of the joint target
             target_kd: The damping of the joint target
@@ -1624,7 +1744,7 @@ class ModelBuilder:
             enabled: Whether the joint is enabled
 
         Returns:
-            The index of the child body
+            The index of the added joint
 
         """
         ax = JointAxis(
@@ -1664,13 +1784,13 @@ class ModelBuilder:
         collision_filter_parent: bool = True,
         enabled: bool = True,
     ) -> int:
-        """Adds a ball joint to the model
+        """Adds a ball (spherical) joint to the model. Its position is defined by a 4D quaternion (xyzw) and its velocity is a 3D vector.
 
         Args:
             parent: The index of the parent body
             child: The index of the child body
-            parent_xform: The transform of the joint in the parent body's local frame
-            xform: The transform of the joint in the child body's local frame
+            parent_xform (:ref:`transform <transform>`): The transform of the joint in the parent body's local frame
+            child_xform (:ref:`transform <transform>`): The transform of the joint in the child body's local frame
             linear_compliance: The linear compliance of the joint
             angular_compliance: The angular compliance of the joint
             name: The name of the joint
@@ -1678,7 +1798,7 @@ class ModelBuilder:
             enabled: Whether the joint is enabled
 
         Returns:
-            The index of the child body
+            The index of the added joint
 
         """
         return self.add_joint(
@@ -1706,13 +1826,14 @@ class ModelBuilder:
         collision_filter_parent: bool = True,
         enabled: bool = True,
     ) -> int:
-        """Adds a fixed joint to the model
+        """Adds a fixed (static) joint to the model. It has no degrees of freedom.
+        See :meth:`collapse_fixed_joints` for a helper function that removes these fixed joints and merges the connecting bodies to simplify the model and improve stability.
 
         Args:
             parent: The index of the parent body
             child: The index of the child body
-            parent_xform: The transform of the joint in the parent body's local frame
-            xform: The transform of the joint in the child body's local frame
+            parent_xform (:ref:`transform <transform>`): The transform of the joint in the parent body's local frame
+            child_xform (:ref:`transform <transform>`): The transform of the joint in the child body's local frame
             linear_compliance: The linear compliance of the joint
             angular_compliance: The angular compliance of the joint
             name: The name of the joint
@@ -1720,7 +1841,7 @@ class ModelBuilder:
             enabled: Whether the joint is enabled
 
         Returns:
-            The index of the child body
+            The index of the added joint
 
         """
         return self.add_joint(
@@ -1746,19 +1867,20 @@ class ModelBuilder:
         collision_filter_parent: bool = True,
         enabled: bool = True,
     ) -> int:
-        """Adds a free joint to the model
+        """Adds a free joint to the model.
+        It has 7 positional degrees of freedom (first 3 linear and then 4 angular dimensions for the orientation quaternion in `xyzw` notation) and 6 velocity degrees of freedom (first 3 angular and then 3 linear velocity dimensions).
 
         Args:
-            parent: The index of the parent body
             child: The index of the child body
-            parent_xform: The transform of the joint in the parent body's local frame
-            xform: The transform of the joint in the child body's local frame
+            parent_xform (:ref:`transform <transform>`): The transform of the joint in the parent body's local frame
+            child_xform (:ref:`transform <transform>`): The transform of the joint in the child body's local frame
+            parent: The index of the parent body (-1 by default to use the world frame, e.g. to make the child body and its children a floating-base mechanism)
             name: The name of the joint
             collision_filter_parent: Whether to filter collisions between shapes of the parent and child bodies
             enabled: Whether the joint is enabled
 
         Returns:
-            The index of the child body
+            The index of the added joint
 
         """
         return self.add_joint(
@@ -1784,13 +1906,14 @@ class ModelBuilder:
         collision_filter_parent: bool = True,
         enabled: bool = True,
     ) -> int:
-        """Adds a distance joint to the model
+        """Adds a distance joint to the model. The distance joint constraints the distance between the joint anchor points on the two bodies (see :ref:`FK-IK`) it connects to the interval [`min_distance`, `max_distance`].
+        It has 7 positional degrees of freedom (first 3 linear and then 4 angular dimensions for the orientation quaternion in `xyzw` notation) and 6 velocity degrees of freedom (first 3 angular and then 3 linear velocity dimensions).
 
         Args:
             parent: The index of the parent body
             child: The index of the child body
-            parent_xform: The transform of the joint in the parent body's local frame
-            xform: The transform of the joint in the child body's local frame
+            parent_xform (:ref:`transform <transform>`): The transform of the joint in the parent body's local frame
+            child_xform (:ref:`transform <transform>`): The transform of the joint in the child body's local frame
             min_distance: The minimum distance between the bodies (no limit if negative)
             max_distance: The maximum distance between the bodies (no limit if negative)
             compliance: The compliance of the joint
@@ -1798,7 +1921,9 @@ class ModelBuilder:
             enabled: Whether the joint is enabled
 
         Returns:
-            The index of the child body
+            The index of the added joint
+        
+        .. note:: Distance joints are currently only supported in the :class:`XPBDIntegrator` at the moment.
 
         """
         ax = JointAxis(
@@ -1832,15 +1957,15 @@ class ModelBuilder:
         collision_filter_parent: bool = True,
         enabled: bool = True,
     ) -> int:
-        """Adds a universal joint to the model
+        """Adds a universal joint to the model. U-joints have two degrees of freedom, one for each axis.
 
         Args:
             parent: The index of the parent body
             child: The index of the child body
-            axis_0: The first axis of the joint
-            axis_1: The second axis of the joint
-            parent_xform: The transform of the joint in the parent body's local frame
-            xform: The transform of the joint in the child body's local frame
+            axis_0 (3D vector or JointAxis): The first axis of the joint, can be a JointAxis object whose settings will be used instead of the other arguments
+            axis_1 (3D vector or JointAxis): The second axis of the joint, can be a JointAxis object whose settings will be used instead of the other arguments
+            parent_xform (:ref:`transform <transform>`): The transform of the joint in the parent body's local frame
+            child_xform (:ref:`transform <transform>`): The transform of the joint in the child body's local frame
             linear_compliance: The linear compliance of the joint
             angular_compliance: The angular compliance of the joint
             name: The name of the joint
@@ -1848,14 +1973,14 @@ class ModelBuilder:
             enabled: Whether the joint is enabled
 
         Returns:
-            The index of the child body
+            The index of the added joint
 
         """
         return self.add_joint(
             JOINT_UNIVERSAL,
             parent,
             child,
-            angular_axes=[axis_0, axis_1],
+            angular_axes=[JointAxis(axis_0), JointAxis(axis_1)],
             parent_xform=parent_xform,
             child_xform=child_xform,
             linear_compliance=linear_compliance,
@@ -1878,29 +2003,32 @@ class ModelBuilder:
         collision_filter_parent: bool = True,
         enabled: bool = True,
     ) -> int:
-        """Adds a compound joint to the model
+        """Adds a compound joint to the model, which has 3 degrees of freedom, one for each axis.
+        Similar to the ball joint (see :meth:`add_ball_joint`), the compound joint allows bodies to move in a 3D rotation relative to each other,
+        except that the rotation is defined by 3 axes instead of a quaternion.
+        Depending on the choice of axes, the orientation can be specified through Euler angles, e.g. `z-x-z` or `x-y-x`, or through a Tait-Bryan angle sequence, e.g. `z-y-x` or `x-y-z`.
 
         Args:
             parent: The index of the parent body
             child: The index of the child body
-            axis_0: The first axis of the joint
-            axis_1: The second axis of the joint
-            axis_2: The third axis of the joint
-            parent_xform: The transform of the joint in the parent body's local frame
-            xform: The transform of the joint in the child body's local frame
+            axis_0 (3D vector or JointAxis): The first axis of the joint, can be a JointAxis object whose settings will be used instead of the other arguments
+            axis_1 (3D vector or JointAxis): The second axis of the joint, can be a JointAxis object whose settings will be used instead of the other arguments
+            axis_2 (3D vector or JointAxis): The third axis of the joint, can be a JointAxis object whose settings will be used instead of the other arguments
+            parent_xform (:ref:`transform <transform>`): The transform of the joint in the parent body's local frame
+            child_xform (:ref:`transform <transform>`): The transform of the joint in the child body's local frame
             name: The name of the joint
             collision_filter_parent: Whether to filter collisions between shapes of the parent and child bodies
             enabled: Whether the joint is enabled
 
         Returns:
-            The index of the child body
+            The index of the added joint
 
         """
         return self.add_joint(
             JOINT_COMPOUND,
             parent,
             child,
-            angular_axes=[axis_0, axis_1, axis_2],
+            angular_axes=[JointAxis(axis_0), JointAxis(axis_1), JointAxis(axis_2)],
             parent_xform=parent_xform,
             child_xform=child_xform,
             name=name,
@@ -1922,7 +2050,7 @@ class ModelBuilder:
         collision_filter_parent: bool = True,
         enabled: bool = True,
     ):
-        """Adds a generic joint with custom linear and angular axes.
+        """Adds a generic joint with custom linear and angular axes. The number of axes determines the number of degrees of freedom of the joint.
 
         Args:
             parent: The index of the parent body
@@ -1930,15 +2058,15 @@ class ModelBuilder:
             linear_axes: A list of linear axes
             angular_axes: A list of angular axes
             name: The name of the joint
-            parent_xform: The transform of the joint in the parent body's local frame
-            xform: The transform of the joint in the child body's local frame
+            parent_xform (:ref:`transform <transform>`): The transform of the joint in the parent body's local frame
+            child_xform (:ref:`transform <transform>`): The transform of the joint in the child body's local frame
             linear_compliance: The linear compliance of the joint
             angular_compliance: The angular compliance of the joint
             collision_filter_parent: Whether to filter collisions between shapes of the parent and child bodies
             enabled: Whether the joint is enabled
 
         Returns:
-            The index of the child body
+            The index of the added joint
 
         """
         return self.add_joint(
@@ -1947,8 +2075,8 @@ class ModelBuilder:
             child,
             parent_xform=parent_xform,
             child_xform=child_xform,
-            linear_axes=linear_axes,
-            angular_axes=angular_axes,
+            linear_axes=[JointAxis(a) for a in linear_axes],
+            angular_axes=[JointAxis(a) for a in angular_axes],
             linear_compliance=linear_compliance,
             angular_compliance=angular_compliance,
             name=name,
@@ -1989,7 +2117,7 @@ class ModelBuilder:
         wp.sim.plot_graph(vertices, edges, edge_labels=edge_labels)
 
     def collapse_fixed_joints(self, verbose=wp.config.verbose):
-        """Removes fixed joints from the model and merges the bodies they connect."""
+        """Removes fixed joints from the model and merges the bodies they connect. This is useful for simplifying the model for faster and more stable simulation."""
 
         body_data = {}
         body_children = {-1: []}
@@ -2030,9 +2158,9 @@ class ModelBuilder:
             data = {
                 "type": self.joint_type[i],
                 # 'armature': self.joint_armature[i],
-                "q": self.joint_q[q_start: q_start + q_dim],
-                "qd": self.joint_qd[qd_start: qd_start + qd_dim],
-                "act": self.joint_act[qd_start: qd_start + qd_dim],
+                "q": self.joint_q[q_start : q_start + q_dim],
+                "qd": self.joint_qd[qd_start : qd_start + qd_dim],
+                "act": self.joint_act[qd_start : qd_start + qd_dim],
                 "q_start": q_start,
                 "qd_start": qd_start,
                 "linear_compliance": self.joint_linear_compliance[i],
@@ -2092,7 +2220,7 @@ class ModelBuilder:
                 if verbose:
                     print(
                         f'Remove fixed joint {joint["name"]} between {parent_name} and {child_name}, '
-                        f'merging {child_name} into {last_dynamic_body_name}'
+                        f"merging {child_name} into {last_dynamic_body_name}"
                     )
                 child_id = body_data[child_body]["original_id"]
                 for shape in self.body_shapes[child_id]:
@@ -2238,7 +2366,7 @@ class ModelBuilder:
     def add_muscle(
         self, bodies: List[int], positions: List[Vec3], f0: float, lm: float, lt: float, lmax: float, pen: float
     ) -> float:
-        """Adds a muscle-tendon activation unit
+        """Adds a muscle-tendon activation unit.
 
         Args:
             bodies: A list of body indices for each waypoint
@@ -2250,6 +2378,8 @@ class ModelBuilder:
 
         Returns:
             The index of the muscle in the model
+
+        .. note:: The simulation support for muscles is in progress and not yet fully functional.
 
         """
 
@@ -2286,7 +2416,7 @@ class ModelBuilder:
         """
         Adds a plane collision shape.
         If pos and rot are defined, the plane is assumed to have its normal as (0, 1, 0).
-        Otherwise, the plane equation is used.
+        Otherwise, the plane equation defined through the `plane` argument is used.
 
         Args:
             plane: The plane equation in form a*x + b*y + c*z + d = 0
@@ -2302,6 +2432,9 @@ class ModelBuilder:
             restitution: The coefficient of restitution
             thickness: The thickness of the plane (0 by default) for collision handling
             has_ground_collision: If True, the mesh will collide with the ground plane if `Model.ground` is True
+
+        Returns:
+            The index of the added shape
 
         """
         if pos is None or rot is None:
@@ -2351,11 +2484,12 @@ class ModelBuilder:
         is_solid: bool = True,
         thickness: float = default_geo_thickness,
         has_ground_collision: bool = True,
+        collision_group: int = -1,
     ):
         """Adds a sphere collision shape to a body.
 
         Args:
-            body: The index of the parent body this shape belongs to
+            body: The index of the parent body this shape belongs to (use -1 for static shapes)
             pos: The location of the shape with respect to the parent frame
             rot: The rotation of the shape with respect to the parent frame
             radius: The radius of the sphere
@@ -2368,6 +2502,10 @@ class ModelBuilder:
             is_solid: Whether the sphere is solid or hollow
             thickness: Thickness to use for computing inertia of a hollow sphere, and for collision handling
             has_ground_collision: If True, the mesh will collide with the ground plane if `Model.ground` is True
+            collision_group: The collision group of the shape
+
+        Returns:
+            The index of the added shape
 
         """
 
@@ -2387,6 +2525,7 @@ class ModelBuilder:
             thickness + radius,
             is_solid,
             has_ground_collision=has_ground_collision,
+            collision_group=collision_group,
         )
 
     def add_shape_box(
@@ -2406,11 +2545,12 @@ class ModelBuilder:
         is_solid: bool = True,
         thickness: float = default_geo_thickness,
         has_ground_collision: bool = True,
+        collision_group: int = -1,
     ):
         """Adds a box collision shape to a body.
 
         Args:
-            body: The index of the parent body this shape belongs to
+            body: The index of the parent body this shape belongs to (use -1 for static shapes)
             pos: The location of the shape with respect to the parent frame
             rot: The rotation of the shape with respect to the parent frame
             hx: The half-extent along the x-axis
@@ -2425,6 +2565,10 @@ class ModelBuilder:
             is_solid: Whether the box is solid or hollow
             thickness: Thickness to use for computing inertia of a hollow box, and for collision handling
             has_ground_collision: If True, the mesh will collide with the ground plane if `Model.ground` is True
+            collision_group: The collision group of the shape
+
+        Returns:
+            The index of the added shape
 
         """
 
@@ -2444,6 +2588,7 @@ class ModelBuilder:
             thickness,
             is_solid,
             has_ground_collision=has_ground_collision,
+            collision_group=collision_group,
         )
 
     def add_shape_capsule(
@@ -2463,11 +2608,12 @@ class ModelBuilder:
         is_solid: bool = True,
         thickness: float = default_geo_thickness,
         has_ground_collision: bool = True,
+        collision_group: int = -1,
     ):
         """Adds a capsule collision shape to a body.
 
         Args:
-            body: The index of the parent body this shape belongs to
+            body: The index of the parent body this shape belongs to (use -1 for static shapes)
             pos: The location of the shape with respect to the parent frame
             rot: The rotation of the shape with respect to the parent frame
             radius: The radius of the capsule
@@ -2482,6 +2628,10 @@ class ModelBuilder:
             is_solid: Whether the capsule is solid or hollow
             thickness: Thickness to use for computing inertia of a hollow capsule, and for collision handling
             has_ground_collision: If True, the mesh will collide with the ground plane if `Model.ground` is True
+            collision_group: The collision group of the shape
+
+        Returns:
+            The index of the added shape
 
         """
 
@@ -2508,6 +2658,7 @@ class ModelBuilder:
             thickness + radius,
             is_solid,
             has_ground_collision=has_ground_collision,
+            collision_group=collision_group,
         )
 
     def add_shape_cylinder(
@@ -2527,11 +2678,12 @@ class ModelBuilder:
         is_solid: bool = True,
         thickness: float = default_geo_thickness,
         has_ground_collision: bool = True,
+        collision_group: int = -1,
     ):
         """Adds a cylinder collision shape to a body.
 
         Args:
-            body: The index of the parent body this shape belongs to
+            body: The index of the parent body this shape belongs to (use -1 for static shapes)
             pos: The location of the shape with respect to the parent frame
             rot: The rotation of the shape with respect to the parent frame
             radius: The radius of the cylinder
@@ -2546,6 +2698,10 @@ class ModelBuilder:
             is_solid: Whether the cylinder is solid or hollow
             thickness: Thickness to use for computing inertia of a hollow cylinder, and for collision handling
             has_ground_collision: If True, the mesh will collide with the ground plane if `Model.ground` is True
+            collision_group: The collision group of the shape
+
+        Returns:
+            The index of the added shape
 
         """
 
@@ -2572,6 +2728,7 @@ class ModelBuilder:
             thickness,
             is_solid,
             has_ground_collision=has_ground_collision,
+            collision_group=collision_group,
         )
 
     def add_shape_cone(
@@ -2591,11 +2748,12 @@ class ModelBuilder:
         is_solid: bool = True,
         thickness: float = default_geo_thickness,
         has_ground_collision: bool = True,
+        collision_group: int = -1,
     ):
         """Adds a cone collision shape to a body.
 
         Args:
-            body: The index of the parent body this shape belongs to
+            body: The index of the parent body this shape belongs to (use -1 for static shapes)
             pos: The location of the shape with respect to the parent frame
             rot: The rotation of the shape with respect to the parent frame
             radius: The radius of the cone
@@ -2610,6 +2768,10 @@ class ModelBuilder:
             is_solid: Whether the cone is solid or hollow
             thickness: Thickness to use for computing inertia of a hollow cone, and for collision handling
             has_ground_collision: If True, the mesh will collide with the ground plane if `Model.ground` is True
+            collision_group: The collision group of the shape
+
+        Returns:
+            The index of the added shape
 
         """
 
@@ -2636,6 +2798,7 @@ class ModelBuilder:
             thickness,
             is_solid,
             has_ground_collision=has_ground_collision,
+            collision_group=collision_group,
         )
 
     def add_shape_mesh(
@@ -2654,11 +2817,12 @@ class ModelBuilder:
         is_solid: bool = True,
         thickness: float = default_geo_thickness,
         has_ground_collision: bool = True,
+        collision_group: int = -1,
     ):
         """Adds a triangle mesh collision shape to a body.
 
         Args:
-            body: The index of the parent body this shape belongs to
+            body: The index of the parent body this shape belongs to (use -1 for static shapes)
             pos: The location of the shape with respect to the parent frame
             rot: The rotation of the shape with respect to the parent frame
             mesh: The mesh object
@@ -2672,6 +2836,10 @@ class ModelBuilder:
             is_solid: If True, the mesh is solid, otherwise it is a hollow surface with the given wall thickness
             thickness: Thickness to use for computing inertia of a hollow mesh, and for collision handling
             has_ground_collision: If True, the mesh will collide with the ground plane if `Model.ground` is True
+            collision_group: The collision group of the shape
+
+        Returns:
+            The index of the added shape
 
         """
 
@@ -2691,6 +2859,62 @@ class ModelBuilder:
             thickness,
             is_solid,
             has_ground_collision=has_ground_collision,
+            collision_group=collision_group,
+        )
+
+    def add_shape_sdf(
+        self,
+        body: int,
+        pos: Vec3 = (0.0, 0.0, 0.0),
+        rot: Quat = (0.0, 0.0, 0.0, 1.0),
+        sdf: SDF = None,
+        scale: Vec3 = (1.0, 1.0, 1.0),
+        density: float = default_shape_density,
+        ke: float = default_shape_ke,
+        kd: float = default_shape_kd,
+        kf: float = default_shape_kf,
+        mu: float = default_shape_mu,
+        restitution: float = default_shape_restitution,
+        is_solid: bool = True,
+        thickness: float = default_geo_thickness,
+    ):
+        """Adds SDF collision shape to a body.
+
+        Args:
+            body: The index of the parent body this shape belongs to (use -1 for static shapes)
+            pos: The location of the shape with respect to the parent frame
+            rot: The rotation of the shape with respect to the parent frame
+            sdf: The sdf object
+            scale: Scale to use for the collider
+            density: The density of the shape
+            ke: The contact elastic stiffness
+            kd: The contact damping stiffness
+            kf: The contact friction stiffness
+            mu: The coefficient of friction
+            restitution: The coefficient of restitution
+            is_solid: If True, the mesh is solid, otherwise it is a hollow surface with the given wall thickness
+            thickness: Thickness to use for computing inertia of a hollow mesh, and for collision handling
+            has_ground_collision: If True, the mesh will collide with the ground plane if `Model.ground` is True
+
+        Returns:
+            The index of the added shape
+
+        """
+        return self._add_shape(
+            body,
+            pos,
+            rot,
+            GEO_SDF,
+            (scale[0], scale[1], scale[2], 0.0),
+            sdf,
+            density,
+            ke,
+            kd,
+            kf,
+            mu,
+            restitution,
+            thickness,
+            is_solid,
         )
 
     def _shape_radius(self, type, scale, src):
@@ -3007,7 +3231,7 @@ class ModelBuilder:
             The volume of the tetrahedron
 
         Note:
-            The tetrahedron is created with a rest-pose based on the particle's initial configruation
+            The tetrahedron is created with a rest-pose based on the particle's initial configuration
 
         """
         # compute basis for 2D rest pose
@@ -3178,6 +3402,9 @@ class ModelBuilder:
         tri_lift: float = default_tri_lift,
         edge_ke: float = default_edge_ke,
         edge_kd: float = default_edge_kd,
+        add_springs: bool = False,
+        spring_ke: float = default_spring_ke,
+        spring_kd: float = default_spring_kd,
     ):
         """Helper to create a regular planar cloth grid
 
@@ -3257,12 +3484,13 @@ class ModelBuilder:
                         self.add_triangle(*tri1, tri_ke, tri_ka, tri_kd, tri_drag, tri_lift)
                         self.add_triangle(*tri2, tri_ke, tri_ka, tri_kd, tri_drag, tri_lift)
 
-        end_vertex = len(self.particle_q)
         end_tri = len(self.tri_indices)
 
         # bending constraints, could create these explicitly for a grid but this
         # is a good test of the adjacency structure
         adj = wp.utils.MeshAdjacency(self.tri_indices[start_tri:end_tri], end_tri - start_tri)
+
+        spring_indices = set()
 
         for k, e in adj.edges.items():
             # skip open edges
@@ -3272,6 +3500,19 @@ class ModelBuilder:
             self.add_edge(
                 e.o0, e.o1, e.v0, e.v1, edge_ke=edge_ke, edge_kd=edge_kd
             )  # opposite 0, opposite 1, vertex 0, vertex 1
+
+            spring_indices.add((min(e.o0, e.o1), max(e.o0, e.o1)))
+            spring_indices.add((min(e.o0, e.v0), max(e.o0, e.v0)))
+            spring_indices.add((min(e.o0, e.v1), max(e.o0, e.v1)))
+
+            spring_indices.add((min(e.o1, e.v0), max(e.o1, e.v0)))
+            spring_indices.add((min(e.o1, e.v1), max(e.o1, e.v1)))
+
+            spring_indices.add((min(e.v0, e.v1), max(e.v0, e.v1)))
+
+        if add_springs:
+            for i, j in spring_indices:
+                self.add_spring(i, j, spring_ke, spring_kd, control=0.0)
 
     def add_cloth_mesh(
         self,
@@ -3291,6 +3532,9 @@ class ModelBuilder:
         tri_lift: float = default_tri_lift,
         edge_ke: float = default_edge_ke,
         edge_kd: float = default_edge_kd,
+        add_springs: bool = False,
+        spring_ke: float = default_spring_ke,
+        spring_kd: float = default_spring_kd,
     ):
         """Helper to create a cloth model from a regular triangle mesh
 
@@ -3347,7 +3591,10 @@ class ModelBuilder:
 
         adj = wp.utils.MeshAdjacency(self.tri_indices[start_tri:end_tri], end_tri - start_tri)
 
-        edgeinds = np.array([[e.o0, e.o1, e.v0, e.v1] for k, e in adj.edges.items()])
+        edgeinds = np.fromiter(
+            (x for e in adj.edges.values() if e.f0 != -1 and e.f1 != -1 for x in (e.o0, e.o1, e.v0, e.v1)),
+            int,
+        ).reshape(-1, 4)
         self.add_edges(
             edgeinds[:, 0],
             edgeinds[:, 1],
@@ -3356,6 +3603,21 @@ class ModelBuilder:
             edge_ke=[edge_ke] * len(edgeinds),
             edge_kd=[edge_kd] * len(edgeinds),
         )
+
+        if add_springs:
+            spring_indices = set()
+            for i, j, k, l in edgeinds:
+                spring_indices.add((min(i, j), max(i, j)))
+                spring_indices.add((min(i, k), max(i, k)))
+                spring_indices.add((min(i, l), max(i, l)))
+
+                spring_indices.add((min(j, k), max(j, k)))
+                spring_indices.add((min(j, l), max(j, l)))
+
+                spring_indices.add((min(k, l), max(k, l)))
+
+            for i, j in spring_indices:
+                self.add_spring(i, j, spring_ke, spring_kd, control=0.0)
 
     def add_particle_grid(
         self,
@@ -3550,7 +3812,6 @@ class ModelBuilder:
         num_tets = int(len(indices) / 4)
 
         start_vertex = len(self.particle_q)
-        start_tri = len(self.tri_indices)
 
         # dict of open faces
         faces = {}
@@ -3683,13 +3944,7 @@ class ModelBuilder:
             self._create_ground_plane()
 
         # construct particle inv masses
-        particle_inv_mass = []
-
-        for m in self.particle_mass:
-            if m > 0.0:
-                particle_inv_mass.append(1.0 / m)
-            else:
-                particle_inv_mass.append(0.0)
+        particle_inv_mass = 1.0 / np.array(self.particle_mass, dtype=np.float32)
 
         with wp.ScopedDevice(device):
             # -------------------------------------
@@ -3711,6 +3966,7 @@ class ModelBuilder:
             m._particle_radius = wp.array(self.particle_radius, dtype=wp.float32, requires_grad=requires_grad)
             m.particle_flags = wp.array([flag_to_int(f) for f in self.particle_flags], dtype=wp.uint32)
             m.particle_max_radius = np.max(self.particle_radius) if len(self.particle_radius) > 0 else 0.0
+            m.particle_max_velocity = self.particle_max_velocity
 
             # hash-grid for particle interactions
             m.particle_grid = wp.HashGrid(128, 128, 128)
@@ -3766,6 +4022,9 @@ class ModelBuilder:
             m.spring_stiffness = wp.array(self.spring_stiffness, dtype=wp.float32, requires_grad=requires_grad)
             m.spring_damping = wp.array(self.spring_damping, dtype=wp.float32, requires_grad=requires_grad)
             m.spring_control = wp.array(self.spring_control, dtype=wp.float32, requires_grad=requires_grad)
+            m.spring_constraint_lambdas = wp.array(
+                shape=len(self.spring_rest_length), dtype=wp.float32, requires_grad=requires_grad
+            )
 
             # ---------------------
             # triangles
@@ -3782,6 +4041,9 @@ class ModelBuilder:
             m.edge_rest_angle = wp.array(self.edge_rest_angle, dtype=wp.float32, requires_grad=requires_grad)
             m.edge_bending_properties = wp.array(
                 self.edge_bending_properties, dtype=wp.float32, requires_grad=requires_grad
+            )
+            m.edge_constraint_lambdas = wp.array(
+                shape=len(self.edge_rest_angle), dtype=wp.float32, requires_grad=requires_grad
             )
 
             # ---------------------

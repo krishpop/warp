@@ -1,19 +1,22 @@
-# NVIDIA Warp (Preview)
+# NVIDIA Warp
 
-Warp is a Python framework for writing high-performance simulation and graphics code. Kernels are defined in Python syntax and JIT converted to C++/CUDA and compiled at runtime.
+Warp is a Python framework for writing high-performance simulation and graphics code. Warp takes
+regular Python functions and JIT compiles them to efficient kernel code that can run on the CPU or GPU.
 
-Warp is comes with a rich set of primitives that make it easy to write programs for physics simulation, geometry processing, and procedural animation. In addition, Warp kernels are differentiable, and can be used as part of machine-learning training pipelines with other frameworks such as PyTorch.
+Warp is designed for spatial computing and comes with a rich set of primitives that make it easy to write 
+programs for physics simulation, perception, robotics, and geometry processing. In addition, Warp kernels 
+are differentiable and can be used as part of machine-learning pipelines with frameworks such as PyTorch and JAX.
 
 Please refer to the project [Documentation](https://nvidia.github.io/warp/) for API and language reference and [CHANGELOG.md](./CHANGELOG.md) for release history.
 
-![](./docs/img/gifs/aldina.gif) ![](./docs/img/gifs/nanovdb.gif)
-![](./docs/img/gifs/ocean.gif) ![](./docs/img/gifs/particles.gif)
+![](https://github.com/NVIDIA/warp/raw/main/docs/img/gifs/aldina.gif) ![](https://github.com/NVIDIA/warp/raw/main/docs/img/gifs/nanovdb.gif)
+![](https://github.com/NVIDIA/warp/raw/main/docs/img/gifs/ocean.gif) ![](https://github.com/NVIDIA/warp/raw/main/docs/img/gifs/particles.gif)
 
 _A selection of physical simulations computed with Warp_
 
 ## Installing 
 
-Warp supports Python versions 3.7.x-3.11.x. The easiest way is to install from PyPi:
+Warp supports Python versions 3.7.x onwards. The easiest way is to install from PyPi:
 
     pip install warp-lang
 
@@ -95,11 +98,12 @@ This will ensure symlinks inside ``exts/omni.warp`` work upon cloning.
 
 ## Omniverse
 
-A Warp Omniverse extension is available in the extension registry inside Omniverse Kit or Create:
+A Warp Omniverse extension is available in the extension registry inside Omniverse Kit or USD Composer:
 
-<img src="./docs/img/omniverse.png" width=550px/>
+<img src="https://github.com/NVIDIA/warp/raw/main/docs/img/omniverse.png" width=550px/>
 
-Enabling the extension will automatically install and initialize the Warp Python module inside the Kit Python environment. Please see the [Omniverse Warp Documentation](http://docs.omniverse.nvidia.com/extensions/warp.html) for more details on how to use Warp in Omniverse.
+Enabling the extension will automatically install and initialize the Warp Python module inside the Kit Python environment.
+Please see the [Omniverse Warp Documentation](https://docs.omniverse.nvidia.com/extensions/latest/ext_warp.html) for more details on how to use Warp in Omniverse.
 
 ## Learn More
 

@@ -1,22 +1,26 @@
 Installation
 ============
 
-Python version
---------------
+The easiest way is to install Warp is from PyPi:
 
-Warp supports Python versions 3.7 and newer.
+.. code-block:: sh
+
+    $ pip install warp-lang
+
+Pre-built binary packages for Windows, Linux and macOS are also available on the `Releases <https://github.com/NVIDIA/warp/releases>`__ page. To install in your local Python environment extract the archive and run the following command from the root directory:
+
+.. code-block:: sh
+
+    $ pip install .
 
 Dependencies
 ------------
 
-Warp requires the following dependencies to be installed:
+Warp supports Python versions 3.7.x onwards, and requires the following dependencies to be installed:
 
 * `NumPy`_
 
 .. _NumPy: https://numpy.org
-
-Optional dependencies
-~~~~~~~~~~~~~~~~~~~~~
 
 The following dependencies may be required to enable certain features:
 
@@ -32,22 +36,6 @@ Building the Warp documentation requires the following dependencies:
 .. _Sphinx: https://www.sphinx-doc.org
 .. _Furo: https://github.com/pradyunsg/furo
 
-Installing from PyPI
---------------------
-
-The easiest way is to install from PyPI:
-
-.. code-block:: sh
-
-    $ pip install warp-lang
-
-Pre-built binary packages for Windows and Linux are also available on the Releases page.
-To install in your local Python environment extract the archive and run the following command from the root directory:
-
-.. code-block:: sh
-
-    $ pip install .
-
 Building from source
 -----------------------------------
 
@@ -61,29 +49,29 @@ tools are required:
 
 After cloning the repository, users should run:
 
-.. code-block:: sh
+.. code-block:: console
 
-   $ python build_lib.py
+    $ python build_lib.py
 
 This will generate the ``warp.dll`` / ``warp.so`` core library
 respectively. When building manually users should ensure that their
-CUDA_PATH environment variable is set, otherwise Warp will be built
+``CUDA_PATH`` environment variable is set, otherwise Warp will be built
 without CUDA support. Alternatively, the path to the CUDA toolkit can be
-passed to the build command as ``--cuda_path="..."``. After building the
+passed to the build command as ``--cuda_path="..."``. After building, the
 Warp package should be installed using:
 
-.. code-block:: sh
+.. code-block:: console
 
-   $ pip install -e .
+    $ pip install -e .
 
 Which ensures that subsequent modifications to the library will be
 reflected in the Python package.
 
 If you are cloning from Windows, please first ensure that you have
-enabled “Developer Mode” in Windows settings and symlinks in git:
+enabled “Developer Mode” in Windows settings and symlinks in Git:
 
-.. code-block:: sh
+.. code-block:: console
 
-   $ git config --global core.symlinks true
+    $ git config --global core.symlinks true
 
 This will ensure symlinks inside ``exts/omni.warp`` work upon cloning.

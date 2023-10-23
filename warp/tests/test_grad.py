@@ -524,7 +524,7 @@ def no_spurious_assignment(xs: wp.array(dtype=wp.vec3), output: wp.array(dtype=w
 # so that the correct counter value per thread can be used in the replay
 # phase of the backward pass
 @wp.func
-def reversible_atomic_add(
+def reversible_increment(
     counter: wp.array(dtype=int),
     counter_index: int,
     value: int,
@@ -536,8 +536,8 @@ def reversible_atomic_add(
     return next_index
 
 
-@wp.func_replay(reversible_atomic_add)
-def replay_reversible_atomic_add(
+@wp.func_replay(reversible_increment)
+def replay_reversible_increment(
     counter: wp.array(dtype=int),
     counter_index: int,
     value: int,
@@ -562,7 +562,7 @@ def test_custom_replay_grad(test, device):
         output: wp.array(dtype=float)
     ):
         tid = wp.tid()
-        idx = reversible_atomic_add(counter, 0, 1, thread_values, tid)
+        idx = reversible_increment(counter, 0, 1, thread_values, tid)
         output[idx] = input[idx] ** 2.0
 
     tape = wp.Tape()

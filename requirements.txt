@@ -1,0 +1,11 @@
+numpy==1.*
+matplotlib==3.*
+urdfpy==0.0.22
+meshio==4.1.0
+openmesh==1.2.1
+tqdm==4.*
+usd-core==22.*
+pyglm==2.7.*
+glfw==2.5.*
+imgui==1.4.*
+pycuda==2022.*

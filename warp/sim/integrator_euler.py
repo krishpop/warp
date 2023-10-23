@@ -12,11 +12,10 @@ models + state forward in time.
 
 import warp as wp
 
-from .model import PARTICLE_FLAG_ACTIVE, ModelShapeMaterials, ModelShapeGeometry
-
+from .collide import triangle_closest_point_barycentric
+from .model import PARTICLE_FLAG_ACTIVE, ModelShapeGeometry, ModelShapeMaterials
 from .optimizer import Optimizer
 from .particles import eval_particle_forces
-from .collide import triangle_closest_point_barycentric
 from .utils import quat_decompose, quat_twist
 
 
@@ -29,6 +28,7 @@ def integrate_particles(
     particle_flags: wp.array(dtype=wp.uint32),
     gravity: wp.vec3,
     dt: float,
+    v_max: float,
     x_new: wp.array(dtype=wp.vec3),
     v_new: wp.array(dtype=wp.vec3),
 ):
@@ -44,6 +44,10 @@ def integrate_particles(
 
     # simple semi-implicit Euler. v1 = v0 + a dt, x1 = x0 + v1 dt
     v1 = v0 + (f0 * inv_mass + gravity * wp.step(0.0 - inv_mass)) * dt
+    # enforce velocity limit to prevent instability
+    v1_mag = wp.length(v1)
+    if v1_mag > v_max:
+        v1 *= v_max / v1_mag
     x1 = x0 + v1 * dt
 
     x_new[tid] = x1
@@ -837,10 +841,10 @@ def eval_particle_ground_contacts(
 def eval_particle_contacts(
     particle_x: wp.array(dtype=wp.vec3),
     particle_v: wp.array(dtype=wp.vec3),
-    particle_radius: wp.array(dtype=float),
-    particle_flags: wp.array(dtype=wp.uint32),
     body_q: wp.array(dtype=wp.transform),
     body_qd: wp.array(dtype=wp.spatial_vector),
+    particle_radius: wp.array(dtype=float),
+    particle_flags: wp.array(dtype=wp.uint32),
     body_com: wp.array(dtype=wp.vec3),
     shape_body: wp.array(dtype=int),
     shape_materials: ModelShapeMaterials,
@@ -1667,10 +1671,10 @@ def compute_forces(model, state, particle_f, body_f, requires_grad):
             inputs=[
                 state.particle_q,
                 state.particle_qd,
-                model.particle_radius,
-                model.particle_flags,
                 state.body_q,
                 state.body_qd,
+                model.particle_radius,
+                model.particle_flags,
                 model.body_com,
                 model.shape_body,
                 model.shape_materials,
@@ -1748,6 +1752,32 @@ def compute_forces(model, state, particle_f, body_f, requires_grad):
     state.body_f = body_f
 
 
+class SemiImplicitIntegratorPlugin:
+
+    def __init__(self):
+        self.initialized = False
+
+    def initialize(self, model, integrator):
+        self.initialized = True
+        self.on_init(model, integrator)
+
+    def on_init(self, model, integrator):
+        # to be implemented by subclasses
+        pass
+
+    def before_integrate(self, model, state_in, state_out, dt, requires_grad):
+        # to be implemented by subclasses
+        pass
+
+    def after_integrate(self, model, state_in, state_out, dt, requires_grad):
+        # to be implemented by subclasses
+        pass
+
+    def augment_state(self, model, state):
+        # to be implemented by subclasses
+        pass
+
+
 class SemiImplicitIntegrator:
     """A semi-implicit integrator using symplectic Euler
 
@@ -1773,10 +1803,21 @@ class SemiImplicitIntegrator:
 
     """
 
-    def __init__(self, angular_damping=0.05):
+    def __init__(self, angular_damping=0.05, plugins=[]):
         self.angular_damping = angular_damping
+        self.plugins = plugins
 
-    def simulate(self, model, state_in, state_out, dt, requires_grad=False):
+    def register_plugin(self, plugin):
+        self.plugins.append(plugin)
+
+    def augment_state(self, model, state):
+        for plugin in self.plugins:
+            if not plugin.initialized:
+                plugin.initialize(model, self)
+            plugin.augment_state(model, state)
+
+    def simulate(self, model, state_in, state_out, dt):
+        requires_grad = state_in.requires_grad
         with wp.ScopedTimer("simulate", False):
             particle_f = None
             body_f = None
@@ -1788,6 +1829,9 @@ class SemiImplicitIntegrator:
                 body_f = state_in.body_f
 
             compute_forces(model, state_in, particle_f, body_f, requires_grad=requires_grad)
+
+            for plugin in self.plugins:
+                plugin.before_integrate(model, state_in, state_out, dt, requires_grad)
 
             # -------------------------------------
             # integrate bodies
@@ -1828,10 +1872,14 @@ class SemiImplicitIntegrator:
                         model.particle_flags,
                         model.gravity,
                         dt,
+                        model.particle_max_velocity,
                     ],
                     outputs=[state_out.particle_q, state_out.particle_qd],
                     device=model.device,
                 )
+
+            for plugin in self.plugins:
+                plugin.after_integrate(model, state_in, state_out, dt, requires_grad)
 
             return state_out
 
@@ -1916,6 +1964,7 @@ def init_state(model, state_in, state_out, dt):
             model.particle_flags,
             model.gravity,
             dt,
+            model.particle_max_velocity,
         ],
         outputs=[state_out.particle_q, state_out.particle_qd],
         device=model.device,
@@ -1959,7 +2008,7 @@ class VariationalImplicitIntegrator:
                     compute_forces(model, state_out, self.particle_f, None)
                     compute_residual(model, state_in, state_out, self.particle_f, dfdx, dt)
 
-                # initialize oututput state using the input velocity to create 'predicted state'
+                # initialize output state using the input velocity to create 'predicted state'
                 init_state(model, state_in, state_out, dt)
 
                 # our optimization variable

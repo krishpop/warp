@@ -46,7 +46,6 @@ __device__ void __debugbreak() {}
 namespace wp
 {
 
-
 // numeric types (used from generated kernels)
 typedef float float32;
 typedef double float64;
@@ -141,7 +140,7 @@ static_assert(sizeof(half) == 2, "Size of half / float16 type must be 2-bytes");
 
 typedef half float16;
 
-#if __CUDA_ARCH__
+#if defined(__CUDA_ARCH__)
 
 CUDA_CALLABLE inline half float_to_half(float x)
 {
@@ -157,95 +156,38 @@ CUDA_CALLABLE inline float half_to_float(half x)
     return val;
 }
 
-#else
+#elif defined(__clang__)
 
-// adapted from Fabien Giesen's post: https://gist.github.com/rygorous/2156668
+// _Float16 is Clang's native half-precision floating-point type
 inline half float_to_half(float x)
 {
-    union fp32
-    {
-        uint32 u;
-        float f;
 
-        struct
-        {
-            unsigned int mantissa : 23;
-            unsigned int exponent : 8;
-            unsigned int sign : 1;
-        };
-    };
-
-    fp32 f;
-    f.f = x;
-
-    fp32 f32infty = { 255 << 23 };
-    fp32 f16infty = { 31 << 23 };
-    fp32 magic = { 15 << 23 };
-    uint32 sign_mask = 0x80000000u;
-    uint32 round_mask = ~0xfffu; 
-    half o;
-
-    uint32 sign = f.u & sign_mask;
-    f.u ^= sign;
-
-    // NOTE all the integer compares in this function can be safely
-    // compiled into signed compares since all operands are below
-    // 0x80000000. Important if you want fast straight SSE2 code
-    // (since there's no unsigned PCMPGTD).
-
-    if (f.u >= f32infty.u) // Inf or NaN (all exponent bits set)
-        o.u = (f.u > f32infty.u) ? 0x7e00 : 0x7c00; // NaN->qNaN and Inf->Inf
-    else // (De)normalized number or zero
-    {
-        f.u &= round_mask;
-        f.f *= magic.f;
-        f.u -= round_mask;
-        if (f.u > f16infty.u) f.u = f16infty.u; // Clamp to signed infinity if overflowed
-
-        o.u = f.u >> 13; // Take the bits!
-    }
-
-    o.u |= sign >> 16;
-    return o;
+    _Float16 f16 = static_cast<_Float16>(x);
+    return *reinterpret_cast<half*>(&f16);
 }
-
 
 inline float half_to_float(half h)
 {
-    union fp32
-    {
-        uint32 u;
-        float f;
-
-        struct
-        {
-            unsigned int mantissa : 23;
-            unsigned int exponent : 8;
-            unsigned int sign : 1;
-        };
-    };
-
-    static const fp32 magic = { 113 << 23 };
-    static const uint32 shifted_exp = 0x7c00 << 13; // exponent mask after shift
-    fp32 o;
-
-    o.u = (h.u & 0x7fff) << 13;     // exponent/mantissa bits
-    uint32 exp = shifted_exp & o.u;   // just the exponent
-    o.u += (127 - 15) << 23;        // exponent adjust
-
-    // handle exponent special cases
-    if (exp == shifted_exp) // Inf/NaN?
-        o.u += (128 - 16) << 23;    // extra exp adjust
-    else if (exp == 0) // Zero/Denormal?
-    {
-        o.u += 1 << 23;             // extra exp adjust
-        o.f -= magic.f;             // renormalize
-    }
-
-    o.u |= (h.u & 0x8000) << 16;    // sign bit
-    return o.f;
+    _Float16 f16 = *reinterpret_cast<_Float16*>(&h);
+    return static_cast<float>(f16);
 }
 
+#else  // Native C++ for Warp builtins outside of kernels
+
+extern "C" WP_API uint16_t float_to_half_bits(float x);
+extern "C" WP_API float half_bits_to_float(uint16_t u);
+
+inline half float_to_half(float x)
+{
+    half h;
+    h.u = float_to_half_bits(x);
+    return h;
+}
+
+inline float half_to_float(half h)
+{
+   return half_bits_to_float(h.u);
+}
 
 #endif
 
@@ -308,6 +250,8 @@ template <typename T>
 CUDA_CALLABLE inline void adj_int8(T, T&, int8) {}
 template <typename T>
 CUDA_CALLABLE inline void adj_uint8(T, T&, uint8) {}
+template <typename T>
+CUDA_CALLABLE inline void adj_bool(T, T&, bool) {}
 template <typename T>
 CUDA_CALLABLE inline void adj_int16(T, T&, int16) {}
 template <typename T>
@@ -491,11 +435,6 @@ inline CUDA_CALLABLE void adj_clamp(T x, T a, T b, T& adj_x, T& adj_a, T& adj_b,
     else\
         adj_x += adj_ret;\
 }\
-inline CUDA_CALLABLE void adj_round(T x, T& adj_x, T adj_ret){ }\
-inline CUDA_CALLABLE void adj_rint(T x, T& adj_x, T adj_ret){ }\
-inline CUDA_CALLABLE void adj_trunc(T x, T& adj_x, T adj_ret){ }\
-inline CUDA_CALLABLE void adj_floor(T x, T& adj_x, T adj_ret){ }\
-inline CUDA_CALLABLE void adj_ceil(T x, T& adj_x, T adj_ret){ }\
 inline CUDA_CALLABLE T div(T a, T b)\
 {\
     DO_IF_FPCHECK(\
@@ -874,6 +813,21 @@ inline CUDA_CALLABLE float rint(float x) { return ::rintf(x); }
 inline CUDA_CALLABLE float trunc(float x) { return ::truncf(x); }
 inline CUDA_CALLABLE float floor(float x) { return ::floorf(x); }
 inline CUDA_CALLABLE float ceil(float x) { return ::ceilf(x); }
+inline CUDA_CALLABLE float frac(float x) { return x - trunc(x); }
+
+inline CUDA_CALLABLE double round(double x) { return ::round(x); }
+inline CUDA_CALLABLE double rint(double x) { return ::rint(x); }
+inline CUDA_CALLABLE double trunc(double x) { return ::trunc(x); }
+inline CUDA_CALLABLE double floor(double x) { return ::floor(x); }
+inline CUDA_CALLABLE double ceil(double x) { return ::ceil(x); }
+inline CUDA_CALLABLE double frac(double x) { return x - trunc(x); }
+
+inline CUDA_CALLABLE half round(half x) { return ::roundf(float(x)); }
+inline CUDA_CALLABLE half rint(half x) { return ::rintf(float(x)); }
+inline CUDA_CALLABLE half trunc(half x) { return ::truncf(float(x)); }
+inline CUDA_CALLABLE half floor(half x) { return ::floorf(float(x)); }
+inline CUDA_CALLABLE half ceil(half x) { return ::ceilf(float(x)); }
+inline CUDA_CALLABLE half frac(half x) { return float(x) - trunc(float(x)); }
 
 #define DECLARE_ADJOINTS(T)\
 inline CUDA_CALLABLE void adj_log(T a, T& adj_a, T adj_ret)\
@@ -1027,7 +981,13 @@ inline CUDA_CALLABLE void adj_degrees(T x, T& adj_x, T adj_ret)\
 inline CUDA_CALLABLE void adj_radians(T x, T& adj_x, T adj_ret)\
 {\
     adj_x += DEG_TO_RAD * adj_ret;\
-}
+}\
+inline CUDA_CALLABLE void adj_round(T x, T& adj_x, T adj_ret){ }\
+inline CUDA_CALLABLE void adj_rint(T x, T& adj_x, T adj_ret){ }\
+inline CUDA_CALLABLE void adj_trunc(T x, T& adj_x, T adj_ret){ }\
+inline CUDA_CALLABLE void adj_floor(T x, T& adj_x, T adj_ret){ }\
+inline CUDA_CALLABLE void adj_ceil(T x, T& adj_x, T adj_ret){ }\
+inline CUDA_CALLABLE void adj_frac(T x, T& adj_x, T adj_ret){ }
 
 DECLARE_ADJOINTS(float16)
 DECLARE_ADJOINTS(float32)
@@ -1061,7 +1021,7 @@ CUDA_CALLABLE inline void adj_copy(T& dest, const T& src, T& adj_dest, T& adj_sr
 {
     // nop, this is non-differentiable operation since it violates SSA
     adj_src = adj_dest;
-    adj_dest = T(0);
+    adj_dest = T{};
 }
 
 
@@ -1106,34 +1066,8 @@ struct launch_bounds_t
     size_t size;                // total number of threads
 };
 
-#ifdef __CUDACC__
-
-// store launch bounds in shared memory so
-// we can access them from any user func
-// this is to avoid having to explicitly
-// set another piece of __constant__ memory
-// from the host
-__shared__ launch_bounds_t s_launchBounds;
-
-__device__ inline void set_launch_bounds(const launch_bounds_t& b)
-{
-    if (threadIdx.x == 0)
-        s_launchBounds = b;
-
-    __syncthreads();
-}
-
-#else
-
-// for single-threaded CPU we store launch
-// bounds in static memory to share globally
-static launch_bounds_t s_launchBounds;
+#ifndef __CUDACC__
 static size_t s_threadIdx;
-
-inline void set_launch_bounds(const launch_bounds_t& b)
-{
-    s_launchBounds = b;
-}
 #endif
 
 inline CUDA_CALLABLE size_t grid_index()
@@ -1147,10 +1081,8 @@ inline CUDA_CALLABLE size_t grid_index()
 #endif
 }
 
-inline CUDA_CALLABLE int tid()
+inline CUDA_CALLABLE int tid(size_t index)
 {
-    const size_t index = grid_index();
-
     // For the 1-D tid() we need to warn the user if we're about to provide a truncated index
     // Only do this in _DEBUG when called from device to avoid excessive register allocation
 #if defined(_DEBUG) || !defined(__CUDA_ARCH__)
@@ -1161,23 +1093,19 @@ inline CUDA_CALLABLE int tid()
     return static_cast<int>(index);
 }
 
-inline CUDA_CALLABLE_DEVICE void tid(int& i, int& j)
+inline CUDA_CALLABLE_DEVICE void tid(int& i, int& j, size_t index, const launch_bounds_t& launch_bounds)
 {
-    const size_t index = grid_index();
-
-    const size_t n = s_launchBounds.shape[1];
+    const size_t n = launch_bounds.shape[1];
 
     // convert to work item
     i = index/n;
     j = index%n;
 }
 
-inline CUDA_CALLABLE_DEVICE void tid(int& i, int& j, int& k)
+inline CUDA_CALLABLE_DEVICE void tid(int& i, int& j, int& k, size_t index, const launch_bounds_t& launch_bounds)
 {
-    const size_t index = grid_index();
-
-    const size_t n = s_launchBounds.shape[1];
-    const size_t o = s_launchBounds.shape[2];
+    const size_t n = launch_bounds.shape[1];
+    const size_t o = launch_bounds.shape[2];
 
     // convert to work item
     i = index/(n*o);
@@ -1185,13 +1113,11 @@ inline CUDA_CALLABLE_DEVICE void tid(int& i, int& j, int& k)
     k = index%o;
 }
 
-inline CUDA_CALLABLE_DEVICE void tid(int& i, int& j, int& k, int& l)
+inline CUDA_CALLABLE_DEVICE void tid(int& i, int& j, int& k, int& l, size_t index, const launch_bounds_t& launch_bounds)
 {
-    const size_t index = grid_index();
-
-    const size_t n = s_launchBounds.shape[1];
-    const size_t o = s_launchBounds.shape[2];
-    const size_t p = s_launchBounds.shape[3];
+    const size_t n = launch_bounds.shape[1];
+    const size_t o = launch_bounds.shape[2];
+    const size_t p = launch_bounds.shape[3];
 
     // convert to work item
     i = index/(n*o*p);

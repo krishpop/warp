@@ -20,7 +20,7 @@ import numpy as np
 import warp as wp
 import warp.sim
 
-from environment import Environment, run_env, RenderMode
+from environment import Environment, run_env
 
 
 class AllegroEnvironment(Environment):
@@ -49,9 +49,10 @@ class AllegroEnvironment(Environment):
     )
 
     use_tiled_rendering = False
-    use_graph_capture = True
 
-    # render_mode = RenderMode.USD
+    # edge_sdf_iter = 20
+
+    use_graph_capture = True
 
     def create_articulation(self, builder):
         wp.sim.parse_urdf(
@@ -70,6 +71,7 @@ class AllegroEnvironment(Environment):
             shape_kd=1.e+2,
             shape_kf=1.e+2,
             shape_mu=0.5,
+            shape_thickness=0.001,
             limit_ke=1.e+4,
             limit_kd=1.e+1,
             enable_self_collisions=False)

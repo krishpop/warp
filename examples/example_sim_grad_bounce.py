@@ -71,6 +71,7 @@ class Bounce:
         self.model.soft_contact_kd = self.kd
         self.model.soft_contact_mu = self.mu
         self.model.soft_contact_margin = 10.0
+        self.model.soft_contact_restitution = 1.0
 
         self.integrator = wp.sim.SemiImplicitIntegrator()
 
@@ -86,12 +87,10 @@ class Bounce:
         wp.sim.collide(self.model, self.states[0])
 
         self.stage = None
-        if (render):
-            self.stage = wp.sim.render.SimRendererNano(
-                self.model,
-                os.path.join(os.path.dirname(__file__), "outputs/example_sim_grad_bounce.usd"),
-                scaling=4.0)
-
+        if render:
+            self.stage = wp.sim.render.SimRendererOpenGL(
+                self.model, os.path.join(os.path.dirname(__file__), "outputs/example_sim_grad_bounce.usd"), scaling=1.0
+            )
 
     @wp.kernel
     def loss_kernel(pos: wp.array(dtype=wp.vec3), target: wp.vec3, loss: wp.array(dtype=float)):
@@ -110,8 +109,6 @@ class Bounce:
         # run control loop
         for i in range(self.sim_steps):
             self.states[i].clear_forces()
-            # self.model.allocate_soft_contacts()
-            # wp.sim.collide(self.model, self.states[i])
 
             self.integrator.simulate(self.model, self.states[i], self.states[i + 1], self.sim_dt)
 
@@ -148,8 +145,6 @@ class Bounce:
             self.stage.end_frame()
 
             self.render_time += self.frame_dt
-
-        # self.stage.save()
 
     def check_grad(self):
         param = self.states[0].particle_qd
@@ -221,8 +216,8 @@ class Bounce:
 
             tape.zero()
 
-        self.stage.save()
-
+        if self.stage is not None:
+            self.stage.save()
 
     def train_graph(self):
         # capture forward/backward passes
@@ -246,14 +241,19 @@ class Bounce:
                 x = self.states[0].particle_qd
                 wp.launch(self.step_kernel, dim=len(x), inputs=[x, x.grad, self.train_rate], device=self.device)
 
+                x_grad = tape.gradients[self.states[0].particle_qd]
+
                 print(f"Iter: {i} Loss: {self.loss}")
-                print(tape.gradients[self.states[0].particle_qd])
+                print(f"   x: {x} g: {x_grad}")
 
                 # clear grads for next iteration
                 tape.zero()
 
             with wp.ScopedTimer("Render", active=self.profile):
                 self.render(i)
+
+        if self.stage is not None:
+            self.stage.save()
 
 
 bounce = Bounce(profile=False, render=True)

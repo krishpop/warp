@@ -19,6 +19,7 @@ from warp.tests.grad_utils import *
 import warp.sim.render
 import warp.sim
 import os
+import math
 
 import numpy as np
 
@@ -60,10 +61,10 @@ class RigidBodySimulator:
 
     frame_dt = 1.0 / 60.0
 
-    episode_duration = 1.5      # seconds
+    episode_duration = 1.25      # seconds
     episode_frames = int(episode_duration / frame_dt)
 
-    sim_substeps = 30
+    sim_substeps = 3
     sim_dt = frame_dt / sim_substeps
     sim_steps = int(episode_duration / sim_dt)
 
@@ -82,50 +83,50 @@ class RigidBodySimulator:
         self.num_envs = num_envs
 
         for i in range(num_envs):
-            if self.use_single_cartpole:
-                wp.sim.parse_urdf(
-                    os.path.join(os.path.dirname(__file__), "assets/cartpole_single.urdf"),
-                    builder,
-                    xform=wp.transform(
-                        np.array((0.0, 1.0, 0.0)),
-                        wp.quat_from_axis_angle((1.0, 0.0, 0.0), -np.pi * 0.5)),
-                    floating=False,
-                    density=0,
-                    armature=0.1,
-                    stiffness=0.0,
-                    damping=0.0,
-                    shape_ke=1.e+4,
-                    shape_kd=0.0,
-                    shape_kf=1.e+2,
-                    shape_mu=1.0,
-                    limit_ke=1.e+4,
-                    limit_kd=0.0)
-                # joint initial positions
-                builder.joint_q[-2:] = [0.0, 0.3]
-                builder.joint_target[:2] = [0.0, 0.0]
-            else:
-                wp.sim.parse_urdf(
-                    os.path.join(os.path.dirname(__file__), "assets/cartpole.urdf"),
-                    builder,
-                    xform=wp.transform(
-                        np.array((i * 2.0, 4.0, 0.0)),
-                        wp.quat_from_axis_angle((1.0, 0.0, 0.0), -np.pi * 0.5)),
-                    floating=False,
-                    density=0,
-                    armature=0.1,
-                    stiffness=0.0,
-                    damping=0.0,
-                    shape_ke=1.e+4,
-                    shape_kd=1.e+2,
-                    shape_kf=1.e+2,
-                    shape_mu=1.0,
-                    limit_ke=1.e+4,
-                    limit_kd=1.e+1)
+            # if self.use_single_cartpole:
+            #     wp.sim.parse_urdf(
+            #         os.path.join(os.path.dirname(__file__), "assets/cartpole_single.urdf"),
+            #         builder,
+            #         xform=wp.transform(
+            #             np.array((0.0, 1.0, 0.0)),
+            #             wp.quat_from_axis_angle((1.0, 0.0, 0.0), -np.pi * 0.5)),
+            #         floating=False,
+            #         density=1000.0,
+            #         armature=0.1,
+            #         stiffness=0.0,
+            #         damping=0.0,
+            #         shape_ke=1.e+4,
+            #         shape_kd=0.0,
+            #         shape_kf=1.e+2,
+            #         shape_mu=1.0,
+            #         limit_ke=1.e+4,
+            #         limit_kd=0.0)
+            #     # joint initial positions
+            #     builder.joint_q[-2:] = [0.0, 0.3]
+            #     builder.joint_target[:2] = [0.0, 0.0]
+            # else:
+            #     wp.sim.parse_urdf(
+            #         os.path.join(os.path.dirname(__file__), "assets/cartpole.urdf"),
+            #         builder,
+            #         xform=wp.transform(
+            #             np.array((i * 2.0, 4.0, 0.0)),
+            #             wp.quat_from_axis_angle((1.0, 0.0, 0.0), -np.pi * 0.5)),
+            #         floating=False,
+            #         density=0,
+            #         armature=0.1,
+            #         stiffness=0.0,
+            #         damping=0.0,
+            #         shape_ke=1.e+4,
+            #         shape_kd=1.e+2,
+            #         shape_kf=1.e+2,
+            #         shape_mu=1.0,
+            #         limit_ke=1.e+4,
+            #         limit_kd=1.e+1)
 
-                builder.joint_q[-3:] = [0.0, 0.3, 0.0]
-                builder.joint_target[:3] = [0.0, 0.0, 0.0]
+            #     builder.joint_q[-3:] = [0.0, 0.3, 0.0]
+            #     builder.joint_target[:3] = [0.0, 0.0, 0.0]
 
-            if False:
+            if True:
                 self.chain_length = 1
                 self.chain_width = 1.0
                 self.chain_types = [
@@ -182,18 +183,22 @@ class RigidBodySimulator:
 
                         # create body
                         b = builder.add_body(
-                            parent=parent,
                             origin=wp.transform([i, 0.0, c * 1.0], wp.quat_identity()),
-                            joint_xform=parent_joint_xform,
-                            joint_axis=joint_axis,
-                            joint_type=joint_type,
-                            joint_limit_lower=joint_limit_lower,
-                            joint_limit_upper=joint_limit_upper,
-                            joint_target_ke=0.0,
-                            joint_target_kd=0.0,
-                            joint_limit_ke=30.0,
-                            joint_limit_kd=30.0,
-                            joint_armature=0.1)
+                            armature=0.1)
+
+                        # create joint
+                        j = builder.add_joint_revolute(
+                            parent=parent,
+                            child=b,
+                            parent_xform=parent_joint_xform,
+                            child_xform=wp.transform(),
+                            axis=joint_axis,
+                            limit_lower=joint_limit_lower,
+                            limit_upper=joint_limit_upper,
+                            target_ke=0.0,
+                            target_kd=0.0,
+                            limit_ke=30.0,
+                            limit_kd=30.0)
 
                         # create shape
                         s = builder.add_shape_box(
@@ -205,13 +210,19 @@ class RigidBodySimulator:
                             body=b)
 
         # create quaternions away from singularities so that finite differences can be used directly
-        # axis = np.array([1.0, 2.0, 3.0])
-        # axis /= np.linalg.norm(axis)
-        # quat = wp.quat_from_axis_angle(axis, -math.pi*0.5)
-        # builder.joint_X_p = [wp.transform((1.0, 2.0, 3.0), quat)]
+        axis = np.array([1.0, 2.0, 3.0])
+        axis /= np.linalg.norm(axis)
+        quat = wp.quat_from_axis_angle(axis, -math.pi * 0.5)
+        builder.joint_X_p = [wp.transform((1.0, 2.0, 3.0), quat) for _ in range(builder.joint_count)]
+
+        # builder.collapse_fixed_joints()
+
+        solve_iterations = 2
+        self.integrator = wp.sim.XPBDIntegrator(solve_iterations, rigid_contact_con_weighting=True)
+        # self.integrator = wp.sim.SemiImplicitIntegrator()
 
         # finalize model
-        self.model = builder.finalize(device, requires_grad=True)
+        self.model = builder.finalize(device, requires_grad=True, integrator=self.integrator)
 
         self.model.joint_attach_kd = 0.0
         self.model.joint_limit_ke.zero_()
@@ -244,10 +255,6 @@ class RigidBodySimulator:
         self.model.body_q.assign(state.body_q)
         self.model.body_qd.assign(state.body_qd)
 
-        solve_iterations = 1
-        # self.integrator = wp.sim.XPBDIntegrator(solve_iterations, rigid_contact_con_weighting=True)
-        self.integrator = wp.sim.SemiImplicitIntegrator()
-
         # -----------------------
         # set up Usd renderer
         if (self.render):
@@ -255,20 +262,19 @@ class RigidBodySimulator:
                 self.model, os.path.join(os.path.dirname(__file__), "outputs/example_sim_grad_control.usd"))
         self.render_time = 0.0
 
-    def simulate(self, state: wp.sim.State, requires_grad=False) -> wp.sim.State:
+    def simulate(self, state: wp.sim.State) -> wp.sim.State:
         """
         Simulate the system for the given states.
         """
         for _ in range(self.sim_substeps):
-            if requires_grad:
-                next_state = self.model.state(requires_grad=True)
+            if self.model.requires_grad:
+                next_state = self.model.state()
             else:
                 next_state = state
                 next_state.clear_forces()
             if self.model.ground:
-                self.model.allocate_rigid_contacts(requires_grad=requires_grad)
                 wp.sim.collide(self.model, state)
-            state = self.integrator.simulate(self.model, state, next_state, self.sim_dt, requires_grad=requires_grad)
+            state = self.integrator.simulate(self.model, state, next_state, self.sim_dt)
         return state
 
     def _render(self, state: wp.sim.State):
@@ -288,7 +294,7 @@ class RigidBodySimulator:
         if check_diffs:
             model_before = self.builder.finalize(self.device)
 
-        start_state = self.model.state(requires_grad=requires_grad)
+        start_state = self.model.state()
 
         # assign maximal state coordinates
         wp.launch(inplace_assign_transform, dim=self.num_bodies, inputs=[
@@ -299,7 +305,7 @@ class RigidBodySimulator:
         # assign input controls as joint torques
         wp.launch(inplace_assign, dim=self.dof_qd, inputs=[tau], outputs=[self.model.joint_act], device=self.device)
 
-        end_state = self.simulate(start_state, requires_grad=requires_grad)
+        end_state = self.simulate(start_state)
 
         if joint_q_next is not None and joint_qd_next is not None:
             wp.sim.eval_ik(self.model, end_state, joint_q_next, joint_qd_next)
@@ -460,6 +466,22 @@ class RigidBodySimulator:
         tape = wp.Tape()
         with tape:
             self.warp_step_maximal(q, qd, tau, q_next, qd_next, joint_q, joint_qd, requires_grad=True)
+
+        def f(q, qd, tau):
+            self.warp_step_maximal(q, qd, tau, q_next, qd_next, joint_q, joint_qd, requires_grad=True)
+            return q_next, qd_next, joint_q, joint_qd
+        check_tape_safety(f, inputs=[q, qd, tau])
+
+        check_backward_pass(
+            tape,
+            visualize_graph=False,
+            plot_jac_on_fail=True,
+            track_inputs=[q, qd, tau],
+            track_outputs=[q_next, qd_next, joint_q, joint_qd],
+            track_input_names=["q", "qd", "tau"],
+            track_output_names=["q_next", "qd_next", "joint_q", "joint_qd"],
+            # whitelist_kernels={"inplace_assign_spatial_vector"},
+        )
 
         num_in = self.num_bodies * (7 + 6) + self.dof_qd
         num_out = self.num_bodies * (7 + 6) + self.dof_q + self.dof_qd

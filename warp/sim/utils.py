@@ -257,22 +257,18 @@ def load_mesh(filename, use_meshio=True):
     """
     if use_meshio:
         import meshio
-
         m = meshio.read(filename)
         mesh_points = np.array(m.points)
         mesh_indices = np.array(m.cells[0].data, dtype=np.int32)
     else:
         import openmesh
-
         m = openmesh.read_trimesh(filename)
         mesh_points = np.array(m.points())
         mesh_indices = np.array(m.face_vertex_indices(), dtype=np.int32)
     return mesh_points, mesh_indices
 
 
-def visualize_meshes(
-    meshes: List[Tuple[list, list]], num_cols=0, num_rows=0, titles=[], scale_axes=True, show_plot=True
-):
+def visualize_meshes(meshes: List[Tuple[list, list]], num_cols=0, num_rows=0, titles=[], scale_axes=True, show_plot=True):
     # render meshes in a grid with matplotlib
     import matplotlib.pyplot as plt
     from mpl_toolkits.mplot3d import Axes3D
@@ -296,10 +292,10 @@ def visualize_meshes(
 
     fig = plt.figure(figsize=(12, 6))
     for i, (vertices, faces) in enumerate(meshes):
-        ax = fig.add_subplot(num_rows, num_cols, i + 1, projection="3d")
+        ax = fig.add_subplot(num_rows, num_cols, i + 1, projection='3d')
         if i < len(titles):
             ax.set_title(titles[i])
-        ax.plot_trisurf(vertices[:, 0], vertices[:, 1], vertices[:, 2], triangles=faces, edgecolor="k")
+        ax.plot_trisurf(vertices[:, 0], vertices[:, 1], vertices[:, 2], triangles=faces, edgecolor='k')
         if scale_axes:
             mid = mid_points[i]
             ax.set_xlim(mid[0] - max_range, mid[0] + max_range)
@@ -337,10 +333,11 @@ def remesh_ftetwild(vertices, faces, stop_quality=10, max_its=50, edge_length_r=
     import wildmeshing as wm
     from collections import defaultdict
 
-    tetra = wm.Tetrahedralizer(stop_quality=stop_quality, max_its=max_its, edge_length_r=edge_length_r, epsilon=epsilon)
+    tetra = wm.Tetrahedralizer(
+        stop_quality=stop_quality, max_its=max_its, edge_length_r=edge_length_r, epsilon=epsilon)
     tetra.set_mesh(vertices, np.array(faces).reshape(-1, 3))
     tetra.tetrahedralize()
-    tet_vertices, tet_indices = tetra.get_tet_mesh()
+    tet_vertices, tet_indices, _ = tetra.get_tet_mesh()
 
     def face_indices(tet):
         face1 = (tet[0], tet[2], tet[1])
@@ -351,8 +348,7 @@ def remesh_ftetwild(vertices, faces, stop_quality=10, max_its=50, edge_length_r=
             (face1, tuple(sorted(face1))),
             (face2, tuple(sorted(face2))),
             (face3, tuple(sorted(face3))),
-            (face4, tuple(sorted(face4))),
-        )
+            (face4, tuple(sorted(face4))))
 
     # determine surface faces
     elements_per_face = defaultdict(set)
@@ -368,7 +364,6 @@ def remesh_ftetwild(vertices, faces, stop_quality=10, max_its=50, edge_length_r=
 
     if len(new_vertices) == 0 or len(new_faces) == 0:
         import warnings
-
         warnings.warn("Remeshing failed, the optimized mesh has no vertices or faces; return previous mesh.")
         return vertices, faces
 
@@ -432,7 +427,6 @@ def plot_graph(vertices, edges, edge_labels=[]):
     """
     import matplotlib.pyplot as plt
     import networkx as nx
-
     G = nx.DiGraph()
     name_to_index = {}
     for i, name in enumerate(vertices):
@@ -458,25 +452,21 @@ def plot_graph(vertices, edges, edge_labels=[]):
     #     pos = nx.spring_layout(G, k=3.5, iterations=200)
     #     # pos = nx.kamada_kawai_layout(G, scale=1.5)
     #     # pos = nx.spectral_layout(G, scale=1.5)
-    pos = nx.nx_agraph.graphviz_layout(G, prog="neato", args='-Gnodesep="20" -Granksep="20"')
+    pos = nx.nx_agraph.graphviz_layout(
+        G, prog='neato', args='-Gnodesep="20" -Granksep="20"')
 
-    default_draw_args = dict(alpha=0.9, edgecolors="black", linewidths=0.5)
+    default_draw_args = dict(
+        alpha=0.9, edgecolors="black", linewidths=0.5)
     nx.draw_networkx_nodes(G, pos, **default_draw_args)
-    nx.draw_networkx_labels(
-        G,
-        pos,
-        labels={i: v for i, v in enumerate(vertices)},
-        font_size=8,
-        bbox=dict(facecolor="white", alpha=0.8, edgecolor="none", pad=0.5),
-    )
+    nx.draw_networkx_labels(G, pos, labels={i: v for i, v in enumerate(vertices)}, font_size=8, bbox=dict(
+        facecolor='white', alpha=0.8, edgecolor='none', pad=0.5))
 
-    nx.draw_networkx_edges(G, pos, edgelist=G.edges(), arrows=True, edge_color="black", node_size=1000)
+    nx.draw_networkx_edges(G, pos, edgelist=G.edges(), arrows=True, edge_color='black', node_size=1000)
     nx.draw_networkx_edge_labels(
-        G,
-        pos,
+        G, pos,
         edge_labels=g_edge_labels,
-        font_color="darkslategray",
+        font_color='darkslategray',
         font_size=8,
     )
-    plt.axis("off")
+    plt.axis('off')
     plt.show()

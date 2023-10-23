@@ -25,7 +25,7 @@ import numpy as np
 from tqdm import trange
 
 import warp as wp
-wp.config.mode = "debug"
+# wp.config.mode = "debug"
 import warp.sim
 import warp.sim.render
 
@@ -34,13 +34,14 @@ wp.config.verify_fp = False
 wp.config.verbose = False
 wp.init()
 
+
 @wp.kernel
 def loss_kernel(body_q: wp.array(dtype=wp.transform), loss: wp.array(dtype=float, ndim=1)):
     tid = wp.tid()
-    i = tid//3
+    i = tid // 3
     j = tid % 3
     x = wp.transform_get_translation(body_q[i])
-    loss[i*3+j] = x[j]
+    loss[i * 3 + j] = x[j]
 
 
 @wp.kernel
@@ -52,18 +53,18 @@ def set_mass(in_mass: wp.array(dtype=wp.float32),
              inv_inertia: wp.array(dtype=wp.mat33)):
     tid = wp.tid()
     out_mass[tid] = in_mass[tid]
-    inv_mass[tid] = 1.0/in_mass[tid]
+    inv_mass[tid] = 1.0 / in_mass[tid]
     hx = box_size[0]
     hy = box_size[1]
     hz = box_size[2]
     inertia[tid] = wp.mat33(
-        1.0/12.0*in_mass[tid]*(hy*hy+hz*hz), 0.0, 0.0,
-        0.0, 1.0/12.0*in_mass[tid]*(hx*hx+hz*hz), 0.0,
-        0.0, 0.0, 1.0/12.0*in_mass[tid]*(hx*hx+hy*hy))
+        1.0 / 12.0 * in_mass[tid] * (hy * hy + hz * hz), 0.0, 0.0,
+        0.0, 1.0 / 12.0 * in_mass[tid] * (hx * hx + hz * hz), 0.0,
+        0.0, 0.0, 1.0 / 12.0 * in_mass[tid] * (hx * hx + hy * hy))
     inv_inertia[tid] = wp.mat33(
-        12.0/(in_mass[tid]*(hy*hy+hz*hz)), 0.0, 0.0,
-        0.0, 12.0/(in_mass[tid]*(hx*hx+hz*hz)), 0.0,
-        0.0, 0.0, 12.0/(in_mass[tid]*(hx*hx+hy*hy)))
+        12.0 / (in_mass[tid] * (hy * hy + hz * hz)), 0.0, 0.0,
+        0.0, 12.0 / (in_mass[tid] * (hx * hx + hz * hz)), 0.0,
+        0.0, 0.0, 12.0 / (in_mass[tid] * (hx * hx + hy * hy)))
 
 
 def quat_multiply(a, b):
@@ -81,10 +82,10 @@ class CubeSlopeSim:
         self.seed = seed
         self.device = device
 
-        self.frame_dt = 1.0/60.0
+        self.frame_dt = 1.0 / 60.0
 
         self.episode_duration = 2.5      # seconds
-        self.episode_frames = int(self.episode_duration/self.frame_dt)
+        self.episode_frames = int(self.episode_duration / self.frame_dt)
 
         self.sim_substeps = 5
         self.sim_dt = self.frame_dt / self.sim_substeps
@@ -95,11 +96,10 @@ class CubeSlopeSim:
         self.render = False
 
         self.num_envs = num_envs
-        self.loss = wp.zeros(self.num_envs*3, dtype=wp.float32,
+        self.loss = wp.zeros(self.num_envs * 3, dtype=wp.float32,
                              device=self.device, requires_grad=True)
         self.loss_test_dim = 0
 
-        
         builder = wp.sim.ModelBuilder()
 
         # rot_angles = torch.FloatTensor(
@@ -113,15 +113,15 @@ class CubeSlopeSim:
         self.hy = hy
         self.hz = hz
 
-        V = 8*hx*hy*hz
+        V = 8 * hx * hy * hz
 
-        pos_low = (10+hx)/math.sqrt(3) + hy
+        pos_low = (10 + hx) / math.sqrt(3) + hy
         pos_high = 12.0
 
         pos = torch.FloatTensor(self.num_envs, 1).uniform_(pos_low, pos_high)
 
         for e in range(self.num_envs):
-            density = 10.0/V
+            density = 10.0 / V
 
             rot_x = wp.quat_from_axis_angle((1.0, 0.0, 0.0), rot_angles[e][0])
             rot_y = wp.quat_from_axis_angle((0.0, 1.0, 0.0), rot_angles[e][1])
@@ -148,7 +148,7 @@ class CubeSlopeSim:
             #     kd=0.0,
             #     mu=0.5,
             #     restitution=0.5)
-            
+
             # apply some initial velocity
             builder.body_qd[-6:] = [0.0, 0.0, 0.0, 5.0, 0.0, 0.0]
 
@@ -157,19 +157,18 @@ class CubeSlopeSim:
         self.integrator = wp.sim.SemiImplicitIntegrator()
         # self.integrator = wp.sim.XPBDIntegrator(iterations=1, rigid_contact_con_weighting=False)
 
-
     def simulate(self, input_mass: wp.array, compute_grad=True):
         random.seed(self.seed)
         torch.manual_seed(self.seed)
         np.random.seed(self.seed)
 
-        model = self.builder.finalize(self.device, requires_grad=compute_grad) 
+        model = self.builder.finalize(self.device, integrator=self.integrator, requires_grad=compute_grad)
         model.ground = True
         state = model.state(requires_grad=compute_grad)
         if (model.ground):
             model.collide(state)
 
-        box_size = wp.array([self.hx*2, self.hy*2, self.hz*2], dtype=wp.float32, device=self.device)
+        box_size = wp.array([self.hx * 2, self.hy * 2, self.hz * 2], dtype=wp.float32, device=self.device)
         box_size.requires_grad = compute_grad
 
         self.joint_score = 0.0
@@ -178,13 +177,13 @@ class CubeSlopeSim:
         if (self.render):
             self.renderer = wp.sim.render.SimRenderer(
                 model, os.path.join(os.path.dirname(__file__),
-                "outputs/example_sim_cube_slope.usd"))
+                                    "outputs/example_sim_cube_slope.usd"))
 
         # ---------------
         # run simulation
 
         self.sim_time = 0.0
-        
+
         wp.launch(
             set_mass,
             dim=self.num_envs,
@@ -203,7 +202,6 @@ class CubeSlopeSim:
         # simulate
         for f in trange(self.episode_frames, desc="Simulating"):
             for i in range(self.sim_substeps):
-                model.allocate_rigid_contacts(requires_grad=compute_grad)
                 if compute_grad:
                     next_state = model.state(requires_grad=True)
                 else:
@@ -213,7 +211,7 @@ class CubeSlopeSim:
                 wp.sim.collide(model, state)
 
                 state = self.integrator.simulate(
-                    model, state, next_state, self.sim_dt, requires_grad=compute_grad)
+                    model, state, next_state, self.sim_dt)
                 self.sim_time += self.sim_dt
 
             if (self.render):
@@ -231,10 +229,10 @@ class CubeSlopeSim:
             sys.exit()
 
         wp.launch(loss_kernel,
-            dim=(1, 3),
-            inputs=[state.body_q],
-            outputs=[self.loss],
-            device=self.device)
+                  dim=(1, 3),
+                  inputs=[state.body_q],
+                  outputs=[self.loss],
+                  device=self.device)
         return self.loss
 
     def forward(self, inputs, compute_grad=True):
@@ -287,7 +285,7 @@ param = torch.tensor([100.0]).repeat(1, 1).view(1, 1)
 #     visualize_graph=False,
 #     check_jacobians=True,
 #     plot_jac_on_fail=True,
-#     track_inputs=[wp_param], 
+#     track_inputs=[wp_param],
 #     track_outputs=[robot.loss],
 #     ignore_kernels={
 #         "update_rigid_ground_contacts",

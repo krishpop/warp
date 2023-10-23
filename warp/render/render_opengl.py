@@ -765,7 +765,7 @@ class OpenGLRenderer:
         title="Warp sim",
         scaling=1.0,
         fps=60,
-        up_axis="y",
+        up_axis="Y",
         screen_width=1024,
         screen_height=768,
         near_plane=0.01,
@@ -829,12 +829,13 @@ class OpenGLRenderer:
         if isinstance(up_axis, int):
             self._camera_axis = up_axis
         else:
-            self._camera_axis = "xyz".index(up_axis.lower())
+            self._camera_axis = "XYZ".index(up_axis.upper())
         self._yaw, self._pitch = -90.0, 0.0
         self._last_x, self._last_y = self.screen_width // 2, self.screen_height // 2
         self._first_mouse = True
         self._left_mouse_pressed = False
         self._keys_pressed = defaultdict(bool)
+        self._key_callbacks = []
 
         self.update_view_matrix()
         self.update_projection_matrix()
@@ -1773,6 +1774,12 @@ Instances: {len(self._instances)}"""
         if symbol == pyglet.window.key.B:
             self.enable_backface_culling = not self.enable_backface_culling
 
+        for cb in self._key_callbacks:
+            cb(symbol, modifiers)
+
+    def register_key_press_callback(self, callback):
+        self._key_callbacks.append(callback)
+
     def _window_resize_callback(self, width, height):
         self._first_mouse = True
         self.screen_width, self.screen_height = self.window.get_framebuffer_size()
@@ -2573,7 +2580,7 @@ Instances: {len(self._instances)}"""
         if name not in self._shape_instancers:
             instancer = ShapeInstancer(self._shape_shader, self._device)
             vertices, indices = self._create_capsule_mesh(radius, 0.5)
-            if color is None or isinstance(color[0], list):
+            if color is None or isinstance(color, list) and len(color) > 0 and isinstance(color[0], list):
                 color = tab10_color_map(len(self._shape_geo_hash))
             instancer.register_shape(vertices, indices, color, color)
             instancer.allocate_instances(np.zeros((len(lines), 3)))

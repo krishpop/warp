@@ -63,14 +63,14 @@ extern void __jit_debug_register_code();
 }
 
 namespace wp {
-	
+
 #if defined (_WIN32)
-	// Windows defaults to using the COFF binary format (aka. "msvc" in the target triple).
-	// Override it to use the ELF format to support DWARF debug info, but keep using the
-	// Microsoft calling convention (see also https://llvm.org/docs/DebuggingJITedCode.html).
-	static const char* target_triple = "x86_64-pc-windows-elf";
+    // Windows defaults to using the COFF binary format (aka. "msvc" in the target triple).
+    // Override it to use the ELF format to support DWARF debug info, but keep using the
+    // Microsoft calling convention (see also https://llvm.org/docs/DebuggingJITedCode.html).
+    static const char* target_triple = "x86_64-pc-windows-elf";
 #else
-	static const char* target_triple = LLVM_DEFAULT_TARGET_TRIPLE;
+    static const char* target_triple = LLVM_DEFAULT_TARGET_TRIPLE;
 #endif
 
 static void initialize_llvm()
@@ -81,7 +81,7 @@ static void initialize_llvm()
     llvm::InitializeAllAsmPrinters();
 }
 
-static std::unique_ptr<llvm::Module> cpp_to_llvm(const std::string& input_file, const char* cpp_src, const char* include_dir, bool debug, llvm::LLVMContext& context)
+static std::unique_ptr<llvm::Module> cpp_to_llvm(const std::string& input_file, const char* cpp_src, const char* include_dir, bool debug, bool verify_fp, llvm::LLVMContext& context)
 {
     // Compilation arguments
     std::vector<const char*> args;
@@ -94,6 +94,11 @@ static std::unique_ptr<llvm::Module> cpp_to_llvm(const std::string& input_file, 
 
     args.push_back("-triple");
     args.push_back(target_triple);
+
+    #if defined(__x86_64__) || defined(_M_X64)
+        args.push_back("-target-feature");
+        args.push_back("+f16c");  // Enables support for _Float16
+    #endif
 
     clang::IntrusiveRefCntPtr<clang::DiagnosticOptions> diagnostic_options = new clang::DiagnosticOptions();
     std::unique_ptr<clang::TextDiagnosticPrinter> text_diagnostic_printer =
@@ -119,6 +124,11 @@ static std::unique_ptr<llvm::Module> cpp_to_llvm(const std::string& input_file, 
     if(!debug)
     {
         compiler_instance.getPreprocessorOpts().addMacroDef("NDEBUG");
+    }
+
+    if(verify_fp)
+    {
+        compiler_instance.getPreprocessorOpts().addMacroDef("WP_VERIFY_FP");
     }
 
     compiler_instance.getLangOpts().MicrosoftExt = 1;  // __forceinline / __int64
@@ -196,12 +206,12 @@ static std::unique_ptr<llvm::Module> cuda_to_llvm(const std::string& input_file,
 
 extern "C" {
 
-WP_API int compile_cpp(const char* cpp_src, const char *input_file, const char* include_dir, const char* output_file, bool debug)
+WP_API int compile_cpp(const char* cpp_src, const char *input_file, const char* include_dir, const char* output_file, bool debug, bool verify_fp)
 {
     initialize_llvm();
 
     llvm::LLVMContext context;
-    std::unique_ptr<llvm::Module> module = cpp_to_llvm(input_file, cpp_src, include_dir, debug, context);
+    std::unique_ptr<llvm::Module> module = cpp_to_llvm(input_file, cpp_src, include_dir, debug, verify_fp, context);
 
     if(!module)
     {
@@ -382,8 +392,7 @@ WP_API int load_obj(const char* object_file, const char* module_name)
             SYMBOL(__chkstk),
         #elif defined(__APPLE__)
             SYMBOL(__bzero),
-            SYMBOL(__sincos_stret),
-            SYMBOL(__sincosf_stret),
+            SYMBOL(__sincos_stret), SYMBOL(__sincosf_stret),
         #else
             SYMBOL(sincosf), SYMBOL_T(sincos, void(*)(double,double*,double*)),
         #endif

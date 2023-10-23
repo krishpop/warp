@@ -5,15 +5,30 @@
 # distribution of this software and related documentation without an express
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
-import os
-import math
-import timeit
 import cProfile
+import math
+import sys
+import timeit
+import warnings
+from typing import Any, Tuple, Union
+
 import numpy as np
-from typing import Union, Tuple, Any
 
 import warp as wp
 import warp.types
+
+
+def warp_showwarning(message, category, filename, lineno, file=None, line=None):
+    """Version of warnings.showwarning that always prints to sys.stdout."""
+    msg = warnings.WarningMessage(message, category, filename, lineno, sys.stdout, line)
+    warnings._showwarnmsg_impl(msg)
+
+
+def warn(message, category=None, stacklevel=1):
+    with warnings.catch_warnings():
+        warnings.simplefilter("default")  # Change the filter in this process
+        warnings.showwarning = warp_showwarning
+        warnings.warn(message, category, stacklevel + 1)  # Increment stacklevel by 1 since we are in a wrapper
 
 
 def length(a):
@@ -458,7 +473,7 @@ def runlength_encode(values, run_values, run_lengths, run_count=None, value_coun
     else:
         host_return = False
         if run_count.device != values.device:
-            raise RuntimeError("run_count storage devices does not match other arrays")
+            raise RuntimeError("run_count storage device does not match other arrays")
         if run_count.dtype != wp.int32:
             raise RuntimeError("run_count array must be of type int32")
 
@@ -646,28 +661,16 @@ def array_inner(a, b, out=None, count=None, axis=None):
             return out
 
 
-_copy_kernel_cache = dict()
+@wp.kernel
+def _array_cast_kernel(
+    dest: Any,
+    src: Any,
+):
+    i = wp.tid()
+    dest[i] = dest.dtype(src[i])
 
 
 def array_cast(in_array, out_array, count=None):
-    def make_copy_kernel(dest_dtype, src_dtype):
-        import re
-        import warp.context
-
-        def copy_kernel(
-            dest: Any,
-            src: Any,
-        ):
-            dest[wp.tid()] = dest_dtype(src[wp.tid()])
-
-        module = wp.get_module(copy_kernel.__module__)
-        key = f"{copy_kernel.__name__}_{warp.context.type_str(src_dtype)}_{warp.context.type_str(dest_dtype)}"
-        key = re.sub("[^0-9a-zA-Z_]+", "", key)
-
-        if key not in _copy_kernel_cache:
-            _copy_kernel_cache[key] = wp.Kernel(func=copy_kernel, key=key, module=module)
-        return _copy_kernel_cache[key]
-
     if in_array.device != out_array.device:
         raise RuntimeError("Array storage devices do not match")
 
@@ -722,8 +725,7 @@ def array_cast(in_array, out_array, count=None):
         # Same data type, can simply copy
         wp.copy(dest=out_array, src=in_array, count=count)
     else:
-        copy_kernel = make_copy_kernel(src_dtype=in_array.dtype, dest_dtype=out_array.dtype)
-        wp.launch(kernel=copy_kernel, dim=dim, inputs=[out_array, in_array], device=out_array.device)
+        wp.launch(kernel=_array_cast_kernel, dim=dim, inputs=[out_array, in_array], device=out_array.device)
 
 
 # code snippet for invoking cProfile
@@ -735,6 +737,25 @@ def array_cast(in_array, out_array, count=None):
 # cp.disable()
 # cp.print_stats(sort='tottime')
 # exit(0)
+
+
+# helper kernels for initializing NVDB volumes from a dense array
+@wp.kernel
+def copy_dense_volume_to_nano_vdb_v(volume: wp.uint64, values: wp.array(dtype=wp.vec3, ndim=3)):
+    i, j, k = wp.tid()
+    wp.volume_store_v(volume, i, j, k, values[i, j, k])
+
+
+@wp.kernel
+def copy_dense_volume_to_nano_vdb_f(volume: wp.uint64, values: wp.array(dtype=wp.float32, ndim=3)):
+    i, j, k = wp.tid()
+    wp.volume_store_f(volume, i, j, k, values[i, j, k])
+
+
+@wp.kernel
+def copy_dense_volume_to_nano_vdb_i(volume: wp.uint64, values: wp.array(dtype=wp.int32, ndim=3)):
+    i, j, k = wp.tid()
+    wp.volume_store_i(volume, i, j, k, values[i, j, k])
 
 
 # represent an edge between v0, v1 with connected faces f0, f1, and opposite vertex o0, and o1
@@ -820,6 +841,7 @@ def mem_report():
         print("Type: %s Total Tensors: %d \tUsed Memory Space: %.2f MBytes" % (mem_type, total_numel, total_mem))
 
     import gc
+
     import torch
 
     gc.collect()
