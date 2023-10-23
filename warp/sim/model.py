@@ -10,7 +10,7 @@
 
 import copy
 import math
-from typing import List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
 import numpy as np
 
@@ -695,6 +695,9 @@ class Model:
         self.device = wp.get_device(device)
         self.integrator = integrator
 
+        # list of functions to call to augment the state
+        self.state_augment_fns: List[Callable[[State]]] = []
+
     def state(self, requires_grad=None) -> State:
         """Returns a state object for the model
 
@@ -751,6 +754,8 @@ class Model:
 
         if self.integrator is not None and hasattr(self.integrator, "augment_state"):
             self.integrator.augment_state(self, s)
+        for state_augment_fn in self.state_augment_fns:
+            state_augment_fn(self, s)
 
         return s
 

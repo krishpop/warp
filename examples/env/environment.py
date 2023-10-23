@@ -228,6 +228,8 @@ class Environment:
         self.model.joint_attach_ke = self.joint_attach_ke
         self.model.joint_attach_kd = self.joint_attach_kd
 
+        self.model.state_augment_fns.append(self.custom_augment_state)
+
         if self.requires_grad:
             self.states = [self.model.state() for _ in range(self.sim_steps + 1)]
             self.update = self.update_grad
@@ -296,6 +298,9 @@ class Environment:
         pass
 
     def custom_render(self, render_state):
+        pass
+
+    def custom_augment_state(self, model, state):
         pass
 
     @property
