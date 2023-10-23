@@ -110,7 +110,7 @@ else:
         u = joint_act[env_id * 2]
 
         # from https://github.com/openai/gym/blob/master/gym/envs/classic_control/pendulum.py#L270
-        c = angle_normalize(th) ** 2.0 + 0.1 * thdot**2.0 + 0.001 * (u**2.0)
+        c = angle_normalize(th) ** 2.0 + 0.1 * thdot ** 2.0 + (u * 1e-4) ** 2.0
 
         wp.atomic_add(cost, env_id, c)
 
