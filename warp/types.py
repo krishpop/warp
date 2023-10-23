@@ -1823,9 +1823,8 @@ class array(Array):
     def zero_(self):
         """Zeroes-out the array entires."""
         if self.is_contiguous:
-            if warp.context.runtime.tape is not None and self.dtype in warp.builtins.fill_kernels:
-                cvalue = 0.0 if self.dtype in float_types else 0
-                warp.launch(warp.builtins.fill_kernels[self.dtype], dim=self.shape, inputs=[self, cvalue], device=self.device)
+            if warp.context.runtime.tape is not None and self.dtype in warp.builtins.zero_kernels:
+                warp.launch(warp.builtins.zero_kernels[self.dtype], dim=self.shape, inputs=[self], device=self.device)
             else:
                 # simple memset is usually faster than generic fill
                 self.device.memset(self.ptr, 0, self.size * type_size_in_bytes(self.dtype))
