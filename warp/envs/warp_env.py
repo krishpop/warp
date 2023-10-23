@@ -9,7 +9,7 @@ import warp as wp
 import warp.sim
 import warp.sim.render
 
-from .environment import Environment, RenderMode
+from .environment import Environment, RenderMode, IntegratorType
 from .utils import dr_params
 from .utils.autograd import forward_ag, get_compute_graph
 from .utils.warp_utils import integrate_body_f
@@ -42,9 +42,11 @@ class WarpEnv(Environment):
         joint_angular_relaxation=0.5,
         rigid_contact_relaxation=1.0,
         rigid_contact_con_weighting=True,
+        enable_restitution=False,
     )
     activate_ground_plane: bool = True
     ag_return_body: bool = False
+    num_rigid_contacts_per_env: int = 0
 
     def __init__(
         self,
@@ -248,11 +250,16 @@ class WarpEnv(Environment):
             self.state_1.body_q.requires_grad = True
             self.state_0.body_qd.requires_grad = True
             self.state_1.body_qd.requires_grad = True
-            self.state_0.body_f.requires_grad = True
-            self.state_1.body_f.requires_grad = True
+            if self.integrator_type == IntegratorType.EULER:
+                self.state_0.body_f.requires_grad = True
+                self.state_1.body_f.requires_grad = True
+            # if self.integrator_type == IntegratorType.XPBD:
+            # self.state_0.body_deltas.requires_grad = True
+            # self.state_1.body_deltas.requires_grad = True
             self._joint_q.requires_grad = True
             self._joint_qd.requires_grad = True
         self.body_q, self.body_qd = wp.to_torch(self.state_0.body_q), wp.to_torch(self.state_0.body_qd)
+        self.render_time = 0.0
 
         start_joint_q = wp.to_torch(self.model.joint_q)
         start_joint_qd = wp.to_torch(self.model.joint_qd)
@@ -284,7 +291,6 @@ class WarpEnv(Environment):
         raise NotImplementedError
 
     def reset(self, env_ids=None, force_reset=True):
-        self.render_time = 0.0
         if env_ids is None:
             if force_reset:
                 env_ids = np.arange(self.num_envs, dtype=int)
@@ -318,7 +324,10 @@ class WarpEnv(Environment):
             # only check body state requires_grad, assumes rest of state is correct
             assert self.state_0.body_q.requires_grad == self.requires_grad
             assert self.state_0.body_qd.requires_grad == self.requires_grad
-            assert self.state_0.body_f.requires_grad == self.requires_grad
+            if self.integrator_type == IntegratorType.EULER:
+                assert self.state_0.body_f.requires_grad == self.requires_grad
+            # if self.integrator_type == IntegratorType.XPBD and self.requires_grad:
+            #     assert [bd.requires_grad == self.requires_grad for bd in self.state_1.body_deltas]
 
             # updates state body positions after reset
             wp.sim.eval_fk(self.model, self._joint_q, self._joint_qd, None, self.state_0)
@@ -447,11 +456,15 @@ class WarpEnv(Environment):
             if self.state_0.body_q.grad is not None:
                 self.state_0.body_q.grad.zero_()
                 self.state_0.body_qd.grad.zero_()
-                self.state_0.body_f.grad.zero_()
+                if self.integrator_type == IntegratorType.EULER:
+                    self.state_0.body_f.grad.zero_()
+                if self.integrator_type == IntegratorType.XPBD:
+                    map(lambda bd: bd.grad.zero_(), filter(lambda bd: bd.grad is not None, self.state_1.body_deltas))
             if self.state_1.body_q.grad is not None:
                 self.state_1.body_q.grad.zero_()
                 self.state_1.body_qd.grad.zero_()
-                self.state_1.body_f.grad.zero_()
+                if self.integrator_type == IntegratorType.EULER:
+                    self.state_1.body_f.grad.zero_()
 
         if self.requires_grad:
             assert self.model.joint_q.requires_grad, "joint_q requires_grad not set"
@@ -474,6 +487,7 @@ class WarpEnv(Environment):
                 # render next_state (swapped with state 0 in update())
                 self.renderer.render(self.state_0)
                 self.renderer.end_frame()
+                self.renderer.save()
                 if mode == "rgb_array":
                     self.renderer.get_pixels(pixels, split_up_tiles=False)
                     return pixels.numpy()
