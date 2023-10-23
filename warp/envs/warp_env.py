@@ -265,8 +265,8 @@ class WarpEnv(Environment):
         self.joint_q = None
 
         # Buffers copying initial state, with env batch dimension
-        self.start_joint_q = start_joint_q.clone().view(self.num_envs, -1)
-        self.start_joint_qd = start_joint_qd.clone().view(self.num_envs, -1)
+        self.start_joint_q = start_joint_q.clone().view(self.num_envs, -1).detach()
+        self.start_joint_qd = start_joint_qd.clone().view(self.num_envs, -1).detach()
 
     def calculateObservations(self):
         """
@@ -361,7 +361,10 @@ class WarpEnv(Environment):
         )
         # swap states so start from correct next state
         if not self.use_graph_capture:
-            (self.simulate_params["state_in"], self.simulate_params["state_out"],) = (
+            (
+                self.simulate_params["state_in"],
+                self.simulate_params["state_out"],
+            ) = (
                 self.state_1,
                 self.state_0,
             )

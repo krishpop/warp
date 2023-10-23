@@ -406,14 +406,17 @@ def collect_rollout(env, n_steps, pi, loss_fn=None, plot_body_coords=False, plot
 
             rew = rew.mean(dim=0)
             if use_grad:
-                __import__("ipdb").set_trace()
+                ac.retain_grad()
                 rew.backward()
             rew_npy = to_numpy(rew).item()
             if loss_fn is not None:
                 loss_fn()
 
             net_cost += rew_npy
-            pbar.set_description(f"mean_cost_per_env={net_cost:.2f}")
+            desc = f"mean_cost_per_env={net_cost:.2f}"
+            if use_grad:
+                desc += f" grad={ac.grad.max().item():.2f}"
+            pbar.set_description(desc)
             states.append(to_numpy(o))
             rewards.append(rew_npy)
     history = {}

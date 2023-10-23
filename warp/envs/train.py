@@ -155,7 +155,6 @@ cfg_path = os.path.join(cfg_path, "cfg")
 
 @hydra.main(config_path="cfg", config_name="train.yaml")
 def train(cfg: DictConfig):
-
     cfg_full = OmegaConf.to_container(cfg, resolve=True)
 
     if cfg.general.run_wandb:
@@ -205,9 +204,9 @@ def train(cfg: DictConfig):
         # Run with hydra
         cfg.env.config.no_grad = not cfg.general.train
 
-        if "AHAC" in cfg.alg._target_ and "jacobian_norm" in cfg.env.ahac:
-            with open_dict(cfg):
-                cfg.env.config.jacobian_norm = cfg.env.ahac.jacobian_norm
+        # if "AHAC" in cfg.alg._target_ and "jacobian_norm" in cfg.env.ahac:
+        #     with open_dict(cfg):
+        #         cfg.env.config.jacobian_norm = cfg.env.ahac.jacobian_norm
 
         score_keys = []
         try:

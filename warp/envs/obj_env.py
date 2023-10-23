@@ -218,6 +218,7 @@ class ObjectTask(WarpEnv):
 
     def step(self, actions):
         self.reset_buf = torch.zeros_like(self.reset_buf)
+        self.termination_buf = torch.zeros_like(self.reset_buf)
         self.actions = actions
         actions = actions.flatten()
         self._prev_obs = self.extras.get("obs_dict", None)

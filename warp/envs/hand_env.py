@@ -162,6 +162,14 @@ class HandObjectTask(ObjectTask):
         self.joint_name_to_idx = {k: np.array(v) for k, v in self.joint_name_to_idx.items()}
         self.sample_grasps(None, self.start_joint_q, self.start_joint_qd)
 
+    def compute_position_delta_action(self, actions, hand_pos=None):
+        if hand_pos is None:
+            hand_pos = self.joint_q.view(self.num_envs, -1)[:, self.env_joint_target_indices]
+        lower, upper = self.action_bounds
+        actions = 0.1 * actions.clamp(-1, 1) * (upper - lower)
+        actions = torch.clamp(hand_pos + actions, lower, upper)  # TODO: parameterize action_scale in config
+        return actions
+
     def assign_actions(self, actions):
         # overrides ObjectTask.assign_actions
         actions = actions.reshape(self.num_envs, -1)
@@ -191,15 +199,12 @@ class HandObjectTask(ObjectTask):
             )
 
         if self.action_type == ActionType.POSITION_DELTA:
-            hand_pos = self.joint_q.view(self.num_envs, -1)[:, self.env_joint_target_indices]
-            lower, upper = self.action_bounds
-            actions = 0.1 * actions.clamp(-1, 1) * (upper - lower)
-            actions = torch.clamp(hand_pos + actions, lower, upper)  # TODO: parameterize action_scale in config
-            # self.reward_extras['target_qpos'] = actions
+            actions = self.compute_position_delta_action(actions)
+            self.reward_extras["target_qpos"] = actions
         else:
             lower, upper = self.action_bounds
             actions = scale(actions.clamp(-1, 1), lower, upper)
-            # self.reward_extras['target_qpos'] = actions
+            self.reward_extras["target_qpos"] = actions
 
         actions = actions.flatten()
 
@@ -240,11 +245,16 @@ class HandObjectTask(ObjectTask):
             obs_dict["goal_joint_pos"] = self.goal_joint_pos.view(self.num_envs, -1)
 
         if self.grasp is not None:
-            obs_dict["target_qpos"] = to_torch(self.grasp.joint_pos).view(1, -1).repeat(self.num_envs, 1)
+            obs_dict["init_hand_qpos"] = to_torch(self.grasp.joint_pos).view(1, -1).repeat(self.num_envs, 1)
         else:
-            obs_dict["target_qpos"] = self.start_joint_q[:, self.env_joint_target_indices]
+            obs_dict["init_hand_qpos"] = self.start_joint_q[:, self.env_joint_target_indices]
         obs_dict["hand_qpos"] = self.joint_q.view(self.num_envs, -1)[:, self.env_joint_target_indices]
         obs_dict["action"] = self.actions.view(self.num_envs, -1)
+        if self.action_type == ActionType.POSITION:
+            obs_dict["target_qpos"] = self.actions.view(self.num_envs, -1)
+        if self.action_type == ActionType.POSITION_DELTA:
+            hand_qpos = self.extras.get("obs_dict", {"hand_qpos": self.start_joint_q}).get("hand_qpos")
+            obs_dict["target_qpos"] = self.compute_position_delta_action(self.actions, hand_qpos)
         self.extras["obs_dict"] = obs_dict
         return obs_dict
 
@@ -447,7 +457,7 @@ if __name__ == "__main__":
     else:
         object_type = ObjectType[args.object_type.upper()]
 
-    rew_params = {"hand_joint_pos_err": (l1_dist, ("target_qpos", "hand_qpos"), 1.0)}
+    rew_params = {"hand_joint_pos_err": (l1_dist, ("init_hand_qpos", "hand_qpos"), 1.0)}
     HandObjectTask.profile = args.profile
 
     env = HandObjectTask(

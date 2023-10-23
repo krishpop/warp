@@ -42,6 +42,13 @@ class ReposeTask(HandObjectTask):
         object_type = ObjectType.REPOSE_CUBE
         object_id = 0
         env_name = hand_type.name + "_" + object_type.name
+        if reward_params is None:
+            reward_params = {
+                "object_pos_err": (l2_dist, ("target_pos", "object_pos"), -10.0),
+                # "rot_reward": (rot_reward, ("object_rot", "target_rot"), 1.0),
+                "action_penalty": (action_penalty, ("action",), -0.0002),
+                # "reach_bonus": (reach_bonus, ("object_pose_err", "reach_threshold"), 250.0),
+            }
         super().__init__(
             num_envs=num_envs,
             num_obs=num_obs,
@@ -126,8 +133,13 @@ class ReposeTask(HandObjectTask):
         termination = super()._check_early_termination(obs_dict)
         object_body_pos = obs_dict["object_pos"]
         termination = termination | (object_body_pos[:, 1] < self.drop_height)
+        # terminate halfway into episode if reach threshold is more than 3x the object pose error
+        # termination = termination | (
+        #     (self.progress_buf > self.episode_length // 2)
+        #     & (self.reward_extras["reach_threshold"] * 4 < obs_dict["object_pose_err"].flatten())
+        # )
         self.termination_buf = self.termination_buf | termination
-        return termination
+        return self.termination_buf
 
     def _get_obs_dict(self):
         obs_dict = super()._get_obs_dict()
@@ -150,8 +162,6 @@ class ReposeTask(HandObjectTask):
             ).squeeze()
         else:
             self.extras["net_energy"] = torch.zeros_like(self.rew_buf)
-        termination = self._check_early_termination(obs_dict)
-        self.extras["termination"] = termination
         return obs_dict
 
     def render(self, **kwargs):
@@ -175,7 +185,7 @@ if __name__ == "__main__":
 
     reach_bonus = lambda x, y: torch.where(x < y, torch.ones_like(x), torch.zeros_like(x))
     reward_params = {
-        # "object_pos_err": (l2_dist, ("target_pos", "object_pos"), -10.0),
+        "object_pos_err": (l2_dist, ("target_pos", "object_pos"), -10.0),
         # "rot_reward": (rot_reward, ("object_rot", "target_rot"), 1.0),
         "action_penalty": (action_penalty, ("action",), -0.0002),
         # "reach_bonus": (reach_bonus, ("object_pose_err", "reach_threshold"), 250.0),

@@ -5,4 +5,4 @@ reach_bonus:
   args: 
     - object_pose_err
     - reach_threshold
-  scale: 250.0
+  scale: 10.0
