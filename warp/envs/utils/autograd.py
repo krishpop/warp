@@ -367,6 +367,7 @@ class IntegratorSimulate(torch.autograd.Function):
 
             ctx.tape.backward()
             joint_act_grad = wp.to_torch(ctx.tape.gradients[act]).clone()
+            joint_act_grad /= joint_act_grad.norm(dim=-1, keepdim=True).clamp(min=1e-6)
             # Unnecessary copying of grads, grads should already be recorded by context
             body_q_grad = wp.to_torch(ctx.tape.gradients[state_in.body_q]).clone()
             body_qd_grad = wp.to_torch(ctx.tape.gradients[state_in.body_qd]).clone()

@@ -20,7 +20,7 @@ score_keys:
 
 env:
   _target_: warp.envs.ReposeTask
-  num_envs: 1024
+  num_envs: ${resolve_default:1024,${num_envs}}
   episode_length: 250
   render: ${render}
   reward_params: 
@@ -33,9 +33,9 @@ env:
     reach_bonus: ${task.rewards.reach_bonus}
   hand_type: ${hand:allegro}
   stochastic_init: true
-  use_autograd: false
+  use_autograd: true
   use_graph_capture: false
-  reach_threshold: 0.05
+  reach_threshold: 0.1  # radians from goal rotation considered success
   # use_graph_capture: ${eval:'("shac" not in "${alg.name}")'}
   no_grad: ???
 
@@ -53,5 +53,5 @@ ppo:
 
 player:
   deterministic: true
-  games_num: 100000
+  games_num: 5
   print_stats: true

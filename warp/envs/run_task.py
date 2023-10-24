@@ -30,7 +30,6 @@ def get_policy(cfg):
         return lambda x, t: torch.rand((x.shape[0], num_act), device=x.device).clamp_(-1.0, 1.0)
     if cfg.alg.name == "sine":
         return lambda x, t: torch.sin(torch.ones((x.shape[0], num_act)).to(x) * t * 2 * np.pi * 0.1)
-    
 
 
 @hydra.main(config_path="cfg", config_name="run_task.yaml")
@@ -41,19 +40,15 @@ def run(cfg: DictConfig):
     print("Run Params:")
     print(cfg_yaml)
 
-    # instantiate the environment
-    if cfg.task.name.lower() == "repose_task":
-        env = instantiate(cfg.task.env, _convert_="partial")
-    elif cfg.task.name.lower() == "hand_object_task":
-        env = instantiate(cfg.task.env, _convert_="partial")
-    elif cfg.task.name.lower() == "object_task":
-        env = instantiate(cfg.task.env, _convert_="partial")
-
-    if env.opengl_render_settings.get('headless', False):
-        env = Monitor(env, "outputs/videos/{}".format(get_time_stamp()))
-
+    cfg.task.env.no_grad = True
     # get a policy
     if cfg.alg.name in ["default", "random", "zero", "sine"]:
+        # instantiate the environment
+        env = instantiate(cfg.task.env, _convert_="partial")
+
+        if env.opengl_render_settings.get("headless", False):
+            env = Monitor(env, "outputs/videos/{}".format(get_time_stamp()))
+
         policy = get_policy(cfg)
         run_env(env, policy, cfg_full["num_steps"], cfg_full["num_rollouts"])
     elif cfg.alg.name in ["ppo", "sac"]:
@@ -62,8 +57,9 @@ def run(cfg: DictConfig):
         cfg_eval["params"]["seed"] = cfg_full["general"]["seed"]
         cfg_eval["params"]["render"] = cfg_full["render"]
         cfg_eval["params"]["diff_env"] = cfg_full["task"]["env"]
+        cfg_eval["params"]["config"]["env_name"] = "warp"
         env_name = cfg_full["task"]["name"]
-        register_envs(cfg_eval, env_name)
+        register_envs(cfg.task, "warp")
         # add observer to score keys
         if cfg_eval["params"]["config"].get("score_keys"):
             algo_observer = RLGPUEnvAlgoObserver()
