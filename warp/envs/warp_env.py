@@ -397,8 +397,8 @@ class WarpEnv(Environment):
                 self.state_0.clear_forces()
                 if self.activate_ground_plane:
                     wp.sim.collide(self.model, self.state_0)
-                if not self.use_graph_capture:
-                    self.state_1 = self.model.state(self.requires_grad)
+                # if not self.use_graph_capture:
+                #     self.state_1 = self.model.state(self.requires_grad)
                 self.state_1 = self.integrator.simulate(self.model, self.state_0, self.state_1, self.sim_dt)
                 if not self.use_graph_capture:
                     self.state_0, self.state_1 = self.state_1, self.state_0
