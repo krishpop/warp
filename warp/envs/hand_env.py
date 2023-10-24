@@ -84,8 +84,6 @@ class HandObjectTask(ObjectTask):
             self.grasp = None
             self.grasps = None
 
-        # unset stochastic init if grasp_id not specified
-        stochastic_init = (self.grasps is not None and grasp_id is None) and stochastic_init
         self.hand_stiffness = stiffness
         self.hand_damping = damping
         # self.gravity = 0.0
@@ -187,7 +185,7 @@ class HandObjectTask(ObjectTask):
                 self.num_envs,
                 joint_indices=xform_indices,
             )
-        
+
         if self.action_type == ActionType.POSITION_DELTA:
             hand_pos = self.joint_q.view(self.num_envs, -1)[:, self.env_joint_target_indices]
             lower, upper = self.action_bounds
@@ -395,7 +393,8 @@ class HandObjectTask(ObjectTask):
             if self.grasp:
                 object_kwargs["base_joint"] = "rx, ry, rz, px, py, pz"
             object_articulation_builder = builder  # wp.sim.ModelBuilder()
-            object_kwargs["use_mesh_extents"] = not (self.object_type in [ObjectType.SPRAY_BOTTLE])
+            if self.object_type is not ObjectType.REPOSE_CUBE:
+                object_kwargs["use_mesh_extents"] = not (self.object_type in [ObjectType.SPRAY_BOTTLE])
             super().create_articulation(object_articulation_builder, **object_kwargs)
             # self.object_num_joint_axis = object_articulation_builder.joint_axis_count - self.hand_num_joint_axis
             # self.object_num_joint_axis = object_articulation_builder.joint_axis_count
