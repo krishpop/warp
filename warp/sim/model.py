@@ -1213,7 +1213,7 @@ class ModelBuilder:
         # every simulation substep (can be 0 if only one PBD solver iteration is used)
         self.rigid_contact_margin = 0.1
         # torsional friction coefficient (only considered by XPBD so far)
-        self.rigid_contact_torsional_friction = 0.0
+        self.rigid_contact_torsional_friction = 0.5
         # rolling friction coefficient (only considered by XPBD so far)
         self.rigid_contact_rolling_friction = 0.001
 
