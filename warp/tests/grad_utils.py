@@ -203,6 +203,8 @@ def tape_jacobian(tape: wp.Tape, inputs: List[wp.array], outputs: List[wp.array]
     """
     Computes the Jacobian from a tape mapping from all differentiable inputs to all differentiable outputs.
     """
+    if len(inputs) == 0 or len(outputs) == 0:
+        return None, None, None
     diff_in = flatten_arrays(inputs)
     diff_out = flatten_arrays(outputs)
 
@@ -746,6 +748,8 @@ def check_kernel_jacobian(kernel: Callable, dim: Tuple[int], inputs: list, outpu
     output_names = arg_names[len(inputs):]
     jac_ad, ad_in, ad_out = kernel_jacobian(
         kernel, dim, inputs, outputs, max_outputs_per_var=max_outputs_per_var)
+    if jac_ad is None:
+        return True, "Jacobian is empty because there are either no inputs or outputs"
     jac_fd = kernel_jacobian_fd(
         kernel, dim, inputs, outputs, eps=eps, max_fd_dims_per_var=max_fd_dims_per_var)
 
@@ -804,7 +808,11 @@ def make_struct_of_arrays(xs):
 def check_backward_pass(
     tape: wp.Tape,
     analyze_graph=True,
-    visualize_graph=True,
+    render_mermaid: str = None,
+    render_pydot_png: str = None,
+    render_pydot_svg: str = None,
+    render_graphviz_plot_png: str = None,
+    render_graphviz_plot_svg: str = None,
     check_kernel_jacobians=True,
     check_input_output_jacobian=True,
     plot_jac_on_fail=False,
@@ -840,13 +848,15 @@ def check_backward_pass(
     import networkx as nx
     G = nx.DiGraph()
     node_labels = {}
-    edge_labels = {}
     kernel_launch_count = defaultdict(int)
     # array -> list of kernels that modify it
     manipulated_nodes = defaultdict(list)
     kernel_nodes = set()
     kernel_instances = dict()
     array_nodes = set()
+
+    chart_lines = []
+    chart_indent = '\t'
 
     input_output_ptr = set()
     for input in track_inputs:
@@ -871,6 +881,13 @@ def check_backward_pass(
                              wp.int8, wp.uint8, wp.int16, wp.uint16, wp.int32, wp.uint32, wp.int64, wp.uint64])
         G.add_node(x.ptr, label=f'"{name}"', requires_grad=x.requires_grad,
                    is_kernel=False, nondifferentiable=nondifferentiable)
+        if render_mermaid is not None:
+            class_name = "array" if not x.requires_grad else "array_grad"
+            arr_id = f'arr{x.ptr}'
+            chart_lines.append(chart_indent + f'{arr_id}(["`{name}`"]):::{class_name}')
+            type_str = str(x.dtype).split("'")[1]
+            tooltip = f"Array {name} / ptr={x.ptr}, shape={str(x.shape)}, dtype={type_str}, requires_grad={x.requires_grad}"
+            chart_lines.append(chart_indent + f'click {arr_id} callback "{tooltip}"')
         node_labels[x.ptr] = name
 
     for i, x in enumerate(track_inputs):
@@ -890,16 +907,52 @@ def check_backward_pass(
     for output in track_outputs:
         computed_nodes.add(output.ptr)
     simplify_graph = True
-    for launch in tape.launches:
+    active_scope = None
+    active_scope_id = -1
+    if len(tape.scopes) > 0:
+        active_scope = tape.scopes[0]
+        active_scope_id = 0
+    for launch_id, launch in enumerate(tape.launches):
+        if render_mermaid is not None and active_scope is not None:
+            if launch_id == active_scope[0]:
+                if active_scope[1] is None:
+                    chart_indent = chart_indent[:-1]
+                    chart_lines.append(chart_indent + 'end\n')
+                else:
+                    chart_lines.append('\n' + chart_indent +
+                                       f'subgraph scope{active_scope_id} ["`**{active_scope[1]}**`"]')
+                    chart_indent += '\t'
+            # check if we are in the next scope now
+            while active_scope_id < len(tape.scopes) - 1 and launch_id == tape.scopes[active_scope_id + 1][0]:
+                active_scope_id += 1
+                active_scope = tape.scopes[active_scope_id]
+                if active_scope[1] is None:
+                    chart_indent = chart_indent[:-1]
+                    chart_lines.append(chart_indent + 'end\n')
+                else:
+                    chart_lines.append('\n' + chart_indent +
+                                       f'subgraph scope{active_scope_id} ["`**{active_scope[1]}**`"]')
+                    chart_indent += '\t'
+
         kernel, dim, _max_blocks, inputs, outputs, _device, meta_data = tuple(launch)
         kernel_name = f"{kernel.key}/{kernel_launch_count[kernel.key]}"
         kernel_nodes.add(kernel_name)
         kernel_instances[kernel_name] = {
             "kernel": kernel,
             "meta_data": meta_data,
+            "launch_id": launch_id,
         }
         # store kernel as node with requires_grad so that the path search works
         G.add_node(kernel_name, label=f'"{kernel_name}"', is_kernel=True, dim=dim, requires_grad=True)
+        if render_mermaid is not None:
+            chart_lines.append(chart_indent + f'kernel{launch_id}[["`{kernel_name}`"]]:::kernel')
+            tooltip = meta_data["stack_trace"][:300] \
+                .replace('\n', ' ').replace('"', " ").replace("'", " ") \
+                .replace('[', '&#91;').replace(']', '&#93;').replace('`', '&#96;') \
+                .replace(':', '&#58;').replace('\\', '&#92;').replace('/', '&#47;') \
+                .replace('(', '&#40;').replace(')', '&#41;') \
+                .replace(',', '')
+            chart_lines.append(chart_indent + f'click kernel{launch_id} callback "{tooltip}"')
         node_labels[kernel_name] = kernel_name
         input_arrays = []
         for id, x in enumerate(inputs):
@@ -917,7 +970,7 @@ def check_backward_pass(
         output_arrays = []
         for id, x in enumerate(outputs):
             name = kernel.adj.args[id + len(inputs)].label
-            if isinstance(x, wp.array):
+            if isinstance(x, wp.array) and x.ptr is not None:
                 add_node(G, x, name)
                 output_arrays.append(x.ptr)
                 computed_nodes.add(x.ptr)
@@ -929,10 +982,14 @@ def check_backward_pass(
                         computed_nodes.add(var.ptr)
         for input_x in input_arrays:
             G.add_edge(input_x, kernel_name)
+            if render_mermaid is not None:
+                chart_lines.append(chart_indent + f'arr{input_x} --> kernel{launch_id}')
         for output_x in output_arrays:
             # track how many kernels modify each array
             manipulated_nodes[output_x].append(kernel.key)
             G.add_edge(kernel_name, output_x)
+            if render_mermaid is not None:
+                chart_lines.append(chart_indent + f'kernel{launch_id} --> arr{output_x}')
 
         kernel_launch_count[kernel.key] += 1
 
@@ -971,41 +1028,60 @@ def check_backward_pass(
                     print(FontColors.FAIL +
                           f"Error: there is no computation path from {node_labels[x.ptr]} to {node_labels[y.ptr]}" + FontColors.ENDC)
 
-    if visualize_graph:
-        import matplotlib as mpl
-        import matplotlib.pyplot as plt
-        import xml.etree.ElementTree as ET
-        # return G, array_nodes, kernel_nodes, manipulated_nodes, node_labels, edge_labels
+    def shorten_label(label):
+        import re
+        return "\n".join(re.split(r'__|_|\.', label))
 
-        # try:
-        # pos = nx.nx_agraph.graphviz_layout(
-        #     G, prog='dot', args='-Grankdir="LR"')
-        pos = nx.nx_agraph.graphviz_layout(
-            G, prog='dot', args='-Grankdir="TB" -Goverlap_scaling="10" -Gsize="10" -Gpad="0.0" -Gnodesep="0.5" -Gsep="10" -Granksep="3" -Gmindist="1.0"')
-        # pos = nx.nx_agraph.graphviz_layout(
-        #     G, prog='neato', args='-Grankdir="TB" -Goverlap_scaling="10" -Gsize="10" -Gpad="0.0" -Gnodesep="0.5" -Gsep="10" -Granksep="3" -Gmindist="1.0"')
-        # pos = nx.nx_pydot.pydot_layout(G)
-        # pos = nx.nx_agraph.graphviz_layout(G)
-        # pos = nx.nx_agraph.graphviz_layout(G, prog="dot")
-        # pos = nx.kamada_kawai_layout(G, scale=1e6)
-        # pos = nx.spring_layout(G, seed=42, pos=pos, iterations=1, scale=100.0)
-        # except:
-        #     print(
-        #         "Warning: could not use graphviz to layout graph. Falling back to spring layout.")
-        #     print("To get better layouts, install graphviz and pygraphviz.")
-        #     # pos = nx.spring_layout(G, k=100.0)
-        #     pos = nx.spectral_layout(G)
+    shortened_node_labels = {key: shorten_label(label) for key, label in node_labels.items()}
 
-        def shorten_label(label):
-            import re
-            return "\n".join(re.split(r'__|_|\.', label))
-        
-        shortened_node_labels = {key: shorten_label(label) for key, label in node_labels.items()}
-        
+    if render_mermaid is not None:
+        # generate mermaid flowchart as HTML
+        chart = "graph LR\n"
+        chart_lines.append("")
+        chart_lines.append('\tclassDef array fill:#CCCCCC')
+        chart_lines.append('\tclassDef array_grad fill:#80E6FF')
+        chart_lines.append('\tclassDef kernel fill:#FFB380')
+        chart += "\n".join(chart_lines)
+        html = f'''<html>
+<head>
+<style>
+    .mermaidTooltip {{
+        position: absolute;
+        background: rgba(255, 255, 255, 0.95);
+        padding: 5px 10px;
+        border-radius: 3px;
+        pointer-events: none;
+        box-shadow: 0 0 10px rgba(0, 0, 0, 0.2);
+        font-family: monospace;
+    }}
+</style>
+</head>
+
+<body>
+<pre class="mermaid">
+{chart}
+</pre>
+
+<script type="module">
+    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+    mermaid.initialize({{ startOnLoad: true, maxTextSize: 900000000, debug: true, flowchart: {{ useMaxWidth: false, htmlLabels: true }} }});
+</script>
+</body>
+
+</html>
+'''
+        with open(render_mermaid, "w") as f:
+            f.write(html)
+
+            # open HTML in browser
+            import webbrowser
+            webbrowser.open(render_mermaid)
+
+    if render_pydot_png is not None or render_pydot_svg is not None:
         import pydot
-        
+
         graph: pydot.Graph = nx.drawing.nx_pydot.to_pydot(G)
-    
+
         graph.set_rankdir("TB")
         # graph.set_ranksep(2)
         # print(graph.get_nodes())
@@ -1024,8 +1100,33 @@ def check_backward_pass(
                 else:
                     n.set("fillcolor", "#A7A7A74E")
 
-        graph.write_png('graph_dot.png')
-            
+        if render_pydot_png is not None:
+            graph.write_png(render_pydot_png)
+        if render_pydot_svg is not None:
+            graph.write_svg(render_pydot_svg)
+
+    if render_graphviz_plot_png is not None or render_graphviz_plot_svg is not None:
+        import matplotlib as mpl
+        import matplotlib.pyplot as plt
+        import xml.etree.ElementTree as ET
+        # try:
+        # pos = nx.nx_agraph.graphviz_layout(
+        #     G, prog='dot', args='-Grankdir="LR"')
+        pos = nx.nx_agraph.graphviz_layout(
+            G, prog='dot', args='-Grankdir="TB" -Goverlap_scaling="10" -Gsize="10" -Gpad="0.0" -Gnodesep="0.5" -Gsep="10" -Granksep="3" -Gmindist="1.0"')
+        # pos = nx.nx_agraph.graphviz_layout(
+        #     G, prog='neato', args='-Grankdir="TB" -Goverlap_scaling="10" -Gsize="10" -Gpad="0.0" -Gnodesep="0.5" -Gsep="10" -Granksep="3" -Gmindist="1.0"')
+        # pos = nx.nx_pydot.pydot_layout(G)
+        # pos = nx.nx_agraph.graphviz_layout(G)
+        # pos = nx.nx_agraph.graphviz_layout(G, prog="dot")
+        # pos = nx.kamada_kawai_layout(G, scale=1e6)
+        # pos = nx.spring_layout(G, seed=42, pos=pos, iterations=1, scale=100.0)
+        # except:
+        #     print(
+        #         "Warning: could not use graphviz to layout graph. Falling back to spring layout.")
+        #     print("To get better layouts, install graphviz and pygraphviz.")
+        #     # pos = nx.spring_layout(G, k=100.0)
+        #     pos = nx.spectral_layout(G)
 
         fig = plt.figure()
         fig.canvas.manager.set_window_title("Kernel launch graph")
@@ -1050,7 +1151,7 @@ def check_backward_pass(
         legend.get_frame().set_linewidth(0.2)
 
         node_size = 150
-        font_size = 5 # 0.01
+        font_size = 5  # 0.01
         default_draw_args = dict(
             alpha=0.9, edgecolors="black", linewidths=0.1, node_size=node_size)
         ax = plt.gca()
@@ -1062,12 +1163,12 @@ def check_backward_pass(
                 continue
             w, h = node_size, node_size
             p = patches.Rectangle(
-                (p[0]-w/2, p[1]-h/2), w, h,
+                (p[0] - w / 2, p[1] - h / 2), w, h,
                 fill=True, clip_on=False,
                 facecolor='yellow',
                 edgecolor='black',
                 linewidth=0.1,
-                )
+            )
             p.set_gid(key)
             ax.add_artist(p)
         # first draw kernels
@@ -1080,39 +1181,29 @@ def check_backward_pass(
         nx.draw_networkx_labels(G, pos, labels=shortened_node_labels, font_size=font_size, bbox=dict(
             facecolor='white', alpha=0.8, edgecolor='none', pad=0.0))
 
-        nx.draw_networkx_edges(G, pos, edgelist=G.edges(), arrows=True, edge_color='black', node_size=node_size) #, width=0.1, arrowsize=2.0)
-        # try:
-        #     nx.draw_networkx_edges(G, pos, edgelist=G.edges(), arrows=True, edge_color='black', node_size=node_size, width=0.1, arrowsize=2.0)
-        # except:
-        #     pass
-        # nx.draw_networkx_edge_labels(
-        #     G, pos,
-        #     edge_labels={
-        #         uv: f"{d['kernel']}:{d['launch']}" for uv, d in edge_labels.items()},
-        #     font_color='darkslategray', font_size=font_size
-        # )
+        nx.draw_networkx_edges(G, pos, edgelist=G.edges(), arrows=True, edge_color='black',
+                               node_size=node_size)  # , width=0.1, arrowsize=2.0)
+
         plt.axis('off')
-        plt.savefig("tape_graph.png", dpi=1100, bbox_inches="tight", pad_inches=0.0)
-        
-        f = BytesIO()
-        plt.savefig(f, format="svg", dpi=1200)
-        plt.savefig("tape_graph.svg", format='svg', dpi=1200)
-        
-        
-        tree, xmlid = ET.XMLID(f.getvalue())
+        if render_graphviz_plot_png is not None:
+            plt.savefig(render_graphviz_plot_png, dpi=1100, bbox_inches="tight", pad_inches=0.0)
 
-        for key, kernel_data in kernel_instances.items():
-            kernel_rect = tree.find(f'.//*[@id="{key}"]')
-            tooltip = ET.Element('ns0:title')
-            tooltip.text = kernel_data['meta_data']['stack_trace']
-            kernel_rect.append(tooltip)
+        if render_graphviz_plot_svg is not None:
+            f = BytesIO()
+            plt.savefig(f, format="svg", dpi=1200)
+            plt.savefig("tape_graph.svg", format='svg', dpi=1200)
 
-        ET.ElementTree(tree).write("tape_graph.svg")
-        
+            tree, xmlid = ET.XMLID(f.getvalue())
+
+            for key, kernel_data in kernel_instances.items():
+                kernel_rect = tree.find(f'.//*[@id="{key}"]')
+                tooltip = ET.Element('ns0:title')
+                tooltip.text = kernel_data['meta_data']['stack_trace']
+                kernel_rect.append(tooltip)
+
+            ET.ElementTree(tree).write("tape_graph.svg")
+
         plt.show()
-        
-        import sys
-        sys.exit(0)
 
     if check_input_output_jacobian and len(track_inputs) > 0 and len(track_outputs) > 0:
         assert len(track_inputs) == len(track_input_names), "track_inputs and track_input_names must have the same length"
@@ -1123,12 +1214,7 @@ def check_backward_pass(
 
     stats = {}
     kernel_names = set()
-    manipulated_vars = {}
-    problematic_vars = set()
-    chart_code = []
-    chart_vars = {}
     kernel_launch_count = defaultdict(int)
-    hide_non_arrays = True
     for launch in tape.launches:
         kernel, dim, _max_blocks, inputs, outputs, _device, _meta_data = tuple(launch)
         if len(whitelist_kernels) > 0 and kernel.key not in whitelist_kernels:
@@ -1141,109 +1227,25 @@ def check_backward_pass(
                 result, kernel_stats = check_kernel_jacobian(
                     kernel, dim, inputs, outputs, plot_jac_on_fail=plot_jac_on_fail, eps=jacobian_fd_eps)
                 print(result)
-                if kernel.key not in stats:
-                    stats[kernel.key] = defaultdict(list)
-                add_to_struct_of_arrays(kernel_stats, stats[kernel.key])
+                if isinstance(kernel_stats, str):
+                    print(kernel_stats)
+                else:
+                    if kernel.key not in stats:
+                        stats[kernel.key] = defaultdict(list)
+                    add_to_struct_of_arrays(kernel_stats, stats[kernel.key])
             except Exception as e:
                 print(FontColors.FAIL + f"Error while checking jacobian of kernel {kernel.key}: {e}" + FontColors.ENDC)
+                raise e
 
         kernel_names.add(kernel.key)
-
-        def sanitize_name(s):
-            # XXX there seems to be a bug in mermaid where it tries to interpret
-            # a node name as a link target if it contains the word "parent"
-            return s.replace('parent', 'pärent')
-
-        kernel_id = f"{kernel.key}{kernel_launch_count[kernel.key]}"
-        chart_code.append(
-            f"{kernel_id}[[{sanitize_name(kernel.key)}]]:::kernel;")
         kernel_launch_count[kernel.key] += 1
-
-        input_nodes = []
-        for id, x in enumerate(inputs):
-            name = sanitize_name(kernel.adj.args[id].label)
-            if isinstance(x, wp.array):
-                if x.requires_grad:
-                    input_nodes.append(f"a{x.ptr}")
-                    if x.ptr not in manipulated_vars:
-                        chart_vars[x.ptr] = f"a{x.ptr}([{name}]):::grad;"
-                else:
-                    input_nodes.append(f"a{x.ptr}")
-                    chart_vars[x.ptr] = f"a{x.ptr}([{name}]):::nograd;"
-            elif isinstance(x, wp.codegen.StructInstance):
-                for varname, var in get_struct_vars(x).items():
-                    if isinstance(var, wp.array):
-                        if var.requires_grad:
-                            input_nodes.append(f"a{var.ptr}")
-                            if var.ptr not in manipulated_vars:
-                                chart_vars[var.ptr] = f"a{var.ptr}([{name}.{varname}]):::grad;"
-                        else:
-                            input_nodes.append(f"a{var.ptr}")
-                            chart_vars[var.ptr] = f"a{var.ptr}([{name}.{varname}]):::nograd;"
-                    elif not hide_non_arrays:
-                        input_nodes.append(f"a{name}.{varname}([{name}.{varname}])")
-            elif not hide_non_arrays:
-                input_nodes.append(f"a{name}([{name}])")
-        output_nodes = []
-        for id, x in enumerate(outputs):
-            name = sanitize_name(kernel.adj.args[id + len(inputs)].label)
-            if isinstance(x, wp.array):
-                if x.requires_grad:
-                    output_nodes.append(f"a{x.ptr}")
-                    if x.ptr in manipulated_vars:
-                        chart_vars[x.ptr] = f"a{x.ptr}([{name}]):::problem;"
-                        # print(
-                        #     f"WARNING: variable {name} requires grad and is manipulated by kernels {kernel.key} and {manipulated_vars[x.ptr]}.")
-                        problematic_vars.add(f"a{x.ptr}")
-                    else:
-                        chart_vars[x.ptr] = f"a{x.ptr}([{name}]):::grad;"
-                        manipulated_vars[x.ptr] = kernel.key
-                else:
-                    output_nodes.append(f"a{x.ptr}")
-                    chart_vars[x.ptr] = f"a{x.ptr}([{name}]):::nograd;"
-            elif not hide_non_arrays:
-                output_nodes.append(f"a{name}([{name}])")
-
-        chart_code.append(f"subgraph graph{kernel_id}[{kernel.key}]")
-        # chart_code.append(f"{' & '.join(input_nodes)} --> {kernel_id};")
-        # chart_code.append(f"{kernel_id} --> {' & '.join(output_nodes)};")
-        for node in input_nodes:
-            chart_code.append(f"{node} --> {kernel_id};")
-        for node in output_nodes:
-            if node in problematic_vars:
-                chart_code.append(f"{kernel_id} -.-> {node};")
-            else:
-                chart_code.append(f"{kernel_id} --> {node};")
-        chart_code.append("end")
-
-    chart_code.append(
-        "classDef kernel fill:#222,color:#fff,stroke:#333,stroke-width:4px")
-    chart_code.append("classDef grad fill:#efe,stroke:#060")
-    chart_code.append("classDef nograd fill:#ffe,stroke:#630")
-    chart_code.append("classDef problem fill:#f65,color:#900,stroke:#900")
-    chart_code.append("class a fill:#fff,stroke:#000")
-
-    chart = "%%{init: {'flowchart': { 'curve': 'curve' }, 'theme': 'base', 'themeVariables': { 'primaryColor': '#ffeedd'}}}%%\n"
-    chart += "flowchart LR;\n"
-    chart += "\n".join([f"\t{line}" for line in chart_vars.values()])
-    chart += "\n"
-    chart += "\n".join([f"\t{line}" for line in chart_code])
-
-    # print(chart)
-
-    # import dash
-    # from dash_extensions import Mermaid
-    # app = dash.Dash()
-    # app.layout = Mermaid(chart=chart)
-
-    # app.run_server()
 
     if check_kernel_jacobians and len(stats) > 0:
         # plot evolution of Jacobian statistics
         if plotting == "matplotlib":
-            from itertools import chain
+            import itertools
             any_stat = next(iter(stats.values()))
-            all_stats_names = chain.from_iterable([any_stat[cat].keys() for cat in ["sensitivity", "accuracy"]])
+            all_stats_names = itertools.chain.from_iterable([any_stat[cat].keys() for cat in ["sensitivity", "accuracy"]])
             all_stats_names = [key for key in all_stats_names if key not in ("total", "individual")]
             for kernel_name, stat in stats.items():
                 import matplotlib.pyplot as plt
@@ -1263,7 +1265,7 @@ def check_backward_pass(
                     if dim >= num:
                         ax.axis("off")
                         continue
-                kernel_stats = list(chain.from_iterable([stat[cat].items() for cat in ["sensitivity", "accuracy"]]))
+                kernel_stats = list(itertools.chain.from_iterable([stat[cat].items() for cat in ["sensitivity", "accuracy"]]))
                 for dim, (stat_name, cond) in enumerate(kernel_stats):
                     ax = axes[dim // ncols, dim % ncols]
                     ax.set_title(f"{stat_name}")
