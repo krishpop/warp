@@ -909,6 +909,7 @@ def check_backward_pass(
         computed_nodes.add(output.ptr)
     active_scope = None
     active_scope_id = -1
+    active_scope_kernels = {}
     if len(tape.scopes) > 0:
         active_scope = tape.scopes[0]
         active_scope_id = 0
@@ -926,6 +927,7 @@ def check_backward_pass(
             while active_scope_id < len(tape.scopes) - 1 and launch_id == tape.scopes[active_scope_id + 1][0]:
                 active_scope_id += 1
                 active_scope = tape.scopes[active_scope_id]
+                active_scope_kernels = {}
                 if active_scope[1] is None:
                     chart_indent = chart_indent[:-1]
                     chart_lines.append(chart_indent + 'end\n')
@@ -945,14 +947,16 @@ def check_backward_pass(
         # store kernel as node with requires_grad so that the path search works
         G.add_node(kernel_name, label=f'"{kernel_name}"', is_kernel=True, dim=dim, requires_grad=True)
         if render_mermaid is not None:
-            chart_lines.append(chart_indent + f'kernel{launch_id}[["`{kernel_name}`"]]:::kernel')
-            tooltip = meta_data["stack_trace"][:300] \
-                .replace('\n', ' ').replace('"', " ").replace("'", " ") \
-                .replace('[', '&#91;').replace(']', '&#93;').replace('`', '&#96;') \
-                .replace(':', '&#58;').replace('\\', '&#92;').replace('/', '&#47;') \
-                .replace('(', '&#40;').replace(')', '&#41;') \
-                .replace(',', '')
-            chart_lines.append(chart_indent + f'click kernel{launch_id} callback "{tooltip}"')
+            if not simplify_graph or kernel.key not in active_scope_kernels:
+                active_scope_kernels[kernel.key] = launch_id
+                chart_lines.append(chart_indent + f'kernel{launch_id}[["`{kernel_name}`"]]:::kernel')
+                tooltip = meta_data["stack_trace"][:300] \
+                    .replace('\n', ' ').replace('"', " ").replace("'", " ") \
+                    .replace('[', '&#91;').replace(']', '&#93;').replace('`', '&#96;') \
+                    .replace(':', '&#58;').replace('\\', '&#92;').replace('/', '&#47;') \
+                    .replace('(', '&#40;').replace(')', '&#41;') \
+                    .replace(',', '')
+                chart_lines.append(chart_indent + f'click kernel{launch_id} callback "{tooltip}"')
         node_labels[kernel_name] = kernel_name
         input_arrays = []
         for id, x in enumerate(inputs):
@@ -982,16 +986,20 @@ def check_backward_pass(
                         add_node(G, var, f"{name}.{varname}")
                         output_arrays.append(var.ptr)
                         computed_nodes.add(var.ptr)
+        if simplify_graph:
+            k_id = f'kernel{active_scope_kernels[kernel.key]}'
+        else:
+            k_id = f'kernel{launch_id}'
         for input_x in input_arrays:
             G.add_edge(input_x, kernel_name)
             if render_mermaid is not None:
-                chart_lines.append(chart_indent + f'arr{input_x} --> kernel{launch_id}')
+                chart_lines.append(chart_indent + f'arr{input_x} --> {k_id}')
         for output_x in output_arrays:
             # track how many kernels modify each array
             manipulated_nodes[output_x].append(kernel.key)
             G.add_edge(kernel_name, output_x)
             if render_mermaid is not None:
-                chart_lines.append(chart_indent + f'kernel{launch_id} --> arr{output_x}')
+                chart_lines.append(chart_indent + f'{k_id} --> arr{output_x}')
 
         kernel_launch_count[kernel.key] += 1
 
