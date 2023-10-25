@@ -29,11 +29,8 @@ ignore =
     # line break before/after binary operator. Black formats it differently: https://stackoverflow.com/a/57074422
     W503,
     W504,
-<<<<<<< HEAD
-=======
     # redefinition of warp Functions is allowed to provide overrides
     F811,
->>>>>>> eric-upstream/pbd
 
 ; Omniverse ignores
 ;
@@ -105,11 +102,6 @@ ignore =
 ;     # No value for argument 'is_item_expanded_fn' in constructor call (no-value-for-parameter)
 ;     # PLE1120
 
-<<<<<<< HEAD
-per-file-ignores =
-    */__init__.py: F401,
-    */stubs.py: F401
-=======
 ; Warp ignores
 ;
 ;     # Do not use variables named 'I', 'O', or 'l' (E741)
@@ -123,4 +115,3 @@ extend-exclude =
     warp/native/cutlass/,
     warp/thirdparty/appdirs.py,
     tools
->>>>>>> eric-upstream/pbd
