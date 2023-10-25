@@ -1824,7 +1824,7 @@ class array(Array):
         """Zeroes-out the array entires."""
         if self.is_contiguous:
             if warp.context.runtime.tape is not None and self.dtype in warp.builtins.zero_kernels:
-                warp.launch(warp.builtins.zero_kernels[self.dtype], dim=self.shape, inputs=[self], device=self.device)
+                warp.launch(warp.builtins.zero_kernels[self.dtype], dim=self.shape, inputs=[self], outputs=[self], device=self.device)
             else:
                 # simple memset is usually faster than generic fill
                 self.device.memset(self.ptr, 0, self.size * type_size_in_bytes(self.dtype))
@@ -1893,7 +1893,7 @@ class array(Array):
         # prefer using memtile for contiguous arrays, because it should be faster than generic fill
         if self.is_contiguous:
             if warp.context.runtime.tape is not None and self.dtype in warp.builtins.fill_kernels:
-                warp.launch(warp.builtins.fill_kernels[self.dtype], dim=self.shape, inputs=[self, value], device=self.device)
+                warp.launch(warp.builtins.fill_kernels[self.dtype], dim=self.shape, inputs=[value], outputs=[self], device=self.device)
             else:
                 self.device.memtile(self.ptr, cvalue_ptr, cvalue_size, self.size)
         else:
