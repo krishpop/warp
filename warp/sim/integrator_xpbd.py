@@ -2748,52 +2748,53 @@ class XPBDIntegrator:
         return new_particle_q, new_particle_qd, new_particle_deltas
 
     def _apply_body_deltas(self, model, state_in, state_out, dt, rigid_contact_inv_weight=None):
-        if state_in.requires_grad:
-            body_deltas = state_out.body_deltas[self._body_delta_counter]
-            body_q = state_out.body_q_temp[self._body_delta_counter]
-            body_qd = state_out.body_qd_temp[self._body_delta_counter]
-            new_body_q = state_out.body_q_temp[self._body_delta_counter + 1]
-            new_body_qd = state_out.body_qd_temp[self._body_delta_counter + 1]
-            self._body_delta_counter += 1
-        else:
-            body_deltas = model.body_deltas
-            if self._body_delta_counter == 0:
-                body_q = state_out.body_q
-                body_qd = state_out.body_qd
-                new_body_q = state_in.body_q
-                new_body_qd = state_in.body_qd
+        with wp.ScopedTimer("apply_body_deltas", False):
+            if state_in.requires_grad:
+                body_deltas = state_out.body_deltas[self._body_delta_counter]
+                body_q = state_out.body_q_temp[self._body_delta_counter]
+                body_qd = state_out.body_qd_temp[self._body_delta_counter]
+                new_body_q = state_out.body_q_temp[self._body_delta_counter + 1]
+                new_body_qd = state_out.body_qd_temp[self._body_delta_counter + 1]
+                self._body_delta_counter += 1
             else:
-                body_q = state_in.body_q
-                body_qd = state_in.body_qd
-                new_body_q = state_out.body_q
-                new_body_qd = state_out.body_qd
-            self._body_delta_counter = 1 - self._body_delta_counter
+                body_deltas = model.body_deltas
+                if self._body_delta_counter == 0:
+                    body_q = state_out.body_q
+                    body_qd = state_out.body_qd
+                    new_body_q = state_in.body_q
+                    new_body_qd = state_in.body_qd
+                else:
+                    body_q = state_in.body_q
+                    body_qd = state_in.body_qd
+                    new_body_q = state_out.body_q
+                    new_body_qd = state_out.body_qd
+                self._body_delta_counter = 1 - self._body_delta_counter
 
-        wp.launch(
-            kernel=apply_body_deltas,
-            dim=model.body_count,
-            inputs=[
-                body_q,
-                body_qd,
-                model.body_com,
-                model.body_inertia,
-                model.body_inv_mass,
-                model.body_inv_inertia,
-                body_deltas,
-                rigid_contact_inv_weight,
-                dt,
-            ],
-            outputs=[
-                new_body_q,
-                new_body_qd,
-            ],
-            device=model.device,
-        )
+            wp.launch(
+                kernel=apply_body_deltas,
+                dim=model.body_count,
+                inputs=[
+                    body_q,
+                    body_qd,
+                    model.body_com,
+                    model.body_inertia,
+                    model.body_inv_mass,
+                    model.body_inv_inertia,
+                    body_deltas,
+                    rigid_contact_inv_weight,
+                    dt,
+                ],
+                outputs=[
+                    new_body_q,
+                    new_body_qd,
+                ],
+                device=model.device,
+            )
 
-        if state_in.requires_grad:
-            new_body_deltas = state_out.body_deltas[self._body_delta_counter]
-        else:
-            new_body_deltas = body_deltas
+            if state_in.requires_grad:
+                new_body_deltas = state_out.body_deltas[self._body_delta_counter]
+            else:
+                new_body_deltas = body_deltas
             new_body_deltas.zero_()
 
         return new_body_q, new_body_qd, new_body_deltas
