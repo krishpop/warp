@@ -317,13 +317,14 @@ class State:
         self.has_rigid_contact_vars = False
 
     def clear_forces(self):
-        if self.particle_count:
-            self.particle_f.zero_()
+        with wp.ScopedTimer("clear_forces", False):
+            if self.particle_count:
+                self.particle_f.zero_()
 
-        if self.body_count:
-            self.body_f.zero_()
+            if self.body_count:
+                self.body_f.zero_()
 
-            self.joint_act.zero_()
+                self.joint_act.zero_()
 
     def flatten(self):
         wp.utils.warn(
