@@ -43,6 +43,7 @@ class Tape:
         self.gradients = {}
         self.const_gradients = set()
         self.launches = []
+        self.scopes = []
 
         self.loss = None
 
@@ -192,6 +193,12 @@ class Tape:
                     f"Array {a} is not of type wp.array or is missing a gradient array. Set array parameter requires_grad=True during instantiation."
                 )
 
+    def record_scope_begin(self, scope_name):
+        self.scopes.append((len(self.launches), scope_name))
+
+    def record_scope_end(self):
+        self.scopes.append((len(self.launches), None))
+
     # returns the adjoint of a kernel parameter
     def get_adjoint(self, a):
         if not wp.types.is_array(a) and not isinstance(a, wp.codegen.StructInstance):
@@ -230,6 +237,7 @@ class Tape:
         Clear all operations recorded on the tape and zero out all gradients.
         """
         self.launches = []
+        self.scopes = []
         self.zero()
 
     def zero(self):
