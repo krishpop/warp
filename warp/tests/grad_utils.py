@@ -808,6 +808,7 @@ def make_struct_of_arrays(xs):
 def check_backward_pass(
     tape: wp.Tape,
     analyze_graph=True,
+    simplify_graph=True,
     render_mermaid: str = None,
     render_pydot_png: str = None,
     render_pydot_svg: str = None,
@@ -906,7 +907,6 @@ def check_backward_pass(
     computed_nodes = set()
     for output in track_outputs:
         computed_nodes.add(output.ptr)
-    simplify_graph = True
     active_scope = None
     active_scope_id = -1
     if len(tape.scopes) > 0:
@@ -958,6 +958,8 @@ def check_backward_pass(
         for id, x in enumerate(inputs):
             name = kernel.adj.args[id].label
             if isinstance(x, wp.array):
+                if x.ptr is None:
+                    continue
                 if not simplify_graph or x.ptr in computed_nodes or x.ptr in input_output_ptr:
                     add_node(G, x, name)
                     input_arrays.append(x.ptr)
