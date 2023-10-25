@@ -1493,7 +1493,7 @@ def collide(model, state, edge_sdf_iter: int = 10):
                     contact_state.rigid_contact_point_limit,
                 ],
                 device=model.device,
-                record_tape=True,  # TODO revert to False
+                record_tape=False,  # TODO revert to False
             )
 
         if model.ground and model.shape_ground_contact_pair_count:
@@ -1521,7 +1521,7 @@ def collide(model, state, edge_sdf_iter: int = 10):
                     contact_state.rigid_contact_point_limit,
                 ],
                 device=model.device,
-                record_tape=True,  # TODO revert to False
+                record_tape=False,  # TODO revert to False
             )
 
         if model.shape_contact_pair_count or model.ground and model.shape_ground_contact_pair_count:
@@ -1529,8 +1529,10 @@ def collide(model, state, edge_sdf_iter: int = 10):
             contact_state.rigid_contact_count.zero_()
             contact_state.rigid_contact_pairwise_counter.zero_()
             contact_state.rigid_contact_tids.zero_()
-            contact_state.rigid_contact_shape0.zero_()
-            contact_state.rigid_contact_shape1.zero_()
+            # contact_state.rigid_contact_shape0.zero_()
+            # contact_state.rigid_contact_shape1.zero_()
+            contact_state.rigid_contact_shape0.fill_(-1)
+            contact_state.rigid_contact_shape1.fill_(-1)
 
             wp.launch(
                 kernel=handle_contact_pairs,
