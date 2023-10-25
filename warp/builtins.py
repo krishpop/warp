@@ -3083,23 +3083,23 @@ assign_kernels = {
 }
 
 @warp.kernel
-def array_fill_sv(arr: array(dtype=spatial_vector), value: spatial_vector):
+def array_fill_sv(value: spatial_vector, arr: array(dtype=spatial_vector)):
     i = warp.tid()
     arr[i] = value
 @warp.kernel
-def array_fill_tf(arr: array(dtype=transform), value: transform):
+def array_fill_tf(value: transform, arr: array(dtype=transform)):
     i = warp.tid()
     arr[i] = value
 @warp.kernel
-def array_fill_v3(arr: array(dtype=vec3), value: vec3):
+def array_fill_v3(value: vec3, arr: array(dtype=vec3)):
     i = warp.tid()
     arr[i] = value
 @warp.kernel
-def array_fill_f32(arr: array(dtype=float32), value: float32):
+def array_fill_f32(value: float32, arr: array(dtype=float32)):
     i = warp.tid()
     arr[i] = value
 @warp.kernel
-def array_fill_i32(arr: array(dtype=int32), value: int32):
+def array_fill_i32(value: int32, arr: array(dtype=int32)):
     i = warp.tid()
     arr[i] = value
 
@@ -3112,23 +3112,23 @@ fill_kernels = {
 }
 
 @warp.kernel
-def array_zero_sv(arr: array(dtype=spatial_vector)):
+def array_zero_sv(_: array(dtype=spatial_vector), arr: array(dtype=spatial_vector)):
     i = warp.tid()
     arr[i] = spatial_vector(0.0)
 @warp.kernel
-def array_zero_tf(arr: array(dtype=transform)):
+def array_zero_tf(_: array(dtype=transform), arr: array(dtype=transform)):
     i = warp.tid()
     arr[i] = transform(vec3(0.0), quat(0.0, 0.0, 0.0, 1.0))
 @warp.kernel
-def array_zero_v3(arr: array(dtype=vec3)):
+def array_zero_v3(_: array(dtype=vec3), arr: array(dtype=vec3)):
     i = warp.tid()
     arr[i] = vec3(0.0)
 @warp.kernel
-def array_zero_f32(arr: array(dtype=float32)):
+def array_zero_f32(_: array(dtype=float32), arr: array(dtype=float32)):
     i = warp.tid()
     arr[i] = 0.0
 @warp.kernel
-def array_zero_i32(arr: array(dtype=int32)):
+def array_zero_i32(_: array(dtype=int32), arr: array(dtype=int32)):
     i = warp.tid()
     arr[i] = 0
 
