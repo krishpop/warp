@@ -34,6 +34,8 @@ import matplotlib.pyplot as plt
 from warp.tests.grad_utils import *
 
 wp.init()
+# if DEBUG:
+#     wp.set_device("cpu")
 
 
 @wp.kernel
@@ -55,7 +57,7 @@ def apply_velocity(action: wp.array(dtype=wp.vec3), body_qd: wp.array(dtype=wp.s
 
 class Environment:
     frame_dt = 1.0 / 60.0
-    episode_frames = 150
+    episode_frames = 5  #150
 
     sim_substeps = 5
     sim_dt = frame_dt / sim_substeps
@@ -89,7 +91,7 @@ class Environment:
 
         self.num_iterations = 100
 
-        self.capture_graph = not DEBUG
+        self.capture_graph = False  # not DEBUG
 
     def simulate(self) -> wp.sim.State:
         """
@@ -109,18 +111,19 @@ class Environment:
                 self.integrator.simulate(self.model, state, next_state, self.sim_dt)
 
             if self.renderer is not None:
-                self.renderer.render_sphere("target", self.target_pos, wp.quat_identity(), 0.1)
-                self.renderer.begin_frame(self.render_time)
-                self.renderer.render(state)
-                self.renderer.end_frame()
-                self.render_time += self.frame_dt
-                traj_verts.append(next_state.body_q.numpy()[0, :3].tolist())
-                self.renderer.render_line_strip(
-                    vertices=traj_verts,
-                    color=wp.render.bourke_color_map(0.0, self.num_iterations, self.iteration),
-                    radius=0.02 + 0.01 * self.iteration / self.num_iterations,
-                    name=f"traj_{self.iteration}",
-                )
+                with wp.ScopedTimer("render", active=False):
+                    self.renderer.render_sphere("target", self.target_pos, wp.quat_identity(), 0.1)
+                    self.renderer.begin_frame(self.render_time)
+                    self.renderer.render(state)
+                    self.renderer.end_frame()
+                    self.render_time += self.frame_dt
+                    traj_verts.append(next_state.body_q.numpy()[0, :3].tolist())
+                    self.renderer.render_line_strip(
+                        vertices=traj_verts,
+                        color=wp.render.bourke_color_map(0.0, self.num_iterations, self.iteration),
+                        radius=0.02 + 0.01 * self.iteration / self.num_iterations,
+                        name=f"traj_{self.iteration}",
+                    )
 
     def dynamics(self, action):
         # apply initial velocity to the rigid object
@@ -186,14 +189,53 @@ class Environment:
                     self.dynamics(action)
                 tape.backward(loss=self.loss)
 
-                # check_backward_pass(
-                #     tape,
-                #     visualize_graph=False,
-                #     analyze_graph=False,
-                #     track_inputs=[action],
-                #     track_outputs=[self.loss],
-                #     track_input_names=["action"],
-                #     track_output_names=["loss"])
+                if False:
+                    check_tape_safety(self.dynamics, [action])
+
+                if True:
+                    array_names = {}
+                    for state_id, state in enumerate(self.states):
+                        array_names[state.body_q] = f"state_{state_id}.body_q"
+                        array_names[state.body_qd] = f"state_{state_id}.body_qd"
+                        array_names[state.body_f] = f"state_{state_id}.body_f"
+                        if state.requires_grad:
+                            for j, arr in enumerate(state.body_deltas):
+                                array_names[arr] = f"state_{state_id}.body_deltas[{j}]"
+                            for j, arr in enumerate(state.body_q_temp):
+                                array_names[arr] = f"state_{state_id}.body_q_temp[{j}]"
+                            for j, arr in enumerate(state.body_qd_temp):
+                                array_names[arr] = f"state_{state_id}.body_qd_temp[{j}]"
+
+                            array_names[state.rigid_active_contact_distance] = f"state_{state_id}.rigid_active_contact_distance"
+                            array_names[state.rigid_active_contact_point0] = f"state_{state_id}.rigid_active_contact_point0"
+                            array_names[state.rigid_active_contact_point1] = f"state_{state_id}.rigid_active_contact_point1"
+                            array_names[state.rigid_contact_inv_weight] = f"state_{state_id}.rigid_contact_inv_weight"
+                        if state.has_rigid_contact_vars:
+                            array_names[state.rigid_contact_count] = f"state_{state_id}.rigid_contact_count"
+                            array_names[state.rigid_contact_broad_shape0] = f"state_{state_id}.rigid_contact_broad_shape0"
+                            array_names[state.rigid_contact_broad_shape1] = f"state_{state_id}.rigid_contact_broad_shape1"
+                            array_names[state.rigid_contact_point_id] = f"state_{state_id}.rigid_contact_point_id"
+                            array_names[state.rigid_contact_point_limit] = f"state_{state_id}.rigid_contact_point_limit"
+                            array_names[state.rigid_contact_shape0] = f"state_{state_id}.rigid_contact_shape0"
+                            array_names[state.rigid_contact_shape1] = f"state_{state_id}.rigid_contact_shape1"
+                            array_names[state.rigid_contact_point0] = f"state_{state_id}.rigid_contact_point0"
+                            array_names[state.rigid_contact_point1] = f"state_{state_id}.rigid_contact_point1"
+                            array_names[state.rigid_contact_offset0] = f"state_{state_id}.rigid_contact_offset0"
+                            array_names[state.rigid_contact_offset1] = f"state_{state_id}.rigid_contact_offset1"
+                            array_names[state.rigid_contact_normal] = f"state_{state_id}.rigid_contact_normal"
+                            array_names[state.rigid_contact_thickness] = f"state_{state_id}.rigid_contact_thickness"
+                            array_names[state.rigid_contact_pairwise_counter] = f"state_{state_id}.rigid_contact_pairwise_counter"
+                            array_names[state.rigid_contact_tids] = f"state_{state_id}.rigid_contact_tids"
+
+                    check_backward_pass(
+                        tape,
+                        render_mermaid=os.path.join(os.path.dirname(__file__), "example_sim_throw_rigid.html"),
+                        analyze_graph=False,
+                        track_inputs=[action],
+                        track_outputs=[self.loss],
+                        track_input_names=["action"],
+                        track_output_names=["loss"],
+                        array_names=array_names)
 
             l = self.loss.numpy()[0]
             print(f"iter {i}/{num_iter}\t action: {action.numpy()}\t action.grad: {action.grad.numpy()}\t loss: {l:.3f}")
