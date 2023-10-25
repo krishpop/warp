@@ -13,7 +13,6 @@ from hydra.utils import instantiate
 from rl_games.torch_runner import Runner
 from rl_games.common import env_configurations, vecenv
 from warp.envs.utils import hydra_resolvers
-from svg.train import Workspace
 from omegaconf import OmegaConf, open_dict
 
 
@@ -318,6 +317,8 @@ def train(cfg: DictConfig):
             player.env.renderer.save()
 
     elif cfg.alg.name == "svg":
+        from svg.train import Workspace
+
         cfg.env.config.no_grad = True
         with open_dict(cfg):
             cfg.alg.env = cfg.env.config

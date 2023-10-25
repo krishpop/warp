@@ -6,8 +6,16 @@ import math
 import numpy as np
 from pathlib import Path
 from .common import *
-from .tcdm_utils import get_tcdm_trajectory, TCDM_MESH_PATHS, TCDM_TRAJ_PATHS, TCDM_OBJ_NAMES
-from tcdm.envs import asset_abspath
+
+
+try:
+    from .tcdm_utils import get_tcdm_trajectory, TCDM_MESH_PATHS, TCDM_TRAJ_PATHS, TCDM_OBJ_NAMES
+    from tcdm.envs import asset_abspath
+except ImportError as e:
+    print(f"WARNING: did not import TCDM package due to error: {e}")
+    asset_abspath = lambda x: x
+    get_tcdm_trajectory = TCDM_TRAJ_PATHS = TCDM_OBJ_NAMES = []
+    TCDM_MESH_PATHS = {}
 
 
 OBJ_PATHS = {
@@ -186,7 +194,7 @@ def add_object(
 
 
 def add_mesh(builder, link, obj_path, ke=2.0e5, kd=1e4, density=100.0):
-    obj_path = str(Path(os.path.dirname(__file__)).parent / "envs" / "assets" / obj_path)
+    obj_path = str(Path(os.path.dirname(__file__)).parent / "assets" / obj_path)
     mesh, scale = parse_mesh(obj_path)
     geom_size = (0.5, 0.5, 0.5)
 
@@ -298,7 +306,7 @@ def create_shadow_hand(
     wp.sim.parse_urdf(
         os.path.join(
             os.path.dirname(__file__),
-            "../assets/shadowhand/shadowhand.urdf",
+            "assets/shadowhand/shadowhand.urdf",
         ),
         builder,
         xform=xform,
@@ -346,6 +354,8 @@ def create_shadow_hand(
 # thumb down
 # wp.quat_rpy(-np.pi / 2 * 3, np.pi * 0.75, np.pi / 2),
 
+WARP_ENVS_PATH = os.path.join(os.path.split(os.path.dirname(__file__))[0])
+
 
 def create_allegro_hand(
     builder,
@@ -364,8 +374,8 @@ def create_allegro_hand(
     xform = wp.transform(hand_start_position, wp.quat_rpy(*hand_start_orientation))
     wp.sim.parse_urdf(
         os.path.join(
-            os.path.split(os.path.dirname(__file__))[0],
-            "../../examples/assets/isaacgymenvs/kuka_allegro_description/allegro.urdf",
+            WARP_ENVS_PATH,
+            "assets/isaacgymenvs/kuka_allegro_description/allegro.urdf",
         ),
         builder,
         xform=xform,
@@ -409,9 +419,13 @@ class ObjectModel:
         contact_ke=1e3,
         contact_kd=1e2,
         scale=0.4,
+        density=1e2,
         stiffness=0.0,
         damping=0.5,
         base_body_name="base",
+        model_path=None,
+        floating=None,
+        base_joint=None,
     ):
         self.object_type = object_type
         self.object_name = object_type.name.lower()
@@ -426,24 +440,30 @@ class ObjectModel:
         self.scale = scale
         self.stiffness = stiffness
         self.damping = damping
-        self.model_path = TCDM_MESH_PATHS.get(self.object_type)
+        self.model_path = model_path  # TCDM_MESH_PATHS.get(self.object_type)
         self.base_joint_name = base_body_name + "_joint"
-        if self.model_path is not None:
-            self.tcdm_trajectory, self.dex_trajectory = get_tcdm_trajectory(self.object_type)
-        else:
-            self.tcdm_trajectory = self.dex_trajectory = None
+        self.density = density
+        self.base_joint = base_joint
+        self.floating = floating
+        # if self.model_path is not None:
+        #     self.tcdm_trajectory, self.dex_trajectory = get_tcdm_trajectory(self.object_type)
+        # else:
+        self.tcdm_trajectory = self.dex_trajectory = None
 
-    def create_articulation(self, builder, density=100.0):
-        self.object_joint = add_joint(
-            builder,
-            pos=self.base_pos,
-            ori=self.base_ori,
-            joint_type=self.joint_type,
-            stiffness=self.stiffness,
-            damping=self.damping,
-            body_name="object",  # self.object_name + "_body_joint",
-        )
-        if self.model_path:
+    def create_articulation(self, builder):
+        if not self.floating:
+            self.object_joint = self.base_joint = add_joint(
+                builder,
+                pos=self.base_pos,
+                ori=self.base_ori,
+                joint_type=self.joint_type,
+                stiffness=self.stiffness,
+                damping=self.damping,
+                body_name="object",  # self.object_name + "_body_joint",
+            )
+        if self.model_path and self.model_path.endswith(".stl"):
+            from tcdm.envs import asset_abspath
+
             obj_stl_path = asset_abspath(self.model_path)
             mesh, _ = parse_mesh(obj_stl_path)
             geom_size = (self.scale, self.scale, self.scale)
@@ -453,9 +473,32 @@ class ObjectModel:
                 rot=(1.0, 0.0, 0.0, 0.0),
                 mesh=mesh,
                 scale=geom_size,
-                density=density,
+                density=self.density,
                 ke=self.contact_ke,
                 kd=self.contact_kd,
+            )
+        elif self.model_path and self.model_path.endswith(".urdf"):
+            asset_dir = os.path.join(WARP_ENVS_PATH, "assets")
+            wp.sim.parse_urdf(
+                os.path.join(asset_dir, self.model_path),
+                builder,
+                xform=wp.transform(self.base_pos, self.base_ori),
+                floating=self.floating,
+                base_joint=self.base_joint,
+                density=self.density,
+                scale=self.scale,
+                armature=1e-4,
+                stiffness=self.stiffness,
+                damping=self.damping,
+                shape_ke=self.contact_ke,
+                shape_kd=self.contact_kd,
+                shape_kf=1.0e2,
+                shape_mu=1.0,
+                limit_ke=1.0e4,
+                limit_kd=1.0e1,
+                enable_self_collisions=True,
+                parse_visuals_as_colliders=False,
+                collapse_fixed_joints=True,
             )
         else:
             add_object(
@@ -463,7 +506,7 @@ class ObjectModel:
                 self.object_joint,
                 self.object_type,
                 self.base_ori,
-                density,
+                self.density,
                 self.contact_ke,
                 self.contact_kd,
                 scale=self.scale,
@@ -503,6 +546,7 @@ class OperableObjectModel(ObjectModel):
             scale=scale,
             stiffness=stiffness,
             damping=damping,
+            density=density,
             base_body_name=base_body_name,
         )
         self.use_mesh_extents = use_mesh_extents
@@ -515,7 +559,7 @@ class OperableObjectModel(ObjectModel):
         self.joint_limits = None  # joint_limits
 
     def get_object_extents(self):
-        asset_dir = os.path.join(os.path.dirname(__file__), "../assets")
+        asset_dir = os.path.join(WARP_ENVS_PATH, "assets")
         obj_dir = os.path.split(self.model_path)[0]
         obj_filepath = os.path.join(asset_dir, obj_dir, "merged.obj")
         if os.path.split(obj_dir)[1].isdigit():
@@ -534,7 +578,7 @@ class OperableObjectModel(ObjectModel):
             self.base_pos = (self.base_pos[0], max(self.base_pos[1], self.object_bounds[1] / 2), self.base_pos[2])
 
     def create_articulation(self, builder):
-        asset_dir = os.path.join(os.path.dirname(__file__), "../assets")
+        asset_dir = os.path.join(WARP_ENVS_PATH, "assets")
         if self.use_mesh_extents:
             self.get_object_extents()
         joint_count_before = builder.joint_axis_count
@@ -570,7 +614,8 @@ class OperableObjectModel(ObjectModel):
 
 def object_generator(object_type, **kwargs):
     class __DexObj__(ObjectModel):
-        def __init__(self):
+        def __init__(self, **override_kwargs):
+            kwargs.update(override_kwargs)
             super().__init__(object_type=object_type, **kwargs)
 
     return __DexObj__
@@ -597,7 +642,7 @@ def get_object_xform(object_type, object_id=None, **obj_kwargs):
 StaplerObject = object_generator(ObjectType.TCDM_STAPLER, base_pos=(0.0, 0.01756801, 0.0), scale=1.3)
 OctprismObject = object_generator(ObjectType.OCTPRISM, scale=1.0)
 
-ReposeCubeObject = operable_object_generator(
+ReposeCubeObject = object_generator(
     ObjectType.REPOSE_CUBE,
     base_pos=(0.0, 0.35, 0.0),
     base_ori=(0.0, 0.0, 0.0),
@@ -697,6 +742,19 @@ EyeglassesObjects = {
     for eyeglasses_id in eyeglasses_ids
 }
 
+# faucet_ids = ("152", "1556", "156", "2170")
+# FaucetObjects = {
+#     faucet_id: operable_object_generator(
+#         ObjectType.FAUCET,
+#         base_pos=(0.0, 0.01756801, 0.0),
+#         base_ori=(-np.pi / 2, 0.0, 0.0),
+#         scale=0.4,
+#         # base_ori=(np.pi / 17, 0.0, 0.0),
+#         model_path=f"Faucet/{faucet_id}/mobility.urdf",
+#     )
+#     for faucet_id in faucet_ids
+# }
+
 pliers_ids = ("100142", "100182", "100705", "102074")
 PliersObjects = {
     pliers_id: operable_object_generator(
@@ -725,43 +783,18 @@ ScissorsObjects = {
 }
 
 stapler_ids = ("102990", "103271", "103792")
-stapler_joint_limits = (
-    ([0.0, 0.0486], [0.0530, 0.0486]),
-    ([-0.0503, 0.0], [0.2630, 0.0]),
-    ([0.0503, 0.0], [0.1710, 0.0]),
-)
-stapler_start_y = (0.036582, 0.01819, 0.01819)
-stapler_base_ori = (-np.pi / 2, np.pi, -np.pi / 2)
 StaplerObjects = {
     stapler_id: operable_object_generator(
         ObjectType.STAPLER,
-        # use_mesh_extents=True,
-        base_pos=(0.0, start_y, 0.0),
-        base_ori=(start_ori, 0.0, 0.0),
-        # base_ori=(np.pi / 17, 0.0, 0.0),
+        base_pos=(0.0, 0.01756801, 0.0),
+        base_ori=(0, 0.0, 0.0),
         scale=0.14,
-        joint_limits=joint_limits,
+        # base_ori=(np.pi / 17, 0.0, 0.0),
         model_path=f"Stapler/{stapler_id}/mobility.urdf",
     )
-    for stapler_id, joint_limits, start_y, start_ori in zip(
-        stapler_ids, stapler_joint_limits, stapler_start_y, stapler_base_ori
-    )
+    for stapler_id in stapler_ids
 }
 
-
-# faucet_ids = ("152", "1556", "156", "2170")
-# FaucetObjects = {
-#     faucet_id: operable_object_generator(
-#         ObjectType.FAUCET,
-#         base_pos=(0.0, 0.01756801, 0.0),
-#         base_ori=(-np.pi / 2, 0.0, 0.0),
-#         scale=0.4,
-#         # base_ori=(np.pi / 17, 0.0, 0.0),
-#         model_path=f"Faucet/{faucet_id}/mobility.urdf",
-#     )
-#     for faucet_id in faucet_ids
-# }
-#
 # switch_ids = ("100866", "100901", "102812")  # "100883"
 # SwitchObjects = {
 #     switch_id: operable_object_generator(
@@ -775,7 +808,7 @@ StaplerObjects = {
 #     )
 #     for switch_id in switch_ids
 # }
-#
+
 # usb_ids = ("100061", "100065", "100109")  # , "102052")
 # USBObjects = {
 #     usb_id: operable_object_generator(
@@ -812,20 +845,20 @@ OBJ_NUM_JOINTS[ObjectType.SOAP_DISPENSER] = 1
 
 OBJ_MODELS[ObjectType.EYEGLASSES] = EyeglassesObjects
 OBJ_NUM_JOINTS[ObjectType.EYEGLASSES] = 2
+# OBJ_MODELS[ObjectType.FAUCET] = FaucetObjects
+# OBJ_NUM_JOINTS[ObjectType.FAUCET] = 2
 OBJ_MODELS[ObjectType.PLIERS] = PliersObjects
 OBJ_NUM_JOINTS[ObjectType.PLIERS] = 1
 OBJ_MODELS[ObjectType.SCISSORS] = ScissorsObjects
 OBJ_NUM_JOINTS[ObjectType.SCISSORS] = 1
 OBJ_MODELS[ObjectType.STAPLER] = StaplerObjects
-OBJ_NUM_JOINTS[ObjectType.STAPLER] = 1
-OBJ_MODELS[ObjectType.REPOSE_CUBE] = ReposeCubeObject
-OBJ_NUM_JOINTS[ObjectType.REPOSE_CUBE] = 6
-# OBJ_MODELS[ObjectType.FAUCET] = FaucetObjects
-# OBJ_NUM_JOINTS[ObjectType.FAUCET] = 2
+OBJ_NUM_JOINTS[ObjectType.STAPLER] = 2
 # OBJ_MODELS[ObjectType.SWITCH] = SwitchObjects
 # OBJ_NUM_JOINTS[ObjectType.SWITCH] = 1
 # OBJ_MODELS[ObjectType.USB] = USBObjects
 # OBJ_NUM_JOINTS[ObjectType.USB] = 1
+OBJ_MODELS[ObjectType.REPOSE_CUBE] = ReposeCubeObject
+OBJ_NUM_JOINTS[ObjectType.REPOSE_CUBE] = 6
 
 
 def get_num_acts(object_type):

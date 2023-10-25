@@ -206,8 +206,9 @@ class WarpEnv(Environment):
             # else:
             # backward_model = self.builder.finalize(
             #     device=self.device,
-            # rigid_mesh_contact_max=self.rigid_mesh_contact_max,
-            # requires_grad=self.requires_grad,
+            #     rigid_mesh_contact_max=self.rigid_mesh_contact_max,
+            #     requires_grad=self.requires_grad,
+            #     integrator=self.intgrator,
             # )
             backward_model.joint_q.requires_grad = True
             backward_model.joint_qd.requires_grad = True
@@ -253,7 +254,7 @@ class WarpEnv(Environment):
                 self.state_0.body_f.requires_grad = True
                 self.state_1.body_f.requires_grad = True
             if self.integrator_type == IntegratorType.XPBD:
-                # self.state_0.body_deltas.requires_grad = True
+                self.state_0.body_deltas.requires_grad = True
                 self.state_1.body_deltas.requires_grad = True
             self._joint_q.requires_grad = True
             self._joint_qd.requires_grad = True
