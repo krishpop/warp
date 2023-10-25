@@ -1,0 +1,81 @@
+defaults:
+  - _self_
+  - env: repose
+  - alg: control_test
+  # - override hydra/launcher: submitit_local
+
+
+hydra:
+  job: 
+    chdir: false
+
+# rlgames runner args
+general:
+  play: True
+  logdir: logs/${alg.name}/${env.name}/
+  save_interval: False
+  no_time_stamp: False
+  device: cuda:0
+  run_wandb: False
+  seed: 42
+  train: False
+  checkpoint:
+  multi_gpu: False
+  mixed_precision: False
+
+
+# global defaults 
+num_envs: ${env.player.num_actors}
+num_steps: ${env.config.episode_length}
+num_rollouts: 5
+render: true
+debug_grad: false
+
+# env defaults
+env:
+  gamma: 0.99
+  player:
+    games_num: 12
+    num_actors: 4
+
+  ppo:
+    max_epochs: 2000 
+    minibatch_size: 1920
+    save_interval: 400
+    save_best_after: 100
+    num_actors: 1024
+    steps_num: 240
+    actor_mlp:
+      units: 
+        - 128
+        - 64
+        - 32
+    critic_mlp:
+      units:
+        - 64
+        - 64
+    lr: 3e-4
+    lr_schedule: adaptive
+
+  shac:
+    lambda: 0.95
+    actor_mlp:
+      units:
+        - 64
+        - 64
+    critic_mlp:
+      units:
+        - 64
+        - 64
+    target_critic_alpha: 0.4
+    actor_lr: 1e-3
+    critic_lr: 1e-3
+    max_epochs: 2000
+    save_interval: 400
+    steps_num: 32
+    betas: 
+      - 0.7
+      - 0.95
+
+  shac2: ${.shac}
+

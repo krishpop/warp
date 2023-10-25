@@ -24,3 +24,16 @@ exts/omni.warp/omni/warp/ogn/tests/usd
 build/
 
 examples/assets
+external/
+
+warp/envs/outputs
+**tags
+warp/envs/partnet-mobility-dataset/
+
+**.ipynb_checkpoints/
+**outputs/
+
+warp/envs/checkpoints
+*.ipynb
+
+**multirun/
