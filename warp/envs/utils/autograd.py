@@ -8,7 +8,7 @@ from warp.sim.model import State, Model
 from torch.cuda.amp import custom_fwd, custom_bwd
 from .warp_utils import integrate_body_f, assign_act
 
-# from warp.tests.grad_utils import check_kernel_jacobian, check_backward_pass, plot_jacobian_comparison
+from warp.tests.grad_utils import check_kernel_jacobian, check_backward_pass, plot_jacobian_comparison
 
 
 def clear_grads(obj: Union[State, Model], filter=None):
@@ -279,6 +279,21 @@ class IntegratorSimulate(torch.autograd.Function):
             ctx.tape = wp.Tape()
             with ctx.tape:
                 forward_simulate(ctx, forward=False, requires_grad=True)
+            # ctx.tape.backward()
+            # for name, grad in [("act", ctx.act.grad), ("body_q_in", ctx.state_in.body_q.grad)]:
+            #     if np.abs(grad.numpy()).max() > 1e3:
+            #         print("name", name, "grad max", np.abs(grad.numpy()).max())
+            # check_backward_pass(
+            #     ctx.tape,
+            #     track_input_names=["body_q_in", "action"],
+            #     track_output_names=["joint_q_out", "body_q_out"],
+            #     track_inputs=[ctx.state_in.body_q, ctx.act],
+            #     track_outputs=[ctx.joint_q_end, ctx.state_out.body_q],
+            #     visualize_graph=False,
+            #     check_kernel_jacobians=False,
+            #     check_input_output_jacobian=False,
+            #     plot_jac_on_fail=True,
+            # )
 
         joint_q_end = wp.to_torch(ctx.graph_capture_params["joint_q_end"]).clone()
         joint_qd_end = wp.to_torch(ctx.graph_capture_params["joint_qd_end"]).clone()
@@ -367,7 +382,7 @@ class IntegratorSimulate(torch.autograd.Function):
 
             ctx.tape.backward()
             joint_act_grad = wp.to_torch(ctx.tape.gradients[act]).clone()
-            joint_act_grad /= joint_act_grad.norm(dim=-1, keepdim=True).clamp(min=1e-6)
+            # joint_act_grad /= joint_act_grad.norm(dim=-1, keepdim=True).clamp(min=1e-6)
             # Unnecessary copying of grads, grads should already be recorded by context
             body_q_grad = wp.to_torch(ctx.tape.gradients[state_in.body_q]).clone()
             body_qd_grad = wp.to_torch(ctx.tape.gradients[state_in.body_qd]).clone()
