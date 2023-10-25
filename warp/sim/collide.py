@@ -1044,8 +1044,8 @@ def handle_contact_pairs(
                 shape_p = wp.cw_mul(shape_p, geo_scale_b)
                 p_b_world = wp.transform_point(X_ws_b, shape_p)
             else:
-                contact_shape0[tid] = -1
-                contact_shape1[tid] = -1
+                # contact_shape0[tid] = -1
+                # contact_shape1[tid] = -1
                 return
         elif geo_type_b == wp.sim.GEO_PLANE:
             p_b_body = closest_point_plane(geo_scale_b[0], geo_scale_b[1], wp.transform_point(X_sw_b, p_a_world))
@@ -1116,8 +1116,8 @@ def handle_contact_pairs(
             if plane_width > 0.0 and plane_length > 0.0:
                 if wp.abs(query_b[0]) > plane_width or wp.abs(query_b[2]) > plane_length:
                     # skip, we will evaluate the plane edge contact with the box later
-                    contact_shape0[tid] = -1
-                    contact_shape1[tid] = -1
+                    # contact_shape0[tid] = -1
+                    # contact_shape1[tid] = -1
                     return
                 # check whether the COM is above the plane
                 # sign = wp.sign(wp.dot(wp.transform_get_translation(X_ws_a) - p_b_world, normal))
@@ -1146,8 +1146,8 @@ def handle_contact_pairs(
             query_b = wp.transform_point(X_sw_b, p_a_world)
             if wp.abs(query_b[0]) > plane_width or wp.abs(query_b[2]) > plane_length:
                 # ensure that the closest point is actually inside the plane
-                contact_shape0[tid] = -1
-                contact_shape1[tid] = -1
+                # contact_shape0[tid] = -1
+                # contact_shape1[tid] = -1
                 return
             diff = p_a_world - p_b_world
             com_a = wp.transform_get_translation(X_ws_a)
@@ -1219,8 +1219,8 @@ def handle_contact_pairs(
             normal = wp.normalize(diff)
             distance = wp.dot(diff, normal)
         else:
-            contact_shape0[tid] = -1
-            contact_shape1[tid] = -1
+            # contact_shape0[tid] = -1
+            # contact_shape1[tid] = -1
             return
 
     elif geo_type_a == wp.sim.GEO_MESH and geo_type_b == wp.sim.GEO_CAPSULE:
@@ -1318,8 +1318,8 @@ def handle_contact_pairs(
             normal = wp.normalize(diff_b) * sign
             distance = wp.dot(diff_b, normal)
         else:
-            contact_shape0[tid] = -1
-            contact_shape1[tid] = -1
+            # contact_shape0[tid] = -1
+            # contact_shape1[tid] = -1
             return
 
     elif geo_type_a == wp.sim.GEO_MESH and geo_type_b == wp.sim.GEO_MESH:
@@ -1351,8 +1351,8 @@ def handle_contact_pairs(
             normal = wp.normalize(diff_b) * sign
             distance = wp.dot(diff_b, normal)
         else:
-            contact_shape0[tid] = -1
-            contact_shape1[tid] = -1
+            # contact_shape0[tid] = -1
+            # contact_shape1[tid] = -1
             return
 
     elif geo_type_a == wp.sim.GEO_MESH and geo_type_b == wp.sim.GEO_PLANE:
@@ -1379,8 +1379,8 @@ def handle_contact_pairs(
             distance = wp.dot(diff, normal)
             # ignore extreme penetrations (e.g. when mesh is below the plane)
             if distance < -rigid_contact_margin:
-                contact_shape0[tid] = -1
-                contact_shape1[tid] = -1
+                # contact_shape0[tid] = -1
+                # contact_shape1[tid] = -1
                 return
 
     else:
