@@ -805,11 +805,27 @@ def make_struct_of_arrays(xs):
     return total
 
 
+def populate_array_names(object, array_names, prefix='', postfix=''):
+    if object is None or not hasattr(object, "__dict__"):
+        return
+    for key, value in object.__dict__.items():
+        if isinstance(value, wp.array):
+            array_names[value] = prefix + key + postfix
+        if isinstance(value, list):
+            for i, entry in enumerate(value):
+                if isinstance(entry, wp.array):
+                    array_names[entry] = f'{prefix}{key}[{i}]{postfix}'
+                # else:
+                #     populate_array_names(entry, array_names, prefix=prefix + key, postfix=f'[{i}]')
+    return array_names
+
+
 def check_backward_pass(
     tape: wp.Tape,
     analyze_graph=True,
     simplify_graph=True,
     render_mermaid: str = None,
+    render_d2: str = None,
     render_pydot_png: str = None,
     render_pydot_svg: str = None,
     render_graphviz_plot_png: str = None,
@@ -856,7 +872,10 @@ def check_backward_pass(
     kernel_instances = dict()
     array_nodes = set()
 
-    chart_lines = []
+    mermaid_lines = []
+    d2_lines = ["direction: down"]
+    d2_connections = []
+    d2_prefixes = {}
     chart_indent = '\t'
 
     input_output_ptr = set()
@@ -865,7 +884,7 @@ def check_backward_pass(
     for output in track_outputs:
         input_output_ptr.add(output.ptr)
 
-    def add_node(G: nx.DiGraph, x: wp.array, name: str):
+    def add_node(G: nx.DiGraph, x: wp.array, name: str, active_scope_stack = []):
         nonlocal node_labels
         if x in array_names:
             name = array_names[x]
@@ -882,13 +901,17 @@ def check_backward_pass(
                              wp.int8, wp.uint8, wp.int16, wp.uint16, wp.int32, wp.uint32, wp.int64, wp.uint64])
         G.add_node(x.ptr, label=f'"{name}"', requires_grad=x.requires_grad,
                    is_kernel=False, nondifferentiable=nondifferentiable)
+        arr_id = f'arr{x.ptr}'
+        type_str = str(x.dtype).split("'")[1]
         if render_mermaid is not None:
             class_name = "array" if not x.requires_grad else "array_grad"
-            arr_id = f'arr{x.ptr}'
-            chart_lines.append(chart_indent + f'{arr_id}(["`{name}`"]):::{class_name}')
-            type_str = str(x.dtype).split("'")[1]
+            mermaid_lines.append(chart_indent + f'{arr_id}(["`{name}`"]):::{class_name}')
             tooltip = f"Array {name} / ptr={x.ptr}, shape={str(x.shape)}, dtype={type_str}, requires_grad={x.requires_grad}"
-            chart_lines.append(chart_indent + f'click {arr_id} callback "{tooltip}"')
+            mermaid_lines.append(chart_indent + f'click {arr_id} callback "{tooltip}"')
+        if render_d2 is not None:
+            d2_lines.append(chart_indent + f'{arr_id}: "{name}"')
+            d2_prefixes[arr_id] = active_scope_stack
+
         node_labels[x.ptr] = name
 
     for i, x in enumerate(track_inputs):
@@ -907,6 +930,7 @@ def check_backward_pass(
     computed_nodes = set()
     for output in track_outputs:
         computed_nodes.add(output.ptr)
+    active_scope_stack = []
     active_scope = None
     active_scope_id = -1
     active_scope_kernels = {}
@@ -914,14 +938,22 @@ def check_backward_pass(
         active_scope = tape.scopes[0]
         active_scope_id = 0
     for launch_id, launch in enumerate(tape.launches):
-        if render_mermaid is not None and active_scope is not None:
+        if active_scope is not None:
             if launch_id == active_scope[0]:
                 if active_scope[1] is None:
                     chart_indent = chart_indent[:-1]
-                    chart_lines.append(chart_indent + 'end\n')
+                    if render_mermaid is not None:
+                        mermaid_lines.append(chart_indent + 'end\n')
+                    if render_d2 is not None:
+                        d2_lines.append(chart_indent + '}\n')
+                    active_scope_stack = active_scope_stack[:-1]
                 else:
-                    chart_lines.append('\n' + chart_indent +
-                                       f'subgraph scope{active_scope_id} ["`**{active_scope[1]}**`"]')
+                    if render_mermaid is not None:
+                        mermaid_lines.append('\n' + chart_indent +
+                                        f'subgraph scope{active_scope_id} ["`**{active_scope[1]}**`"]')
+                    if render_d2 is not None:
+                        d2_lines.append('\n' + chart_indent + f'scope{active_scope_id}: "{active_scope[1]}" {{')
+                    active_scope_stack.append(f'scope{active_scope_id}')
                     chart_indent += '\t'
             # check if we are in the next scope now
             while active_scope_id < len(tape.scopes) - 1 and launch_id == tape.scopes[active_scope_id + 1][0]:
@@ -930,10 +962,18 @@ def check_backward_pass(
                 active_scope_kernels = {}
                 if active_scope[1] is None:
                     chart_indent = chart_indent[:-1]
-                    chart_lines.append(chart_indent + 'end\n')
+                    if render_mermaid is not None:
+                        mermaid_lines.append(chart_indent + 'end\n')
+                    if render_d2 is not None:
+                        d2_lines.append(chart_indent + '}\n')
+                    active_scope_stack = active_scope_stack[:-1]
                 else:
-                    chart_lines.append('\n' + chart_indent +
-                                       f'subgraph scope{active_scope_id} ["`**{active_scope[1]}**`"]')
+                    if render_mermaid is not None:
+                        mermaid_lines.append('\n' + chart_indent +
+                                            f'subgraph scope{active_scope_id} ["`**{active_scope[1]}**`"]')
+                    if render_d2 is not None:
+                        d2_lines.append('\n' + chart_indent + f'scope{active_scope_id}: "{active_scope[1]}" {{')
+                    active_scope_stack.append(f'scope{active_scope_id}')
                     chart_indent += '\t'
 
         kernel, dim, _max_blocks, inputs, outputs, _device, meta_data = tuple(launch)
@@ -946,17 +986,20 @@ def check_backward_pass(
         }
         # store kernel as node with requires_grad so that the path search works
         G.add_node(kernel_name, label=f'"{kernel_name}"', is_kernel=True, dim=dim, requires_grad=True)
-        if render_mermaid is not None:
-            if not simplify_graph or kernel.key not in active_scope_kernels:
-                active_scope_kernels[kernel.key] = launch_id
-                chart_lines.append(chart_indent + f'kernel{launch_id}[["`{kernel_name}`"]]:::kernel')
+
+        if not simplify_graph or kernel.key not in active_scope_kernels:
+            active_scope_kernels[kernel.key] = launch_id
+            if render_mermaid is not None:
+                mermaid_lines.append(chart_indent + f'kernel{launch_id}[["`{kernel_name}`"]]:::kernel')
                 tooltip = meta_data["stack_trace"][:300] \
                     .replace('\n', ' ').replace('"', " ").replace("'", " ") \
                     .replace('[', '&#91;').replace(']', '&#93;').replace('`', '&#96;') \
                     .replace(':', '&#58;').replace('\\', '&#92;').replace('/', '&#47;') \
                     .replace('(', '&#40;').replace(')', '&#41;') \
                     .replace(',', '')
-                chart_lines.append(chart_indent + f'click kernel{launch_id} callback "{tooltip}"')
+                mermaid_lines.append(chart_indent + f'click kernel{launch_id} callback "{tooltip}"')
+            if render_d2 is not None:
+                d2_lines.append(chart_indent + f'kernel{launch_id}: "{kernel_name}"')
         node_labels[kernel_name] = kernel_name
         input_arrays = []
         for id, x in enumerate(inputs):
@@ -965,25 +1008,25 @@ def check_backward_pass(
                 if x.ptr is None:
                     continue
                 if not simplify_graph or x.ptr in computed_nodes or x.ptr in input_output_ptr:
-                    add_node(G, x, name)
+                    add_node(G, x, name, active_scope_stack)
                     input_arrays.append(x.ptr)
             elif isinstance(x, wp.codegen.StructInstance):
                 for varname, var in get_struct_vars(x).items():
                     if isinstance(var, wp.array):
                         if not simplify_graph or var.ptr in computed_nodes or var.ptr in input_output_ptr:
-                            add_node(G, var, f"{name}.{varname}")
+                            add_node(G, var, f"{name}.{varname}", active_scope_stack)
                             input_arrays.append(var.ptr)
         output_arrays = []
         for id, x in enumerate(outputs):
             name = kernel.adj.args[id + len(inputs)].label
             if isinstance(x, wp.array) and x.ptr is not None:
-                add_node(G, x, name)
+                add_node(G, x, name, active_scope_stack)
                 output_arrays.append(x.ptr)
                 computed_nodes.add(x.ptr)
             elif isinstance(x, wp.codegen.StructInstance):
                 for varname, var in get_struct_vars(x).items():
                     if isinstance(var, wp.array):
-                        add_node(G, var, f"{name}.{varname}")
+                        add_node(G, var, f"{name}.{varname}", active_scope_stack)
                         output_arrays.append(var.ptr)
                         computed_nodes.add(var.ptr)
         if simplify_graph:
@@ -993,13 +1036,17 @@ def check_backward_pass(
         for input_x in input_arrays:
             G.add_edge(input_x, kernel_name)
             if render_mermaid is not None:
-                chart_lines.append(chart_indent + f'arr{input_x} --> {k_id}')
+                mermaid_lines.append(chart_indent + f'arr{input_x} --> {k_id}')
+            if render_d2 is not None:
+                d2_lines.append(chart_indent + f'arr{input_x} -> {k_id}')
         for output_x in output_arrays:
             # track how many kernels modify each array
             manipulated_nodes[output_x].append(kernel.key)
             G.add_edge(kernel_name, output_x)
             if render_mermaid is not None:
-                chart_lines.append(chart_indent + f'{k_id} --> arr{output_x}')
+                mermaid_lines.append(chart_indent + f'{k_id} --> arr{output_x}')
+            if render_d2 is not None:
+                d2_lines.append(chart_indent + f'{k_id} -> arr{output_x}')
 
         kernel_launch_count[kernel.key] += 1
 
@@ -1047,11 +1094,11 @@ def check_backward_pass(
     if render_mermaid is not None:
         # generate mermaid flowchart as HTML
         chart = "graph LR\n"
-        chart_lines.append("")
-        chart_lines.append('\tclassDef array fill:#CCCCCC')
-        chart_lines.append('\tclassDef array_grad fill:#80E6FF')
-        chart_lines.append('\tclassDef kernel fill:#FFB380')
-        chart += "\n".join(chart_lines)
+        mermaid_lines.append("")
+        mermaid_lines.append('\tclassDef array fill:#CCCCCC')
+        mermaid_lines.append('\tclassDef array_grad fill:#80E6FF')
+        mermaid_lines.append('\tclassDef kernel fill:#FFB380')
+        chart += "\n".join(mermaid_lines)
         html = f'''<html>
 <head>
 <style>
@@ -1086,6 +1133,10 @@ def check_backward_pass(
             # open HTML in browser
             import webbrowser
             webbrowser.open(render_mermaid)
+
+    if render_d2 is not None:
+        with open(render_d2, "w") as f:
+            f.write("\n".join(d2_lines))
 
     if render_pydot_png is not None or render_pydot_svg is not None:
         import pydot
