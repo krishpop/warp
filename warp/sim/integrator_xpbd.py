@@ -3230,7 +3230,8 @@ class XPBDIntegrator:
                             if self.rigid_contact_con_weighting:
                                 rigid_contact_inv_weight = model.rigid_contact_inv_weight
 
-                        rigid_contact_inv_weight.zero_()
+                        if self.rigid_contact_con_weighting:
+                            rigid_contact_inv_weight.zero_()
                         rigid_active_contact_distance.zero_()
 
                         wp.launch(
