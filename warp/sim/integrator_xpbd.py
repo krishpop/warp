@@ -909,6 +909,12 @@ def apply_body_deltas(
     tb = -wp.cross(wb, body_I[tid] * wb)  # coriolis forces
     w1 = wp.quat_rotate(q0, wb + inv_I * tb * dt)
 
+    # XXX this improves gradient stability
+    if wp.length(v1) < 1e-4:
+        v1 = wp.vec3(0.0)
+    if wp.length(w1) < 1e-4:
+        w1 = wp.vec3(0.0)
+
     qd_out[tid] = wp.spatial_vector(w1, v1)
 
 
