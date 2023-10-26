@@ -959,7 +959,7 @@ class ScopedTimer:
                 self.dict[name] = []
 
     def __enter__(self):
-        if not self.skip_tape and warp.context.runtime.tape is not None:
+        if not self.skip_tape and warp.context.runtime is not None and warp.context.runtime.tape is not None:
             warp.context.runtime.tape.record_scope_begin(self.name)
         if self.active:
             if self.synchronize:
@@ -982,7 +982,7 @@ class ScopedTimer:
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        if not self.skip_tape and warp.context.runtime.tape is not None:
+        if not self.skip_tape and warp.context.runtime is not None and warp.context.runtime.tape is not None:
             warp.context.runtime.tape.record_scope_end()
         if self.active:
             if self.synchronize:
