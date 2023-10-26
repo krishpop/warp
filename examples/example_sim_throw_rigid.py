@@ -12,26 +12,21 @@
 #
 ###########################################################################
 
+from warp.tests.grad_utils import *
+from warp.optim import Adam, SGD
+import warp.sim.render
+import warp.sim
+import warp as wp
+import numpy as np
+import os
 DEBUG = False
 
-import os
-
-import numpy as np
-
-import warp as wp
 
 if DEBUG:
     wp.config.verify_cuda = True
     wp.config.verify_fp = True
     wp.config.mode = "debug"
 
-import warp.sim
-import warp.sim.render
-from warp.optim import Adam, SGD
-
-import matplotlib.pyplot as plt
-
-from warp.tests.grad_utils import *
 
 wp.init()
 # if DEBUG:
@@ -57,7 +52,7 @@ def apply_velocity(action: wp.array(dtype=wp.vec3), body_qd: wp.array(dtype=wp.s
 
 class Environment:
     frame_dt = 1.0 / 60.0
-    episode_frames = 5  #150
+    episode_frames = 100
 
     sim_substeps = 5
     sim_dt = frame_dt / sim_substeps
@@ -77,9 +72,10 @@ class Environment:
         builder = wp.sim.ModelBuilder()
         builder.add_articulation()
         b = builder.add_body(origin=wp.transform(self.start_pos))
-        _ = builder.add_shape_box(pos=(0.0, 0.0, 0.0), hx=0.5, hy=0.5, hz=0.5, density=100.0, body=b)
+        _ = builder.add_shape_box(pos=(0.0, 0.0, 0.0), hx=0.5, hy=0.5, hz=0.5, density=1000.0, body=b)
+        # _ = builder.add_shape_sphere(pos=(0.0, 0.0, 0.0), radius=0.5, density=1000.0, body=b, thickness=1e-2)
 
-        solve_iterations = 2
+        solve_iterations = 5
         self.integrator = wp.sim.XPBDIntegrator(solve_iterations)
         # self.integrator = wp.sim.SemiImplicitIntegrator()
 
@@ -91,7 +87,7 @@ class Environment:
 
         self.num_iterations = 100
 
-        self.capture_graph = False  # not DEBUG
+        self.capture_graph = not DEBUG
 
     def simulate(self) -> wp.sim.State:
         """
@@ -132,14 +128,21 @@ class Environment:
         self.simulate()
         final_state = self.states[-1]
 
-        wp.launch(sim_loss, dim=1, inputs=[final_state.body_q, final_state.body_qd, self.target_pos], outputs=[self.loss], device=action.device)
+        wp.launch(sim_loss, dim=1, inputs=[final_state.body_q, final_state.body_qd,
+                  self.target_pos], outputs=[self.loss], device=action.device)
 
         return self.loss
 
     def optimize(self, num_iter=100, lr=0.01, render=True):
         action = wp.zeros(1, dtype=wp.vec3, requires_grad=True, device=self.device)
-        # optimizer = Adam([action], lr=lr)
-        optimizer = SGD([action], lr=lr, nesterov=True, momentum=0.1)
+        # action = wp.array([[1.0837, -0.0039, 0.]], dtype=wp.vec3, requires_grad=True, device=self.device)
+        # action = wp.array([[1.4833, -7.7598, -0.1]], dtype=wp.vec3, requires_grad=True, device=self.device)
+        # action = wp.array([[1.7998, -7.6343, -0.1259]], dtype=wp.vec3, requires_grad=True, device=self.device)
+        # action = wp.array([[1.7521, -7.5758, -0.1431]], dtype=wp.vec3, requires_grad=True, device=self.device)
+
+        optimizer = Adam([action], lr=lr)
+        # optimizer = SGD([action], lr=lr, nesterov=True, momentum=0.1)
+
         self.num_iterations = num_iter
         self.loss = wp.zeros(1, dtype=wp.float32, requires_grad=True, device=self.device)
 
@@ -181,6 +184,14 @@ class Environment:
         for i in range(1, num_iter + 1):
             self.iteration = i
 
+            
+            for i, state in enumerate(self.states):
+                for key, value in state.__dict__.items():
+                    if isinstance(value, wp.array):
+                        if len(value) == 0 or not value.grad:
+                            continue
+                        value.grad.zero_()
+
             if self.capture_graph:
                 wp.capture_launch(graph)
             else:
@@ -192,50 +203,78 @@ class Environment:
                 if False:
                     check_tape_safety(self.dynamics, [action])
 
-                if True:
+                if False:
                     array_names = {}
+                    populate_array_names(self.model, array_names, prefix="model.")
                     for state_id, state in enumerate(self.states):
-                        array_names[state.body_q] = f"state_{state_id}.body_q"
-                        array_names[state.body_qd] = f"state_{state_id}.body_qd"
-                        array_names[state.body_f] = f"state_{state_id}.body_f"
-                        if state.requires_grad:
-                            for j, arr in enumerate(state.body_deltas):
-                                array_names[arr] = f"state_{state_id}.body_deltas[{j}]"
-                            for j, arr in enumerate(state.body_q_temp):
-                                array_names[arr] = f"state_{state_id}.body_q_temp[{j}]"
-                            for j, arr in enumerate(state.body_qd_temp):
-                                array_names[arr] = f"state_{state_id}.body_qd_temp[{j}]"
-
-                            array_names[state.rigid_active_contact_distance] = f"state_{state_id}.rigid_active_contact_distance"
-                            array_names[state.rigid_active_contact_point0] = f"state_{state_id}.rigid_active_contact_point0"
-                            array_names[state.rigid_active_contact_point1] = f"state_{state_id}.rigid_active_contact_point1"
-                            array_names[state.rigid_contact_inv_weight] = f"state_{state_id}.rigid_contact_inv_weight"
-                        if state.has_rigid_contact_vars:
-                            array_names[state.rigid_contact_count] = f"state_{state_id}.rigid_contact_count"
-                            array_names[state.rigid_contact_broad_shape0] = f"state_{state_id}.rigid_contact_broad_shape0"
-                            array_names[state.rigid_contact_broad_shape1] = f"state_{state_id}.rigid_contact_broad_shape1"
-                            array_names[state.rigid_contact_point_id] = f"state_{state_id}.rigid_contact_point_id"
-                            array_names[state.rigid_contact_point_limit] = f"state_{state_id}.rigid_contact_point_limit"
-                            array_names[state.rigid_contact_shape0] = f"state_{state_id}.rigid_contact_shape0"
-                            array_names[state.rigid_contact_shape1] = f"state_{state_id}.rigid_contact_shape1"
-                            array_names[state.rigid_contact_point0] = f"state_{state_id}.rigid_contact_point0"
-                            array_names[state.rigid_contact_point1] = f"state_{state_id}.rigid_contact_point1"
-                            array_names[state.rigid_contact_offset0] = f"state_{state_id}.rigid_contact_offset0"
-                            array_names[state.rigid_contact_offset1] = f"state_{state_id}.rigid_contact_offset1"
-                            array_names[state.rigid_contact_normal] = f"state_{state_id}.rigid_contact_normal"
-                            array_names[state.rigid_contact_thickness] = f"state_{state_id}.rigid_contact_thickness"
-                            array_names[state.rigid_contact_pairwise_counter] = f"state_{state_id}.rigid_contact_pairwise_counter"
-                            array_names[state.rigid_contact_tids] = f"state_{state_id}.rigid_contact_tids"
+                        populate_array_names(state, array_names, prefix=f"state_{state_id}.")
 
                     check_backward_pass(
                         tape,
                         render_mermaid=os.path.join(os.path.dirname(__file__), "example_sim_throw_rigid.html"),
+                        # render_d2=os.path.join(os.path.dirname(__file__), "example_sim_throw_rigid.d2"),
                         analyze_graph=False,
+                        # check_kernel_jacobians=False,
+                        # simplify_graph=False,  # we want to see all input/output nodes
                         track_inputs=[action],
                         track_outputs=[self.loss],
                         track_input_names=["action"],
                         track_output_names=["loss"],
                         array_names=array_names)
+
+                if True:
+
+                    import plotly.express as px
+                    from plotly.subplots import make_subplots
+                    import plotly.graph_objects as go
+# fig = px.bar(x=["a", "b", "c"], y=[1, 3, 2])
+# fig.write_html('first_figure.html', auto_open=True)
+
+                    # external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
+                    # app = Dash(__name__, external_stylesheets=external_stylesheets)
+
+                    fig = make_subplots(cols=2, subplot_titles=["Value Absolute Maximum", "Gradient Absolute Maximum"])
+                    absmax = {}
+                    for i, state in enumerate(self.states):
+                        for key, value in state.__dict__.items():
+                            if isinstance(value, wp.array):
+                                if len(value) == 0 or not value.grad:
+                                    continue
+                                if i == 0:
+                                    absmax[key] = []
+                                absmax[key].append((np.abs(value.numpy()).max(), np.abs(value.grad.numpy()).max()))
+
+                    import matplotlib.pyplot as plt
+                    for key, series in absmax.items():
+                        # plt.plot(series, label=key)
+                        series = np.array(series)
+                        val_series, grad_series = series[:,0], series[:,1]
+                        fig.add_trace(go.Scatter(
+                            x=np.arange(len(val_series)),
+                            y=val_series,
+                            name=key),
+                            row=1,
+                            col=1)
+                        fig.add_trace(go.Scatter(
+                            x=np.arange(len(grad_series)),
+                            y=grad_series,
+                            name=key),
+                            row=1,
+                            col=2)
+                    # plt.legend()
+                    # plt.show()
+                    fig.update_yaxes(type="log")
+
+                    fig.write_html('first_figure.html', auto_open=True)
+
+            if False:
+                check_jacobian(
+                    self.dynamics,
+                    inputs=[action],
+                    input_names=["action"],
+                    output_names=["loss"],
+                    jacobian_name="throw_rigid_loss",
+                )
 
             l = self.loss.numpy()[0]
             print(f"iter {i}/{num_iter}\t action: {action.numpy()}\t action.grad: {action.grad.numpy()}\t loss: {l:.3f}")
@@ -246,6 +285,7 @@ class Environment:
             optimizer.step([action.grad])
             tape.zero()
 
+        import matplotlib.pyplot as plt
         plt.plot(losses)
         plt.grid()
         plt.title("Loss")
@@ -262,7 +302,7 @@ if DEBUG:
 else:
     sim = Environment(device=wp.get_preferred_device())
 
-best_actions = sim.optimize(num_iter=80, lr=3e-2, render=False)
+best_actions = sim.optimize(num_iter=80, lr=0.1, render=False)
 
 sim.renderer = wp.sim.render.SimRendererOpenGL(
     sim.model,
