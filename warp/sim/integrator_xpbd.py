@@ -879,8 +879,9 @@ def apply_body_deltas(
 
     weight = 1.0
     if constraint_inv_weights:
-        if constraint_inv_weights[tid] > 0.0:
-            weight = 1.0 / constraint_inv_weights[tid]
+        inv_weight = constraint_inv_weights[tid]
+        if inv_weight > 0.0:
+            weight = 1.0 / inv_weight
 
     dp = wp.spatial_bottom(delta) * (inv_m * weight)
     dq = wp.spatial_top(delta) * weight
@@ -2914,6 +2915,9 @@ class XPBDIntegrator:
             if model.edge_count:
                 model.edge_constraint_lambdas.zero_()
 
+            # if wp.context.runtime.tape is not None:
+            #     wp.context.runtime.tape.enable_recording = False
+
             for i in range(self.iterations):
 
                 with wp.ScopedTimer(f"iteration_{i}", False):
@@ -3215,20 +3219,19 @@ class XPBDIntegrator:
                         rigid_contact_inv_weight = None
                         if requires_grad:
                             rigid_active_contact_distance = state_out.rigid_active_contact_distance
-                            rigid_active_contact_distance.zero_()
                             rigid_active_contact_point0 = state_out.rigid_active_contact_point0
                             rigid_active_contact_point1 = state_out.rigid_active_contact_point1
                             if self.rigid_contact_con_weighting:
                                 rigid_contact_inv_weight = state_out.rigid_contact_inv_weight
-                                rigid_active_contact_distance.zero_()
                         else:
                             rigid_active_contact_distance = model.rigid_active_contact_distance
                             rigid_active_contact_point0 = model.rigid_active_contact_point0
                             rigid_active_contact_point1 = model.rigid_active_contact_point1
-                            rigid_active_contact_distance.zero_()
                             if self.rigid_contact_con_weighting:
                                 rigid_contact_inv_weight = model.rigid_contact_inv_weight
-                                rigid_contact_inv_weight.zero_()
+
+                        rigid_contact_inv_weight.zero_()
+                        rigid_active_contact_distance.zero_()
 
                         wp.launch(
                             kernel=solve_body_contact_positions,
@@ -3324,6 +3327,9 @@ class XPBDIntegrator:
                     #     # state_out.body_qd = body_qd
                     #     state_out.body_q.assign(out_body_q)
                     #     state_out.body_qd.assign(out_body_qd)
+
+            # if wp.context.runtime.tape is not None:
+            #     wp.context.runtime.tape.enable_recording = True
 
             if model.particle_count:
 
