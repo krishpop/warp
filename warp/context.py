@@ -1372,7 +1372,7 @@ class Module:
             if not warp.is_cuda_available():
                 raise RuntimeError("Failed to build CUDA module because CUDA is not available")
 
-        with ScopedTimer(f"Module {self.name} load on device '{device}'", active=not warp.config.quiet):
+        with ScopedTimer(f"Module {self.name} load on device '{device}'", active=not warp.config.quiet, skip_tape=True):
             build_path = warp.build.kernel_bin_dir
             gen_path = warp.build.kernel_gen_dir
 

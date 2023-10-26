@@ -317,13 +317,14 @@ class State:
         self.has_rigid_contact_vars = False
 
     def clear_forces(self):
-        if self.particle_count:
-            self.particle_f.zero_()
+        with wp.ScopedTimer("clear_forces", False):
+            if self.particle_count:
+                self.particle_f.zero_()
 
-        if self.body_count:
-            self.body_f.zero_()
+            if self.body_count:
+                self.body_f.zero_()
 
-            self.joint_act.zero_()
+                self.joint_act.zero_()
 
     def flatten(self):
         wp.utils.warn(
@@ -1212,7 +1213,7 @@ class ModelBuilder:
         # every simulation substep (can be 0 if only one PBD solver iteration is used)
         self.rigid_contact_margin = 0.1
         # torsional friction coefficient (only considered by XPBD so far)
-        self.rigid_contact_torsional_friction = 0.0
+        self.rigid_contact_torsional_friction = 0.5
         # rolling friction coefficient (only considered by XPBD so far)
         self.rigid_contact_rolling_friction = 0.001
 
