@@ -45,6 +45,8 @@ class Tape:
         self.launches = []
         self.scopes = []
 
+        self.enable_recording = True
+
         self.loss = None
 
     def __enter__(self):
@@ -173,6 +175,8 @@ class Tape:
 
     # record a kernel launch on the tape
     def record_launch(self, kernel, dim, max_blocks, inputs, outputs, device, meta_data=None):
+        if not self.enable_recording:
+            return
         self.launches.append([kernel, dim, max_blocks, inputs, outputs, device, meta_data])
 
     def record_func(self, backward, arrays):
@@ -183,6 +187,8 @@ class Tape:
             backward (Callable): A callable Python object (can be any function) that will be executed in the backward pass.
             arrays (list): A list of arrays that are used by the function for gradient tracking.
         """
+        if not self.enable_recording:
+            return
         self.launches.append(backward)
 
         for a in arrays:
@@ -194,9 +200,13 @@ class Tape:
                 )
 
     def record_scope_begin(self, scope_name):
+        if not self.enable_recording:
+            return
         self.scopes.append((len(self.launches), scope_name))
 
     def record_scope_end(self):
+        if not self.enable_recording:
+            return
         self.scopes.append((len(self.launches), None))
 
     # returns the adjoint of a kernel parameter
