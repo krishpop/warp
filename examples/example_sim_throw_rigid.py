@@ -227,11 +227,6 @@ class Environment:
                     import plotly.express as px
                     from plotly.subplots import make_subplots
                     import plotly.graph_objects as go
-# fig = px.bar(x=["a", "b", "c"], y=[1, 3, 2])
-# fig.write_html('first_figure.html', auto_open=True)
-
-                    # external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
-                    # app = Dash(__name__, external_stylesheets=external_stylesheets)
 
                     fig = make_subplots(cols=2, subplot_titles=["Value Absolute Maximum", "Gradient Absolute Maximum"])
                     absmax = {}
