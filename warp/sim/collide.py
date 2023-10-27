@@ -482,6 +482,19 @@ def volume_grad(volume: wp.uint64, p: wp.vec3):
 
 
 @wp.func
+def counter_increment(counter: wp.array(dtype=int), counter_index: int, tids: wp.array(dtype=int), tid: int):
+    # increment counter but only if it is smaller than index_limit, remember which thread received which counter value
+    next_count = wp.atomic_add(counter, counter_index, 1)
+    tids[tid] = next_count
+    return next_count
+
+
+@wp.func_replay(counter_increment)
+def replay_counter_increment(counter: wp.array(dtype=int), counter_index: int, tids: wp.array(dtype=int), tid: int):
+    return tids[tid]
+
+
+@wp.func
 def limited_counter_increment(counter: wp.array(dtype=int), counter_index: int, tids: wp.array(dtype=int), tid: int, index_limit: int):
     # increment counter but only if it is smaller than index_limit, remember which thread received which counter value
     next_count = wp.atomic_add(counter, counter_index, 1)
@@ -508,6 +521,7 @@ def create_soft_contacts(
     geo: ModelShapeGeometry,
     margin: float,
     soft_contact_max: int,
+    shape_count: int,
     # outputs
     soft_contact_count: wp.array(dtype=int),
     soft_contact_particle: wp.array(dtype=int),
@@ -515,8 +529,10 @@ def create_soft_contacts(
     soft_contact_body_pos: wp.array(dtype=wp.vec3),
     soft_contact_body_vel: wp.array(dtype=wp.vec3),
     soft_contact_normal: wp.array(dtype=wp.vec3),
+    soft_contact_tids: wp.array(dtype=int),
 ):
-    particle_index, shape_index = wp.tid()
+    tid = wp.tid()
+    particle_index, shape_index = tid // shape_count, tid % shape_count
     if (particle_flags[particle_index] & PARTICLE_FLAG_ACTIVE) == 0:
         return
 
@@ -584,24 +600,24 @@ def create_soft_contacts(
             shape_v = wp.cw_mul(shape_v, geo_scale)
 
             delta = x_local - shape_p
-            
+
             d = wp.length(delta) * sign
             n = wp.normalize(delta) * sign
             v = shape_v
-    
+
     if geo_type == wp.sim.GEO_SDF:
         volume = geo.source[shape_index]
         xpred_local = wp.volume_world_to_index(volume, wp.cw_div(x_local, geo_scale))
         nn = wp.vec3(0.0, 0.0, 0.0)
         d = wp.volume_sample_grad_f(volume, xpred_local, wp.Volume.LINEAR, nn)
-        n = wp.normalize(nn)        
+        n = wp.normalize(nn)
 
     if geo_type == wp.sim.GEO_PLANE:
         d = plane_sdf(geo_scale[0], geo_scale[1], x_local)
         n = wp.vec3(0.0, 1.0, 0.0)
 
     if d < margin + radius:
-        index = wp.atomic_add(soft_contact_count, 0, 1)
+        index = counter_increment(soft_contact_count, 0, soft_contact_tids, tid)
 
         if index < soft_contact_max:
             # compute contact point in body local space
@@ -1432,7 +1448,7 @@ def collide(model, state, edge_sdf_iter: int = 10):
             contact_state.soft_contact_count.zero_()
             wp.launch(
                 kernel=create_soft_contacts,
-                dim=(model.particle_count, model.shape_count),
+                dim=model.particle_count * model.shape_count,
                 inputs=[
                     state.particle_q,
                     model.particle_radius,
@@ -1443,6 +1459,7 @@ def collide(model, state, edge_sdf_iter: int = 10):
                     model.shape_geo,
                     model.soft_contact_margin,
                     model.soft_contact_max,
+                    model.shape_count,
                 ],
                 outputs=[
                     contact_state.soft_contact_count,
@@ -1451,6 +1468,7 @@ def collide(model, state, edge_sdf_iter: int = 10):
                     contact_state.soft_contact_body_pos,
                     contact_state.soft_contact_body_vel,
                     contact_state.soft_contact_normal,
+                    contact_state.soft_contact_tids,
                 ],
                 device=model.device,
             )
@@ -1493,7 +1511,7 @@ def collide(model, state, edge_sdf_iter: int = 10):
                     contact_state.rigid_contact_point_limit,
                 ],
                 device=model.device,
-                record_tape=False,  # TODO revert to False
+                record_tape=False,
             )
 
         if model.ground and model.shape_ground_contact_pair_count:
