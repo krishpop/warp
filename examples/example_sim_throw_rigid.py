@@ -16,6 +16,7 @@ from warp.tests.grad_utils import *
 from warp.optim import Adam, SGD
 import warp.sim.render
 import warp.sim
+from warp.sim import ModelBuilder
 import warp as wp
 import numpy as np
 import os
@@ -61,21 +62,20 @@ class Environment:
     render_time = 0.0
 
     def __init__(self, device="cpu"):
-        builder = wp.sim.ModelBuilder()
-
         self.device = device
 
         self.start_pos = wp.vec3(0.0, 1.6, 0.0)
         self.target_pos = wp.vec3(3.0, 0.6, 0.0)
+        ModelBuilder.default_shape_kd = 10.0
+        ModelBuilder.default_shape_ke = 1e6
 
-        # add planar joints
-        builder = wp.sim.ModelBuilder()
+        builder = ModelBuilder()
         builder.add_articulation()
         b = builder.add_body(origin=wp.transform(self.start_pos))
-        _ = builder.add_shape_box(pos=(0.0, 0.0, 0.0), hx=0.5, hy=0.5, hz=0.5, density=1000.0, body=b)
+        _ = builder.add_shape_box(pos=(0.0, 0.0, 0.0), hx=0.5, hy=0.5, hz=0.5, density=1000.0, ke=1e7, kd=1e5, body=b)
         # _ = builder.add_shape_sphere(pos=(0.0, 0.0, 0.0), radius=0.5, density=1000.0, body=b, thickness=1e-2)
 
-        solve_iterations = 5
+        solve_iterations = 2
         self.integrator = wp.sim.XPBDIntegrator(solve_iterations)
         # self.integrator = wp.sim.SemiImplicitIntegrator()
 
@@ -135,10 +135,6 @@ class Environment:
 
     def optimize(self, num_iter=100, lr=0.01, render=True):
         action = wp.zeros(1, dtype=wp.vec3, requires_grad=True, device=self.device)
-        # action = wp.array([[1.0837, -0.0039, 0.]], dtype=wp.vec3, requires_grad=True, device=self.device)
-        # action = wp.array([[1.4833, -7.7598, -0.1]], dtype=wp.vec3, requires_grad=True, device=self.device)
-        # action = wp.array([[1.7998, -7.6343, -0.1259]], dtype=wp.vec3, requires_grad=True, device=self.device)
-        # action = wp.array([[1.7521, -7.5758, -0.1431]], dtype=wp.vec3, requires_grad=True, device=self.device)
 
         optimizer = Adam([action], lr=lr)
         # optimizer = SGD([action], lr=lr, nesterov=True, momentum=0.1)
@@ -260,7 +256,7 @@ if DEBUG:
 else:
     sim = Environment(device=wp.get_preferred_device())
 
-best_actions = sim.optimize(num_iter=80, lr=0.1, render=True)
+best_actions = sim.optimize(num_iter=80, lr=0.5, render=False)
 
 sim.renderer = wp.sim.render.SimRendererOpenGL(
     sim.model,
