@@ -1518,8 +1518,7 @@ def check_tape_safety(function: Callable, inputs: list, outputs: list = None, to
         return True
 
 
-def plot_state_gradients(states: list, figure_name: str = "state_grads.html"):
-    import plotly.express as px
+def plot_state_gradients(states: list, figure_name: str = "state_grads.html", blacklist_vars=set(["body_q_temp", "body_qd_temp"])):
     from plotly.subplots import make_subplots
     import plotly.graph_objects as go
 
@@ -1540,12 +1539,22 @@ def plot_state_gradients(states: list, figure_name: str = "state_grads.html"):
     absmax = {}
     for i, state in enumerate(states):
         for key, value in state.__dict__.items():
+            if key in blacklist_vars:
+                continue
             if isinstance(value, wp.array):
                 if len(value) == 0 or not value.grad:
                     continue
                 if i == 0:
                     absmax[key] = []
                 absmax[key].append((np.abs(value.numpy()).max(), np.abs(value.grad.numpy()).max()))
+            elif isinstance(value, list):
+                for j, x in enumerate(value):
+                    if isinstance(x, wp.array):
+                        if len(x) == 0 or not x.grad:
+                            continue
+                        if i == 0:
+                            absmax[f"{key}[{j}]"] = []
+                        absmax[f"{key}[{j}]"].append((np.abs(x.numpy()).max(), np.abs(x.grad.numpy()).max()))
 
     for i, (key, series) in enumerate(absmax.items()):
         series = np.array(series)
