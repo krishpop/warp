@@ -1523,6 +1523,19 @@ def plot_state_gradients(states: list, figure_name: str = "state_grads.html"):
     from plotly.subplots import make_subplots
     import plotly.graph_objects as go
 
+    colors = [
+        '#1f77b4',  # muted blue
+        '#ff7f0e',  # safety orange
+        '#2ca02c',  # cooked asparagus green
+        '#d62728',  # brick red
+        '#9467bd',  # muted purple
+        '#8c564b',  # chestnut brown
+        '#e377c2',  # raspberry yogurt pink
+        '#7f7f7f',  # middle gray
+        '#bcbd22',  # curry yellow-green
+        '#17becf'   # blue-teal
+    ]
+
     fig = make_subplots(cols=2, subplot_titles=["Value Absolute Maximum", "Gradient Absolute Maximum"])
     absmax = {}
     for i, state in enumerate(states):
@@ -1534,25 +1547,27 @@ def plot_state_gradients(states: list, figure_name: str = "state_grads.html"):
                     absmax[key] = []
                 absmax[key].append((np.abs(value.numpy()).max(), np.abs(value.grad.numpy()).max()))
 
-    import matplotlib.pyplot as plt
-    for key, series in absmax.items():
-        # plt.plot(series, label=key)
+    for i, (key, series) in enumerate(absmax.items()):
         series = np.array(series)
         val_series, grad_series = series[:, 0], series[:, 1]
+        color = colors[i % len(colors)]
         fig.add_trace(go.Scatter(
             x=np.arange(len(val_series)),
             y=val_series,
-            name=key),
+            name=key,
+            legendgroup=key,
+            line=dict(color=color)),
             row=1,
             col=1)
         fig.add_trace(go.Scatter(
             x=np.arange(len(grad_series)),
             y=grad_series,
-            name=key),
+            name=key,
+            legendgroup=key,
+            line=dict(color=color),
+            showlegend=False),
             row=1,
             col=2)
-    # plt.legend()
-    # plt.show()
     fig.update_yaxes(type="log")
 
     fig.write_html(figure_name, auto_open=True)
