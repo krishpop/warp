@@ -184,7 +184,6 @@ class Environment:
         for i in range(1, num_iter + 1):
             self.iteration = i
 
-            
             for i, state in enumerate(self.states):
                 for key, value in state.__dict__.items():
                     if isinstance(value, wp.array):
@@ -223,44 +222,8 @@ class Environment:
                         array_names=array_names)
 
                 if True:
-
-                    import plotly.express as px
-                    from plotly.subplots import make_subplots
-                    import plotly.graph_objects as go
-
-                    fig = make_subplots(cols=2, subplot_titles=["Value Absolute Maximum", "Gradient Absolute Maximum"])
-                    absmax = {}
-                    for i, state in enumerate(self.states):
-                        for key, value in state.__dict__.items():
-                            if isinstance(value, wp.array):
-                                if len(value) == 0 or not value.grad:
-                                    continue
-                                if i == 0:
-                                    absmax[key] = []
-                                absmax[key].append((np.abs(value.numpy()).max(), np.abs(value.grad.numpy()).max()))
-
-                    import matplotlib.pyplot as plt
-                    for key, series in absmax.items():
-                        # plt.plot(series, label=key)
-                        series = np.array(series)
-                        val_series, grad_series = series[:,0], series[:,1]
-                        fig.add_trace(go.Scatter(
-                            x=np.arange(len(val_series)),
-                            y=val_series,
-                            name=key),
-                            row=1,
-                            col=1)
-                        fig.add_trace(go.Scatter(
-                            x=np.arange(len(grad_series)),
-                            y=grad_series,
-                            name=key),
-                            row=1,
-                            col=2)
-                    # plt.legend()
-                    # plt.show()
-                    fig.update_yaxes(type="log")
-
-                    fig.write_html('first_figure.html', auto_open=True)
+                    plot_state_gradients(self.states, os.path.join(os.path.dirname(
+                        __file__), "example_sim_throw_rigid_state_grads.html"))
 
             if False:
                 check_jacobian(
@@ -297,7 +260,7 @@ if DEBUG:
 else:
     sim = Environment(device=wp.get_preferred_device())
 
-best_actions = sim.optimize(num_iter=80, lr=0.1, render=False)
+best_actions = sim.optimize(num_iter=80, lr=0.1, render=True)
 
 sim.renderer = wp.sim.render.SimRendererOpenGL(
     sim.model,

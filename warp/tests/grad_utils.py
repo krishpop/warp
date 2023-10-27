@@ -884,7 +884,7 @@ def check_backward_pass(
     for output in track_outputs:
         input_output_ptr.add(output.ptr)
 
-    def add_node(G: nx.DiGraph, x: wp.array, name: str, active_scope_stack = []):
+    def add_node(G: nx.DiGraph, x: wp.array, name: str, active_scope_stack=[]):
         nonlocal node_labels
         if x in array_names:
             name = array_names[x]
@@ -950,7 +950,7 @@ def check_backward_pass(
                 else:
                     if render_mermaid is not None:
                         mermaid_lines.append('\n' + chart_indent +
-                                        f'subgraph scope{active_scope_id} ["`**{active_scope[1]}**`"]')
+                                             f'subgraph scope{active_scope_id} ["`**{active_scope[1]}**`"]')
                     if render_d2 is not None:
                         d2_lines.append('\n' + chart_indent + f'scope{active_scope_id}: "{active_scope[1]}" {{')
                     active_scope_stack.append(f'scope{active_scope_id}')
@@ -970,7 +970,7 @@ def check_backward_pass(
                 else:
                     if render_mermaid is not None:
                         mermaid_lines.append('\n' + chart_indent +
-                                            f'subgraph scope{active_scope_id} ["`**{active_scope[1]}**`"]')
+                                             f'subgraph scope{active_scope_id} ["`**{active_scope[1]}**`"]')
                     if render_d2 is not None:
                         d2_lines.append('\n' + chart_indent + f'scope{active_scope_id}: "{active_scope[1]}" {{')
                     active_scope_stack.append(f'scope{active_scope_id}')
@@ -1306,7 +1306,8 @@ def check_backward_pass(
         if plotting == "matplotlib":
             import itertools
             any_stat = next(iter(stats.values()))
-            all_stats_names = itertools.chain.from_iterable([any_stat[cat].keys() for cat in ["sensitivity", "accuracy"]])
+            all_stats_names = itertools.chain.from_iterable(
+                [any_stat[cat].keys() for cat in ["sensitivity", "accuracy"]])
             all_stats_names = [key for key in all_stats_names if key not in ("total", "individual")]
             for kernel_name, stat in stats.items():
                 import matplotlib.pyplot as plt
@@ -1326,7 +1327,8 @@ def check_backward_pass(
                     if dim >= num:
                         ax.axis("off")
                         continue
-                kernel_stats = list(itertools.chain.from_iterable([stat[cat].items() for cat in ["sensitivity", "accuracy"]]))
+                kernel_stats = list(itertools.chain.from_iterable(
+                    [stat[cat].items() for cat in ["sensitivity", "accuracy"]]))
                 for dim, (stat_name, cond) in enumerate(kernel_stats):
                     ax = axes[dim // ncols, dim % ncols]
                     ax.set_title(f"{stat_name}")
@@ -1514,3 +1516,43 @@ def check_tape_safety(function: Callable, inputs: list, outputs: list = None, to
     else:
         print(FontColors.OKGREEN + "Tape output matches function output." + FontColors.ENDC)
         return True
+
+
+def plot_state_gradients(states: list, figure_name: str = "state_grads.html"):
+    import plotly.express as px
+    from plotly.subplots import make_subplots
+    import plotly.graph_objects as go
+
+    fig = make_subplots(cols=2, subplot_titles=["Value Absolute Maximum", "Gradient Absolute Maximum"])
+    absmax = {}
+    for i, state in enumerate(states):
+        for key, value in state.__dict__.items():
+            if isinstance(value, wp.array):
+                if len(value) == 0 or not value.grad:
+                    continue
+                if i == 0:
+                    absmax[key] = []
+                absmax[key].append((np.abs(value.numpy()).max(), np.abs(value.grad.numpy()).max()))
+
+    import matplotlib.pyplot as plt
+    for key, series in absmax.items():
+        # plt.plot(series, label=key)
+        series = np.array(series)
+        val_series, grad_series = series[:, 0], series[:, 1]
+        fig.add_trace(go.Scatter(
+            x=np.arange(len(val_series)),
+            y=val_series,
+            name=key),
+            row=1,
+            col=1)
+        fig.add_trace(go.Scatter(
+            x=np.arange(len(grad_series)),
+            y=grad_series,
+            name=key),
+            row=1,
+            col=2)
+    # plt.legend()
+    # plt.show()
+    fig.update_yaxes(type="log")
+
+    fig.write_html(figure_name, auto_open=True)
