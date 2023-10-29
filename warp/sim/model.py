@@ -767,6 +767,7 @@ class Model:
         target.soft_contact_body_pos = wp.zeros(count, dtype=wp.vec3, device=self.device, requires_grad=requires_grad)
         target.soft_contact_body_vel = wp.zeros(count, dtype=wp.vec3, device=self.device, requires_grad=requires_grad)
         target.soft_contact_normal = wp.zeros(count, dtype=wp.vec3, device=self.device, requires_grad=requires_grad)
+        target.soft_contact_tids = wp.zeros(count, dtype=int, device=self.device)
 
     def allocate_soft_contacts(self, count, requires_grad=False):
         self._allocate_soft_contacts(self, count, requires_grad)
