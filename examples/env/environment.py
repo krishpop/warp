@@ -374,6 +374,12 @@ class Environment:
         if self.eval_fk:
             wp.sim.eval_fk(self.model, self.model.joint_q, self.model.joint_qd, None, self.state)
 
+        if self.model.particle_count > 1:
+            self.model.particle_grid.build(
+                self.state.particle_q,
+                self.model.particle_max_radius * 2.0,
+            )
+
     def run(self):
         # ---------------
         # run simulation
@@ -417,6 +423,11 @@ class Environment:
             running = True
             while running:
                 for f in range(self.episode_frames):
+                    if self.model.particle_count > 1:
+                        self.model.particle_grid.build(
+                            self.state.particle_q,
+                            self.model.particle_max_radius * 2.0,
+                        )
                     if self.use_graph_capture:
                         wp.capture_launch(graph)
                         self.sim_time += self.frame_dt
