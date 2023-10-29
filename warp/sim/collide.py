@@ -590,8 +590,9 @@ def create_soft_contacts(
         face_v = float(0.0)
         sign = float(0.0)
 
+        min_scale = wp.min(geo_scale)
         if wp.mesh_query_point_sign_normal(
-            mesh, wp.cw_div(x_local, geo_scale), margin + radius, sign, face_index, face_u, face_v
+            mesh, wp.cw_div(x_local, geo_scale), margin + radius / min_scale, sign, face_index, face_u, face_v
         ):
             shape_p = wp.mesh_eval_position(mesh, face_index, face_u, face_v)
             shape_v = wp.mesh_eval_velocity(mesh, face_index, face_u, face_v)
@@ -1438,7 +1439,7 @@ def collide(model, state, edge_sdf_iter: int = 10):
     with wp.ScopedTimer("collide", False):
 
         # generate soft contacts for particles and shapes except ground plane (last shape)
-        if model.particle_count and model.shape_count:
+        if model.particle_count and model.shape_count > 1:
             # determine where the contact variables are stored
             if state.has_soft_contact_vars:
                 contact_state = state
@@ -1448,7 +1449,7 @@ def collide(model, state, edge_sdf_iter: int = 10):
             contact_state.soft_contact_count.zero_()
             wp.launch(
                 kernel=create_soft_contacts,
-                dim=model.particle_count * model.shape_count,
+                dim=model.particle_count * (model.shape_count - 1),
                 inputs=[
                     state.particle_q,
                     model.particle_radius,
@@ -1459,7 +1460,7 @@ def collide(model, state, edge_sdf_iter: int = 10):
                     model.shape_geo,
                     model.soft_contact_margin,
                     model.soft_contact_max,
-                    model.shape_count,
+                    model.shape_count - 1,
                 ],
                 outputs=[
                     contact_state.soft_contact_count,
