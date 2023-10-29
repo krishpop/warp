@@ -61,7 +61,7 @@ def solve_particle_ground_contacts(
     lambda_f = wp.max(mu * lambda_n, 0.0 - wp.length(vt) * dt)
     delta_f = wp.normalize(vt) * lambda_f
 
-    wp.atomic_add(delta, tid, (delta_f - delta_n) / wi * relaxation)
+    wp.atomic_add(delta, tid, (delta_f - delta_n) * relaxation)
 
 
 @wp.kernel
@@ -105,7 +105,6 @@ def apply_particle_shape_restitution(
 
     if (particle_flags[particle_index] & PARTICLE_FLAG_ACTIVE) == 0:
         return
-
 
     # x_new = particle_x_new[particle_index]
     v_new = particle_v_new[particle_index]
@@ -253,7 +252,7 @@ def solve_particle_shape_contacts(
     delta_f = wp.normalize(vt) * lambda_f
     delta_total = (delta_f - delta_n) / denom * relaxation
 
-    wp.atomic_add(delta, particle_index, delta_total)
+    wp.atomic_add(delta, particle_index, w1 * delta_total)
 
     if body_index >= 0:
         delta_t = wp.cross(r, delta_total)
@@ -324,7 +323,7 @@ def solve_particle_particle_contacts(
                 delta_f = wp.normalize(vt) * lambda_f
                 delta += (delta_f - delta_n) / denom
 
-    wp.atomic_add(deltas, i, delta * relaxation)
+    wp.atomic_add(deltas, i, delta * w1 * relaxation)
 
 
 @wp.kernel
@@ -2713,12 +2712,14 @@ class XPBDIntegrator:
     def _apply_particle_deltas(self, model, state_in, state_out, dt):
         if state_in.requires_grad:
             particle_deltas = state_out.particle_deltas[self._particle_delta_counter]
+            particle_q_init = state_in.particle_q
             particle_q = state_out.particle_q_temp[self._particle_delta_counter]
             new_particle_q = state_out.particle_q_temp[self._particle_delta_counter + 1]
             new_particle_qd = state_out.particle_qd_temp[self._particle_delta_counter + 1]
             self._particle_delta_counter += 1
         else:
             particle_deltas = model.particle_deltas
+            particle_q_init = model.particle_q_init
             if self._particle_delta_counter == 0:
                 particle_q = state_out.particle_q
                 new_particle_q = state_in.particle_q
@@ -2733,7 +2734,7 @@ class XPBDIntegrator:
             kernel=apply_particle_deltas,
             dim=model.particle_count,
             inputs=[
-                model.particle_q_init,
+                particle_q_init,
                 particle_q,
                 model.particle_flags,
                 particle_deltas,
@@ -2744,13 +2745,11 @@ class XPBDIntegrator:
             device=model.device,
         )
 
-        # if not state_in.requires_grad:
-        #     particle_deltas.zero_()
-
         if state_in.requires_grad:
             new_particle_deltas = state_out.particle_deltas[self._particle_delta_counter]
         else:
             new_particle_deltas = particle_deltas
+            new_particle_deltas.zero_()
 
         return new_particle_q, new_particle_qd, new_particle_deltas
 
@@ -2831,11 +2830,13 @@ class XPBDIntegrator:
 
             if model.particle_count:
                 if requires_grad:
-                    particle_q = wp.zeros_like(state_in.particle_q)
-                    particle_qd = wp.zeros_like(state_in.particle_qd)
+                    particle_q = state_out.particle_q_temp[0]
+                    particle_qd = state_out.particle_qd_temp[0]
                 else:
                     particle_q = state_out.particle_q
                     particle_qd = state_out.particle_qd
+                    model.particle_q_init.assign(state_in.particle_q)
+
                 wp.launch(
                     kernel=integrate_particles,
                     dim=model.particle_count,
@@ -2940,10 +2941,10 @@ class XPBDIntegrator:
                     # handle particles
                     if model.particle_count:
                         if requires_grad:
-                            deltas = wp.zeros_like(state_out.particle_f)
+                            particle_deltas = state_out.particle_deltas[self._particle_delta_counter]
                         else:
-                            deltas = state_out.particle_f
-                            deltas.zero_()
+                            particle_deltas = model.particle_deltas
+                        particle_deltas.zero_()
 
                         # particle ground contact
                         if model.ground:
@@ -2964,7 +2965,7 @@ class XPBDIntegrator:
                                     dt,
                                     self.soft_contact_relaxation,
                                 ],
-                                outputs=[deltas],
+                                outputs=[particle_deltas],
                                 device=model.device,
                             )
 
@@ -2999,11 +3000,12 @@ class XPBDIntegrator:
                                     self.soft_contact_relaxation,
                                 ],
                                 # outputs
-                                outputs=[deltas, model.body_deltas],
+                                outputs=[particle_deltas, body_deltas],
                                 device=model.device,
                             )
 
-                        if model.particle_max_radius > 0.0:
+                        if model.particle_max_radius > 0.0 and model.particle_count > 1:
+                            # assert model.particle_grid.reserved, "model.particle_grid must be built, see HashGrid.build()"
                             wp.launch(
                                 kernel=solve_particle_particle_contacts,
                                 dim=model.particle_count,
@@ -3020,7 +3022,7 @@ class XPBDIntegrator:
                                     dt,
                                     self.soft_contact_relaxation,
                                 ],
-                                outputs=[deltas],
+                                outputs=[particle_deltas],
                                 device=model.device,
                             )
 
@@ -3040,7 +3042,7 @@ class XPBDIntegrator:
                                     dt,
                                     model.spring_constraint_lambdas,
                                 ],
-                                outputs=[deltas],
+                                outputs=[particle_deltas],
                                 device=model.device,
                             )
 
@@ -3059,7 +3061,7 @@ class XPBDIntegrator:
                                     dt,
                                     model.edge_constraint_lambdas,
                                 ],
-                                outputs=[deltas],
+                                outputs=[particle_deltas],
                                 device=model.device,
                             )
 
@@ -3079,39 +3081,12 @@ class XPBDIntegrator:
                                     dt,
                                     self.soft_body_relaxation,
                                 ],
-                                outputs=[deltas],
+                                outputs=[particle_deltas],
                                 device=model.device,
                             )
 
-                        # apply particle deltas
-                        if requires_grad:
-                            new_particle_q = wp.clone(particle_q)
-                            new_particle_qd = wp.clone(particle_qd)
-                        else:
-                            new_particle_q = particle_q
-                            new_particle_qd = particle_qd
-
-                        wp.launch(
-                            kernel=apply_particle_deltas,
-                            dim=model.particle_count,
-                            inputs=[
-                                state_in.particle_q,
-                                particle_q,
-                                model.particle_flags,
-                                deltas,
-                                dt,
-                                model.particle_max_velocity,
-                            ],
-                            outputs=[new_particle_q, new_particle_qd],
-                            device=model.device,
-                        )
-
-                        if requires_grad:
-                            particle_q.assign(new_particle_q)
-                            particle_qd.assign(new_particle_qd)
-                        else:
-                            particle_q = new_particle_q
-                            particle_qd = new_particle_qd
+                        particle_q, particle_qd, particle_deltas = self._apply_particle_deltas(
+                            model, state_in, state_out, dt)
 
                     # handle rigid bodies
                     # ----------------------------
@@ -3327,7 +3302,8 @@ class XPBDIntegrator:
                         #     device=model.device,
                         # )
 
-                        body_q, body_qd, body_deltas = self._apply_body_deltas(model, state_in, state_out, dt, rigid_contact_inv_weight)
+                        body_q, body_qd, body_deltas = self._apply_body_deltas(
+                            model, state_in, state_out, dt, rigid_contact_inv_weight)
 
                     # if requires_grad:
                     #     # state_out.body_q = body_q
@@ -3339,15 +3315,9 @@ class XPBDIntegrator:
             #     wp.context.runtime.tape.enable_recording = True
 
             if model.particle_count:
-
-                if not requires_grad:
-                    if self._particle_delta_counter == 0:
-                        state_out.particle_q.assign(state_in.particle_q)
-                        state_out.particle_qd.assign(state_in.particle_qd)
-                else:
+                if particle_q.ptr != state_out.particle_q.ptr:
                     state_out.particle_q.assign(particle_q)
-                    if not self.enable_restitution:
-                        state_out.particle_qd.assign(particle_qd)
+                    state_out.particle_qd.assign(particle_qd)
 
             if model.body_count:
                 if body_q.ptr != state_out.body_q.ptr:
