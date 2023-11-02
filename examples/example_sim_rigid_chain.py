@@ -131,17 +131,19 @@ class Example:
                         parent_xform=parent_joint_xform,
                         child_xform=wp.transform_identity(),
                     )
-        # finalize model
-        self.model = builder.finalize()
-        self.model.ground = False
 
         self.integrator = wp.sim.XPBDIntegrator(iterations=5)
+
+        # finalize model
+        self.model = builder.finalize(integrator=self.integrator)
+        self.model.ground = False
 
         # -----------------------
         # set up Usd renderer
         self.renderer = None
         if render:
-            self.renderer = wp.sim.render.SimRenderer(self.model, stage, scaling=20.0)
+            # self.renderer = wp.sim.render.SimRenderer(self.model, stage, scaling=20.0)
+            self.renderer = wp.sim.render.SimRendererOpenGL(self.model, stage, scaling=1.0)
 
     def update(self):
         for _ in range(self.sim_substeps):

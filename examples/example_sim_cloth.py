@@ -117,20 +117,21 @@ class Example:
             kf=1.0e1,
         )
 
-        self.model = builder.finalize()
-        self.model.ground = True
-        self.model.soft_contact_ke = 1.0e4
-        self.model.soft_contact_kd = 1.0e2
-
         if self.integrator_type == IntegratorType.EULER:
             self.integrator = wp.sim.SemiImplicitIntegrator()
         else:
             self.integrator = wp.sim.XPBDIntegrator(iterations=1)
 
+        self.model = builder.finalize(integrator=self.integrator)
+        self.model.ground = True
+        self.model.soft_contact_ke = 1.0e4
+        self.model.soft_contact_kd = 1.0e2
+
         self.state_0 = self.model.state()
         self.state_1 = self.model.state()
 
-        self.renderer = wp.sim.render.SimRenderer(self.model, stage, scaling=40.0)
+        # self.renderer = wp.sim.render.SimRenderer(self.model, stage, scaling=40.0)
+        self.renderer = wp.sim.render.SimRendererOpenGL(self.model, stage, scaling=0.2)
 
         if self.sim_use_graph:
             # create update graph

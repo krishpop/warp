@@ -123,22 +123,23 @@ class Example:
             kd=self.kd,
             kf=self.kf)
 
-            s = builder.add_shape_mesh(
-                body=b,
-                mesh=bunny,
-                pos=(0.0, 0.0, 0.0),
-                scale=(self.scale, self.scale, self.scale),
-                ke=self.ke,
-                kd=self.kd,
-                kf=self.kf,
-                density=1e3,
-            )
+        s = builder.add_shape_mesh(
+            body=b,
+            mesh=bunny,
+            pos=(0.0, 0.0, 0.0),
+            scale=(self.scale, self.scale, self.scale),
+            ke=self.ke,
+            kd=self.kd,
+            kf=self.kf,
+            density=1e3,
+        )
+
+        # self.integrator = wp.sim.SemiImplicitIntegrator()
+        self.integrator = wp.sim.XPBDIntegrator()
 
         # finalize model
-        self.model = builder.finalize()
+        self.model = builder.finalize(integrator=self.integrator)
         self.model.ground = True
-
-        self.integrator = wp.sim.SemiImplicitIntegrator()
 
         # -----------------------
         # set up OpenGL renderer

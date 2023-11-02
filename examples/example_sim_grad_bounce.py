@@ -63,7 +63,10 @@ class Bounce:
         self.device = wp.get_device(adapter)
         self.profile = profile
 
-        self.model = builder.finalize(self.device)
+        self.integrator = wp.sim.SemiImplicitIntegrator()
+        # self.integrator = wp.sim.XPBDIntegrator(enable_restitution=True)
+
+        self.model = builder.finalize(self.device, requires_grad=True, integrator=self.integrator)
         self.model.ground = True
 
         self.model.soft_contact_ke = self.ke
@@ -73,7 +76,6 @@ class Bounce:
         self.model.soft_contact_margin = 10.0
         self.model.soft_contact_restitution = 1.0
 
-        self.integrator = wp.sim.SemiImplicitIntegrator()
 
         self.target = (-2.0, 1.5, 0.0)
         self.loss = wp.zeros(1, dtype=wp.float32, device=self.device, requires_grad=True)
@@ -81,10 +83,10 @@ class Bounce:
         # allocate sim states for trajectory
         self.states = []
         for i in range(self.sim_steps + 1):
-            self.states.append(self.model.state(requires_grad=True))
+            self.states.append(self.model.state())
 
-        # one-shot contact creation (valid if we're doing simple collision against a constant normal plane)
-        wp.sim.collide(self.model, self.states[0])
+        # # one-shot contact creation (valid if we're doing simple collision against a constant normal plane)
+        # wp.sim.collide(self.model, self.states[0])
 
         self.stage = None
         if render:
@@ -109,6 +111,7 @@ class Bounce:
         # run control loop
         for i in range(self.sim_steps):
             self.states[i].clear_forces()
+            wp.sim.collide(self.model, self.states[i])
 
             self.integrator.simulate(self.model, self.states[i], self.states[i + 1], self.sim_dt)
 
