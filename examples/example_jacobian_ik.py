@@ -75,8 +75,10 @@ class Robot:
             builder.joint_q[-3:] = np.random.uniform(-0.5, 0.5, size=3)
         self.target_origin = np.array(self.target_origin)
 
+        self.integrator = wp.sim.SemiImplicitIntegrator()
+
         # finalize model
-        self.model = builder.finalize(device)
+        self.model = builder.finalize(device, integrator=self.integrator)
         self.model.ground = True
 
         self.model.joint_q.requires_grad = True
@@ -85,12 +87,13 @@ class Robot:
         self.model.joint_attach_ke = 1600.0
         self.model.joint_attach_kd = 20.0
 
-        self.integrator = wp.sim.SemiImplicitIntegrator()
-
         # -----------------------
         # set up Usd renderer
         if self.render:
-            self.renderer = wp.sim.render.SimRenderer(
+            # self.renderer = wp.sim.render.SimRenderer(
+            #     self.model, os.path.join(os.path.dirname(__file__), "outputs/example_jacobian_ik.usd")
+            # )
+            self.renderer = wp.sim.render.SimRendererOpenGL(
                 self.model, os.path.join(os.path.dirname(__file__), "outputs/example_jacobian_ik.usd")
             )
 
@@ -200,7 +203,7 @@ class Robot:
                     self.renderer.render_points("ee_pos", ee_pos, radius=0.05)
                     self.renderer.end_frame()
 
-                    self.renderer.save()
+                    # self.renderer.save()
 
                     print("iter:", iter, "error:", error.mean())
 
@@ -208,6 +211,7 @@ class Robot:
         avg_steps_second = 1000.0 * float(self.num_envs) / avg_time
 
         print(f"envs: {self.num_envs} steps/second {avg_steps_second} avg_time {avg_time}")
+        self.renderer.save()
 
         return 1000.0 * float(self.num_envs) / avg_time
 
