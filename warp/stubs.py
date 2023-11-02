@@ -375,6 +375,15 @@ def ceil(x: Float) -> Float:
 
 
 @over
+def frac(x: Float) -> Float:
+    """
+    Retrieve the fractional part of x.
+        In other words, it discards the integer part of x and is equivalent to ``x - trunc(x)``.
+    """
+    ...
+
+
+@over
 def dot(x: Vector[Any, Scalar], y: Vector[Any, Scalar]) -> Scalar:
     """
     Compute the dot product between two vectors.
@@ -911,6 +920,25 @@ def mesh_query_point_no_sign(
        :param face: Returns the index of the closest face
        :param bary_u: Returns the barycentric u coordinate of the closest point
        :param bary_v: Returns the barycentric v coordinate of the closest point
+    """
+    ...
+
+
+@over
+def mesh_query_furthest_point_no_sign(
+    id: uint64, point: vec3f, min_dist: float32, face: int32, bary_u: float32, bary_v: float32
+) -> bool:
+    """
+    Computes the furthest point on the mesh with identifier `id` to the given point in space. Returns ``True`` if a point > ``min_dist`` is found.
+
+       This method does not compute the sign of the point (inside/outside) which makes it faster than other point query methods.
+
+       :param id: The mesh identifier
+       :param point: The point in space to query
+       :param min_dist: Mesh faces below this distance will not be considered by the query
+       :param face: Returns the index of the furthest face
+       :param bary_u: Returns the barycentric u coordinate of the furthest point
+       :param bary_v: Returns the barycentric v coordinate of the furthest point
     """
     ...
 
@@ -1462,7 +1490,7 @@ def pnoise(state: uint32, xyzt: vec4f, px: int32, py: int32, pz: int32, pt: int3
 
 
 @over
-def curlnoise(state: uint32, xy: vec2f) -> vec2f:
+def curlnoise(state: uint32, xy: vec2f, octaves: uint32, lacunarity: float32, gain: float32) -> vec2f:
     """
     Divergence-free vector field based on the gradient of a Perlin noise function.
     """
@@ -1470,7 +1498,7 @@ def curlnoise(state: uint32, xy: vec2f) -> vec2f:
 
 
 @over
-def curlnoise(state: uint32, xyz: vec3f) -> vec3f:
+def curlnoise(state: uint32, xyz: vec3f, octaves: uint32, lacunarity: float32, gain: float32) -> vec3f:
     """
     Divergence-free vector field based on the curl of three Perlin noise functions.
     """
@@ -1478,7 +1506,7 @@ def curlnoise(state: uint32, xyz: vec3f) -> vec3f:
 
 
 @over
-def curlnoise(state: uint32, xyzt: vec4f) -> vec3f:
+def curlnoise(state: uint32, xyzt: vec4f, octaves: uint32, lacunarity: float32, gain: float32) -> vec3f:
     """
     Divergence-free vector field based on the curl of three Perlin noise functions.
     """

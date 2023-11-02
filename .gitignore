@@ -32,3 +32,5 @@ exts/omni.warp/config/extension.gen.toml
 /external/llvm-project
 /build
 /dist
+.coverage
+warp/tests/outputs

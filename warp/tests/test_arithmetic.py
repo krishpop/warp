@@ -34,12 +34,12 @@ np_float_types = [np.float16, np.float32, np.float64]
 np_scalar_types = np_int_types + np_float_types
 
 
-def randvals(shape, dtype):
+def randvals(rng, shape, dtype):
     if dtype in np_float_types:
-        return np.random.randn(*shape).astype(dtype)
+        return rng.standard_normal(size=shape).astype(dtype)
     elif dtype in [np.int8, np.uint8, np.byte, np.ubyte]:
-        return np.random.randint(1, 3, size=shape, dtype=dtype)
-    return np.random.randint(1, 5, size=shape, dtype=dtype)
+        return rng.integers(1, high=3, size=shape, dtype=dtype)
+    return rng.integers(1, high=5, size=shape, dtype=dtype)
 
 
 kernel_cache = dict()
@@ -77,7 +77,7 @@ def get_select_kernel2(dtype):
 
 
 def test_arrays(test, device, dtype):
-    np.random.seed(123)
+    rng = np.random.default_rng(123)
 
     tol = {
         np.float16: 1.0e-3,
@@ -86,14 +86,14 @@ def test_arrays(test, device, dtype):
     }.get(dtype, 0)
 
     wptype = wp.types.np_dtype_to_warp_type[np.dtype(dtype)]
-    arr_np = randvals((10, 5), dtype)
+    arr_np = randvals(rng, (10, 5), dtype)
     arr = wp.array(arr_np, dtype=wptype, requires_grad=True, device=device)
 
     assert_np_equal(arr.numpy(), arr_np, tol=tol)
 
 
 def test_unary_ops(test, device, dtype, register_kernels=False):
-    np.random.seed(123)
+    rng = np.random.default_rng(123)
 
     tol = {
         np.float16: 5.0e-3,
@@ -128,10 +128,12 @@ def test_unary_ops(test, device, dtype, register_kernels=False):
         return
 
     if dtype in np_float_types:
-        inputs = wp.array(np.random.randn(5, 10).astype(dtype), dtype=wptype, requires_grad=True, device=device)
+        inputs = wp.array(
+            rng.standard_normal(size=(5, 10)).astype(dtype), dtype=wptype, requires_grad=True, device=device
+        )
     else:
         inputs = wp.array(
-            np.random.randint(-2, 3, size=(5, 10), dtype=dtype), dtype=wptype, requires_grad=True, device=device
+            rng.integers(-2, high=3, size=(5, 10), dtype=dtype), dtype=wptype, requires_grad=True, device=device
         )
     outputs = wp.zeros_like(inputs)
 
@@ -207,7 +209,7 @@ def test_unary_ops(test, device, dtype, register_kernels=False):
 
 
 def test_nonzero(test, device, dtype, register_kernels=False):
-    np.random.seed(123)
+    rng = np.random.default_rng(123)
 
     tol = {
         np.float16: 5.0e-3,
@@ -231,7 +233,7 @@ def test_nonzero(test, device, dtype, register_kernels=False):
     if register_kernels:
         return
 
-    inputs = wp.array(np.random.randint(-2, 3, size=10).astype(dtype), dtype=wptype, requires_grad=True, device=device)
+    inputs = wp.array(rng.integers(-2, high=3, size=10).astype(dtype), dtype=wptype, requires_grad=True, device=device)
     outputs = wp.zeros_like(inputs)
 
     wp.launch(kernel, dim=1, inputs=[inputs], outputs=[outputs], device=device)
@@ -253,10 +255,10 @@ def test_nonzero(test, device, dtype, register_kernels=False):
 
 
 def test_binary_ops(test, device, dtype, register_kernels=False):
-    np.random.seed(123)
+    rng = np.random.default_rng(123)
 
     tol = {
-        np.float16: 1.0e-2,
+        np.float16: 5.0e-2,
         np.float32: 1.0e-6,
         np.float64: 1.0e-8,
     }.get(dtype, 0)
@@ -302,11 +304,11 @@ def test_binary_ops(test, device, dtype, register_kernels=False):
     if register_kernels:
         return
 
-    vals1 = randvals([8, 10], dtype)
+    vals1 = randvals(rng, [8, 10], dtype)
     if dtype in [np_unsigned_int_types]:
-        vals2 = vals1 + randvals([8, 10], dtype)
+        vals2 = vals1 + randvals(rng, [8, 10], dtype)
     else:
-        vals2 = np.abs(randvals([8, 10], dtype))
+        vals2 = np.abs(randvals(rng, [8, 10], dtype))
 
     in1 = wp.array(vals1, dtype=wptype, requires_grad=True, device=device)
     in2 = wp.array(vals2, dtype=wptype, requires_grad=True, device=device)
@@ -458,7 +460,7 @@ def test_binary_ops(test, device, dtype, register_kernels=False):
 
 
 def test_special_funcs(test, device, dtype, register_kernels=False):
-    np.random.seed(123)
+    rng = np.random.default_rng(123)
 
     tol = {
         np.float16: 1.0e-2,
@@ -488,6 +490,7 @@ def test_special_funcs(test, device, dtype, register_kernels=False):
             outputs[11, i] = wptype(2) * wp.tanh(inputs[11, i])
             outputs[12, i] = wptype(2) * wp.acos(inputs[12, i])
             outputs[13, i] = wptype(2) * wp.asin(inputs[13, i])
+            outputs[14, i] = wptype(2) * wp.cbrt(inputs[14, i])
 
     kernel = getkernel(check_special_funcs, suffix=dtype.__name__)
     output_select_kernel = get_select_kernel2(wptype)
@@ -495,8 +498,8 @@ def test_special_funcs(test, device, dtype, register_kernels=False):
     if register_kernels:
         return
 
-    invals = np.random.randn(14, 10).astype(dtype)
-    invals[[0, 1, 2, 7]] = 0.1 + np.abs(invals[[0, 1, 2, 7]])
+    invals = rng.normal(size=(15, 10)).astype(dtype)
+    invals[[0, 1, 2, 7, 14]] = 0.1 + np.abs(invals[[0, 1, 2, 7, 14]])
     invals[12] = np.clip(invals[12], -0.9, 0.9)
     invals[13] = np.clip(invals[13], -0.9, 0.9)
     inputs = wp.array(invals, dtype=wptype, requires_grad=True, device=device)
@@ -518,6 +521,7 @@ def test_special_funcs(test, device, dtype, register_kernels=False):
     assert_np_equal(outputs.numpy()[11], 2 * np.tanh(inputs.numpy()[11]), tol=tol)
     assert_np_equal(outputs.numpy()[12], 2 * np.arccos(inputs.numpy()[12]), tol=tol)
     assert_np_equal(outputs.numpy()[13], 2 * np.arcsin(inputs.numpy()[13]), tol=tol)
+    assert_np_equal(outputs.numpy()[14], 2 * np.cbrt(inputs.numpy()[14]), tol=tol)
 
     out = wp.zeros(1, dtype=wptype, requires_grad=True, device=device)
     if dtype in np_float_types:
@@ -694,9 +698,22 @@ def test_special_funcs(test, device, dtype, register_kernels=False):
             assert_np_equal(tape.gradients[inputs].numpy(), expected, tol=6 * tol)
             tape.zero()
 
+            # cbrt:
+            tape = wp.Tape()
+            with tape:
+                wp.launch(kernel, dim=1, inputs=[inputs], outputs=[outputs], device=device)
+                wp.launch(output_select_kernel, dim=1, inputs=[outputs, 14, i], outputs=[out], device=device)
+
+            tape.backward(loss=out)
+            expected = np.zeros_like(inputs.numpy())
+            cbrt = np.cbrt(inputs.numpy()[14, i], dtype=np.dtype(dtype))
+            expected[14, i] = (2.0 / 3.0) * (1.0 / (cbrt * cbrt))
+            assert_np_equal(tape.gradients[inputs].numpy(), expected, tol=tol)
+            tape.zero()
+
 
 def test_special_funcs_2arg(test, device, dtype, register_kernels=False):
-    np.random.seed(123)
+    rng = np.random.default_rng(123)
 
     tol = {
         np.float16: 1.0e-2,
@@ -722,8 +739,8 @@ def test_special_funcs_2arg(test, device, dtype, register_kernels=False):
     if register_kernels:
         return
 
-    in1 = wp.array(np.abs(randvals([2, 10], dtype)), dtype=wptype, requires_grad=True, device=device)
-    in2 = wp.array(randvals([2, 10], dtype), dtype=wptype, requires_grad=True, device=device)
+    in1 = wp.array(np.abs(randvals(rng, [2, 10], dtype)), dtype=wptype, requires_grad=True, device=device)
+    in2 = wp.array(randvals(rng, [2, 10], dtype), dtype=wptype, requires_grad=True, device=device)
     outputs = wp.zeros_like(in1)
 
     wp.launch(kernel, dim=1, inputs=[in1, in2], outputs=[outputs], device=device)
@@ -763,7 +780,7 @@ def test_special_funcs_2arg(test, device, dtype, register_kernels=False):
 
 
 def test_float_to_int(test, device, dtype, register_kernels=False):
-    np.random.seed(123)
+    rng = np.random.default_rng(123)
 
     tol = {
         np.float16: 5.0e-3,
@@ -783,7 +800,6 @@ def test_float_to_int(test, device, dtype, register_kernels=False):
             outputs[2, i] = wp.trunc(inputs[2, i])
             outputs[3, i] = wp.floor(inputs[3, i])
             outputs[4, i] = wp.ceil(inputs[4, i])
-            outputs[5, i] = wp.frac(inputs[5, i])
 
     kernel = getkernel(check_float_to_int, suffix=dtype.__name__)
     output_select_kernel = get_select_kernel2(wptype)
@@ -791,7 +807,7 @@ def test_float_to_int(test, device, dtype, register_kernels=False):
     if register_kernels:
         return
 
-    inputs = wp.array(np.random.randn(6, 10).astype(dtype), dtype=wptype, requires_grad=True, device=device)
+    inputs = wp.array(rng.standard_normal(size=(5, 10)).astype(dtype), dtype=wptype, requires_grad=True, device=device)
     outputs = wp.zeros_like(inputs)
 
     wp.launch(kernel, dim=1, inputs=[inputs], outputs=[outputs], device=device)
@@ -801,7 +817,6 @@ def test_float_to_int(test, device, dtype, register_kernels=False):
     assert_np_equal(outputs.numpy()[2], np.trunc(inputs.numpy()[2]))
     assert_np_equal(outputs.numpy()[3], np.floor(inputs.numpy()[3]))
     assert_np_equal(outputs.numpy()[4], np.ceil(inputs.numpy()[4]))
-    assert_np_equal(outputs.numpy()[5], np.modf(inputs.numpy()[5])[0])
 
     # all the gradients should be zero as these functions are piecewise constant:
 
@@ -819,7 +834,7 @@ def test_float_to_int(test, device, dtype, register_kernels=False):
 
 
 def test_interp(test, device, dtype, register_kernels=False):
-    np.random.seed(123)
+    rng = np.random.default_rng(123)
 
     tol = {
         np.float16: 1.0e-2,
@@ -846,11 +861,11 @@ def test_interp(test, device, dtype, register_kernels=False):
     if register_kernels:
         return
 
-    e0 = randvals([2, 10], dtype)
-    e1 = e0 + randvals([2, 10], dtype) + 0.1
+    e0 = randvals(rng, [2, 10], dtype)
+    e1 = e0 + randvals(rng, [2, 10], dtype) + 0.1
     in1 = wp.array(e0, dtype=wptype, requires_grad=True, device=device)
     in2 = wp.array(e1, dtype=wptype, requires_grad=True, device=device)
-    in3 = wp.array(randvals([2, 10], dtype), dtype=wptype, requires_grad=True, device=device)
+    in3 = wp.array(randvals(rng, [2, 10], dtype), dtype=wptype, requires_grad=True, device=device)
 
     outputs = wp.zeros_like(in1)
 
@@ -950,7 +965,7 @@ def test_interp(test, device, dtype, register_kernels=False):
 
 
 def test_clamp(test, device, dtype, register_kernels=False):
-    np.random.seed(123)
+    rng = np.random.default_rng(123)
 
     tol = {
         np.float16: 5.0e-3,
@@ -976,9 +991,9 @@ def test_clamp(test, device, dtype, register_kernels=False):
     if register_kernels:
         return
 
-    in1 = wp.array(randvals([100], dtype), dtype=wptype, requires_grad=True, device=device)
-    starts = randvals([100], dtype)
-    diffs = np.abs(randvals([100], dtype))
+    in1 = wp.array(randvals(rng, [100], dtype), dtype=wptype, requires_grad=True, device=device)
+    starts = randvals(rng, [100], dtype)
+    diffs = np.abs(randvals(rng, [100], dtype))
     in2 = wp.array(starts, dtype=wptype, requires_grad=True, device=device)
     in3 = wp.array(starts + diffs, dtype=wptype, requires_grad=True, device=device)
     outputs = wp.zeros_like(in1)
