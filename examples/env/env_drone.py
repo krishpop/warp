@@ -297,12 +297,15 @@ class DroneEnvironment(Environment):
     # def custom_update(self):
     #     self.state.prop_control.fill_(1.0)
 
-    def custom_render(self, render_state):
+    def custom_render(self, render_state, renderer=None):
+        if renderer is None:
+            renderer = self.renderer
         for i in range(self.num_envs):
-            self.renderer.render_sphere(
+            renderer.render_sphere(
                 f"target_{i}", self.flight_target + self.env_offsets[i], wp.quat_identity(), radius=0.05)
+            # print("target", self.flight_target + self.env_offsets[i])
 
-        if self.render_mode == RenderMode.OPENGL:
+        if isinstance(renderer, wp.sim.render.SimRendererOpenGL):
             # directly animate shape instances in renderer because model.shape_transform is not considered
             # by the OpenGLRenderer online
             if self.renderer._wp_instance_transforms is None:
@@ -314,6 +317,19 @@ class DroneEnvironment(Environment):
                         self.prop_shape, self.drone_plugin.props_wp, self.frame_dt],
                 outputs=[self.renderer._wp_instance_transforms],
                 device=self.device)
+        if isinstance(renderer, wp.sim.render.SimRendererUsd):
+            # update shape transforms in model
+            wp.launch(
+                update_prop_rotation,
+                dim=len(self.prop_shapes),
+                inputs=[self.prop_rotation, render_state.prop_control,
+                        self.prop_shape, self.drone_plugin.props_wp, self.frame_dt],
+                outputs=[self.model.shape_transform],
+                device=self.device)
+            tfs = self.model.shape_transform.numpy()
+            for i in range(4):
+                tf = tfs[i + 2]
+                renderer.render_ref(f"body_0_drone_0/shape_{i + 2}", "", pos=None, rot=tf[-4:], scale=None)
 
     @property
     def control(self):
