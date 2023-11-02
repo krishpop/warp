@@ -28,9 +28,12 @@ def _usd_set_xform(xform, pos: tuple, rot: tuple, scale: tuple, time):
 
     xform_ops = xform.GetOrderedXformOps()
 
-    xform_ops[0].Set(Gf.Vec3d(float(pos[0]), float(pos[1]), float(pos[2])), time)
-    xform_ops[1].Set(Gf.Quatf(float(rot[3]), float(rot[0]), float(rot[1]), float(rot[2])), time)
-    xform_ops[2].Set(Gf.Vec3d(float(scale[0]), float(scale[1]), float(scale[2])), time)
+    if pos is not None:
+        xform_ops[0].Set(Gf.Vec3d(float(pos[0]), float(pos[1]), float(pos[2])), time)
+    if rot is not None:
+        xform_ops[1].Set(Gf.Quatf(float(rot[3]), float(rot[0]), float(rot[1]), float(rot[2])), time)
+    if scale is not None:
+        xform_ops[2].Set(Gf.Vec3d(float(scale[0]), float(scale[1]), float(scale[2])), time)
 
 
 # transforms a cylinder such that it connects the two points pos0, pos1
@@ -285,7 +288,7 @@ class UsdRenderer:
         self._shape_constructors[name] = UsdGeom.Sphere
 
         if not is_template:
-            _usd_set_xform(sphere, pos, rot, (1.0, 1.0, 1.0), 0.0)
+            _usd_set_xform(sphere, pos, rot, (1.0, 1.0, 1.0), self.time)
 
         return prim_path
 
@@ -334,7 +337,7 @@ class UsdRenderer:
         self._shape_constructors[name] = UsdGeom.Capsule
 
         if not is_template:
-            _usd_set_xform(capsule, pos, rot, (1.0, 1.0, 1.0), 0.0)
+            _usd_set_xform(capsule, pos, rot, (1.0, 1.0, 1.0), self.time)
 
         return prim_path
 
@@ -383,7 +386,7 @@ class UsdRenderer:
         self._shape_constructors[name] = UsdGeom.Cylinder
 
         if not is_template:
-            _usd_set_xform(cylinder, pos, rot, (1.0, 1.0, 1.0), 0.0)
+            _usd_set_xform(cylinder, pos, rot, (1.0, 1.0, 1.0), self.time)
 
         return prim_path
 
@@ -432,7 +435,7 @@ class UsdRenderer:
         self._shape_constructors[name] = UsdGeom.Cone
 
         if not is_template:
-            _usd_set_xform(cone, pos, rot, (1.0, 1.0, 1.0), 0.0)
+            _usd_set_xform(cone, pos, rot, (1.0, 1.0, 1.0), self.time)
 
         return prim_path
 
@@ -469,7 +472,7 @@ class UsdRenderer:
         self._shape_custom_scale[name] = extents
 
         if not is_template:
-            _usd_set_xform(cube, pos, rot, extents, 0.0)
+            _usd_set_xform(cube, pos, rot, extents, self.time)
 
         return prim_path
 
