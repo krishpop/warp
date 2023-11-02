@@ -1260,6 +1260,10 @@ inline CUDA_CALLABLE int atomic_min(int* address, int val)
 
 } // namespace wp
 
+
+// printf defined globally in crt.h
+inline CUDA_CALLABLE void adj_printf(const char* fmt, ...) {}
+
 #include "vec.h"
 #include "mat.h"
 #include "quat.h"
@@ -1423,9 +1427,6 @@ inline CUDA_CALLABLE void adj_print(transform_t<Type> t, transform_t<Type>& adj_
 
 inline CUDA_CALLABLE void adj_print(str t, str& adj_t) {}
 
-
-// printf defined globally in crt.h
-inline CUDA_CALLABLE void adj_printf(const char* fmt, ...) {}
 
 
 template <typename T>
