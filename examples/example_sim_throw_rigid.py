@@ -16,10 +16,12 @@ from warp.tests.grad_utils import *
 from warp.optim import Adam, SGD
 import warp.sim.render
 import warp.sim
+from warp.sim import ModelBuilder
 import warp as wp
 import numpy as np
 import os
-DEBUG = False
+
+DEBUG = True
 
 
 if DEBUG:
@@ -34,7 +36,12 @@ wp.init()
 
 
 @wp.kernel
-def sim_loss(body_q: wp.array(dtype=wp.transform), body_qd: wp.array(dtype=wp.spatial_vector), target_pos: wp.vec3, loss: wp.array(dtype=wp.float32)):
+def sim_loss(
+    body_q: wp.array(dtype=wp.transform),
+    body_qd: wp.array(dtype=wp.spatial_vector),
+    target_pos: wp.vec3,
+    loss: wp.array(dtype=wp.float32),
+):
     i = wp.tid()
     tf = body_q[i]
     dist = wp.length_sq(wp.transform_get_translation(tf) - target_pos)
@@ -61,21 +68,20 @@ class Environment:
     render_time = 0.0
 
     def __init__(self, device="cpu"):
-        builder = wp.sim.ModelBuilder()
-
         self.device = device
 
         self.start_pos = wp.vec3(0.0, 1.6, 0.0)
         self.target_pos = wp.vec3(3.0, 0.6, 0.0)
+        ModelBuilder.default_shape_kd = 10.0
+        ModelBuilder.default_shape_ke = 1e6
 
-        # add planar joints
-        builder = wp.sim.ModelBuilder()
+        builder = ModelBuilder()
         builder.add_articulation()
         b = builder.add_body(origin=wp.transform(self.start_pos))
-        _ = builder.add_shape_box(pos=(0.0, 0.0, 0.0), hx=0.5, hy=0.5, hz=0.5, density=1000.0, body=b)
+        _ = builder.add_shape_box(pos=(0.0, 0.0, 0.0), hx=0.5, hy=0.5, hz=0.5, density=1000.0, ke=1e7, kd=1e5, body=b)
         # _ = builder.add_shape_sphere(pos=(0.0, 0.0, 0.0), radius=0.5, density=1000.0, body=b, thickness=1e-2)
 
-        solve_iterations = 5
+        solve_iterations = 2
         self.integrator = wp.sim.XPBDIntegrator(solve_iterations)
         # self.integrator = wp.sim.SemiImplicitIntegrator()
 
@@ -128,17 +134,18 @@ class Environment:
         self.simulate()
         final_state = self.states[-1]
 
-        wp.launch(sim_loss, dim=1, inputs=[final_state.body_q, final_state.body_qd,
-                  self.target_pos], outputs=[self.loss], device=action.device)
+        wp.launch(
+            sim_loss,
+            dim=1,
+            inputs=[final_state.body_q, final_state.body_qd, self.target_pos],
+            outputs=[self.loss],
+            device=action.device,
+        )
 
         return self.loss
 
     def optimize(self, num_iter=100, lr=0.01, render=True):
         action = wp.zeros(1, dtype=wp.vec3, requires_grad=True, device=self.device)
-        # action = wp.array([[1.0837, -0.0039, 0.]], dtype=wp.vec3, requires_grad=True, device=self.device)
-        # action = wp.array([[1.4833, -7.7598, -0.1]], dtype=wp.vec3, requires_grad=True, device=self.device)
-        # action = wp.array([[1.7998, -7.6343, -0.1259]], dtype=wp.vec3, requires_grad=True, device=self.device)
-        # action = wp.array([[1.7521, -7.5758, -0.1431]], dtype=wp.vec3, requires_grad=True, device=self.device)
 
         optimizer = Adam([action], lr=lr)
         # optimizer = SGD([action], lr=lr, nesterov=True, momentum=0.1)
@@ -184,7 +191,6 @@ class Environment:
         for i in range(1, num_iter + 1):
             self.iteration = i
 
-            
             for i, state in enumerate(self.states):
                 for key, value in state.__dict__.items():
                     if isinstance(value, wp.array):
@@ -220,47 +226,13 @@ class Environment:
                         track_outputs=[self.loss],
                         track_input_names=["action"],
                         track_output_names=["loss"],
-                        array_names=array_names)
+                        array_names=array_names,
+                    )
 
                 if True:
-
-                    import plotly.express as px
-                    from plotly.subplots import make_subplots
-                    import plotly.graph_objects as go
-
-                    fig = make_subplots(cols=2, subplot_titles=["Value Absolute Maximum", "Gradient Absolute Maximum"])
-                    absmax = {}
-                    for i, state in enumerate(self.states):
-                        for key, value in state.__dict__.items():
-                            if isinstance(value, wp.array):
-                                if len(value) == 0 or not value.grad:
-                                    continue
-                                if i == 0:
-                                    absmax[key] = []
-                                absmax[key].append((np.abs(value.numpy()).max(), np.abs(value.grad.numpy()).max()))
-
-                    import matplotlib.pyplot as plt
-                    for key, series in absmax.items():
-                        # plt.plot(series, label=key)
-                        series = np.array(series)
-                        val_series, grad_series = series[:,0], series[:,1]
-                        fig.add_trace(go.Scatter(
-                            x=np.arange(len(val_series)),
-                            y=val_series,
-                            name=key),
-                            row=1,
-                            col=1)
-                        fig.add_trace(go.Scatter(
-                            x=np.arange(len(grad_series)),
-                            y=grad_series,
-                            name=key),
-                            row=1,
-                            col=2)
-                    # plt.legend()
-                    # plt.show()
-                    fig.update_yaxes(type="log")
-
-                    fig.write_html('first_figure.html', auto_open=True)
+                    plot_state_gradients(
+                        self.states, os.path.join(os.path.dirname(__file__), "example_sim_throw_rigid_state_grads.html")
+                    )
 
             if False:
                 check_jacobian(
@@ -272,7 +244,9 @@ class Environment:
                 )
 
             l = self.loss.numpy()[0]
-            print(f"iter {i}/{num_iter}\t action: {action.numpy()}\t action.grad: {action.grad.numpy()}\t loss: {l:.3f}")
+            print(
+                f"iter {i}/{num_iter}\t action: {action.numpy()}\t action.grad: {action.grad.numpy()}\t loss: {l:.3f}"
+            )
             losses.append(l)
 
             # print("action grad", opt_vars.grad.numpy())
@@ -281,6 +255,7 @@ class Environment:
             tape.zero()
 
         import matplotlib.pyplot as plt
+
         plt.plot(losses)
         plt.grid()
         plt.title("Loss")
@@ -297,11 +272,10 @@ if DEBUG:
 else:
     sim = Environment(device=wp.get_preferred_device())
 
-best_actions = sim.optimize(num_iter=80, lr=0.1, render=False)
+best_actions = sim.optimize(num_iter=80, lr=0.5, render=True)
 
 sim.renderer = wp.sim.render.SimRendererOpenGL(
-    sim.model,
-    os.path.join(os.path.dirname(__file__), "outputs", "example_sim_trajopt.usd"),
-    scaling=1.0)
+    sim.model, os.path.join(os.path.dirname(__file__), "outputs", "example_sim_trajopt.usd"), scaling=1.0
+)
 sim.simulate()
 sim.renderer.save()

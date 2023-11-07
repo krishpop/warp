@@ -354,7 +354,7 @@ def run_env(env, pi=None, num_steps=600, num_rollouts=1, logdir=None, use_grad=F
             return torch.tensor(action, device=str(env.device))
 
     for ep in range(num_rollouts):
-        actions, states, rewards, _ = collect_rollout(env, num_steps, pi, use_grad=use_grad)
+        actions, states, rewards, _ = collect_rollout(env, num_steps, pi)
         if logdir:
             logdir = logdir.rstrip("/")
             np.savez(
