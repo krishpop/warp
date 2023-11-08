@@ -1518,7 +1518,7 @@ def check_tape_safety(function: Callable, inputs: list, outputs: list = None, to
         return True
 
 
-def plot_state_gradients(states: list, figure_name: str = "state_grads.html", blacklist_vars=set(["body_q_temp", "body_qd_temp"])):
+def plot_state_gradients(states: list, figure_name: str = "state_grads.html", blacklist_vars=set(["body_q_temp", "body_qd_temp"]), title: str = None):
     from plotly.subplots import make_subplots
     import plotly.graph_objects as go
 
@@ -1536,6 +1536,8 @@ def plot_state_gradients(states: list, figure_name: str = "state_grads.html", bl
     ]
 
     fig = make_subplots(cols=2, subplot_titles=["Value Absolute Maximum", "Gradient Absolute Maximum"])
+    if title is not None:
+        fig.update_layout(title_text=title, title_x=0.5)
     absmax = {}
     for i, state in enumerate(states):
         for key, value in state.__dict__.items():
@@ -1565,7 +1567,7 @@ def plot_state_gradients(states: list, figure_name: str = "state_grads.html", bl
             y=val_series,
             name=key,
             legendgroup=key,
-            line=dict(color=color)),
+            line=dict(color=color),),
             row=1,
             col=1)
         fig.add_trace(go.Scatter(
@@ -1578,5 +1580,7 @@ def plot_state_gradients(states: list, figure_name: str = "state_grads.html", bl
             row=1,
             col=2)
     fig.update_yaxes(type="log")
+    fig['layout']['xaxis']['title'] = "State"
+    fig['layout']['xaxis2']['title'] = "State"
 
     fig.write_html(figure_name, auto_open=True)

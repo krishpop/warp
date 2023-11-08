@@ -542,7 +542,8 @@ class Controller:
                     self.tape.backward()
                     
                     plot_state_gradients(self.env_rollout.states, os.path.join(os.path.dirname(
-                        __file__), "mpc_grads.html"))
+                        __file__), "mpc_grads.html"),
+                        title=f"MPC State Gradients (step {len(self.env_ref_costs)}, opt iteration {it})")
                 else:
                     jac_fd = function_jacobian_fd(
                         lambda controls: self.rollout(state, controls),
