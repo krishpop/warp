@@ -9,6 +9,7 @@ from collections import defaultdict
 from typing import Callable, Dict, List, Literal, Set, Tuple
 import warp as wp
 import numpy as np
+from functools import wraps
 
 
 # whether quaternions and transforms should be normalized before computing the finite difference Jacobian
@@ -1803,3 +1804,55 @@ def plot_state_gradients(
     fig.update_yaxes(type="log")
 
     fig.write_html(figure_name, auto_open=True)
+
+
+def jacobian_check(
+    input_names,
+    output_names,
+    eps: float = 1e-4,
+    jacobian_name: str = "",
+    max_fd_dims_per_var: int = 500,
+    max_outputs_per_var: int = 500,
+    atol: float = 0.1,
+    rtol: float = 0.1,
+    plot_jac_on_fail: bool = False,
+    tabulate_errors: bool = True,
+):
+    """
+    Decorator to check that the autodiff Jacobian of the function is correct by comparing it to the
+    numerical Jacobian computed using finite differences.
+    Usage:
+        ```{python}
+            @jacobian_check(input_names=["input1", "input2"], output_names=["output"])
+            def some_function(input1, input2):
+                # your code
+                return result
+        ```
+    """
+
+    def decorator(func: Callable):
+        @wraps(func)
+        def wrapper(*inputs, **kwargs):
+            jac_ad, outputs, ad_in, ad_out = function_jacobian(func, inputs, max_outputs_per_var=max_outputs_per_var)
+            jac_fd = function_jacobian_fd(func, inputs, eps=eps, max_fd_dims_per_var=max_fd_dims_per_var)
+            return compare_jacobians(
+                jac_ad,
+                jac_fd,
+                inputs,
+                outputs,
+                input_names,
+                output_names,
+                jacobian_name=jacobian_name,
+                max_fd_dims_per_var=max_fd_dims_per_var,
+                max_outputs_per_var=max_outputs_per_var,
+                ad_in=ad_in,
+                ad_out=ad_out,
+                atol=atol,
+                rtol=rtol,
+                plot_jac_on_fail=plot_jac_on_fail,
+                tabulate_errors=tabulate_errors,
+            )
+
+        return wrapper
+
+    return decorator
