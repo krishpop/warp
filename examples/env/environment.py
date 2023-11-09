@@ -267,7 +267,7 @@ class Environment:
                     additional_instances.append(floor_id)
                 self.renderer.setup_tiled_rendering(
                     instances=[
-                        instance_ids[i * shapes_per_env: (i + 1) * shapes_per_env] + additional_instances
+                        instance_ids[i * shapes_per_env : (i + 1) * shapes_per_env] + additional_instances
                         for i in range(self.num_envs)
                     ]
                 )
@@ -333,8 +333,9 @@ class Environment:
                 # we can just swap the state references
                 self.state_0, self.state_1 = self.state_1, self.state_0
             elif self.use_graph_capture:
-                assert hasattr(self, "state_temp") and self.state_temp is not None, \
-                    "state_temp must be allocated when using graph capture"
+                assert (
+                    hasattr(self, "state_temp") and self.state_temp is not None
+                ), "state_temp must be allocated when using graph capture"
                 # swap states by actually copying the state arrays to make sure the graph capture works
                 for key, value in state_0_dict.items():
                     if isinstance(value, wp.array):
@@ -349,8 +350,9 @@ class Environment:
             self.states[self.sim_step].clear_forces()
             self.custom_update()
             wp.sim.collide(self.model, self.states[self.sim_step], edge_sdf_iter=self.edge_sdf_iter)
-            self.integrator.simulate(self.model, self.states[self.sim_step],
-                                     self.states[self.sim_step + 1], self.sim_dt)
+            self.integrator.simulate(
+                self.model, self.states[self.sim_step], self.states[self.sim_step + 1], self.sim_dt
+            )
             self.sim_time += self.sim_dt
             self.sim_step += 1
 
@@ -548,6 +550,7 @@ class Environment:
             q_start = self.model.joint_q_start.numpy()
             qd_start = self.model.joint_qd_start.numpy()
             qd_i = qd_start[joint_id]
+            num_joint_free = 0  # needed to offset joint_limits, which skip free joint type
             for dim in range(ncols * nrows):
                 ax = axes[dim // ncols, dim % ncols]
                 if dim >= dof_q:
@@ -556,12 +559,14 @@ class Environment:
                 ax.grid()
                 ax.plot(joint_q_history[:, dim])
                 if joint_type[joint_id] != wp.sim.JOINT_FREE:
-                    lower = joint_lower[qd_i]
+                    lower = joint_lower[qd_i - num_joint_free]
                     if abs(lower) < 2 * np.pi:
                         ax.axhline(lower, color="red")
-                    upper = joint_upper[qd_i]
+                    upper = joint_upper[qd_i - num_joint_free]
                     if abs(upper) < 2 * np.pi:
                         ax.axhline(upper, color="red")
+                else:
+                    num_joint_free += 1
                 joint_name = joint_type_names[joint_type[joint_id]]
                 ax.set_title(f"$\\mathbf{{q_{{{dim}}}}}$ ({self.model.joint_name[joint_id]} / {joint_name} {joint_id})")
                 if joint_id < self.model.joint_count - 1 and q_start[joint_id + 1] == dim + 1:
