@@ -1251,7 +1251,7 @@ def compute_angular_correction_3d(
     # p = d_lambda * n * relaxation
 
     # Eq. 15-16
-    return d_lambda * relaxation
+    return d_lambda
 
 
 @wp.kernel
