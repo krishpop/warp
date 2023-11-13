@@ -1806,6 +1806,51 @@ def plot_state_gradients(
     fig.write_html(figure_name, auto_open=True)
 
 
+def tape_check(tol: float = 1e-5, check_nans: bool = False):
+    """
+    Check if all operations in the given function are recordable by a Warp tape so that the results from `tape.forward()` match the function outputs.
+    Usage:
+            @tape_check(tol=1e-5, check_nans=False)
+            def some_function(a, b):
+                # your code
+                return result
+    """
+
+    def decorator(function: Callable):
+        @wraps(function)
+        def wrapper(*inputs, **kwargs):
+            def flatten_outputs(outputs):
+                if isinstance(outputs, (list, tuple)):
+                    return flatten_arrays(outputs)
+                else:
+                    return outputs.numpy().flatten().copy()
+
+            tape = wp.Tape()
+            with tape:
+                fun_outputs = function(*inputs, **kwargs)
+            outputs = kwargs.get("outputs", fun_outputs)
+            ref_output = flatten_outputs(outputs)
+            # reset output arrays to a random value to ensure the tape will actually update them
+            # randomize_vars(outputs)
+            zero_vars(outputs)
+            tape.forward(check_nans=check_nans)
+            tape_output = flatten_outputs(outputs)
+            print("Output from direct fn call:", ref_output)
+            print("Output from tape.forward():", tape_output)
+            delta = ref_output - tape_output
+            err = np.max(np.abs(delta))
+            if err > tol or np.isnan(err):
+                print(FontColors.FAIL + "Tape output does not match function output!" + FontColors.ENDC)
+                return False
+            else:
+                print(FontColors.OKGREEN + "Tape output matches function output." + FontColors.ENDC)
+                return True
+
+        return wrapper
+
+    return decorator
+
+
 def jacobian_check(
     input_names,
     output_names,

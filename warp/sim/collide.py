@@ -10,10 +10,12 @@ Collision handling functions and kernels.
 """
 
 import warp as wp
+import numpy as np
 from .model import PARTICLE_FLAG_ACTIVE, ModelShapeGeometry
 
 
 DEBUG = False  # activates ScopedTimer
+DEBUG_SERIALIZE_CONTACT_ORDERING = False
 
 
 @wp.func
@@ -1576,3 +1578,19 @@ def collide(model, state, edge_sdf_iter: int = 10):
                     ],
                     device=model.device,
                 )
+                if DEBUG_SERIALIZE_CONTACT_ORDERING:
+                    sort_idx = np.argsort(contact_state.rigid_contact_tids.numpy())
+                    contact_state.rigid_contact_shape0.assign(contact_state.rigid_contact_shape0.numpy()[sort_idx])
+                    contact_state.rigid_contact_shape1.assign(contact_state.rigid_contact_shape1.numpy()[sort_idx])
+                    contact_state.rigid_contact_point0.assign(contact_state.rigid_contact_point0.numpy()[sort_idx])
+                    contact_state.rigid_contact_point1.assign(contact_state.rigid_contact_point1.numpy()[sort_idx])
+                    contact_state.rigid_contact_offset0.assign(contact_state.rigid_contact_offset0.numpy()[sort_idx])
+                    contact_state.rigid_contact_offset1.assign(contact_state.rigid_contact_offset1.numpy()[sort_idx])
+                    contact_state.rigid_contact_normal.assign(contact_state.rigid_contact_normal.numpy()[sort_idx])
+                    contact_state.rigid_contact_thickness.assign(
+                        contact_state.rigid_contact_thickness.numpy()[sort_idx]
+                    )
+                    contact_state.rigid_contact_pairwise_counter.assign(
+                        contact_state.rigid_contact_pairwise_counter.numpy()[sort_idx]
+                    )
+                    contact_state.rigid_contact_tids.assign(contact_state.rigid_contact_tids.numpy()[sort_idx])
