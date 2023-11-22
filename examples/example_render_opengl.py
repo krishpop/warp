@@ -28,7 +28,7 @@ custom_tile_arrangement = False
 # whether to display the pixels in a matplotlib figure
 show_plot = True
 # whether to render depth image to a Warp array
-render_mode = warp.render.RenderMode.RGB
+render_mode = warp.render.RenderMode.DEPTH
 
 renderer = wp.render.OpenGLRenderer(vsync=False)
 instance_ids = []
@@ -79,11 +79,17 @@ if show_plot:
             if dim >= num_tiles:
                 ax.axis("off")
                 continue
-            img_plots.append(ax.imshow(tile_temp))
+            if render_mode == warp.render.RenderMode.DEPTH:
+                img_plots.append(ax.imshow(tile_temp, vmin=renderer.camera_near_plane, vmax=renderer.camera_far_plane))
+            else:
+                img_plots.append(ax.imshow(tile_temp))
     else:
         fig = plt.figure(1)
         pixels = wp.zeros((renderer.screen_height, renderer.screen_width, channels), dtype=wp.float32)
-        img_plot = plt.imshow(pixels.numpy())
+        if render_mode == warp.render.RenderMode.DEPTH:
+            img_plot = plt.imshow(pixels.numpy(), vmin=renderer.camera_near_plane, vmax=renderer.camera_far_plane)
+        else:
+            img_plot = plt.imshow(pixels.numpy())
 
     plt.ion()
     plt.show()

@@ -488,7 +488,9 @@ def copy_depth_frame(
     pixel = v * width + w
     # flip vertically (OpenGL coordinates start at bottom)
     v = height - v - 1
-    output_img[v, w, 0] = input_img[pixel] * (far - near) + near
+    d = 2.0 * input_img[pixel] - 1.0
+    d = 2.0 * near * far / ((far - near) * d - near - far)
+    output_img[v, w, 0] = -d
 
 
 @wp.kernel
@@ -544,7 +546,9 @@ def copy_depth_frame_tiles(
     if qx >= screen_width or qy >= screen_height:
         output_img[tile, y, x, 0] = far
         return  # prevent out-of-bounds access
-    output_img[tile, y, x, 0] = input_img[pixel] * (far - near) + near
+    d = 2.0 * input_img[pixel] - 1.0
+    d = 2.0 * near * far / ((far - near) * d - near - far)
+    output_img[tile, y, x, 0] = -d
 
 
 @wp.kernel
@@ -996,6 +1000,7 @@ class OpenGLRenderer:
         gl.glClearColor(*self.background_color, 1)
         gl.glEnable(gl.GL_DEPTH_TEST)
         gl.glDepthMask(True)
+        gl.glDepthRange(0.0, 1.0)
 
         self._shape_shader = ShaderProgram(
             Shader(shape_vertex_shader, "vertex"), Shader(shape_fragment_shader, "fragment")
