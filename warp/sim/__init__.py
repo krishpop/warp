@@ -39,6 +39,8 @@ from .model import JOINT_D6
 from .integrator_euler import SemiImplicitIntegrator, SemiImplicitIntegratorPlugin
 from .integrator_euler import VariationalImplicitIntegrator
 
+from .integrator_featherstone import FeatherstoneIntegrator
+
 from .integrator_xpbd import XPBDIntegrator
 
 from .collide import collide

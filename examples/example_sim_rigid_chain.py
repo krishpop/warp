@@ -31,10 +31,10 @@ class Example:
         self.chain_width = 1.0
         self.chain_types = [
             wp.sim.JOINT_REVOLUTE,
-            wp.sim.JOINT_FIXED,
-            wp.sim.JOINT_BALL,
-            wp.sim.JOINT_UNIVERSAL,
-            wp.sim.JOINT_COMPOUND,
+            # wp.sim.JOINT_FIXED,
+            # wp.sim.JOINT_BALL,
+            # wp.sim.JOINT_UNIVERSAL,
+            # wp.sim.JOINT_COMPOUND,
         ]
 
         builder = wp.sim.ModelBuilder()
@@ -88,8 +88,8 @@ class Example:
                         limit_upper=joint_limit_upper,
                         target_ke=0.0,
                         target_kd=0.0,
-                        limit_ke=30.0,
-                        limit_kd=30.0,
+                        limit_ke=1e5,
+                        limit_kd=1.0,
                     )
 
                 elif joint_type == wp.sim.JOINT_UNIVERSAL:
@@ -129,9 +129,15 @@ class Example:
                         child_xform=wp.transform_identity(),
                     )
 
-        self.integrator = wp.sim.XPBDIntegrator(iterations=5)
+        # self.integrator = wp.sim.XPBDIntegrator(iterations=5)
+        # self.integrator = wp.sim.SemiImplicitIntegrator()
+        self.integrator = wp.sim.FeatherstoneIntegrator()
 
-        self.renderer = wp.sim.render.SimRenderer(self.model, stage, scaling=20.0)
+        self.model = builder.finalize(integrator=self.integrator)
+        self.model.ground = False
+
+        # self.renderer = wp.sim.render.SimRenderer(self.model, stage, scaling=20.0)
+        self.renderer = wp.sim.render.SimRendererOpenGL(self.model, stage, scaling=1.0)
 
         self.state_0 = self.model.state()
         self.state_1 = self.model.state()
