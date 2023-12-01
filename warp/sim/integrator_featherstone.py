@@ -207,7 +207,7 @@ def jcalc_motion(
         S_s = spatial_transform_twist(X_sc, wp.spatial_vector(wp.vec3(0.0, 0.0, 0.0), axis))
         v_j_s = S_s * joint_qd[qd_start]
 
-        wp.store(joint_S_s, qd_start, S_s)
+        joint_S_s[qd_start] = S_s
         return v_j_s
 
     # revolute
@@ -216,7 +216,7 @@ def jcalc_motion(
         S_s = spatial_transform_twist(X_sc, wp.spatial_vector(axis, wp.vec3(0.0, 0.0, 0.0)))
         v_j_s = S_s * joint_qd[qd_start]
 
-        wp.store(joint_S_s, qd_start, S_s)
+        joint_S_s[qd_start] = S_s
         return v_j_s
 
     # ball
@@ -228,9 +228,9 @@ def jcalc_motion(
         S_2 = spatial_transform_twist(X_sc, wp.spatial_vector(0.0, 0.0, 1.0, 0.0, 0.0, 0.0))
 
         # write motion subspace
-        wp.store(joint_S_s, qd_start + 0, S_0)
-        wp.store(joint_S_s, qd_start + 1, S_1)
-        wp.store(joint_S_s, qd_start + 2, S_2)
+        joint_S_s[qd_start + 0] = S_0
+        joint_S_s[qd_start + 1] = S_1
+        joint_S_s[qd_start + 2] = S_2
 
         return S_0 * w[0] + S_1 * w[1] + S_2 * w[2]
 
@@ -250,12 +250,12 @@ def jcalc_motion(
         )
 
         # write motion subspace
-        wp.store(joint_S_s, qd_start + 0, wp.spatial_vector(1.0, 0.0, 0.0, 0.0, 0.0, 0.0))
-        wp.store(joint_S_s, qd_start + 1, wp.spatial_vector(0.0, 1.0, 0.0, 0.0, 0.0, 0.0))
-        wp.store(joint_S_s, qd_start + 2, wp.spatial_vector(0.0, 0.0, 1.0, 0.0, 0.0, 0.0))
-        wp.store(joint_S_s, qd_start + 3, wp.spatial_vector(0.0, 0.0, 0.0, 1.0, 0.0, 0.0))
-        wp.store(joint_S_s, qd_start + 4, wp.spatial_vector(0.0, 0.0, 0.0, 0.0, 1.0, 0.0))
-        wp.store(joint_S_s, qd_start + 5, wp.spatial_vector(0.0, 0.0, 0.0, 0.0, 0.0, 1.0))
+        joint_S_s[qd_start + 0] = wp.spatial_vector(1.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+        joint_S_s[qd_start + 1] = wp.spatial_vector(0.0, 1.0, 0.0, 0.0, 0.0, 0.0)
+        joint_S_s[qd_start + 2] = wp.spatial_vector(0.0, 0.0, 1.0, 0.0, 0.0, 0.0)
+        joint_S_s[qd_start + 3] = wp.spatial_vector(0.0, 0.0, 0.0, 1.0, 0.0, 0.0)
+        joint_S_s[qd_start + 4] = wp.spatial_vector(0.0, 0.0, 0.0, 0.0, 1.0, 0.0)
+        joint_S_s[qd_start + 5] = wp.spatial_vector(0.0, 0.0, 0.0, 0.0, 0.0, 1.0)
 
         return v_j_s
 
@@ -344,6 +344,8 @@ def jcalc_tau(
 
         tau[dof_start] = t
 
+        return
+
     # ball
     if type == wp.sim.JOINT_BALL:
         # elastic term.. this is proportional to the
@@ -361,6 +363,8 @@ def jcalc_tau(
 
             tau[dof_start + i] = -wp.dot(S_s, body_f_s) - w * target_k_d - r * target_k_e
 
+        return
+
     # fixed
     # if (type == wp.sim.JOINT_FIXED)
     #    pass
@@ -370,6 +374,8 @@ def jcalc_tau(
         for i in range(6):
             S_s = joint_S_s[dof_start + i]
             tau[dof_start + i] = -wp.dot(S_s, body_f_s)
+
+        return
 
 
 @wp.func
@@ -663,7 +669,6 @@ def compute_link_velocity(
     body_a_s: wp.array(dtype=wp.spatial_vector),
 ):
     type = joint_type[i]
-    axis = joint_axis[i]
     child = joint_child[i]
     parent = joint_parent[i]
     qd_start = joint_qd_start[i]
@@ -680,7 +685,9 @@ def compute_link_velocity(
     axis_start = joint_axis_start[i]
     lin_axis_count = joint_axis_dim[i, 0]
     ang_axis_count = joint_axis_dim[i, 1]
-    v_j_s = jcalc_motion(type, joint_axis, axis_start, lin_axis_count, ang_axis_count, X_sj, joint_qd, qd_start, joint_S_s)
+    v_j_s = jcalc_motion(
+        type, joint_axis, axis_start, lin_axis_count, ang_axis_count, X_sj, joint_qd, qd_start, joint_S_s
+    )
 
     # parent velocity
     v_parent_s = wp.spatial_vector()
@@ -709,12 +716,12 @@ def compute_link_velocity(
     # body forces
     I_s = spatial_transform_inertia(X_sm, I_m)
 
-    f_b_s = wp.mul(I_s, a_s) + spatial_cross_dual(v_s, wp.mul(I_s, v_s))
+    f_b_s = I_s * a_s + spatial_cross_dual(v_s, I_s * v_s)
 
-    wp.store(body_v_s, child, v_s)
-    wp.store(body_a_s, child, a_s)
-    wp.store(body_f_s, child, f_b_s - f_g_s)
-    wp.store(body_I_s, child, I_s)
+    body_v_s[child] = v_s
+    body_a_s[child] = a_s
+    body_f_s[child] = f_b_s - f_g_s
+    body_I_s[child] = I_s
 
 
 @wp.kernel
@@ -901,54 +908,6 @@ def eval_rigid_tau(
 
 
 # builds spatial Jacobian J which is an (joint_count*6)x(dof_count) matrix
-@wp.func
-def spatial_jacobian(
-    joint_S_s: wp.array(dtype=wp.spatial_vector),
-    joint_parent: wp.array(dtype=int),
-    joint_qd_start: wp.array(dtype=int),
-    joint_start: int,  # offset of the first joint for the articulation
-    joint_count: int,
-    J_start: int,
-    # outputs
-    J: wp.array(dtype=float),
-):
-    articulation_dof_start = joint_qd_start[joint_start]
-    articulation_dof_end = joint_qd_start[joint_start + joint_count]
-    articulation_dof_count = articulation_dof_end - articulation_dof_start
-
-    # # shift output pointers
-    # const int S_start = articulation_dof_start;
-
-    # S += S_start;
-    # J += J_start;
-
-    for i in range(joint_count):
-        row_start = (articulation_dof_start + i) * 6
-
-        j = joint_start + i
-        while j != -1:
-            joint_dof_start = joint_qd_start[j]
-            joint_dof_end = joint_qd_start[j + 1]
-            joint_dof_count = joint_dof_end - joint_dof_start
-
-            # fill out each row of the Jacobian walking up the tree
-            for dof in range(joint_dof_count):
-                col = (joint_dof_start - articulation_dof_start) + dof
-                S = joint_S_s[col + articulation_dof_start]
-
-                for k in range(6):
-                    J[J_start + dense_index(articulation_dof_count, row_start + k, col)] = S[k]
-
-                # J[row_start+0, col] = S.w.x
-                # J[row_start+1, col] = S.w.y
-                # J[row_start+2, col] = S.w.z
-                # J[row_start+3, col] = S.v.x
-                # J[row_start+4, col] = S.v.y
-                # J[row_start+5, col] = S.v.z
-
-            j = joint_parent[j]
-
-
 @wp.kernel
 def eval_rigid_jacobian(
     articulation_start: wp.array(dtype=int),
@@ -968,7 +927,28 @@ def eval_rigid_jacobian(
 
     J_offset = articulation_J_start[index]
 
-    spatial_jacobian(joint_S_s, joint_parent, joint_qd_start, joint_start, joint_count, J_offset, J)
+    articulation_dof_start = joint_qd_start[joint_start]
+    articulation_dof_end = joint_qd_start[joint_end]
+    articulation_dof_count = articulation_dof_end - articulation_dof_start
+
+    for i in range(joint_count):
+        row_start = i * 6
+
+        j = joint_start + i
+        while j != -1:
+            joint_dof_start = joint_qd_start[j]
+            joint_dof_end = joint_qd_start[j + 1]
+            joint_dof_count = joint_dof_end - joint_dof_start
+
+            # fill out each row of the Jacobian walking up the tree
+            for dof in range(joint_dof_count):
+                col = (joint_dof_start - articulation_dof_start) + dof
+                S = joint_S_s[joint_dof_start + dof]
+
+                for k in range(6):
+                    J[J_offset + dense_index(articulation_dof_count, row_start + k, col)] = S[k]
+
+            j = joint_parent[j]
 
 
 @wp.func
@@ -1696,7 +1676,6 @@ class FeatherstoneIntegrator:
                 )
 
                 if update_mass_matrix:
-
                     # build J
                     wp.launch(
                         eval_rigid_jacobian,
