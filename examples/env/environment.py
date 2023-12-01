@@ -31,6 +31,7 @@ class RenderMode(Enum):
 class IntegratorType(Enum):
     EULER = "euler"
     XPBD = "xpbd"
+    FEATHERSTONE = "featherstone"
 
     def __str__(self):
         return self.value
@@ -167,7 +168,7 @@ class Environment:
         self.parser.add_argument("--profile", help="Enable profiling", type=bool, default=self.profile)
 
     def parse_args(self):
-        args = self.parser.parse_args()
+        args, _ = self.parser.parse_known_args()
         self.integrator_type = args.integrator
         self.render_mode = args.visualizer
         self.num_envs = args.num_envs
@@ -184,6 +185,9 @@ class Environment:
         elif self.integrator_type == IntegratorType.XPBD:
             self.sim_substeps = self.sim_substeps_xpbd
             self.integrator = wp.sim.XPBDIntegrator(**self.xpbd_settings)
+        elif self.integrator_type == IntegratorType.FEATHERSTONE:
+            self.sim_substeps = self.sim_substeps_euler
+            self.integrator = wp.sim.FeatherstoneIntegrator(**self.euler_settings)
 
         if self.episode_frames is None:
             self.episode_frames = int(self.episode_duration / self.frame_dt)
@@ -229,7 +233,7 @@ class Environment:
         self.model.joint_attach_ke = self.joint_attach_ke
         self.model.joint_attach_kd = self.joint_attach_kd
 
-        self.model.state_augment_fns.append(self.custom_augment_state)
+        self.model.augment_state_fns.append(self.custom_augment_state)
 
         if self.requires_grad:
             self.states = [self.model.state() for _ in range(self.sim_steps + 1)]
@@ -513,7 +517,7 @@ class Environment:
                 ax[i, 6].yaxis.get_major_locator().set_params(integer=True)
             plt.show()
 
-        if self.plot_joint_coords:
+        if self.plot_joint_coords and len(joint_q_history) > 0:
             import matplotlib.pyplot as plt
 
             joint_q_history = np.array(joint_q_history)
