@@ -16,6 +16,7 @@ from .model import PARTICLE_FLAG_ACTIVE, ModelShapeGeometry
 
 DEBUG = False  # activates ScopedTimer
 DEBUG_SERIALIZE_CONTACT_ORDERING = False
+DEBUG_RECORD_TAPE = False
 
 
 @wp.func
@@ -1505,7 +1506,7 @@ def collide(model, state, edge_sdf_iter: int = 10):
                         contact_state.rigid_contact_point_limit,
                     ],
                     device=model.device,
-                    record_tape=False,  # TODO revert to False
+                    record_tape=DEBUG_RECORD_TAPE,  # TODO revert to False
                 )
 
         if model.ground and model.shape_ground_contact_pair_count:
@@ -1534,7 +1535,7 @@ def collide(model, state, edge_sdf_iter: int = 10):
                         contact_state.rigid_contact_point_limit,
                     ],
                     device=model.device,
-                    record_tape=False,  # TODO revert to False
+                    record_tape=DEBUG_RECORD_TAPE,  # TODO revert to False
                 )
 
         if model.shape_contact_pair_count or model.ground and model.shape_ground_contact_pair_count:
