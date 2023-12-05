@@ -115,6 +115,61 @@ def run_env(env):
     return q_history, qd_history, delta_history, num_con_history, joint_q_history
 
 
+def check_histories_equal(test, history1, history2, history_name):
+    for i in range(len(history1)):
+        test.assertTrue(
+            np.allclose(history1[i], history2[i]),
+            f"{history_name} mismatch at frame {i}, delta={np.max(np.abs(history1[i] - history2[i]))}",
+        )
+
+
+def test_cartpole_single_env_determinism(test, device):
+    from env_cartpole import CartpoleEnvironment
+
+    wp.set_device(device)
+
+    CartpoleEnvironment.num_envs = 1
+    CartpoleEnvironment.render_mode = RenderMode.NONE
+    CartpoleEnvironment.episode_frames = 5  # at 60 fps, 5 frames is 1/12th of a second
+    demo = CartpoleEnvironment()
+
+    demo.parse_args()
+    demo.init()
+
+    q_history, qd_history, delta_history, num_con_history, joint_q_history = run_env(demo)
+
+    # re-run simulation
+    q_history2, qd_history2, delta_history2, num_con_history2, joint_q_history2 = run_env(demo)
+    check_histories_equal(test, q_history, q_history2, "q_history")
+    check_histories_equal(test, qd_history, qd_history2, "qd_history")
+    if len(delta_history) > 0:
+        check_histories_equal(test, delta_history, delta_history2, "delta_history")
+    check_histories_equal(test, num_con_history, num_con_history2, "num_con_history")
+    check_histories_equal(test, joint_q_history, joint_q_history2, "joint_q_history")
+
+
+def test_cartpole_parallel_env_determinism(test, device):
+    from env_cartpole import CartpoleEnvironment
+
+    wp.set_device(device)
+
+    CartpoleEnvironment.num_envs = 2
+    CartpoleEnvironment.render_mode = RenderMode.NONE
+    CartpoleEnvironment.episode_frames = 5  # at 60 fps, 5 frames is 1/12th of a second
+    demo = CartpoleEnvironment()
+    demo.parse_args()
+    demo.init()
+
+    q_history, qd_history, delta_history, num_con_history, joint_q_history = run_env(demo)
+    # check that all q, qd, delta, num_con_history, joint_q_history are same along env dimension
+    check_histories_equal(test, [h[0] for h in q_history], [h[1] for h in q_history], "q_history")
+    check_histories_equal(test, [h[0] for h in qd_history], [h[1] for h in qd_history], "qd_history")
+    if len(delta_history) > 0:
+        check_histories_equal(test, [h[0] for h in delta_history], [h[1] for h in delta_history], "delta_history")
+    check_histories_equal(test, [h[0] for h in num_con_history], [h[1] for h in num_con_history], "num_con_history")
+    check_histories_equal(test, [h[0] for h in joint_q_history], [h[1] for h in joint_q_history], "joint_q_history")
+
+
 def test_ant_single_env_determinism(test, device):
     from env_ant import AntEnvironment
 
@@ -133,28 +188,12 @@ def test_ant_single_env_determinism(test, device):
     q_history2, qd_history2, delta_history2, num_con_history2, joint_q_history2 = run_env(demo)
 
     # check all q, qd, delta, num_con_history, joint_q_history are same across two runs
-    for i in range(len(q_history)):
-        test.assertTrue(
-            np.allclose(q_history[i], q_history2[i]),
-            f"q_history mismatch at frame {i}, delta={np.max(np.abs(q_history[i] - q_history2[i]))}",
-        )
-        test.assertTrue(
-            np.allclose(qd_history[i], qd_history2[i]),
-            f"qd_history mismatch at frame {i}, delta={np.max(np.abs(qd_history[i] - qd_history2[i]))}",
-        )
-        if len(delta_history) > 0:
-            test.assertTrue(
-                np.allclose(delta_history[i], delta_history2[i]),
-                f"delta_history mismatch at frame {i}, delta={np.max(np.abs(delta_history[i] - delta_history2[i]))}",
-            )
-        test.assertTrue(
-            np.allclose(num_con_history[i], num_con_history2[i]),
-            f"num_con_history mismatch at frame {i}, delta={np.max(np.abs(num_con_history[i] - num_con_history2[i]))}",
-        )
-        test.assertTrue(
-            np.allclose(joint_q_history[i], joint_q_history2[i]),
-            f"joint_q_history mismatch at frame {i}, delta={np.max(np.abs(joint_q_history[i] - joint_q_history2[i]))}",
-        )
+    check_histories_equal(test, q_history, q_history2, "q_history")
+    check_histories_equal(test, qd_history, qd_history2, "qd_history")
+    if len(delta_history) > 0:
+        check_histories_equal(test, delta_history, delta_history2, "delta_history")
+    check_histories_equal(test, num_con_history, num_con_history2, "num_con_history")
+    check_histories_equal(test, joint_q_history, joint_q_history2, "joint_q_history")
 
 
 def test_ant_parallel_env_determinism(test, device):
@@ -171,37 +210,12 @@ def test_ant_parallel_env_determinism(test, device):
 
     q_history, qd_history, delta_history, num_con_history, joint_q_history = run_env(demo)
     # check that all q, qd, delta, num_con_history, joint_q_history are same along env dimension
-    for i in range(len(q_history)):
-        test.assertTrue(
-            np.allclose(q_history[i][0], q_history[i][1]),
-            "q_history diverged at frame {}, delta = {}".format(i, np.max(np.abs(q_history[i][0] - q_history[i][1]))),
-        )
-        test.assertTrue(
-            np.allclose(qd_history[i][0], qd_history[i][1]),
-            "qd_history diverged at frame {}, delta = {}".format(
-                i, np.max(np.abs(qd_history[i][0] - qd_history[i][1]))
-            ),
-        )
-        if len(delta_history) > 0:
-            test.assertTrue(
-                np.allclose(delta_history[i][0], delta_history[i][1]),
-                "delta_history diverged at frame {}, delta = {}".format(
-                    i, np.max(np.abs(delta_history[i][0] - delta_history[i][1]))
-                ),
-            )
-        test.assertTrue(
-            np.allclose(num_con_history[i][0], num_con_history[i][1]),
-            "num_con_history diverged at frame {}, delta = {}".format(
-                i, np.max(np.abs(num_con_history[i][0] - num_con_history[i][1]))
-            ),
-        )
-        # test.assertTrue(
-        #     np.allclose(joint_q_history[i][0], joint_q_history[i][1]),
-        #     "joint_q_history diverged at frame {}, delta = {}".format(
-        #         i, np.max(np.abs(joint_q_history[i][0] - joint_q_history[i][1]))
-        #     ),
-        # )
-
+    check_histories_equal(test, [h[0] for h in q_history], [h[1] for h in q_history], "q_history")
+    check_histories_equal(test, [h[0] for h in qd_history], [h[1] for h in qd_history], "qd_history")
+    if len(delta_history) > 0:
+        check_histories_equal(test, [h[0] for h in delta_history], [h[1] for h in delta_history], "delta_history")
+    check_histories_equal(test, [h[0] for h in num_con_history], [h[1] for h in num_con_history], "num_con_history")
+    # check_histories_equal(test, [h[0] for h in joint_q_history], [h[1] for h in joint_q_history], "joint_q_history")
 
 def register(parent):
     devices = get_test_devices()
@@ -209,7 +223,20 @@ def register(parent):
     class TestDeterministicSim(parent):
         pass
 
-    # add_function_test(TestGrad, "test_while_loop_grad", test_while_loop_grad, devices=devices)
+    # add tests for cartpole and ant
+    add_function_test(
+        TestDeterministicSim,
+        "test_cartpole_single_env_determinism",
+        test_cartpole_single_env_determinism,
+        devices=devices,
+    )
+    add_function_test(
+        TestDeterministicSim,
+        "test_cartpole_parallel_env_determinism",
+        test_cartpole_parallel_env_determinism,
+        devices=devices,
+    )
+
     add_function_test(
         TestDeterministicSim, "test_ant_single_env_determinism", test_ant_single_env_determinism, devices=devices
     )
