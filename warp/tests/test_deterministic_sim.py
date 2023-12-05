@@ -1,6 +1,7 @@
 import unittest
 import os
 import sys
+
 import warp as wp
 import warp.sim
 
@@ -131,14 +132,17 @@ def test_cartpole_single_env_determinism(test, device):
     CartpoleEnvironment.num_envs = 1
     CartpoleEnvironment.render_mode = RenderMode.NONE
     CartpoleEnvironment.episode_frames = 5  # at 60 fps, 5 frames is 1/12th of a second
+    CartpoleEnvironment.env_offset = (0.0, 0.0, 0.0)
     demo = CartpoleEnvironment()
 
     demo.parse_args()
     demo.init()
 
+    demo.reset()
     q_history, qd_history, delta_history, num_con_history, joint_q_history = run_env(demo)
 
     # re-run simulation
+    demo.reset()
     q_history2, qd_history2, delta_history2, num_con_history2, joint_q_history2 = run_env(demo)
     check_histories_equal(test, q_history, q_history2, "q_history")
     check_histories_equal(test, qd_history, qd_history2, "qd_history")
@@ -156,9 +160,11 @@ def test_cartpole_parallel_env_determinism(test, device):
     CartpoleEnvironment.num_envs = 2
     CartpoleEnvironment.render_mode = RenderMode.NONE
     CartpoleEnvironment.episode_frames = 5  # at 60 fps, 5 frames is 1/12th of a second
+    CartpoleEnvironment.env_offset = (0.0, 0.0, 0.0)
     demo = CartpoleEnvironment()
     demo.parse_args()
     demo.init()
+    demo.reset()
 
     q_history, qd_history, delta_history, num_con_history, joint_q_history = run_env(demo)
     # check that all q, qd, delta, num_con_history, joint_q_history are same along env dimension
@@ -170,7 +176,7 @@ def test_cartpole_parallel_env_determinism(test, device):
     check_histories_equal(test, [h[0] for h in joint_q_history], [h[1] for h in joint_q_history], "joint_q_history")
 
 
-def test_ant_single_env_determinism(test, device):
+def test_ant_single_env_reset_determinism(test, device):
     from env_ant import AntEnvironment
 
     wp.set_device(device)
@@ -178,12 +184,15 @@ def test_ant_single_env_determinism(test, device):
     AntEnvironment.num_envs = 1
     AntEnvironment.render_mode = RenderMode.NONE
     AntEnvironment.episode_frames = 5  # at 60 fps, 5 frames is 1/12th of a second
+    AntEnvironment.env_offset = (0.0, 0.0, 0.0)
     demo = AntEnvironment()
     demo.parse_args()
     demo.init()
 
+    demo.reset()
     q_history, qd_history, delta_history, num_con_history, joint_q_history = run_env(demo)
 
+    demo.reset()
     # re-run simulation
     q_history2, qd_history2, delta_history2, num_con_history2, joint_q_history2 = run_env(demo)
 
@@ -204,9 +213,12 @@ def test_ant_parallel_env_determinism(test, device):
     AntEnvironment.num_envs = 2
     AntEnvironment.render_mode = RenderMode.NONE
     AntEnvironment.episode_frames = 5  # at 60 fps, 5 frames is 1/12th of a second
+    AntEnvironment.env_offset = (0.0, 0.0, 0.0)
     demo = AntEnvironment()
     demo.parse_args()
     demo.init()
+    demo.reset()
+    demo.reset()
 
     q_history, qd_history, delta_history, num_con_history, joint_q_history = run_env(demo)
     # check that all q, qd, delta, num_con_history, joint_q_history are same along env dimension
@@ -216,6 +228,7 @@ def test_ant_parallel_env_determinism(test, device):
         check_histories_equal(test, [h[0] for h in delta_history], [h[1] for h in delta_history], "delta_history")
     check_histories_equal(test, [h[0] for h in num_con_history], [h[1] for h in num_con_history], "num_con_history")
     # check_histories_equal(test, [h[0] for h in joint_q_history], [h[1] for h in joint_q_history], "joint_q_history")
+
 
 def register(parent):
     devices = get_test_devices()
@@ -238,7 +251,7 @@ def register(parent):
     )
 
     add_function_test(
-        TestDeterministicSim, "test_ant_single_env_determinism", test_ant_single_env_determinism, devices=devices
+        TestDeterministicSim, "test_ant_single_env_determinism", test_ant_single_env_reset_determinism, devices=devices
     )
     add_function_test(
         TestDeterministicSim, "test_ant_parallel_env_determinism", test_ant_parallel_env_determinism, devices=devices
