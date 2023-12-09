@@ -26,6 +26,7 @@ def parse_usd(
     default_thickness=0.0,
     joint_limit_ke=100.0,
     joint_limit_kd=10.0,
+    armature=0.0,
     invert_rotations=False,
     verbose=False,
     ignore_paths=[],
@@ -49,6 +50,7 @@ def parse_usd(
         default_thickness (float): The thickness to add to the shape geometry.
         joint_limit_ke (float): The default stiffness to use for joint limits, only considered by SemiImplicitIntegrator.
         joint_limit_kd (float): The default damping to use for joint limits, only considered by SemiImplicitIntegrator.
+        armature (float): The armature to use for the bodies.
         invert_rotations (bool): If True, inverts any rotations defined in the shape transforms.
         verbose (bool): If True, print additional information about the parsed USD file.
         ignore_paths (List[str]): A list of regular expressions matching prim paths to ignore.
@@ -412,6 +414,7 @@ def parse_usd(
             body_id = builder.add_body(
                 origin=xform,
                 name=prim.GetName(),
+                armature=armature,
             )
             path_body_map[path] = body_id
             body_density[body_id] = 0.0
