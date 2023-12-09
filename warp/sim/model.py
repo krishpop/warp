@@ -108,7 +108,6 @@ class JointAxis:
         target_ke (float): The proportional gain of the joint axis target drive PD controller
         target_kd (float): The derivative gain of the joint axis target drive PD controller
         mode (int): The mode of the joint axis, see `Joint modes`_
-        armature (float): Artificial inertia added around the joint axis (only considered by FeatherstoneIntegrator)
     """
 
     def __init__(
@@ -122,7 +121,6 @@ class JointAxis:
         target_ke=0.0,
         target_kd=0.0,
         mode=JOINT_MODE_TARGET_POSITION,
-        armature=1e-2,
     ):
         if isinstance(axis, JointAxis):
             self.axis = axis.axis
@@ -134,7 +132,6 @@ class JointAxis:
             self.target_ke = axis.target_ke
             self.target_kd = axis.target_kd
             self.mode = axis.mode
-            self.armature = axis.armature
         else:
             self.axis = np.array(wp.normalize(np.array(axis, dtype=np.float32)))
             self.limit_lower = limit_lower
@@ -150,7 +147,6 @@ class JointAxis:
             self.target_ke = target_ke
             self.target_kd = target_kd
             self.mode = mode
-            self.armature = armature
 
 
 class SDF:
@@ -447,6 +443,7 @@ class Model:
         particle_max_velocity (float): Maximum particle velocity (to prevent instability)
 
         shape_transform (array): Rigid shape transforms, shape [shape_count, 7], float
+        shape_visible (array): Rigid shape visibility, shape [shape_count], bool
         shape_body (array): Rigid shape body index, shape [shape_count], int
         body_shapes (dict): Mapping from body index to list of attached shape indices
         shape_materials (ModelShapeMaterials): Rigid shape contact materials, shape [shape_count], float
@@ -586,6 +583,7 @@ class Model:
 
         self.shape_transform = None
         self.shape_body = None
+        self.shape_visible = None
         self.body_shapes = {}
         self.shape_materials = ModelShapeMaterials()
         self.shape_geo = ModelShapeGeometry()
@@ -1083,6 +1081,7 @@ class ModelBuilder:
         self.shape_transform = []
         # maps from shape index to body index
         self.shape_body = []
+        self.shape_visible = []
         self.shape_geo_type = []
         self.shape_geo_scale = []
         self.shape_geo_src = []
@@ -1420,6 +1419,7 @@ class ModelBuilder:
             "joint_target_kd",
             "joint_linear_compliance",
             "joint_angular_compliance",
+            "shape_visible",
             "shape_geo_type",
             "shape_geo_scale",
             "shape_geo_src",
@@ -1528,6 +1528,7 @@ class ModelBuilder:
         child_xform: wp.transform = wp.transform(),
         linear_compliance: float = 0.0,
         angular_compliance: float = 0.0,
+        armature: float = 1e-2,
         collision_filter_parent: bool = True,
         enabled: bool = True,
     ) -> int:
@@ -1545,6 +1546,7 @@ class ModelBuilder:
             child_xform (:ref:`transform <transform>`): The transform of the joint in the child body's local frame
             linear_compliance: The linear compliance of the joint
             angular_compliance: The angular compliance of the joint
+            armature (float): Artificial inertia added around the joint axis (only considered by FeatherstoneIntegrator)
             collision_filter_parent: Whether to filter collisions between shapes of the parent and child bodies
             enabled: Whether the joint is enabled
 
@@ -1588,7 +1590,6 @@ class ModelBuilder:
                 self.joint_limit_upper.append(dim.limit_upper)
             else:
                 self.joint_limit_upper.append(1e6)
-            self.joint_armature.append(dim.armature)
 
         for dim in linear_axes:
             add_axis_dim(dim)
@@ -1626,6 +1627,7 @@ class ModelBuilder:
         for i in range(dof_count):
             self.joint_qd.append(0.0)
             self.joint_act.append(0.0)
+            self.joint_armature.append(armature)
 
         if joint_type == JOINT_FREE or joint_type == JOINT_DISTANCE or joint_type == JOINT_BALL:
             # ensure that a valid quaternion is used for the angular dofs
@@ -2174,6 +2176,7 @@ class ModelBuilder:
                 "q": self.joint_q[q_start : q_start + q_dim],
                 "qd": self.joint_qd[qd_start : qd_start + qd_dim],
                 "act": self.joint_act[qd_start : qd_start + qd_dim],
+                "armature": self.joint_armature[qd_start : qd_start + qd_dim],
                 "q_start": q_start,
                 "qd_start": qd_start,
                 "linear_compliance": self.joint_linear_compliance[i],
@@ -2202,7 +2205,6 @@ class ModelBuilder:
                         "limit_kd": self.joint_limit_kd[j],
                         "limit_lower": self.joint_limit_lower[j],
                         "limit_upper": self.joint_limit_upper[j],
-                        'armature': self.joint_armature[j],
                     }
                 )
 
@@ -2359,6 +2361,7 @@ class ModelBuilder:
             self.joint_q.extend(joint["q"])
             self.joint_qd.extend(joint["qd"])
             self.joint_act.extend(joint["act"])
+            self.joint_armature.extend(joint["armature"])
             self.joint_enabled.append(joint["enabled"])
             self.joint_linear_compliance.append(joint["linear_compliance"])
             self.joint_angular_compliance.append(joint["angular_compliance"])
@@ -2376,7 +2379,6 @@ class ModelBuilder:
                 self.joint_limit_upper.append(axis["limit_upper"])
                 self.joint_limit_ke.append(axis["limit_ke"])
                 self.joint_limit_kd.append(axis["limit_kd"])
-                self.joint_armature.append(axis["armature"])
 
     # muscles
     def add_muscle(
@@ -2428,6 +2430,7 @@ class ModelBuilder:
         restitution: float = default_shape_restitution,
         thickness: float = 0.0,
         has_ground_collision: bool = False,
+        is_visible: bool = True,
     ):
         """
         Adds a plane collision shape.
@@ -2448,6 +2451,7 @@ class ModelBuilder:
             restitution: The coefficient of restitution
             thickness: The thickness of the plane (0 by default) for collision handling
             has_ground_collision: If True, the mesh will collide with the ground plane if `Model.ground` is True
+            is_visible: Whether the plane is visible
 
         Returns:
             The index of the added shape
@@ -2483,6 +2487,7 @@ class ModelBuilder:
             restitution,
             thickness,
             has_ground_collision=has_ground_collision,
+            is_visible=is_visible,
         )
 
     def add_shape_sphere(
@@ -2501,6 +2506,7 @@ class ModelBuilder:
         thickness: float = default_geo_thickness,
         has_ground_collision: bool = True,
         collision_group: int = -1,
+        is_visible: bool = True,
     ):
         """Adds a sphere collision shape to a body.
 
@@ -2519,6 +2525,7 @@ class ModelBuilder:
             thickness: Thickness to use for computing inertia of a hollow sphere, and for collision handling
             has_ground_collision: If True, the mesh will collide with the ground plane if `Model.ground` is True
             collision_group: The collision group of the shape
+            is_visible: Whether the sphere is visible
 
         Returns:
             The index of the added shape
@@ -2542,6 +2549,7 @@ class ModelBuilder:
             is_solid,
             has_ground_collision=has_ground_collision,
             collision_group=collision_group,
+            is_visible=is_visible,
         )
 
     def add_shape_box(
@@ -2562,6 +2570,7 @@ class ModelBuilder:
         thickness: float = default_geo_thickness,
         has_ground_collision: bool = True,
         collision_group: int = -1,
+        is_visible: bool = True,
     ):
         """Adds a box collision shape to a body.
 
@@ -2582,6 +2591,7 @@ class ModelBuilder:
             thickness: Thickness to use for computing inertia of a hollow box, and for collision handling
             has_ground_collision: If True, the mesh will collide with the ground plane if `Model.ground` is True
             collision_group: The collision group of the shape
+            is_visible: Whether the box is visible
 
         Returns:
             The index of the added shape
@@ -2605,6 +2615,7 @@ class ModelBuilder:
             is_solid,
             has_ground_collision=has_ground_collision,
             collision_group=collision_group,
+            is_visible=is_visible,
         )
 
     def add_shape_capsule(
@@ -2625,6 +2636,7 @@ class ModelBuilder:
         thickness: float = default_geo_thickness,
         has_ground_collision: bool = True,
         collision_group: int = -1,
+        is_visible: bool = True,
     ):
         """Adds a capsule collision shape to a body.
 
@@ -2645,6 +2657,7 @@ class ModelBuilder:
             thickness: Thickness to use for computing inertia of a hollow capsule, and for collision handling
             has_ground_collision: If True, the mesh will collide with the ground plane if `Model.ground` is True
             collision_group: The collision group of the shape
+            is_visible: Whether the capsule is visible
 
         Returns:
             The index of the added shape
@@ -2675,6 +2688,7 @@ class ModelBuilder:
             is_solid,
             has_ground_collision=has_ground_collision,
             collision_group=collision_group,
+            is_visible=is_visible,
         )
 
     def add_shape_cylinder(
@@ -2695,6 +2709,7 @@ class ModelBuilder:
         thickness: float = default_geo_thickness,
         has_ground_collision: bool = True,
         collision_group: int = -1,
+        is_visible: bool = True,
     ):
         """Adds a cylinder collision shape to a body.
 
@@ -2715,6 +2730,7 @@ class ModelBuilder:
             thickness: Thickness to use for computing inertia of a hollow cylinder, and for collision handling
             has_ground_collision: If True, the mesh will collide with the ground plane if `Model.ground` is True
             collision_group: The collision group of the shape
+            is_visible: Whether the cylinder is visible
 
         Returns:
             The index of the added shape
@@ -2745,6 +2761,7 @@ class ModelBuilder:
             is_solid,
             has_ground_collision=has_ground_collision,
             collision_group=collision_group,
+            is_visible=is_visible,
         )
 
     def add_shape_cone(
@@ -2765,6 +2782,7 @@ class ModelBuilder:
         thickness: float = default_geo_thickness,
         has_ground_collision: bool = True,
         collision_group: int = -1,
+        is_visible: bool = True,
     ):
         """Adds a cone collision shape to a body.
 
@@ -2785,6 +2803,7 @@ class ModelBuilder:
             thickness: Thickness to use for computing inertia of a hollow cone, and for collision handling
             has_ground_collision: If True, the mesh will collide with the ground plane if `Model.ground` is True
             collision_group: The collision group of the shape
+            is_visible: Whether the cone is visible
 
         Returns:
             The index of the added shape
@@ -2815,6 +2834,7 @@ class ModelBuilder:
             is_solid,
             has_ground_collision=has_ground_collision,
             collision_group=collision_group,
+            is_visible=is_visible,
         )
 
     def add_shape_mesh(
@@ -2834,6 +2854,7 @@ class ModelBuilder:
         thickness: float = default_geo_thickness,
         has_ground_collision: bool = True,
         collision_group: int = -1,
+        is_visible: bool = True,
     ):
         """Adds a triangle mesh collision shape to a body.
 
@@ -2853,6 +2874,7 @@ class ModelBuilder:
             thickness: Thickness to use for computing inertia of a hollow mesh, and for collision handling
             has_ground_collision: If True, the mesh will collide with the ground plane if `Model.ground` is True
             collision_group: The collision group of the shape
+            is_visible: Whether the mesh is visible
 
         Returns:
             The index of the added shape
@@ -2876,6 +2898,7 @@ class ModelBuilder:
             is_solid,
             has_ground_collision=has_ground_collision,
             collision_group=collision_group,
+            is_visible=is_visible,
         )
 
     def add_shape_sdf(
@@ -2893,6 +2916,7 @@ class ModelBuilder:
         restitution: float = default_shape_restitution,
         is_solid: bool = True,
         thickness: float = default_geo_thickness,
+        is_visible: bool = True,
     ):
         """Adds SDF collision shape to a body.
 
@@ -2911,6 +2935,7 @@ class ModelBuilder:
             is_solid: If True, the mesh is solid, otherwise it is a hollow surface with the given wall thickness
             thickness: Thickness to use for computing inertia of a hollow mesh, and for collision handling
             has_ground_collision: If True, the mesh will collide with the ground plane if `Model.ground` is True
+            is_visible: Whether the mesh is visible
 
         Returns:
             The index of the added shape
@@ -2931,6 +2956,7 @@ class ModelBuilder:
             restitution,
             thickness,
             is_solid,
+            is_visible=is_visible,
         )
 
     def _shape_radius(self, type, scale, src):
@@ -2974,6 +3000,7 @@ class ModelBuilder:
         collision_group=-1,
         collision_filter_parent=True,
         has_ground_collision=True,
+        is_visible=True,
     ):
         self.shape_body.append(body)
         shape = self.shape_count
@@ -2985,6 +3012,7 @@ class ModelBuilder:
         else:
             self.body_shapes[body] = [shape]
         self.shape_transform.append(wp.transform(pos, rot))
+        self.shape_visible.append(is_visible)
         self.shape_geo_type.append(type)
         self.shape_geo_scale.append((scale[0], scale[1], scale[2]))
         self.shape_geo_src.append(src)
@@ -3992,6 +4020,7 @@ class ModelBuilder:
 
             m.shape_transform = wp.array(self.shape_transform, dtype=wp.transform, requires_grad=requires_grad)
             m.shape_body = wp.array(self.shape_body, dtype=wp.int32)
+            m.shape_visible = wp.array(self.shape_visible, dtype=wp.bool)
             m.body_shapes = self.body_shapes
 
             # build list of ids for geometry sources (meshes, sdfs)

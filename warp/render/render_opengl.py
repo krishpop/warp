@@ -182,12 +182,13 @@ in vec2 TexCoord;
 
 uniform vec3 color1;
 uniform vec3 color2;
+uniform float farPlane;
 
 uniform vec3 sunDirection;
 
 void main()
 {
-    float y = tanh(FragPos.y*0.01)*0.5+0.5;
+    float y = tanh(FragPos.y/farPlane*10.0)*0.5+0.5;
     float height = sqrt(1.0-y);
 
     float s = pow(0.5, 1.0 / 10.0);
@@ -949,6 +950,7 @@ class OpenGLRenderer:
         self._shape_gl_buffers = {}
         self._shape_instances = defaultdict(list)
         self._instances = {}
+        self._instance_custom_ids = {}
         self._instance_shape = {}
         self._instance_gl_buffers = {}
         self._instance_transform_gl_buffer = None
@@ -957,6 +959,8 @@ class OpenGLRenderer:
         self._instance_color2_buffer = None
         self._instance_count = 0
         self._wp_instance_ids = None
+        self._wp_instance_custom_ids = None
+        self._np_instance_visible = None
         self._instance_ids = None
         self._inverse_instance_ids = None
         self._wp_instance_transforms = None
@@ -1067,9 +1071,11 @@ class OpenGLRenderer:
 
             self._loc_sky_color1 = gl.glGetUniformLocation(self._sky_shader.id, str_buffer("color1"))
             self._loc_sky_color2 = gl.glGetUniformLocation(self._sky_shader.id, str_buffer("color2"))
+            self._loc_sky_far_plane = gl.glGetUniformLocation(self._sky_shader.id, str_buffer("farPlane"))
             gl.glUniform3f(self._loc_sky_color1, *background_color)
             # glUniform3f(self._loc_sky_color2, *np.clip(np.array(background_color)+0.5, 0.0, 1.0))
             gl.glUniform3f(self._loc_sky_color2, 0.8, 0.4, 0.05)
+            gl.glUniform1f(self._loc_sky_far_plane, self.camera_far_plane)
             self._loc_sky_view_pos = gl.glGetUniformLocation(self._sky_shader.id, str_buffer("viewPos"))
             gl.glUniform3f(
                 gl.glGetUniformLocation(self._sky_shader.id, str_buffer("sunDirection")), *self._sun_direction
@@ -1271,9 +1277,11 @@ class OpenGLRenderer:
         self._instance_color1_buffer = None
         self._instance_color2_buffer = None
         self._wp_instance_ids = None
+        self._wp_instance_custom_ids = None
         self._wp_instance_transforms = None
         self._wp_instance_scalings = None
         self._wp_instance_bodies = None
+        self._np_instance_visible = None
         self._update_shape_instances = False
 
     @property
@@ -1962,7 +1970,8 @@ Instances: {len(self._instances)}"""
         return shape
 
     def add_shape_instance(
-        self, name: str, shape: int, body, pos, rot, scale=(1.0, 1.0, 1.0), color1=None, color2=None
+        self, name: str, shape: int, body, pos, rot, scale=(1.0, 1.0, 1.0), color1=None, color2=None,
+        custom_index: int = -1, visible: bool = True,
     ):
         if color1 is None:
             color1 = self._shapes[shape][2]
@@ -1971,8 +1980,9 @@ Instances: {len(self._instances)}"""
         instance = len(self._instances)
         self._shape_instances[shape].append(instance)
         body = self._resolve_body_id(body)
-        self._instances[name] = (instance, body, shape, [*pos, *rot], scale, color1, color2)
+        self._instances[name] = (instance, body, shape, [*pos, *rot], scale, color1, color2, visible)
         self._instance_shape[instance] = shape
+        self._instance_custom_ids[instance] = custom_index
         self._add_shape_instances = True
         self._instance_count = len(self._instances)
         return instance
@@ -2037,6 +2047,9 @@ Instances: {len(self._instances)}"""
         matrix_size = transforms[0].nbytes
 
         instance_ids = []
+        instance_custom_ids = []
+        instance_visible = []
+        instances = list(self._instances.values())
         inverse_instance_ids = {}
         instance_count = 0
         for shape, (vao, vbo, ebo, tri_count, vertex_cuda_buffer) in self._shape_gl_buffers.items():
@@ -2066,27 +2079,36 @@ Instances: {len(self._instances)}"""
             for i in self._shape_instances[shape]:
                 inverse_instance_ids[i] = instance_count
                 instance_count += 1
+                instance_custom_ids.append(self._instance_custom_ids[i])
+                instance_visible.append(instances[i][7])
 
         # trigger update to the instance transforms
         self._update_shape_instances = True
 
         self._wp_instance_ids = wp.array(instance_ids, dtype=wp.int32, device=self._device)
+        self._wp_instance_custom_ids = wp.array(instance_custom_ids, dtype=wp.int32, device=self._device)
+        self._np_instance_visible = np.array(instance_visible)
         self._instance_ids = instance_ids
         self._inverse_instance_ids = inverse_instance_ids
 
         gl.glBindVertexArray(0)
 
-    def update_shape_instance(self, name, pos, rot, color1=None, color2=None):
+    def update_shape_instance(self, name, pos, rot, color1=None, color2=None, visible=None):
         """Update the instance transform of the shape
 
         Args:
             name: The name of the shape
             pos: The position of the shape
             rot: The rotation of the shape
+            color1: The first color of the checker pattern
+            color2: The second color of the checker pattern
+            visible: Whether the shape is visible
         """
         if name in self._instances:
-            i, body, shape, _, scale, old_color1, old_color2 = self._instances[name]
-            self._instances[name] = (i, body, shape, [*pos, *rot], scale, color1 or old_color1, color2 or old_color2)
+            i, body, shape, _, scale, old_color1, old_color2, v = self._instances[name]
+            if visible is None:
+                visible = v
+            self._instances[name] = (i, body, shape, [*pos, *rot], scale, color1 or old_color1, color2 or old_color2, visible)
             self._update_shape_instances = True
             return True
         return False
