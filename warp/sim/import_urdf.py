@@ -86,7 +86,8 @@ def parse_urdf(
         rpy = [float(x) for x in rpy.split()]
         return wp.transform(xyz, wp.quat_rpy(*rpy))
 
-    def parse_shapes(link, collisions, density, incoming_xform=None):
+    def parse_shapes(link, collisions, density, incoming_xform=None, visible=True, just_visual=False):
+        shapes = []
         # add geometry
         for collision in collisions:
             geo = collision.find("geometry")
@@ -100,7 +101,7 @@ def parse_urdf(
             for box in geo.findall("box"):
                 size = box.get("size") or "1 1 1"
                 size = [float(x) for x in size.split()]
-                builder.add_shape_box(
+                s = builder.add_shape_box(
                     body=link,
                     pos=tf.p,
                     rot=tf.q,
@@ -114,10 +115,13 @@ def parse_urdf(
                     mu=shape_mu,
                     restitution=shape_restitution,
                     thickness=shape_thickness,
+                    is_visible=visible,
+                    has_ground_collision=not just_visual,
                 )
+                shapes.append(s)
 
             for sphere in geo.findall("sphere"):
-                builder.add_shape_sphere(
+                s = builder.add_shape_sphere(
                     body=link,
                     pos=tf.p,
                     rot=tf.q,
@@ -129,10 +133,13 @@ def parse_urdf(
                     mu=shape_mu,
                     restitution=shape_restitution,
                     thickness=shape_thickness,
+                    is_visible=visible,
+                    has_ground_collision=not just_visual,
                 )
+                shapes.append(s)
 
             for cylinder in geo.findall("cylinder"):
-                builder.add_shape_capsule(
+                s = builder.add_shape_capsule(
                     body=link,
                     pos=tf.p,
                     rot=tf.q,
@@ -146,7 +153,10 @@ def parse_urdf(
                     up_axis=2,  # cylinders in URDF are aligned with z-axis
                     restitution=shape_restitution,
                     thickness=shape_thickness,
+                    is_visible=visible,
+                    has_ground_collision=not just_visual,
                 )
+                shapes.append(s)
 
             for mesh in geo.findall("mesh"):
                 filename = mesh.get("filename")
@@ -184,7 +194,7 @@ def parse_urdf(
                         vertices = np.array(geom.vertices, dtype=np.float32) * scaling
                         faces = np.array(geom.faces, dtype=np.int32)
                         mesh = Mesh(vertices, faces)
-                        builder.add_shape_mesh(
+                        s = builder.add_shape_mesh(
                             body=link,
                             pos=tf.p,
                             rot=tf.q,
@@ -196,13 +206,16 @@ def parse_urdf(
                             mu=shape_mu,
                             restitution=shape_restitution,
                             thickness=shape_thickness,
+                            is_visible=visible,
+                            has_ground_collision=not just_visual,
                         )
+                        shapes.append(s)
                 else:
                     # a single mesh
                     vertices = np.array(m.vertices, dtype=np.float32) * scaling
                     faces = np.array(m.faces, dtype=np.int32)
                     mesh = Mesh(vertices, faces)
-                    builder.add_shape_mesh(
+                    s = builder.add_shape_mesh(
                         body=link,
                         pos=tf.p,
                         rot=tf.q,
@@ -214,7 +227,15 @@ def parse_urdf(
                         mu=shape_mu,
                         restitution=shape_restitution,
                         thickness=shape_thickness,
+                        is_visible=visible,
+                        has_ground_collision=not just_visual,
                     )
+                    shapes.append(s)
+
+        if just_visual:
+            for i in range(len(shapes)):
+                for j in range(i):
+                    builder.shape_collision_filter_pairs.add((shapes[i], shapes[j]))
 
     # maps from link name -> link index
     link_index = {}
@@ -225,18 +246,19 @@ def parse_urdf(
 
     # add links
     for i, urdf_link in enumerate(root.findall("link")):
-        if parse_visuals_as_colliders:
-            colliders = urdf_link.findall("visual")
-        else:
-            colliders = urdf_link.findall("collision")
-
         name = urdf_link.get("name")
         link = builder.add_body(origin=wp.transform_identity(), armature=armature, name=name)
 
         # add ourselves to the index
         link_index[name] = link
 
-        parse_shapes(link, colliders, density=density)
+        if parse_visuals_as_colliders:
+            colliders = urdf_link.findall("visual")
+        else:
+            colliders = urdf_link.findall("collision")
+            parse_shapes(link, urdf_link.findall("visual"), density=0.0, just_visual=True)
+
+        parse_shapes(link, colliders, density=density, visible=parse_visuals_as_colliders)
         m = builder.body_mass[link]
         if not ignore_inertial_definitions and urdf_link.find("inertial") is not None:
             # overwrite inertial parameters if defined
