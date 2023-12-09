@@ -20,6 +20,11 @@ from .integrator_euler import (
     eval_rigid_contacts,
 )
 
+from .articulation import (
+    compute_2d_rotational_dofs,
+    compute_3d_rotational_dofs,
+)
+
 
 # Frank & Park definition 3.20, pg 100
 @wp.func
@@ -140,21 +145,18 @@ def jcalc_transform(
     joint_q: wp.array(dtype=float),
     start: int,
 ):
-    # prismatic
     if type == wp.sim.JOINT_PRISMATIC:
         q = joint_q[start]
         axis = joint_axis[axis_start]
         X_jc = wp.transform(axis * q, wp.quat_identity())
         return X_jc
 
-    # revolute
     if type == wp.sim.JOINT_REVOLUTE:
         q = joint_q[start]
         axis = joint_axis[axis_start]
         X_jc = wp.transform(wp.vec3(0.0, 0.0, 0.0), wp.quat_from_axis_angle(axis, q))
         return X_jc
 
-    # ball
     if type == wp.sim.JOINT_BALL:
         qx = joint_q[start + 0]
         qy = joint_q[start + 1]
@@ -164,12 +166,10 @@ def jcalc_transform(
         X_jc = wp.transform(wp.vec3(0.0, 0.0, 0.0), wp.quat(qx, qy, qz, qw))
         return X_jc
 
-    # fixed
     if type == wp.sim.JOINT_FIXED:
         X_jc = wp.transform_identity()
         return X_jc
 
-    # free
     if type == wp.sim.JOINT_FREE or type == wp.sim.JOINT_DISTANCE:
         px = joint_q[start + 0]
         py = joint_q[start + 1]
@@ -181,6 +181,83 @@ def jcalc_transform(
         qw = joint_q[start + 6]
 
         X_jc = wp.transform(wp.vec3(px, py, pz), wp.quat(qx, qy, qz, qw))
+        return X_jc
+
+    if type == wp.sim.JOINT_COMPOUND:
+        rot, _ = compute_3d_rotational_dofs(
+            joint_axis[axis_start],
+            joint_axis[axis_start + 1],
+            joint_axis[axis_start + 2],
+            joint_q[start + 0],
+            joint_q[start + 1],
+            joint_q[start + 2],
+            0.0,
+            0.0,
+            0.0,
+        )
+
+        X_jc = wp.transform(wp.vec3(0.0, 0.0, 0.0), rot)
+        return X_jc
+
+    if type == wp.sim.JOINT_UNIVERSAL:
+        rot, _ = compute_2d_rotational_dofs(
+            joint_axis[axis_start],
+            joint_axis[axis_start + 1],
+            joint_q[start + 0],
+            joint_q[start + 1],
+            0.0,
+            0.0,
+        )
+
+        X_jc = wp.transform(wp.vec3(0.0, 0.0, 0.0), rot)
+        return X_jc
+
+    if type == wp.sim.JOINT_D6:
+        pos = wp.vec3(0.0)
+        rot = wp.quat_identity()
+
+        # unroll for loop to ensure joint actions remain differentiable
+        # (since differentiating through a for loop that updates a local variable is not supported)
+
+        if lin_axis_count > 0:
+            axis = joint_axis[axis_start + 0]
+            pos += axis * joint_q[start + 0]
+        if lin_axis_count > 1:
+            axis = joint_axis[axis_start + 1]
+            pos += axis * joint_q[start + 1]
+        if lin_axis_count > 2:
+            axis = joint_axis[axis_start + 2]
+            pos += axis * joint_q[start + 2]
+
+        ia = axis_start + lin_axis_count
+        iq = start + lin_axis_count
+        if ang_axis_count == 1:
+            axis = joint_axis[axis_start + lin_axis_count + 0]
+            qi = wp.quat_from_axis_angle(axis, joint_q[start + lin_axis_count + 0])
+            rot = qi * rot
+        if ang_axis_count == 2:
+            rot, _ = compute_2d_rotational_dofs(
+                joint_axis[ia + 0],
+                joint_axis[ia + 1],
+                joint_q[iq + 0],
+                joint_q[iq + 1],
+                0.0,
+                0.0,
+            )
+        if ang_axis_count == 3:
+            rot, _ = compute_3d_rotational_dofs(
+                joint_axis[ia + 0],
+                joint_axis[ia + 1],
+                joint_axis[ia + 2],
+                joint_q[iq + 0],
+                joint_q[iq + 1],
+                joint_q[iq + 2],
+                0.0,
+                0.0,
+                0.0,
+            )
+
+        X_jc = wp.transform(pos, rot)
         return X_jc
 
     # default case
@@ -196,49 +273,88 @@ def jcalc_motion(
     lin_axis_count: int,
     ang_axis_count: int,
     X_sc: wp.transform,
+    joint_q: wp.array(dtype=float),
     joint_qd: wp.array(dtype=float),
+    q_start: int,
     qd_start: int,
     # outputs
     joint_S_s: wp.array(dtype=wp.spatial_vector),
 ):
-    # prismatic
     if type == wp.sim.JOINT_PRISMATIC:
         axis = joint_axis[axis_start]
         S_s = spatial_transform_twist(X_sc, wp.spatial_vector(wp.vec3(0.0, 0.0, 0.0), axis))
         v_j_s = S_s * joint_qd[qd_start]
-
         joint_S_s[qd_start] = S_s
         return v_j_s
 
-    # revolute
     if type == wp.sim.JOINT_REVOLUTE:
         axis = joint_axis[axis_start]
         S_s = spatial_transform_twist(X_sc, wp.spatial_vector(axis, wp.vec3(0.0, 0.0, 0.0)))
         v_j_s = S_s * joint_qd[qd_start]
-
         joint_S_s[qd_start] = S_s
         return v_j_s
 
-    # ball
-    if type == wp.sim.JOINT_BALL:
-        w = wp.vec3(joint_qd[qd_start + 0], joint_qd[qd_start + 1], joint_qd[qd_start + 2])
+    if type == wp.sim.JOINT_UNIVERSAL:
+        axis_0 = joint_axis[axis_start + 0]
+        axis_1 = joint_axis[axis_start + 1]
+        q_off = wp.quat_from_matrix(wp.mat33(axis_0, axis_1, wp.cross(axis_0, axis_1)))
+        local_0 = wp.quat_rotate(q_off, wp.vec3(1.0, 0.0, 0.0))
+        local_1 = wp.quat_rotate(q_off, wp.vec3(0.0, 1.0, 0.0))
 
-        S_0 = spatial_transform_twist(X_sc, wp.spatial_vector(1.0, 0.0, 0.0, 0.0, 0.0, 0.0))
-        S_1 = spatial_transform_twist(X_sc, wp.spatial_vector(0.0, 1.0, 0.0, 0.0, 0.0, 0.0))
-        S_2 = spatial_transform_twist(X_sc, wp.spatial_vector(0.0, 0.0, 1.0, 0.0, 0.0, 0.0))
+        axis_0 = local_0
+        q_0 = wp.quat_from_axis_angle(axis_0, joint_q[q_start + 0])
 
-        # write motion subspace
+        axis_1 = wp.quat_rotate(q_0, local_1)
+
+        S_0 = spatial_transform_twist(X_sc, wp.spatial_vector(axis_0, wp.vec3()))
+        S_1 = spatial_transform_twist(X_sc, wp.spatial_vector(axis_1, wp.vec3()))
+
+        joint_S_s[qd_start + 0] = S_0
+        joint_S_s[qd_start + 1] = S_1
+
+        return S_0 * joint_qd[qd_start + 0] + S_1 * joint_qd[qd_start + 1]
+
+    if type == wp.sim.JOINT_COMPOUND:
+        axis_0 = joint_axis[axis_start + 0]
+        axis_1 = joint_axis[axis_start + 1]
+        axis_2 = joint_axis[axis_start + 2]
+        q_off = wp.quat_from_matrix(wp.mat33(axis_0, axis_1, axis_2))
+        local_0 = wp.quat_rotate(q_off, wp.vec3(1.0, 0.0, 0.0))
+        local_1 = wp.quat_rotate(q_off, wp.vec3(0.0, 1.0, 0.0))
+        local_2 = wp.quat_rotate(q_off, wp.vec3(0.0, 0.0, 1.0))
+
+        axis_0 = local_0
+        q_0 = wp.quat_from_axis_angle(axis_0, joint_q[q_start + 0])
+
+        axis_1 = wp.quat_rotate(q_0, local_1)
+        q_1 = wp.quat_from_axis_angle(axis_1, joint_q[q_start + 1])
+
+        axis_2 = wp.quat_rotate(q_1 * q_0, local_2)
+
+        S_0 = spatial_transform_twist(X_sc, wp.spatial_vector(axis_0, wp.vec3()))
+        S_1 = spatial_transform_twist(X_sc, wp.spatial_vector(axis_1, wp.vec3()))
+        S_2 = spatial_transform_twist(X_sc, wp.spatial_vector(axis_2, wp.vec3()))
+
         joint_S_s[qd_start + 0] = S_0
         joint_S_s[qd_start + 1] = S_1
         joint_S_s[qd_start + 2] = S_2
 
-        return S_0 * w[0] + S_1 * w[1] + S_2 * w[2]
+        return S_0 * joint_qd[qd_start + 0] + S_1 * joint_qd[qd_start + 1] + S_2 * joint_qd[qd_start + 2]
 
-    # fixed
+    if type == wp.sim.JOINT_BALL:
+        S_0 = spatial_transform_twist(X_sc, wp.spatial_vector(1.0, 0.0, 0.0, 0.0, 0.0, 0.0))
+        S_1 = spatial_transform_twist(X_sc, wp.spatial_vector(0.0, 1.0, 0.0, 0.0, 0.0, 0.0))
+        S_2 = spatial_transform_twist(X_sc, wp.spatial_vector(0.0, 0.0, 1.0, 0.0, 0.0, 0.0))
+
+        joint_S_s[qd_start + 0] = S_0
+        joint_S_s[qd_start + 1] = S_1
+        joint_S_s[qd_start + 2] = S_2
+
+        return S_0 * joint_qd[qd_start + 0] + S_1 * joint_qd[qd_start + 1] + S_2 * joint_qd[qd_start + 2]
+
     if type == wp.sim.JOINT_FIXED:
         return wp.spatial_vector()
 
-    # free
     if type == wp.sim.JOINT_FREE or type == wp.sim.JOINT_DISTANCE:
         v_j_s = wp.spatial_vector(
             joint_qd[qd_start + 0],
@@ -249,7 +365,6 @@ def jcalc_motion(
             joint_qd[qd_start + 5],
         )
 
-        # write motion subspace
         joint_S_s[qd_start + 0] = wp.spatial_vector(1.0, 0.0, 0.0, 0.0, 0.0, 0.0)
         joint_S_s[qd_start + 1] = wp.spatial_vector(0.0, 1.0, 0.0, 0.0, 0.0, 0.0)
         joint_S_s[qd_start + 2] = wp.spatial_vector(0.0, 0.0, 1.0, 0.0, 0.0, 0.0)
@@ -265,44 +380,14 @@ def jcalc_motion(
     return wp.spatial_vector()
 
 
-# # compute the velocity across a joint
-# #@wp.func
-# def jcalc_velocity(self, type, S_s, joint_qd, start):
-
-#     # prismatic
-#     if (type == 0):
-#         v_j_s = S_s[start)*joint_qd[start]
-#         return v_j_s
-
-#     # revolute
-#     if (type == 1):
-#         v_j_s = S_s[start)*joint_qd[start]
-#         return v_j_s
-
-#     # fixed
-#     if (type == 2):
-#         v_j_s = wp.spatial_vector()
-#         return v_j_s
-
-#     # free
-#     if (type == 3):
-#         v_j_s =  S_s[start+0]*joint_qd[start+0]
-#         v_j_s += S_s[start+1]*joint_qd[start+1]
-#         v_j_s += S_s[start+2]*joint_qd[start+2]
-#         v_j_s += S_s[start+3]*joint_qd[start+3]
-#         v_j_s += S_s[start+4]*joint_qd[start+4]
-#         v_j_s += S_s[start+5]*joint_qd[start+5]
-#         return v_j_s
-
-
 # computes joint space forces/torques in tau
 @wp.func
 def jcalc_tau(
     type: int,
-    target_k_e: float,
-    target_k_d: float,
-    limit_k_e: float,
-    limit_k_d: float,
+    joint_target_ke: wp.array(dtype=float),
+    joint_target_kd: wp.array(dtype=float),
+    joint_limit_ke: wp.array(dtype=float),
+    joint_limit_kd: wp.array(dtype=float),
     joint_S_s: wp.array(dtype=wp.spatial_vector),
     joint_q: wp.array(dtype=float),
     joint_qd: wp.array(dtype=float),
@@ -312,11 +397,13 @@ def jcalc_tau(
     joint_limit_upper: wp.array(dtype=float),
     coord_start: int,
     dof_start: int,
+    axis_start: int,
+    lin_axis_count: int,
+    ang_axis_count: int,
     body_f_s: wp.spatial_vector,
     # outputs
     tau: wp.array(dtype=float),
 ):
-    # prismatic / revolute
     if type == wp.sim.JOINT_PRISMATIC or type == wp.sim.JOINT_REVOLUTE:
         S_s = joint_S_s[dof_start]
 
@@ -324,9 +411,14 @@ def jcalc_tau(
         qd = joint_qd[dof_start]
         act = joint_act[dof_start]
 
-        target = joint_target[coord_start]
-        lower = joint_limit_lower[coord_start]
-        upper = joint_limit_upper[coord_start]
+        target = joint_target[axis_start]
+        lower = joint_limit_lower[axis_start]
+        upper = joint_limit_upper[axis_start]
+
+        limit_k_e = joint_limit_ke[axis_start]
+        limit_k_d = joint_limit_kd[axis_start]
+        target_k_e = joint_target_ke[axis_start]
+        target_k_d = joint_target_kd[axis_start]
 
         limit_f = 0.0
 
@@ -346,7 +438,6 @@ def jcalc_tau(
 
         return
 
-    # ball
     if type == wp.sim.JOINT_BALL:
         # elastic term.. this is proportional to the
         # imaginary part of the relative quaternion
@@ -365,15 +456,42 @@ def jcalc_tau(
 
         return
 
-    # fixed
-    # if (type == wp.sim.JOINT_FIXED)
-    #    pass
-
-    # free
     if type == wp.sim.JOINT_FREE or type == wp.sim.JOINT_DISTANCE:
         for i in range(6):
             S_s = joint_S_s[dof_start + i]
             tau[dof_start + i] = -wp.dot(S_s, body_f_s)
+
+        return
+
+    if type == wp.sim.JOINT_COMPOUND or type == wp.sim.JOINT_UNIVERSAL or type == wp.sim.JOINT_D6:
+        axis_count = lin_axis_count + ang_axis_count
+
+        for i in range(axis_count):
+            S_s = joint_S_s[dof_start + i]
+
+            q = joint_q[coord_start + i]
+            qd = joint_qd[dof_start + i]
+            act = joint_act[dof_start + i]
+
+            target = joint_target[axis_start + i]
+            lower = joint_limit_lower[axis_start + i]
+            upper = joint_limit_upper[axis_start + i]
+
+            limit_f = 0.0
+
+            # compute limit forces, damping only active when limit is violated
+            if q < lower:
+                limit_f = limit_k_e * (lower - q)
+
+            if q > upper:
+                limit_f = limit_k_e * (upper - q)
+
+            damping_f = -limit_k_d * qd
+
+            # total torque / force on the joint
+            t = -wp.dot(S_s, body_f_s) - target_k_e * (q - target) - target_k_d * qd + act + limit_f + damping_f
+
+            tau[dof_start + i] = t
 
         return
 
@@ -513,6 +631,8 @@ def jcalc_integrate(
             joint_qd_new[dof_start + i] = qd_new
             joint_q_new[coord_start + i] = q_new
 
+        return
+
 
 @wp.func
 def compute_link_transform(
@@ -651,7 +771,9 @@ def compute_link_velocity(
     joint_type: wp.array(dtype=int),
     joint_parent: wp.array(dtype=int),
     joint_child: wp.array(dtype=int),
+    joint_q_start: wp.array(dtype=int),
     joint_qd_start: wp.array(dtype=int),
+    joint_q: wp.array(dtype=float),
     joint_qd: wp.array(dtype=float),
     joint_axis: wp.array(dtype=wp.vec3),
     joint_axis_start: wp.array(dtype=int),
@@ -660,6 +782,7 @@ def compute_link_velocity(
     body_q: wp.array(dtype=wp.transform),
     body_q_com: wp.array(dtype=wp.transform),
     joint_X_p: wp.array(dtype=wp.transform),
+    joint_X_c: wp.array(dtype=wp.transform),
     gravity: wp.vec3,
     # outputs
     joint_S_s: wp.array(dtype=wp.spatial_vector),
@@ -671,6 +794,7 @@ def compute_link_velocity(
     type = joint_type[i]
     child = joint_child[i]
     parent = joint_parent[i]
+    q_start = joint_q_start[i]
     qd_start = joint_qd_start[i]
 
     # parent transform in spatial coordinates
@@ -679,14 +803,33 @@ def compute_link_velocity(
         X_sp = body_q[parent]
 
     X_pj = joint_X_p[i]
+    X_cj = joint_X_c[i]
+
+    # parent anchor frame in world space
+    X_wpj = X_pj
+    # velocity of parent anchor point in world space
+    v_wpj = wp.spatial_vector()
+    if parent >= 0:
+        X_wp = body_q[parent]
+        X_wpj = X_wp * X_wpj
+        # r_p = wp.transform_get_translation(X_wpj) - wp.transform_point(X_wp, body_com[parent])
+
+        # v_wp = body_qd[parent]
+        # w_p = wp.spatial_top(v_wp)
+        # v_p = wp.spatial_bottom(v_wp) + wp.cross(w_p, r_p)
+        # v_wpj = wp.spatial_vector(w_p, v_p)
+
+    X_pj = joint_X_p[i]
     X_sj = X_sp * X_pj
+
+    X_sj = X_wpj
 
     # compute motion subspace and velocity across the joint (also stores S_s to global memory)
     axis_start = joint_axis_start[i]
     lin_axis_count = joint_axis_dim[i, 0]
     ang_axis_count = joint_axis_dim[i, 1]
     v_j_s = jcalc_motion(
-        type, joint_axis, axis_start, lin_axis_count, ang_axis_count, X_sj, joint_qd, qd_start, joint_S_s
+        type, joint_axis, axis_start, lin_axis_count, ang_axis_count, X_sj, joint_q, joint_qd, q_start, qd_start, joint_S_s
     )
 
     # parent velocity
@@ -711,6 +854,9 @@ def compute_link_velocity(
     f_g_m = wp.spatial_vector(wp.vec3(), gravity) * m
     f_g_s = spatial_transform_wrench(wp.transform(wp.transform_get_translation(X_sm), wp.quat_identity()), f_g_m)
 
+    # wp.printf("f_g_m:  %.3f %.3f %.3f %.3f %.3f %.3f\n", f_g_m[0], f_g_m[1], f_g_m[2], f_g_m[3], f_g_m[4], f_g_m[5])
+    # wp.printf("f_g_s:  %.3f %.3f %.3f %.3f %.3f %.3f\n", f_g_s[0], f_g_s[1], f_g_s[2], f_g_s[3], f_g_s[4], f_g_s[5])
+
     # f_ext_s = body_f_s[i] + f_g_s
 
     # body forces
@@ -730,7 +876,9 @@ def eval_rigid_id(
     joint_type: wp.array(dtype=int),
     joint_parent: wp.array(dtype=int),
     joint_child: wp.array(dtype=int),
+    joint_q_start: wp.array(dtype=int),
     joint_qd_start: wp.array(dtype=int),
+    joint_q: wp.array(dtype=float),
     joint_qd: wp.array(dtype=float),
     joint_axis: wp.array(dtype=wp.vec3),
     joint_axis_start: wp.array(dtype=int),
@@ -739,6 +887,7 @@ def eval_rigid_id(
     body_q: wp.array(dtype=wp.transform),
     body_q_com: wp.array(dtype=wp.transform),
     joint_X_p: wp.array(dtype=wp.transform),
+    joint_X_c: wp.array(dtype=wp.transform),
     gravity: wp.vec3,
     # outputs
     joint_S_s: wp.array(dtype=wp.spatial_vector),
@@ -760,7 +909,9 @@ def eval_rigid_id(
             joint_type,
             joint_parent,
             joint_child,
+            joint_q_start,
             joint_qd_start,
+            joint_q,
             joint_qd,
             joint_axis,
             joint_axis_start,
@@ -769,6 +920,7 @@ def eval_rigid_id(
             body_q,
             body_q_com,
             joint_X_p,
+            joint_X_c,
             gravity,
             joint_S_s,
             body_I_s,
@@ -787,6 +939,8 @@ def compute_link_tau(
     joint_child: wp.array(dtype=int),
     joint_q_start: wp.array(dtype=int),
     joint_qd_start: wp.array(dtype=int),
+    joint_axis_start: wp.array(dtype=int),
+    joint_axis_dim: wp.array(dtype=int, ndim=2),
     joint_q: wp.array(dtype=float),
     joint_qd: wp.array(dtype=float),
     joint_act: wp.array(dtype=float),
@@ -811,12 +965,9 @@ def compute_link_tau(
     child = joint_child[i]
     dof_start = joint_qd_start[i]
     coord_start = joint_q_start[i]
-
-    target_k_e = joint_target_ke[i]
-    target_k_d = joint_target_kd[i]
-
-    limit_k_e = joint_limit_ke[i]
-    limit_k_d = joint_limit_kd[i]
+    axis_start = joint_axis_start[i]
+    lin_axis_count = joint_axis_dim[i, 0]
+    ang_axis_count = joint_axis_dim[i, 1]
 
     # total forces on body
     f_b_s = body_fb_s[child]
@@ -827,10 +978,10 @@ def compute_link_tau(
     # compute joint-space forces, writes out tau
     jcalc_tau(
         type,
-        target_k_e,
-        target_k_d,
-        limit_k_e,
-        limit_k_d,
+        joint_target_ke,
+        joint_target_kd,
+        joint_limit_ke,
+        joint_limit_kd,
         joint_S_s,
         joint_q,
         joint_qd,
@@ -840,6 +991,9 @@ def compute_link_tau(
         joint_limit_upper,
         coord_start,
         dof_start,
+        axis_start,
+        lin_axis_count,
+        ang_axis_count,
         f_s,
         tau,
     )
@@ -857,6 +1011,8 @@ def eval_rigid_tau(
     joint_child: wp.array(dtype=int),
     joint_q_start: wp.array(dtype=int),
     joint_qd_start: wp.array(dtype=int),
+    joint_axis_start: wp.array(dtype=int),
+    joint_axis_dim: wp.array(dtype=int, ndim=2),
     joint_q: wp.array(dtype=float),
     joint_qd: wp.array(dtype=float),
     joint_act: wp.array(dtype=float),
@@ -890,6 +1046,8 @@ def eval_rigid_tau(
             joint_child,
             joint_q_start,
             joint_qd_start,
+            joint_axis_start,
+            joint_axis_dim,
             joint_q,
             joint_qd,
             joint_act,
@@ -1243,9 +1401,9 @@ class FeatherstoneIntegrator:
             state.body_I_s = wp.empty(
                 (model.body_count,), dtype=wp.spatial_matrix, device=model.device, requires_grad=state.requires_grad
             )
-            state.body_v_s = wp.empty(
-                (model.body_count,), dtype=wp.spatial_vector, device=model.device, requires_grad=state.requires_grad
-            )
+            # state.body_v_s = wp.empty(
+            #     (model.body_count,), dtype=wp.spatial_vector, device=model.device, requires_grad=state.requires_grad
+            # )
             state.body_a_s = wp.empty(
                 (model.body_count,), dtype=wp.spatial_vector, device=model.device, requires_grad=state.requires_grad
             )
@@ -1532,6 +1690,7 @@ class FeatherstoneIntegrator:
                 )
 
                 # evaluate joint inertias, motion vectors, and forces
+                body_f.zero_()
                 wp.launch(
                     eval_rigid_id,
                     dim=model.articulation_count,
@@ -1540,7 +1699,9 @@ class FeatherstoneIntegrator:
                         model.joint_type,
                         model.joint_parent,
                         model.joint_child,
+                        model.joint_q_start,
                         model.joint_qd_start,
+                        state_in.joint_q,
                         state_in.joint_qd,
                         model.joint_axis,
                         model.joint_axis_start,
@@ -1549,13 +1710,14 @@ class FeatherstoneIntegrator:
                         state_in.body_q,
                         state_in.body_q_com,
                         model.joint_X_p,
+                        model.joint_X_c,
                         model.gravity,
                     ],
                     outputs=[
                         state_out.joint_S_s,
                         state_out.body_I_s,
-                        state_out.body_v_s,
-                        state_out.body_f_s,
+                        state_out.body_qd,
+                        body_f,
                         state_out.body_a_s,
                     ],
                     device=model.device,
@@ -1584,8 +1746,9 @@ class FeatherstoneIntegrator:
                             contact_state.rigid_contact_normal,
                             contact_state.rigid_contact_shape0,
                             contact_state.rigid_contact_shape1,
+                            True,
                         ],
-                        outputs=[body_f],
+                        outputs=[body_f],  # TODO was body_f
                         device=model.device,
                     )
 
@@ -1632,149 +1795,152 @@ class FeatherstoneIntegrator:
                         dim=model.muscle_count,
                         inputs=[
                             state_out.body_q,
-                            state_out.body_v_s,
+                            state_out.body_qd,
                             model.muscle_start,
                             model.muscle_params,
                             model.muscle_links,
                             model.muscle_points,
                             model.muscle_activation,
                         ],
-                        outputs=[state_out.body_f_s],
+                        outputs=[body_f],
                         device=model.device,
                     )
 
-                # evaluate joint torques
-                state_out.body_ft_s.zero_()
-                wp.launch(
-                    eval_rigid_tau,
-                    dim=model.articulation_count,
-                    inputs=[
-                        model.articulation_start,
-                        model.joint_type,
-                        model.joint_parent,
-                        model.joint_child,
-                        model.joint_q_start,
-                        model.joint_qd_start,
-                        state_in.joint_q,
-                        state_in.joint_qd,
-                        state_in.joint_act,
-                        model.joint_target,
-                        model.joint_target_ke,
-                        model.joint_target_kd,
-                        model.joint_limit_lower,
-                        model.joint_limit_upper,
-                        model.joint_limit_ke,
-                        model.joint_limit_kd,
-                        state_out.joint_S_s,
-                        state_out.body_f_s,
-                    ],
-                    outputs=[
-                        state_out.body_ft_s,
-                        state_out.joint_tau,
-                    ],
-                    device=model.device,
-                )
-
-                if update_mass_matrix:
-                    # build J
+                if model.articulation_count:
+                    # evaluate joint torques
+                    state_out.body_ft_s.zero_()
                     wp.launch(
-                        eval_rigid_jacobian,
+                        eval_rigid_tau,
                         dim=model.articulation_count,
                         inputs=[
                             model.articulation_start,
-                            model.articulation_J_start,
+                            model.joint_type,
                             model.joint_parent,
+                            model.joint_child,
+                            model.joint_q_start,
                             model.joint_qd_start,
+                            model.joint_axis_start,
+                            model.joint_axis_dim,
+                            state_in.joint_q,
+                            state_in.joint_qd,
+                            state_in.joint_act,
+                            model.joint_target,
+                            model.joint_target_ke,
+                            model.joint_target_kd,
+                            model.joint_limit_lower,
+                            model.joint_limit_upper,
+                            model.joint_limit_ke,
+                            model.joint_limit_kd,
                             state_out.joint_S_s,
+                            body_f,
                         ],
-                        outputs=[model.J],
+                        outputs=[
+                            state_out.body_ft_s,
+                            state_out.joint_tau,
+                        ],
                         device=model.device,
                     )
 
-                    # build M
-                    wp.launch(
-                        eval_rigid_mass,
-                        dim=model.articulation_count,
-                        inputs=[
-                            model.articulation_start,
-                            model.articulation_M_start,
-                            state_out.body_I_s,
-                        ],
-                        outputs=[model.M],
-                        device=model.device,
-                    )
+                    if update_mass_matrix:
+                        # build J
+                        wp.launch(
+                            eval_rigid_jacobian,
+                            dim=model.articulation_count,
+                            inputs=[
+                                model.articulation_start,
+                                model.articulation_J_start,
+                                model.joint_parent,
+                                model.joint_qd_start,
+                                state_out.joint_S_s,
+                            ],
+                            outputs=[model.J],
+                            device=model.device,
+                        )
 
-                    # form P = M*J
-                    wp.launch(
-                        eval_dense_gemm_batched,
-                        dim=model.articulation_count,
-                        inputs=[
-                            model.articulation_M_rows,
-                            model.articulation_J_cols,
-                            model.articulation_J_rows,
-                            False,
-                            False,
-                            model.articulation_M_start,
-                            model.articulation_J_start,
-                            # P start is the same as J start since it has the same dims as J
-                            model.articulation_J_start,
-                            model.M,
-                            model.J,
-                        ],
-                        outputs=[model.P],
-                        device=model.device,
-                    )
+                        # build M
+                        wp.launch(
+                            eval_rigid_mass,
+                            dim=model.articulation_count,
+                            inputs=[
+                                model.articulation_start,
+                                model.articulation_M_start,
+                                state_out.body_I_s,
+                            ],
+                            outputs=[model.M],
+                            device=model.device,
+                        )
 
-                    # form H = J^T*P
-                    wp.launch(
-                        eval_dense_gemm_batched,
-                        dim=model.articulation_count,
-                        inputs=[
-                            model.articulation_J_cols,
-                            model.articulation_J_cols,
-                            # P rows is the same as J rows
-                            model.articulation_J_rows,
-                            True,
-                            False,
-                            model.articulation_J_start,
-                            # P start is the same as J start since it has the same dims as J
-                            model.articulation_J_start,
-                            model.articulation_H_start,
-                            model.J,
-                            model.P,
-                        ],
-                        outputs=[model.H],
-                        device=model.device,
-                    )
+                        # form P = M*J
+                        wp.launch(
+                            eval_dense_gemm_batched,
+                            dim=model.articulation_count,
+                            inputs=[
+                                model.articulation_M_rows,
+                                model.articulation_J_cols,
+                                model.articulation_J_rows,
+                                False,
+                                False,
+                                model.articulation_M_start,
+                                model.articulation_J_start,
+                                # P start is the same as J start since it has the same dims as J
+                                model.articulation_J_start,
+                                model.M,
+                                model.J,
+                            ],
+                            outputs=[model.P],
+                            device=model.device,
+                        )
 
-                    # compute decomposition
+                        # form H = J^T*P
+                        wp.launch(
+                            eval_dense_gemm_batched,
+                            dim=model.articulation_count,
+                            inputs=[
+                                model.articulation_J_cols,
+                                model.articulation_J_cols,
+                                # P rows is the same as J rows
+                                model.articulation_J_rows,
+                                True,
+                                False,
+                                model.articulation_J_start,
+                                # P start is the same as J start since it has the same dims as J
+                                model.articulation_J_start,
+                                model.articulation_H_start,
+                                model.J,
+                                model.P,
+                            ],
+                            outputs=[model.H],
+                            device=model.device,
+                        )
+
+                        # compute decomposition
+                        wp.launch(
+                            eval_dense_cholesky_batched,
+                            dim=model.articulation_count,
+                            inputs=[
+                                model.articulation_H_start,
+                                model.articulation_H_rows,
+                                model.H,
+                                model.joint_armature,
+                            ],
+                            outputs=[model.L],
+                            device=model.device,
+                        )
+
+                    # solve for qdd
                     wp.launch(
-                        eval_dense_cholesky_batched,
+                        eval_dense_solve_batched,
                         dim=model.articulation_count,
                         inputs=[
                             model.articulation_H_start,
                             model.articulation_H_rows,
-                            model.H,
-                            model.joint_armature,
+                            model.articulation_dof_start,
+                            model.L,
+                            state_out.joint_tau,
                         ],
-                        outputs=[model.L],
+                        outputs=[state_out.joint_qdd],
                         device=model.device,
                     )
-
-                # solve for qdd
-                wp.launch(
-                    eval_dense_solve_batched,
-                    dim=model.articulation_count,
-                    inputs=[
-                        model.articulation_H_start,
-                        model.articulation_H_rows,
-                        model.articulation_dof_start,
-                        model.L,
-                        state_out.joint_tau,
-                    ],
-                    outputs=[state_out.joint_qdd],
-                    device=model.device,
-                )
 
             for plugin in self.plugins:
                 plugin.before_integrate(model, state_in, state_out, dt, requires_grad)
