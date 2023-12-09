@@ -532,7 +532,7 @@ def get_ticks(vars, labels):
     return ticks, ticks_labels, lengths
 
 
-def compare_jacobians(jacobian_ad, jacobian_fd, inputs, outputs, input_names, output_names, jacobian_name: str = "", max_fd_dims_per_var: int = 500, max_outputs_per_var: int = 500, ad_in=None, ad_out=None, atol: float = 0.1, rtol: float = 0.1, plot_jac_on_fail: bool = False, tabulate_errors: bool = True):
+def compare_jacobians(jacobian_ad, jacobian_fd, inputs, outputs, input_names, output_names, jacobian_name: str = "", max_fd_dims_per_var: int = 500, max_outputs_per_var: int = 500, ad_in=None, ad_out=None, atol: float = 0.1, rtol: float = 0.1, plot_jac_on_fail: bool = False, always_plot_jac: bool = False, tabulate_errors: bool = True):
     """
     Compare two Jacobians, one computed analytically and one computed using finite differences.
     Returns a boolean indicating whether the two Jacobians close enough w.r.t. atol and rtol, and a dictionary of accuracy statistics.
@@ -704,7 +704,7 @@ def compare_jacobians(jacobian_ad, jacobian_fd, inputs, outputs, input_names, ou
         except ImportError:
             print("Install tabulate via `pip install tabulate` to print errors")
 
-    if not result and plot_jac_on_fail:
+    if always_plot_jac or not result and plot_jac_on_fail:
         plot_jacobian_comparison(
             jacobian_ad, jacobian_fd,
             f"{jacobian_name} Jacobian",
@@ -715,7 +715,7 @@ def compare_jacobians(jacobian_ad, jacobian_fd, inputs, outputs, input_names, ou
     return result, stats
 
 
-def check_kernel_jacobian(kernel: Callable, dim: Tuple[int], inputs: list, outputs: list, eps: float = 1e-4, max_fd_dims_per_var: int = 500, max_outputs_per_var: int = 500, atol: float = 0.1, rtol: float = 0.1, plot_jac_on_fail: bool = False, tabulate_errors: bool = True, warn_about_missing_requires_grad: bool = True):
+def check_kernel_jacobian(kernel: Callable, dim: Tuple[int], inputs: list, outputs: list, eps: float = 1e-4, max_fd_dims_per_var: int = 500, max_outputs_per_var: int = 500, atol: float = 0.1, rtol: float = 0.1, plot_jac_on_fail: bool = False, always_plot_jac: bool = False, tabulate_errors: bool = True, warn_about_missing_requires_grad: bool = True):
     """
     Checks that the Jacobian of the Warp kernel is correct by comparing it to the
     numerical Jacobian computed using finite differences.
@@ -757,7 +757,7 @@ def check_kernel_jacobian(kernel: Callable, dim: Tuple[int], inputs: list, outpu
                              jacobian_name=kernel.key, input_names=input_names, output_names=output_names,
                              atol=atol, rtol=rtol,
                              max_outputs_per_var=max_outputs_per_var, max_fd_dims_per_var=max_fd_dims_per_var,
-                             tabulate_errors=tabulate_errors, plot_jac_on_fail=plot_jac_on_fail)
+                             tabulate_errors=tabulate_errors, plot_jac_on_fail=plot_jac_on_fail, always_plot_jac=always_plot_jac)
 
 
 def check_tape_jacobians(tape: wp.Tape, inputs: list, outputs: list, input_names: list, output_names: list, eps: float = 1e-4, max_fd_dims_per_var: int = 500, max_outputs_per_var: int = 500, atol: float = 0.1, rtol: float = 0.1, plot_jac_on_fail: bool = True, tabulate_errors: bool = True):
