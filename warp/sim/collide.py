@@ -832,7 +832,7 @@ def broadphase_collision_pairs(
         elif actual_type_b == wp.sim.GEO_MESH:
             num_contacts_a = 2
             mesh_b = wp.mesh_get(geo.source[actual_shape_b])
-            num_contacts_b = mesh_b.points.shape[0]
+            num_contacts_b = 0  # mesh_b.points.shape[0]
             num_contacts = num_contacts_a + num_contacts_b
             index = wp.atomic_add(contact_count, 0, num_contacts)
             if index + num_contacts - 1 >= rigid_contact_max:
@@ -877,7 +877,7 @@ def broadphase_collision_pairs(
         elif actual_type_b == wp.sim.GEO_MESH:
             num_contacts_a = 8
             mesh_b = wp.mesh_get(geo.source[actual_shape_b])
-            num_contacts_b = mesh_b.points.shape[0]
+            num_contacts_b = 0  # mesh_b.points.shape[0]
             num_contacts = num_contacts_a + num_contacts_b
             index = wp.atomic_add(contact_count, 0, num_contacts)
             if index + num_contacts - 1 >= rigid_contact_max:
