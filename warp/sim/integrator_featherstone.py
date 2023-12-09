@@ -439,20 +439,16 @@ def jcalc_tau(
         return
 
     if type == wp.sim.JOINT_BALL:
-        # elastic term.. this is proportional to the
-        # imaginary part of the relative quaternion
-        r_j = wp.vec3(joint_q[coord_start + 0], joint_q[coord_start + 1], joint_q[coord_start + 2])
-
-        # angular velocity for damping
-        w_j = wp.vec3(joint_qd[dof_start + 0], joint_qd[dof_start + 1], joint_qd[dof_start + 2])
+        # target_k_e = joint_target_ke[axis_start]
+        # target_k_d = joint_target_kd[axis_start]
 
         for i in range(3):
             S_s = joint_S_s[dof_start + i]
 
-            w = w_j[i]
-            r = r_j[i]
+            # w = joint_qd[dof_start + i]
+            # r = joint_q[coord_start + i]
 
-            tau[dof_start + i] = -wp.dot(S_s, body_f_s) - w * target_k_d - r * target_k_e
+            tau[dof_start + i] = -wp.dot(S_s, body_f_s)  # - w * target_k_d - r * target_k_e
 
         return
 
@@ -476,6 +472,10 @@ def jcalc_tau(
             target = joint_target[axis_start + i]
             lower = joint_limit_lower[axis_start + i]
             upper = joint_limit_upper[axis_start + i]
+            limit_k_e = joint_limit_ke[axis_start + i]
+            limit_k_d = joint_limit_kd[axis_start + i]
+            target_k_e = joint_target_ke[axis_start + i]
+            target_k_d = joint_target_kd[axis_start + i]
 
             limit_f = 0.0
 
@@ -829,7 +829,17 @@ def compute_link_velocity(
     lin_axis_count = joint_axis_dim[i, 0]
     ang_axis_count = joint_axis_dim[i, 1]
     v_j_s = jcalc_motion(
-        type, joint_axis, axis_start, lin_axis_count, ang_axis_count, X_sj, joint_q, joint_qd, q_start, qd_start, joint_S_s
+        type,
+        joint_axis,
+        axis_start,
+        lin_axis_count,
+        ang_axis_count,
+        X_sj,
+        joint_q,
+        joint_qd,
+        q_start,
+        qd_start,
+        joint_S_s,
     )
 
     # parent velocity
@@ -853,11 +863,6 @@ def compute_link_velocity(
 
     f_g_m = wp.spatial_vector(wp.vec3(), gravity) * m
     f_g_s = spatial_transform_wrench(wp.transform(wp.transform_get_translation(X_sm), wp.quat_identity()), f_g_m)
-
-    # wp.printf("f_g_m:  %.3f %.3f %.3f %.3f %.3f %.3f\n", f_g_m[0], f_g_m[1], f_g_m[2], f_g_m[3], f_g_m[4], f_g_m[5])
-    # wp.printf("f_g_s:  %.3f %.3f %.3f %.3f %.3f %.3f\n", f_g_s[0], f_g_s[1], f_g_s[2], f_g_s[3], f_g_s[4], f_g_s[5])
-
-    # f_ext_s = body_f_s[i] + f_g_s
 
     # body forces
     I_s = spatial_transform_inertia(X_sm, I_m)
@@ -1037,32 +1042,51 @@ def eval_rigid_tau(
     count = end - start
 
     # compute joint forces
-    for i in range(count):
-        compute_link_tau(
-            i,
-            end,
-            joint_type,
-            joint_parent,
-            joint_child,
-            joint_q_start,
-            joint_qd_start,
-            joint_axis_start,
-            joint_axis_dim,
+    for offset in range(count):
+        # for backwards traversal
+        i = end - offset - 1
+
+        type = joint_type[i]
+        parent = joint_parent[i]
+        child = joint_child[i]
+        dof_start = joint_qd_start[i]
+        coord_start = joint_q_start[i]
+        axis_start = joint_axis_start[i]
+        lin_axis_count = joint_axis_dim[i, 0]
+        ang_axis_count = joint_axis_dim[i, 1]
+
+        # total forces on body
+        f_b_s = body_fb_s[child]
+        f_t_s = body_ft_s[child]
+
+        f_s = f_b_s + f_t_s
+
+        # compute joint-space forces, writes out tau
+        jcalc_tau(
+            type,
+            joint_target_ke,
+            joint_target_kd,
+            joint_limit_ke,
+            joint_limit_kd,
+            joint_S_s,
             joint_q,
             joint_qd,
             joint_act,
             joint_target,
-            joint_target_ke,
-            joint_target_kd,
             joint_limit_lower,
             joint_limit_upper,
-            joint_limit_ke,
-            joint_limit_kd,
-            joint_S_s,
-            body_fb_s,
-            body_ft_s,
+            coord_start,
+            dof_start,
+            axis_start,
+            lin_axis_count,
+            ang_axis_count,
+            f_s,
             tau,
         )
+
+        # update parent forces, todo: check that this is valid for the backwards pass
+        if parent >= 0:
+            wp.atomic_add(body_ft_s, parent, f_s)
 
 
 # builds spatial Jacobian J which is an (joint_count*6)x(dof_count) matrix
@@ -1748,7 +1772,7 @@ class FeatherstoneIntegrator:
                             contact_state.rigid_contact_shape1,
                             True,
                         ],
-                        outputs=[body_f],  # TODO was body_f
+                        outputs=[body_f],
                         device=model.device,
                     )
 
