@@ -105,7 +105,7 @@ def compute_3d_rotational_dofs(
     local_1 = wp.quat_rotate(q_off, wp.vec3(0.0, 1.0, 0.0))
     local_2 = wp.quat_rotate(q_off, wp.vec3(0.0, 0.0, 1.0))
 
-    # reconstruct rotation axes, todo: can probably use fact that rz'*ry'*rx' == rx*ry*rz to avoid some work here
+    # reconstruct rotation axes
     axis_0 = local_0
     q_0 = wp.quat_from_axis_angle(axis_0, q0)
 

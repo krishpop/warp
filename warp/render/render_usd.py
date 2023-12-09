@@ -158,7 +158,11 @@ class UsdRenderer:
         rot: tuple,
         scale: tuple = (1.0, 1.0, 1.0),
         color: tuple = (1.0, 1.0, 1.0),
+        custom_index: int = -1,
+        visible: bool = True,
     ):
+        if not visible:
+            return
         sdf_path = self._resolve_path(name, body)
         instance = self._shape_constructors[shape.name].Define(self.stage, sdf_path)
         instance.GetPrim().GetReferences().AddInternalReference(shape)
