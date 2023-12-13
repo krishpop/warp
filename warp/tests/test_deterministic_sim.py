@@ -124,17 +124,7 @@ def check_histories_equal(test, history1, history2, history_name):
         )
 
 
-def test_cartpole_single_env_determinism(test, device):
-    from env_cartpole import CartpoleEnvironment
-
-    wp.set_device(device)
-
-    CartpoleEnvironment.num_envs = 1
-    CartpoleEnvironment.render_mode = RenderMode.NONE
-    CartpoleEnvironment.episode_frames = 5  # at 60 fps, 5 frames is 1/12th of a second
-    CartpoleEnvironment.env_offset = (0.0, 0.0, 0.0)
-    demo = CartpoleEnvironment()
-
+def test_demo_single_env_determinism(test, demo):
     demo.parse_args()
     demo.init()
 
@@ -152,16 +142,7 @@ def test_cartpole_single_env_determinism(test, device):
     check_histories_equal(test, joint_q_history, joint_q_history2, "joint_q_history")
 
 
-def test_cartpole_parallel_env_determinism(test, device):
-    from env_cartpole import CartpoleEnvironment
-
-    wp.set_device(device)
-
-    CartpoleEnvironment.num_envs = 2
-    CartpoleEnvironment.render_mode = RenderMode.NONE
-    CartpoleEnvironment.episode_frames = 5  # at 60 fps, 5 frames is 1/12th of a second
-    CartpoleEnvironment.env_offset = (0.0, 0.0, 0.0)
-    demo = CartpoleEnvironment()
+def test_demo_parallel_env_determinism(test, demo):
     demo.parse_args()
     demo.init()
     demo.reset()
@@ -176,6 +157,32 @@ def test_cartpole_parallel_env_determinism(test, device):
     check_histories_equal(test, [h[0] for h in joint_q_history], [h[1] for h in joint_q_history], "joint_q_history")
 
 
+def test_cartpole_single_env_determinism(test, device):
+    from env_cartpole import CartpoleEnvironment
+
+    wp.set_device(device)
+
+    CartpoleEnvironment.num_envs = 1
+    CartpoleEnvironment.render_mode = RenderMode.NONE
+    CartpoleEnvironment.episode_frames = 5  # at 60 fps, 5 frames is 1/12th of a second
+    CartpoleEnvironment.env_offset = (0.0, 0.0, 0.0)
+    demo = CartpoleEnvironment()
+    test_demo_single_env_determinism(test, demo)
+
+
+def test_cartpole_parallel_env_determinism(test, device):
+    from env_cartpole import CartpoleEnvironment
+
+    wp.set_device(device)
+
+    CartpoleEnvironment.num_envs = 2
+    CartpoleEnvironment.render_mode = RenderMode.NONE
+    CartpoleEnvironment.episode_frames = 5  # at 60 fps, 5 frames is 1/12th of a second
+    CartpoleEnvironment.env_offset = (0.0, 0.0, 0.0)
+    demo = CartpoleEnvironment()
+    test_demo_parallel_env_determinism(test, demo)
+
+
 def test_ant_single_env_reset_determinism(test, device):
     from env_ant import AntEnvironment
 
@@ -186,23 +193,7 @@ def test_ant_single_env_reset_determinism(test, device):
     AntEnvironment.episode_frames = 5  # at 60 fps, 5 frames is 1/12th of a second
     AntEnvironment.env_offset = (0.0, 0.0, 0.0)
     demo = AntEnvironment()
-    demo.parse_args()
-    demo.init()
-
-    demo.reset()
-    q_history, qd_history, delta_history, num_con_history, joint_q_history = run_env(demo)
-
-    demo.reset()
-    # re-run simulation
-    q_history2, qd_history2, delta_history2, num_con_history2, joint_q_history2 = run_env(demo)
-
-    # check all q, qd, delta, num_con_history, joint_q_history are same across two runs
-    check_histories_equal(test, q_history, q_history2, "q_history")
-    check_histories_equal(test, qd_history, qd_history2, "qd_history")
-    if len(delta_history) > 0:
-        check_histories_equal(test, delta_history, delta_history2, "delta_history")
-    check_histories_equal(test, num_con_history, num_con_history2, "num_con_history")
-    check_histories_equal(test, joint_q_history, joint_q_history2, "joint_q_history")
+    test_demo_single_env_determinism(test, demo)
 
 
 def test_ant_parallel_env_determinism(test, device):
@@ -215,19 +206,33 @@ def test_ant_parallel_env_determinism(test, device):
     AntEnvironment.episode_frames = 5  # at 60 fps, 5 frames is 1/12th of a second
     AntEnvironment.env_offset = (0.0, 0.0, 0.0)
     demo = AntEnvironment()
-    demo.parse_args()
-    demo.init()
-    demo.reset()
-    demo.reset()
+    test_demo_parallel_env_determinism(test, demo)
 
-    q_history, qd_history, delta_history, num_con_history, joint_q_history = run_env(demo)
-    # check that all q, qd, delta, num_con_history, joint_q_history are same along env dimension
-    check_histories_equal(test, [h[0] for h in q_history], [h[1] for h in q_history], "q_history")
-    check_histories_equal(test, [h[0] for h in qd_history], [h[1] for h in qd_history], "qd_history")
-    if len(delta_history) > 0:
-        check_histories_equal(test, [h[0] for h in delta_history], [h[1] for h in delta_history], "delta_history")
-    check_histories_equal(test, [h[0] for h in num_con_history], [h[1] for h in num_con_history], "num_con_history")
-    # check_histories_equal(test, [h[0] for h in joint_q_history], [h[1] for h in joint_q_history], "joint_q_history")
+
+def test_allegro_single_env_determinism(test, device):
+    from env_allegro import AllegroEnvironment
+
+    wp.set_device(device)
+
+    AllegroEnvironment.num_envs = 1
+    AllegroEnvironment.render_mode = RenderMode.NONE
+    AllegroEnvironment.episode_frames = 5  # at 60 fps, 5 frames is 1/12th of a second
+    AllegroEnvironment.env_offset = (0.0, 0.0, 0.0)
+    demo = AllegroEnvironment()
+    test_demo_single_env_determinism(test, demo)
+
+
+def test_allegro_parallel_env_determinism(test, device):
+    from env_allegro import AllegroEnvironment
+
+    wp.set_device(device)
+
+    AllegroEnvironment.num_envs = 2
+    AllegroEnvironment.render_mode = RenderMode.NONE
+    AllegroEnvironment.episode_frames = 5  # at 60 fps, 5 frames is 1/12th of a second
+    AllegroEnvironment.env_offset = (0.0, 0.0, 0.0)
+    demo = AllegroEnvironment()
+    test_demo_parallel_env_determinism(test, demo)
 
 
 def register(parent):
@@ -255,6 +260,19 @@ def register(parent):
     )
     add_function_test(
         TestDeterministicSim, "test_ant_parallel_env_determinism", test_ant_parallel_env_determinism, devices=devices
+    )
+
+    add_function_test(
+        TestDeterministicSim,
+        "test_allegro_single_env_determinism",
+        test_allegro_single_env_determinism,
+        devices=devices,
+    )
+    add_function_test(
+        TestDeterministicSim,
+        "test_allegro_parallel_env_determinism",
+        test_allegro_parallel_env_determinism,
+        devices=devices,
     )
 
     return TestDeterministicSim
