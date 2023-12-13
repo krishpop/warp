@@ -229,6 +229,39 @@ def transform_inertia(t: wp.transform, I: wp.spatial_matrix):
 
 
 @wp.func
+def boltzmann(a: float, b: float, alpha: float):
+    e1 = wp.exp(alpha * a)
+    e2 = wp.exp(alpha * b)
+    return (a * e1 + b * e2) / (e1 + e2)
+
+
+@wp.func
+def smooth_max(a: float, b: float, eps: float):
+    d = a - b
+    return 0.5 * (a + b + wp.sqrt(d * d + eps))
+
+
+@wp.func
+def smooth_min(a: float, b: float, eps: float):
+    d = a - b
+    return 0.5 * (a + b - wp.sqrt(d * d + eps))
+
+
+@wp.func
+def leaky_max(a: float, b: float):
+    return smooth_max(a, b, 1e-5)
+    # return boltzmann(a, b, 1e4)
+    # return wp.max(a, b)
+
+
+@wp.func
+def leaky_min(a: float, b: float):
+    return smooth_min(a, b, 1e-5)
+    # return boltzmann(a, b, -1e4)
+    # return wp.min(a, b)
+
+
+@wp.func
 def vec_min(a: wp.vec3, b: wp.vec3):
     return wp.vec3(wp.min(a[0], b[0]), wp.min(a[1], b[1]), wp.min(a[2], b[2]))
 
@@ -236,6 +269,16 @@ def vec_min(a: wp.vec3, b: wp.vec3):
 @wp.func
 def vec_max(a: wp.vec3, b: wp.vec3):
     return wp.vec3(wp.max(a[0], b[0]), wp.max(a[1], b[1]), wp.max(a[2], b[2]))
+
+
+@wp.func
+def vec_leaky_min(a: wp.vec3, b: wp.vec3):
+    return wp.vec3(leaky_min(a[0], b[0]), leaky_min(a[1], b[1]), leaky_min(a[2], b[2]))
+
+
+@wp.func
+def vec_leaky_max(a: wp.vec3, b: wp.vec3):
+    return wp.vec3(leaky_max(a[0], b[0]), leaky_max(a[1], b[1]), leaky_max(a[2], b[2]))
 
 
 @wp.func

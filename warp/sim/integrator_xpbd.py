@@ -13,7 +13,7 @@ from .model import (
     JOINT_MODE_TARGET_VELOCITY,
     JOINT_MODE_LIMIT,
 )
-from .utils import velocity_at_point, vec_min, vec_max, vec_abs
+from .utils import velocity_at_point, vec_min, vec_max, vec_abs, vec_leaky_min, vec_leaky_max
 from .integrator_euler import integrate_bodies, integrate_particles
 
 
@@ -887,13 +887,13 @@ def apply_body_deltas(
     dq = wp.quat_rotate(q0, inv_I * wp.quat_rotate_inv(q0, dq))
 
     # update orientation
-    q1 = q0 + 0.5 * wp.quat(dq * dt * dt, 0.0) * q0
+    q1 = q0 + 0.5 * wp.quat(dq * dt, 0.0) * q0
     q1 = wp.normalize(q1)
 
     # update position
     com = body_com[tid]
     x_com = p0 + wp.quat_rotate(q0, com)
-    p1 = x_com + dp * dt * dt
+    p1 = x_com + dp * dt
     p1 -= wp.quat_rotate(q1, com)
 
     q_out[tid] = wp.transform(p1, q1)
@@ -902,9 +902,9 @@ def apply_body_deltas(
     w0 = wp.spatial_top(qd_in[tid])
 
     # update linear and angular velocity
-    v1 = v0 + dp * dt
+    v1 = v0 + dp
     # angular part (compute in body frame)
-    wb = wp.quat_rotate_inv(q0, w0 + dq * dt)
+    wb = wp.quat_rotate_inv(q0, w0 + dq)
     tb = -wp.cross(wb, body_I[tid] * wb)  # coriolis forces
     w1 = wp.quat_rotate(q0, wb + inv_I * tb * dt)
 
@@ -1104,12 +1104,12 @@ def apply_joint_torques(
 
 
 @wp.func
-def update_joint_axis_mode(mode: wp.uint8, axis: wp.vec3, input_axis_mode: wp.vec3ub):
+def update_joint_axis_mode(mode: wp.int32, axis: wp.vec3, input_axis_mode: wp.vec3i):
     # update the 3D axis mode flags given the axis vector and mode of this axis
-    mode_x = wp.max(wp.uint8(wp.nonzero(axis[0])) * mode, input_axis_mode[0])
-    mode_y = wp.max(wp.uint8(wp.nonzero(axis[1])) * mode, input_axis_mode[1])
-    mode_z = wp.max(wp.uint8(wp.nonzero(axis[2])) * mode, input_axis_mode[2])
-    return wp.vec3ub(mode_x, mode_y, mode_z)
+    mode_x = wp.max(wp.int32(wp.nonzero(axis[0])) * mode, input_axis_mode[0])
+    mode_y = wp.max(wp.int32(wp.nonzero(axis[1])) * mode, input_axis_mode[1])
+    mode_z = wp.max(wp.int32(wp.nonzero(axis[2])) * mode, input_axis_mode[2])
+    return wp.vec3i(mode_x, mode_y, mode_z)
 
 
 @wp.func
@@ -1195,7 +1195,7 @@ def compute_linear_correction_3d(
     # TODO consider damping for velocity correction?
     # deltaLambda = -(err + alpha * lambda_in + gamma * derr)
     if w + alpha > 0.0:
-        d_lambda /= w * (dt + gamma) * dt + alpha
+        d_lambda /= w * (dt + gamma) + alpha / dt
 
     return d_lambda
 
@@ -1246,7 +1246,7 @@ def compute_angular_correction_3d(
 
     # Eq. 13-14
     lambda_prev = 0.0
-    d_lambda = (-theta - alpha_tilde * lambda_prev) / (w * dt * dt + alpha_tilde)
+    d_lambda = (-theta - alpha_tilde * lambda_prev) / (w * dt + alpha_tilde / dt)
     # TODO consider lambda_prev?
     # p = d_lambda * n * relaxation
 
@@ -1271,7 +1271,7 @@ def solve_simple_body_joints(
     joint_limit_upper: wp.array(dtype=float),
     joint_axis_start: wp.array(dtype=int),
     joint_axis_dim: wp.array(dtype=int, ndim=2),
-    joint_axis_mode: wp.array(dtype=wp.uint8),
+    joint_axis_mode: wp.array(dtype=int),
     joint_axis: wp.array(dtype=wp.vec3),
     joint_target: wp.array(dtype=float),
     joint_target_ke: wp.array(dtype=float),
@@ -1288,15 +1288,15 @@ def solve_simple_body_joints(
 
     if joint_enabled[tid] == 0:
         return
-    if (type == wp.sim.JOINT_FREE):
+    if type == wp.sim.JOINT_FREE:
         return
-    if (type == wp.sim.JOINT_COMPOUND):
+    if type == wp.sim.JOINT_COMPOUND:
         return
-    if (type == wp.sim.JOINT_UNIVERSAL):
+    if type == wp.sim.JOINT_UNIVERSAL:
         return
-    if (type == wp.sim.JOINT_DISTANCE):
+    if type == wp.sim.JOINT_DISTANCE:
         return
-    if (type == wp.sim.JOINT_D6):
+    if type == wp.sim.JOINT_D6:
         return
 
     # rigid body indices of the child and parent
@@ -1529,8 +1529,8 @@ def solve_simple_body_joints(
     # compute linear constraint violations
     corr = wp.vec3(0.0)
     zero = wp.vec3(0.0)
-    corr -= vec_min(zero, upper_pos_limits - dx)
-    corr -= vec_max(zero, lower_pos_limits - dx)
+    corr -= vec_leaky_min(zero, upper_pos_limits - dx)
+    corr -= vec_leaky_max(zero, lower_pos_limits - dx)
 
     # if (type == wp.sim.JOINT_PRISMATIC):
     #     if mode == JOINT_MODE_TARGET_POSITION:
@@ -1583,7 +1583,7 @@ def solve_body_joints(
     joint_limit_upper: wp.array(dtype=float),
     joint_axis_start: wp.array(dtype=int),
     joint_axis_dim: wp.array(dtype=int, ndim=2),
-    joint_axis_mode: wp.array(dtype=wp.uint8),
+    joint_axis_mode: wp.array(dtype=int),
     joint_axis: wp.array(dtype=wp.vec3),
     joint_target: wp.array(dtype=float),
     joint_target_ke: wp.array(dtype=float),
@@ -1738,7 +1738,7 @@ def solve_body_joints(
         # compute joint target, stiffness, damping
         ke_sum = float(0.0)
         axis_limits = wp.spatial_vector(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
-        axis_mode = wp.vec3ub(wp.uint8(0), wp.uint8(0), wp.uint8(0))
+        axis_mode = wp.vec3i(0, 0, 0)
         axis_target_ke_kd = wp.mat33(0.0)
         # avoid a for loop here since local variables would need to be modified which is not yet differentiable
         if lin_axis_count > 0:
@@ -1939,7 +1939,7 @@ def solve_body_joints(
         # compute joint target, stiffness, damping
         ke_sum = float(0.0)
         axis_limits = wp.spatial_vector(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
-        axis_mode = wp.vec3ub(wp.uint8(0), wp.uint8(0), wp.uint8(0))
+        axis_mode = wp.vec3i(0, 0, 0)
         axis_target_ke_kd = wp.mat33(0.0)
         # avoid a for loop here since local variables would need to be modified which is not yet differentiable
         if ang_axis_count > 0:
@@ -2088,7 +2088,7 @@ def compute_contact_constraint_delta(
 
     deltaLambda = -err
     if denom > 0.0:
-        deltaLambda /= dt * dt * denom
+        deltaLambda /= dt * denom
 
     return deltaLambda * relaxation
 
@@ -2131,7 +2131,7 @@ def compute_positional_correction(
 
     deltaLambda = -(err + alpha * lambda_in + gamma * derr)
     if denom + alpha > 0.0:
-        deltaLambda /= dt * (dt + gamma) * denom + alpha
+        deltaLambda /= (dt + gamma) * denom + alpha / dt
 
     return deltaLambda
 
@@ -2168,7 +2168,7 @@ def compute_angular_correction(
 
     deltaLambda = -(err + alpha * lambda_in + gamma * derr)
     if denom + alpha > 0.0:
-        deltaLambda /= dt * (dt + gamma) * denom + alpha
+        deltaLambda /= (dt + gamma) * denom + alpha / dt
 
     return deltaLambda
 
