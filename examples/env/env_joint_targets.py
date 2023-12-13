@@ -28,8 +28,8 @@ class JointTargetEnvironment(Environment):
     sim_substeps_euler = 32
     sim_substeps_xpbd = 3
 
-    joint_attach_ke: float = 100000.0
-    joint_attach_kd: float = 10.0
+    joint_attach_ke: float = 1e5
+    joint_attach_kd: float = 1e3
 
     use_graph_capture = True
     use_tiled_rendering = True
@@ -38,7 +38,9 @@ class JointTargetEnvironment(Environment):
 
     activate_ground_plane = False
 
-    integrator_type = IntegratorType.XPBD
+    # integrator_type = IntegratorType.XPBD
+    # integrator_type = IntegratorType.EULER
+    integrator_type = IntegratorType.FEATHERSTONE
 
     def create_articulation(self, builder):
         # create a "rail" for the prismatic joint
@@ -53,9 +55,10 @@ class JointTargetEnvironment(Environment):
             axis=(1., 0., 0.),
             mode=wp.sim.JOINT_MODE_TARGET_POSITION,
             limit_lower=-5.0, limit_upper=5.0,
+            limit_ke=1e5, limit_kd=1e3,
             target=3.1415,  # target position
-            target_ke=1e5,  # target stiffness
-            target_kd=10.0  # target damping
+            target_ke=1e4,  # target stiffness
+            target_kd=1e3,  # target damping
         )
         # make sure we generate no contact between both shapes (the sphere will get stuck otherwise)
         builder.shape_collision_filter_pairs.add((shape1, shape2))
