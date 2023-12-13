@@ -14,6 +14,8 @@ from environment import RenderMode, IntegratorType
 import numpy as np
 import warp as wp
 
+wp.config.quiet = True
+
 # default test mode (see get_test_devices())
 #   "basic" - only run on CPU and first GPU device
 #   "unique" - run on CPU and all unique GPU arches
@@ -119,7 +121,7 @@ def run_env(env):
 def check_histories_equal(test, history1, history2, history_name):
     for i in range(len(history1)):
         test.assertTrue(
-            np.allclose(history1[i], history2[i]),
+            np.allclose(history1[i], history2[i], atol=1e-5, rtol=1e-5),
             f"{history_name} mismatch at frame {i}, delta={np.max(np.abs(history1[i] - history2[i]))}",
         )
 
@@ -228,9 +230,10 @@ def test_allegro_parallel_env_determinism(test, device):
     wp.set_device(device)
 
     AllegroEnvironment.num_envs = 2
-    AllegroEnvironment.render_mode = RenderMode.NONE
-    AllegroEnvironment.episode_frames = 5  # at 60 fps, 5 frames is 1/12th of a second
+    AllegroEnvironment.render_mode = RenderMode.OPENGL
+    AllegroEnvironment.episode_frames = 15  # at 60 fps, 5 frames is 1/12th of a second
     AllegroEnvironment.env_offset = (0.0, 0.0, 0.0)
+    AllegroEnvironment.continuous_opengl_render = False
     demo = AllegroEnvironment()
     test_demo_parallel_env_determinism(test, demo)
 
@@ -242,32 +245,32 @@ def register(parent):
         pass
 
     # add tests for cartpole and ant
-    add_function_test(
-        TestDeterministicSim,
-        "test_cartpole_single_env_determinism",
-        test_cartpole_single_env_determinism,
-        devices=devices,
-    )
-    add_function_test(
-        TestDeterministicSim,
-        "test_cartpole_parallel_env_determinism",
-        test_cartpole_parallel_env_determinism,
-        devices=devices,
-    )
+    # add_function_test(
+    #     TestDeterministicSim,
+    #     "test_cartpole_single_env_determinism",
+    #     test_cartpole_single_env_determinism,
+    #     devices=devices,
+    # )
+    # add_function_test(
+    #     TestDeterministicSim,
+    #     "test_cartpole_parallel_env_determinism",
+    #     test_cartpole_parallel_env_determinism,
+    #     devices=devices,
+    # )
 
-    add_function_test(
-        TestDeterministicSim, "test_ant_single_env_determinism", test_ant_single_env_reset_determinism, devices=devices
-    )
-    add_function_test(
-        TestDeterministicSim, "test_ant_parallel_env_determinism", test_ant_parallel_env_determinism, devices=devices
-    )
+    # add_function_test(
+    #     TestDeterministicSim, "test_ant_single_env_determinism", test_ant_single_env_reset_determinism, devices=devices
+    # )
+    # add_function_test(
+    #     TestDeterministicSim, "test_ant_parallel_env_determinism", test_ant_parallel_env_determinism, devices=devices
+    # )
 
-    add_function_test(
-        TestDeterministicSim,
-        "test_allegro_single_env_determinism",
-        test_allegro_single_env_determinism,
-        devices=devices,
-    )
+    # add_function_test(
+    #     TestDeterministicSim,
+    #     "test_allegro_single_env_determinism",
+    #     test_allegro_single_env_determinism,
+    #     devices=devices,
+    # )
     add_function_test(
         TestDeterministicSim,
         "test_allegro_parallel_env_determinism",

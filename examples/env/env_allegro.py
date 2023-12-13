@@ -40,7 +40,7 @@ class AllegroEnvironment(Environment):
     show_joints = False
 
     xpbd_settings = dict(
-        iterations=2,
+        iterations=20,
         joint_linear_relaxation=1.0,
         joint_angular_relaxation=0.45,
         rigid_contact_relaxation=1.0,
@@ -56,7 +56,7 @@ class AllegroEnvironment(Environment):
     opengl_render_settings = dict(scaling=4.0/scale)
     usd_render_settings = dict(scaling=200.0/scale)
 
-    def load_mesh(self, filename, use_meshio=True):
+    def load_mesh(self, filename, use_meshio=False):
         if use_meshio:
             import meshio
             m = meshio.read(filename)
@@ -110,36 +110,39 @@ class AllegroEnvironment(Environment):
             "../assets/isaacgymenvs/objects/cube_multicolor_allegro.urdf")
         cube_positions = np.array([
             (-0.1, 0.5, 0.0),
-            (0.0, 0.05, 0.05),
-            (0.01, 0.15, 0.03),
-            (0.01, 0.05, 0.13),
+            # (0.0, 0.05, 0.05),
+            # (0.01, 0.15, 0.03),
+            # (0.01, 0.05, 0.13),
         ]) * self.scale
-        object_shape = self.load_mesh(
-            os.path.join(os.path.dirname(__file__),
-                         "../assets/icosphere.obj"))
+        # object_shape = self.load_mesh(
+        #     os.path.join(os.path.dirname(__file__),
+        #                  "../assets/icosphere.obj"))
         scale = 4e-2 * self.scale
         for pos in cube_positions:
-            # b = builder.add_body()
+            b = builder.add_body()
             # builder.add_shape_mesh(mesh=object_shape, body=b, density=1e3, scale=(scale, scale, scale))
-            # builder.add_joint_free(b)
-            # builder.joint_q[-7:-4] = pos
-            wp.sim.parse_urdf(
-                cube_urdf_filename,
-                builder,
-                xform=wp.transform(pos, wp.quat_identity()),
-                floating=True,
-                scale=self.scale,
-                density=1e2,
-                armature=0.0,
-                stiffness=0.0,
-                damping=0.0,
-                shape_ke=1.e+3,
-                shape_kd=1.e+2,
-                shape_kf=1.e+2,
-                shape_mu=0.5,
-                limit_ke=1.e+4,
-                limit_kd=1.e+1,
-                parse_visuals_as_colliders=False)
+            builder.add_shape_box(
+                body=b, density=1e3, hx=scale, hy=scale, hz=scale,
+            )
+            builder.add_joint_free(b)
+            builder.joint_q[-7:-4] = pos
+            # wp.sim.parse_urdf(
+            #     cube_urdf_filename,
+            #     builder,
+            #     xform=wp.transform(pos, wp.quat_identity()),
+            #     floating=True,
+            #     scale=self.scale,
+            #     density=1e2,
+            #     armature=0.0,
+            #     stiffness=0.0,
+            #     damping=0.0,
+            #     shape_ke=1.e+3,
+            #     shape_kd=1.e+2,
+            #     shape_kf=1.e+2,
+            #     shape_mu=0.5,
+            #     limit_ke=1.e+4,
+            #     limit_kd=1.e+1,
+            #     parse_visuals_as_colliders=False)
             # for mesh in builder.shape_geo_src[-2:]:
             #     if isinstance(mesh, wp.sim.Mesh):
             #         mesh.remesh(visualize=True, )
