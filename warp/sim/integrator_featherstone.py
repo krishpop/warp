@@ -18,6 +18,7 @@ from .integrator_euler import (
     eval_muscles,
     integrate_particles,
     eval_rigid_contacts,
+    eval_joint_force,
 )
 
 from .articulation import (
@@ -28,7 +29,7 @@ from .articulation import (
 
 # Frank & Park definition 3.20, pg 100
 @wp.func
-def spatial_transform_twist(t: wp.transform, x: wp.spatial_vector):
+def transform_twist(t: wp.transform, x: wp.spatial_vector):
     q = wp.transform_get_rotation(t)
     p = wp.transform_get_translation(t)
 
@@ -282,14 +283,14 @@ def jcalc_motion(
 ):
     if type == wp.sim.JOINT_PRISMATIC:
         axis = joint_axis[axis_start]
-        S_s = spatial_transform_twist(X_sc, wp.spatial_vector(wp.vec3(0.0, 0.0, 0.0), axis))
+        S_s = transform_twist(X_sc, wp.spatial_vector(wp.vec3(0.0, 0.0, 0.0), axis))
         v_j_s = S_s * joint_qd[qd_start]
         joint_S_s[qd_start] = S_s
         return v_j_s
 
     if type == wp.sim.JOINT_REVOLUTE:
         axis = joint_axis[axis_start]
-        S_s = spatial_transform_twist(X_sc, wp.spatial_vector(axis, wp.vec3(0.0, 0.0, 0.0)))
+        S_s = transform_twist(X_sc, wp.spatial_vector(axis, wp.vec3(0.0, 0.0, 0.0)))
         v_j_s = S_s * joint_qd[qd_start]
         joint_S_s[qd_start] = S_s
         return v_j_s
@@ -306,8 +307,8 @@ def jcalc_motion(
 
         axis_1 = wp.quat_rotate(q_0, local_1)
 
-        S_0 = spatial_transform_twist(X_sc, wp.spatial_vector(axis_0, wp.vec3()))
-        S_1 = spatial_transform_twist(X_sc, wp.spatial_vector(axis_1, wp.vec3()))
+        S_0 = transform_twist(X_sc, wp.spatial_vector(axis_0, wp.vec3()))
+        S_1 = transform_twist(X_sc, wp.spatial_vector(axis_1, wp.vec3()))
 
         joint_S_s[qd_start + 0] = S_0
         joint_S_s[qd_start + 1] = S_1
@@ -331,9 +332,9 @@ def jcalc_motion(
 
         axis_2 = wp.quat_rotate(q_1 * q_0, local_2)
 
-        S_0 = spatial_transform_twist(X_sc, wp.spatial_vector(axis_0, wp.vec3()))
-        S_1 = spatial_transform_twist(X_sc, wp.spatial_vector(axis_1, wp.vec3()))
-        S_2 = spatial_transform_twist(X_sc, wp.spatial_vector(axis_2, wp.vec3()))
+        S_0 = transform_twist(X_sc, wp.spatial_vector(axis_0, wp.vec3()))
+        S_1 = transform_twist(X_sc, wp.spatial_vector(axis_1, wp.vec3()))
+        S_2 = transform_twist(X_sc, wp.spatial_vector(axis_2, wp.vec3()))
 
         joint_S_s[qd_start + 0] = S_0
         joint_S_s[qd_start + 1] = S_1
@@ -341,10 +342,45 @@ def jcalc_motion(
 
         return S_0 * joint_qd[qd_start + 0] + S_1 * joint_qd[qd_start + 1] + S_2 * joint_qd[qd_start + 2]
 
+    if type == wp.sim.JOINT_D6:
+        v_j_s = wp.spatial_vector()
+        if lin_axis_count > 0:
+            axis = joint_axis[axis_start + 0]
+            S_s = transform_twist(X_sc, wp.spatial_vector(wp.vec3(0.0, 0.0, 0.0), axis))
+            v_j_s += S_s * joint_qd[qd_start + 0]
+            joint_S_s[qd_start + 0] = S_s
+        if lin_axis_count > 1:
+            axis = joint_axis[axis_start + 1]
+            S_s = transform_twist(X_sc, wp.spatial_vector(wp.vec3(0.0, 0.0, 0.0), axis))
+            v_j_s += S_s * joint_qd[qd_start + 1]
+            joint_S_s[qd_start + 1] = S_s
+        if lin_axis_count > 2:
+            axis = joint_axis[axis_start + 2]
+            S_s = transform_twist(X_sc, wp.spatial_vector(wp.vec3(0.0, 0.0, 0.0), axis))
+            v_j_s += S_s * joint_qd[qd_start + 2]
+            joint_S_s[qd_start + 2] = S_s
+        if ang_axis_count > 0:
+            axis = joint_axis[axis_start + lin_axis_count + 0]
+            S_s = transform_twist(X_sc, wp.spatial_vector(axis, wp.vec3(0.0, 0.0, 0.0)))
+            v_j_s += S_s * joint_qd[qd_start + lin_axis_count + 0]
+            joint_S_s[qd_start + lin_axis_count + 0] = S_s
+        if ang_axis_count > 1:
+            axis = joint_axis[axis_start + lin_axis_count + 1]
+            S_s = transform_twist(X_sc, wp.spatial_vector(axis, wp.vec3(0.0, 0.0, 0.0)))
+            v_j_s += S_s * joint_qd[qd_start + lin_axis_count + 1]
+            joint_S_s[qd_start + lin_axis_count + 1] = S_s
+        if ang_axis_count > 2:
+            axis = joint_axis[axis_start + lin_axis_count + 2]
+            S_s = transform_twist(X_sc, wp.spatial_vector(axis, wp.vec3(0.0, 0.0, 0.0)))
+            v_j_s += S_s * joint_qd[qd_start + lin_axis_count + 2]
+            joint_S_s[qd_start + lin_axis_count + 2] = S_s
+
+        return v_j_s
+
     if type == wp.sim.JOINT_BALL:
-        S_0 = spatial_transform_twist(X_sc, wp.spatial_vector(1.0, 0.0, 0.0, 0.0, 0.0, 0.0))
-        S_1 = spatial_transform_twist(X_sc, wp.spatial_vector(0.0, 1.0, 0.0, 0.0, 0.0, 0.0))
-        S_2 = spatial_transform_twist(X_sc, wp.spatial_vector(0.0, 0.0, 1.0, 0.0, 0.0, 0.0))
+        S_0 = transform_twist(X_sc, wp.spatial_vector(1.0, 0.0, 0.0, 0.0, 0.0, 0.0))
+        S_1 = transform_twist(X_sc, wp.spatial_vector(0.0, 1.0, 0.0, 0.0, 0.0, 0.0))
+        S_2 = transform_twist(X_sc, wp.spatial_vector(0.0, 0.0, 1.0, 0.0, 0.0, 0.0))
 
         joint_S_s[qd_start + 0] = S_0
         joint_S_s[qd_start + 1] = S_1
@@ -391,8 +427,10 @@ def jcalc_tau(
     joint_S_s: wp.array(dtype=wp.spatial_vector),
     joint_q: wp.array(dtype=float),
     joint_qd: wp.array(dtype=float),
+    joint_qdd: wp.array(dtype=float),
     joint_act: wp.array(dtype=float),
     joint_target: wp.array(dtype=float),
+    joint_axis_mode: wp.array(dtype=int),
     joint_limit_lower: wp.array(dtype=float),
     joint_limit_upper: wp.array(dtype=float),
     coord_start: int,
@@ -409,38 +447,31 @@ def jcalc_tau(
 
         q = joint_q[coord_start]
         qd = joint_qd[dof_start]
+        qdd = joint_qdd[dof_start]
         act = joint_act[dof_start]
 
         target = joint_target[axis_start]
         lower = joint_limit_lower[axis_start]
         upper = joint_limit_upper[axis_start]
 
-        limit_k_e = joint_limit_ke[axis_start]
-        limit_k_d = joint_limit_kd[axis_start]
-        target_k_e = joint_target_ke[axis_start]
-        target_k_d = joint_target_kd[axis_start]
-
-        limit_f = 0.0
-
-        # compute limit forces, damping only active when limit is violated
-        if q < lower:
-            limit_f = limit_k_e * (lower - q)
-
-        if q > upper:
-            limit_f = limit_k_e * (upper - q)
-
-        damping_f = -limit_k_d * qd
+        limit_ke = joint_limit_ke[axis_start]
+        limit_kd = joint_limit_kd[axis_start]
+        target_ke = joint_target_ke[axis_start]
+        target_kd = joint_target_kd[axis_start]
+        mode = joint_axis_mode[axis_start]
 
         # total torque / force on the joint
-        t = -wp.dot(S_s, body_f_s) - target_k_e * (q - target) - target_k_d * qd + act + limit_f + damping_f
+        t = -wp.dot(S_s, body_f_s) + eval_joint_force(
+            q, qd, qdd, target, target_ke, target_kd,
+            act, lower, upper, limit_ke, limit_kd, mode)
 
         tau[dof_start] = t
 
         return
 
     if type == wp.sim.JOINT_BALL:
-        # target_k_e = joint_target_ke[axis_start]
-        # target_k_d = joint_target_kd[axis_start]
+        # target_ke = joint_target_ke[axis_start]
+        # target_kd = joint_target_kd[axis_start]
 
         for i in range(3):
             S_s = joint_S_s[dof_start + i]
@@ -448,7 +479,7 @@ def jcalc_tau(
             # w = joint_qd[dof_start + i]
             # r = joint_q[coord_start + i]
 
-            tau[dof_start + i] = -wp.dot(S_s, body_f_s)  # - w * target_k_d - r * target_k_e
+            tau[dof_start + i] = -wp.dot(S_s, body_f_s)  # - w * target_kd - r * target_ke
 
         return
 
@@ -467,29 +498,22 @@ def jcalc_tau(
 
             q = joint_q[coord_start + i]
             qd = joint_qd[dof_start + i]
+            qdd = joint_qdd[dof_start + i]
             act = joint_act[dof_start + i]
 
             target = joint_target[axis_start + i]
             lower = joint_limit_lower[axis_start + i]
             upper = joint_limit_upper[axis_start + i]
-            limit_k_e = joint_limit_ke[axis_start + i]
-            limit_k_d = joint_limit_kd[axis_start + i]
-            target_k_e = joint_target_ke[axis_start + i]
-            target_k_d = joint_target_kd[axis_start + i]
-
-            limit_f = 0.0
-
-            # compute limit forces, damping only active when limit is violated
-            if q < lower:
-                limit_f = limit_k_e * (lower - q)
-
-            if q > upper:
-                limit_f = limit_k_e * (upper - q)
-
-            damping_f = -limit_k_d * qd
+            limit_ke = joint_limit_ke[axis_start + i]
+            limit_kd = joint_limit_kd[axis_start + i]
+            target_ke = joint_target_ke[axis_start + i]
+            target_kd = joint_target_kd[axis_start + i]
+            mode = joint_axis_mode[axis_start + i]
 
             # total torque / force on the joint
-            t = -wp.dot(S_s, body_f_s) - target_k_e * (q - target) - target_k_d * qd + act + limit_f + damping_f
+            t = -wp.dot(S_s, body_f_s) + eval_joint_force(
+                q, qd, qdd, target, target_ke, target_kd,
+                act, lower, upper, limit_ke, limit_kd, mode)
 
             tau[dof_start + i] = t
 
@@ -935,79 +959,6 @@ def eval_rigid_id(
         )
 
 
-@wp.func
-def compute_link_tau(
-    offset: int,
-    joint_end: int,
-    joint_type: wp.array(dtype=int),
-    joint_parent: wp.array(dtype=int),
-    joint_child: wp.array(dtype=int),
-    joint_q_start: wp.array(dtype=int),
-    joint_qd_start: wp.array(dtype=int),
-    joint_axis_start: wp.array(dtype=int),
-    joint_axis_dim: wp.array(dtype=int, ndim=2),
-    joint_q: wp.array(dtype=float),
-    joint_qd: wp.array(dtype=float),
-    joint_act: wp.array(dtype=float),
-    joint_target: wp.array(dtype=float),
-    joint_target_ke: wp.array(dtype=float),
-    joint_target_kd: wp.array(dtype=float),
-    joint_limit_lower: wp.array(dtype=float),
-    joint_limit_upper: wp.array(dtype=float),
-    joint_limit_ke: wp.array(dtype=float),
-    joint_limit_kd: wp.array(dtype=float),
-    joint_S_s: wp.array(dtype=wp.spatial_vector),
-    body_fb_s: wp.array(dtype=wp.spatial_vector),
-    # outputs
-    body_ft_s: wp.array(dtype=wp.spatial_vector),
-    tau: wp.array(dtype=float),
-):
-    # for backwards traversal
-    i = joint_end - offset - 1
-
-    type = joint_type[i]
-    parent = joint_parent[i]
-    child = joint_child[i]
-    dof_start = joint_qd_start[i]
-    coord_start = joint_q_start[i]
-    axis_start = joint_axis_start[i]
-    lin_axis_count = joint_axis_dim[i, 0]
-    ang_axis_count = joint_axis_dim[i, 1]
-
-    # total forces on body
-    f_b_s = body_fb_s[child]
-    f_t_s = body_ft_s[child]
-
-    f_s = f_b_s + f_t_s
-
-    # compute joint-space forces, writes out tau
-    jcalc_tau(
-        type,
-        joint_target_ke,
-        joint_target_kd,
-        joint_limit_ke,
-        joint_limit_kd,
-        joint_S_s,
-        joint_q,
-        joint_qd,
-        joint_act,
-        joint_target,
-        joint_limit_lower,
-        joint_limit_upper,
-        coord_start,
-        dof_start,
-        axis_start,
-        lin_axis_count,
-        ang_axis_count,
-        f_s,
-        tau,
-    )
-
-    # update parent forces, todo: check that this is valid for the backwards pass
-    if parent >= 0:
-        wp.atomic_add(body_ft_s, parent, f_s)
-
-
 @wp.kernel
 def eval_rigid_tau(
     articulation_start: wp.array(dtype=int),
@@ -1018,8 +969,10 @@ def eval_rigid_tau(
     joint_qd_start: wp.array(dtype=int),
     joint_axis_start: wp.array(dtype=int),
     joint_axis_dim: wp.array(dtype=int, ndim=2),
+    joint_axis_mode: wp.array(dtype=int),
     joint_q: wp.array(dtype=float),
     joint_qd: wp.array(dtype=float),
+    joint_qdd: wp.array(dtype=float),
     joint_act: wp.array(dtype=float),
     joint_target: wp.array(dtype=float),
     joint_target_ke: wp.array(dtype=float),
@@ -1071,8 +1024,10 @@ def eval_rigid_tau(
             joint_S_s,
             joint_q,
             joint_qd,
+            joint_qdd,
             joint_act,
             joint_target,
+            joint_axis_mode,
             joint_limit_lower,
             joint_limit_upper,
             coord_start,
@@ -1845,8 +1800,10 @@ class FeatherstoneIntegrator:
                             model.joint_qd_start,
                             model.joint_axis_start,
                             model.joint_axis_dim,
+                            model.joint_axis_mode,
                             state_in.joint_q,
                             state_in.joint_qd,
+                            state_in.joint_qdd,
                             state_in.joint_act,
                             model.joint_target,
                             model.joint_target_ke,
