@@ -2763,7 +2763,7 @@ Instances: {len(self._instances)}"""
                 device=self._device,
             )
 
-    def render_line_list(self, name, vertices, indices, color, radius):
+    def render_line_list(self, name: str, vertices, indices, color: tuple = None, radius: float = 0.01):
         """Add a line list as a set of capsules
 
         Args:
@@ -2778,7 +2778,7 @@ Instances: {len(self._instances)}"""
         lines = np.array(lines)
         self._render_lines(name, lines, color, radius)
 
-    def render_line_strip(self, name: str, vertices, color: tuple, radius: float = 0.01):
+    def render_line_strip(self, name: str, vertices, color: tuple = None, radius: float = 0.01):
         """Add a line strip as a set of capsules
 
         Args:
