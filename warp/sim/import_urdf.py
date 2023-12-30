@@ -252,13 +252,22 @@ def parse_urdf(
         # add ourselves to the index
         link_index[name] = link
 
-        if parse_visuals_as_colliders:
-            colliders = urdf_link.findall("visual")
-        else:
-            colliders = urdf_link.findall("collision")
-            parse_shapes(link, urdf_link.findall("visual"), density=0.0, just_visual=True)
+        visuals = urdf_link.findall("visual")
+        colliders = urdf_link.findall("collision")
 
-        parse_shapes(link, colliders, density=density, visible=parse_visuals_as_colliders)
+        if parse_visuals_as_colliders:
+            colliders = visuals
+        else:
+            parse_shapes(link, visuals, density=0.0, just_visual=True)
+
+        show_colliders = False
+        if parse_visuals_as_colliders:
+            show_colliders = True
+        elif len(visuals) == 0:
+            # we need to show the collision shapes since there are no visual shapes
+            show_colliders = True
+
+        parse_shapes(link, colliders, density=density, visible=show_colliders)
         m = builder.body_mass[link]
         if not ignore_inertial_definitions and urdf_link.find("inertial") is not None:
             # overwrite inertial parameters if defined
