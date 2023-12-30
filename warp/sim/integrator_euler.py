@@ -17,7 +17,6 @@ from .model import PARTICLE_FLAG_ACTIVE, ModelShapeGeometry, ModelShapeMaterials
 from .optimizer import Optimizer
 from .particles import eval_particle_forces
 from .utils import quat_decompose, quat_twist
-from .articulation import invert_2d_rotational_dofs, invert_3d_rotational_dofs
 
 
 @wp.kernel
