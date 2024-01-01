@@ -875,6 +875,8 @@ class OpenGLRenderer:
         vsync=False,
         headless=False,
         enable_backface_culling=True,
+        enable_mouse_interaction=True,
+        enable_keyboard_interaction=True,
     ):
         try:
             import pyglet
@@ -913,6 +915,9 @@ class OpenGLRenderer:
         self.window.switch_to()
 
         self.screen_width, self.screen_height = self.window.get_framebuffer_size()
+        
+        self.enable_mouse_interaction = enable_mouse_interaction
+        self.enable_keyboard_interaction = enable_keyboard_interaction
 
         self._camera_pos = PyVec3(*camera_pos)
         self._camera_front = PyVec3(*camera_front)
@@ -928,6 +933,9 @@ class OpenGLRenderer:
         self._left_mouse_pressed = False
         self._keys_pressed = defaultdict(bool)
         self._key_callbacks = []
+
+        self.render_2d_callbacks = []
+        self.render_3d_callbacks = []
 
         self.update_view_matrix()
         self.update_projection_matrix()
@@ -1283,6 +1291,10 @@ class OpenGLRenderer:
         self._wp_instance_bodies = None
         self._np_instance_visible = None
         self._update_shape_instances = False
+
+    def close(self):
+        self.clear()
+        self.window.close()
 
     @property
     def tiled_rendering(self):
@@ -1696,6 +1708,9 @@ class OpenGLRenderer:
         else:
             self._render_scene()
 
+        for cb in self.render_3d_callbacks:
+            cb()
+
         gl.glPolygonMode(gl.GL_FRONT_AND_BACK, gl.GL_FILL)
 
         gl.glBindBuffer(gl.GL_PIXEL_UNPACK_BUFFER, 0)
@@ -1746,6 +1761,9 @@ Instances: {len(self._instances)}"""
             self._info_label.text = text
             self._info_label.y = self.screen_height - 5
             self._info_label.draw()
+
+        for cb in self.render_2d_callbacks:
+            cb()
 
     def _draw_grid(self, is_tiled=False):
         from pyglet import gl
@@ -1844,6 +1862,9 @@ Instances: {len(self._instances)}"""
         gl.glBindVertexArray(0)
 
     def _mouse_drag_callback(self, x, y, dx, dy, buttons, modifiers):
+        if not self.enable_mouse_interaction:
+            return
+
         import pyglet
 
         if buttons & pyglet.window.mouse.LEFT:
@@ -1863,6 +1884,9 @@ Instances: {len(self._instances)}"""
             self.update_view_matrix()
 
     def _scroll_callback(self, x, y, scroll_x, scroll_y):
+        if not self.enable_mouse_interaction:
+            return
+
         self.camera_fov -= scroll_y
         self.camera_fov = max(min(self.camera_fov, 90.0), 15.0)
         self.update_projection_matrix()
@@ -1889,8 +1913,11 @@ Instances: {len(self._instances)}"""
     def _key_press_callback(self, symbol, modifiers):
         import pyglet
 
+        if not self.enable_keyboard_interaction:
+            return
+
         if symbol == pyglet.window.key.ESCAPE:
-            self.window.close()
+            self.close()
         if symbol == pyglet.window.key.SPACE:
             self.paused = not self.paused
         if symbol == pyglet.window.key.TAB:
@@ -1970,8 +1997,17 @@ Instances: {len(self._instances)}"""
         return shape
 
     def add_shape_instance(
-        self, name: str, shape: int, body, pos, rot, scale=(1.0, 1.0, 1.0), color1=None, color2=None,
-        custom_index: int = -1, visible: bool = True,
+        self,
+        name: str,
+        shape: int,
+        body,
+        pos,
+        rot,
+        scale=(1.0, 1.0, 1.0),
+        color1=None,
+        color2=None,
+        custom_index: int = -1,
+        visible: bool = True,
     ):
         if color1 is None:
             color1 = self._shapes[shape][2]
@@ -2108,7 +2144,16 @@ Instances: {len(self._instances)}"""
             i, body, shape, _, scale, old_color1, old_color2, v = self._instances[name]
             if visible is None:
                 visible = v
-            self._instances[name] = (i, body, shape, [*pos, *rot], scale, color1 or old_color1, color2 or old_color2, visible)
+            self._instances[name] = (
+                i,
+                body,
+                shape,
+                [*pos, *rot],
+                scale,
+                color1 or old_color1,
+                color2 or old_color2,
+                visible,
+            )
             self._update_shape_instances = True
             return True
         return False
