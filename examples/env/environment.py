@@ -146,6 +146,8 @@ class Environment:
     # control-related definitions, to be updated by derived classes
     control_dim: int = 0
 
+    custom_dynamics = None
+
     def __init__(self):
         self.parser = argparse.ArgumentParser()
         self.parser.add_argument(
@@ -225,6 +227,7 @@ class Environment:
             self.bodies_per_env = len(builder.body_q)
 
         self.model = builder.finalize(integrator=self.integrator, requires_grad=self.requires_grad)
+        self.customize_model(self.model)
         self.device = self.model.device
         if not self.device.is_cuda:
             self.use_graph_capture = False
@@ -329,10 +332,13 @@ class Environment:
             state_1_dict = self.state_1.__dict__
             state_temp_dict = self.state_temp.__dict__ if self.state_temp is not None else None
         for i in range(self.sim_substeps):
-            self.state_0.clear_forces()
-            self.custom_update()
-            wp.sim.collide(self.model, self.state_0, edge_sdf_iter=self.edge_sdf_iter)
-            self.integrator.simulate(self.model, self.state_0, self.state_1, self.sim_dt)
+            if self.custom_dynamics is not None:
+                self.custom_dynamics(self.model, self.state_0, self.state_1, self.sim_dt)
+            else:
+                self.state_0.clear_forces()
+                self.custom_update()
+                wp.sim.collide(self.model, self.state_0, edge_sdf_iter=self.edge_sdf_iter)
+                self.integrator.simulate(self.model, self.state_0, self.state_1, self.sim_dt)
             if i < self.sim_substeps - 1 or not self.use_graph_capture:
                 # we can just swap the state references
                 self.state_0, self.state_1 = self.state_1, self.state_0
@@ -351,12 +357,17 @@ class Environment:
 
     def update_grad(self):
         for i in range(self.sim_substeps):
-            self.states[self.sim_step].clear_forces()
-            self.custom_update()
-            wp.sim.collide(self.model, self.states[self.sim_step], edge_sdf_iter=self.edge_sdf_iter)
-            self.integrator.simulate(
-                self.model, self.states[self.sim_step], self.states[self.sim_step + 1], self.sim_dt
-            )
+            if self.custom_dynamics is not None:
+                self.custom_dynamics(
+                    self.model, self.states[self.sim_step], self.states[self.sim_step + 1], self.sim_dt
+                )
+            else:
+                self.states[self.sim_step].clear_forces()
+                self.custom_update()
+                wp.sim.collide(self.model, self.states[self.sim_step], edge_sdf_iter=self.edge_sdf_iter)
+                self.integrator.simulate(
+                    self.model, self.states[self.sim_step], self.states[self.sim_step + 1], self.sim_dt
+                )
             self.sim_time += self.sim_dt
             self.sim_step += 1
 
