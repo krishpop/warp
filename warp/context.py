@@ -703,7 +703,13 @@ def func_grad(forward_fn):
         def match_function(f):
             # check whether the function overload f matches the signature of the provided gradient function
             if not hasattr(f.adj, "return_var"):
-                f.adj.build(None)
+                # TODO defer return_var check until final module code gen
+                # build the function to resolve return variables
+                # try:
+                #     f.adj.build(None)
+                # except Exception:
+                #     return True
+                return True
             expected_args = list(f.input_types.items())
             if f.adj.return_var is not None:
                 expected_args += [(f"adj_ret_{var.label}", var.type) for var in f.adj.return_var]

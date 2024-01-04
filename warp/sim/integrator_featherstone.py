@@ -696,7 +696,6 @@ def compute_link_transform(
 
     # compute transform of center of mass
     X_cm = body_X_com[child]
-    # TODO does X_cj influence X_cm like this?
     X_sm = X_wc * X_cm
 
     # store geometry transforms
@@ -1076,7 +1075,6 @@ def spatial_mass(
     M: wp.array(dtype=float),
 ):
     stride = joint_count * 6
-
     for l in range(joint_count):
         I = body_I_s[joint_start + l]
         for i in range(6):
@@ -1139,6 +1137,33 @@ def dense_gemm(
                 C[C_start + i * n + j] += sum
             else:
                 C[C_start + i * n + j] = sum
+
+
+@wp.func_grad(dense_gemm)
+def adj_dense_gemm(
+    m: int,
+    n: int,
+    p: int,
+    transpose_A: bool,
+    transpose_B: bool,
+    add_to_C: bool,
+    A_start: int,
+    B_start: int,
+    C_start: int,
+    A: wp.array(dtype=float),
+    B: wp.array(dtype=float),
+    # outputs
+    C: wp.array(dtype=float),
+):
+    add_to_C = True
+    if transpose_A:
+        dense_gemm(p, m, n, False, True, add_to_C, A_start, B_start, C_start, B, wp.adjoint[C], wp.adjoint[A])
+        dense_gemm(p, n, m, False, False, add_to_C, A_start, B_start, C_start, A, wp.adjoint[C], wp.adjoint[B])
+    else:
+        dense_gemm(
+            m, p, n, False, not transpose_B, add_to_C, A_start, B_start, C_start, wp.adjoint[C], B, wp.adjoint[A]
+        )
+        dense_gemm(p, n, m, True, False, add_to_C, A_start, B_start, C_start, A, wp.adjoint[C], wp.adjoint[B])
 
 
 @wp.kernel
@@ -1208,6 +1233,20 @@ def dense_cholesky(
             L[A_start + dense_index(n, i, j)] = s * invS
 
 
+@wp.func_grad(dense_cholesky)
+def adj_dense_cholesky(
+    n: int,
+    A: wp.array(dtype=float),
+    R: wp.array(dtype=float),
+    A_start: int,
+    R_start: int,
+    # outputs
+    L: wp.array(dtype=float),
+):
+    # nop, use dense_solve to differentiate through (A^-1)b = x
+    pass
+
+
 @wp.kernel
 def eval_dense_cholesky_batched(
     A_starts: wp.array(dtype=int),
@@ -1255,6 +1294,46 @@ def dense_subs(
         x[b_start + i] = s / L[L_start + dense_index(n, i, i)]
 
 
+@wp.func
+def dense_solve(
+    n: int,
+    L_start: int,
+    b_start: int,
+    L: wp.array(dtype=float),
+    b: wp.array(dtype=float),
+    # outputs
+    x: wp.array(dtype=float),
+    tmp: wp.array(dtype=float),
+):
+    # helper function to include tmp argument for backward pass
+    dense_subs(n, L_start, b_start, L, b, x)
+
+
+@wp.func_grad(dense_solve)
+def adj_dense_solve(
+    n: int,
+    L_start: int,
+    b_start: int,
+    L: wp.array(dtype=float),
+    b: wp.array(dtype=float),
+    # outputs
+    x: wp.array(dtype=float),
+    tmp: wp.array(dtype=float),
+):
+    for i in range(n):
+        tmp[b_start + i] = 0.0
+
+    dense_subs(n, L_start, b_start, L, wp.adjoint[x], tmp)
+
+    for i in range(n):
+        wp.adjoint[b][b_start + i] += tmp[b_start + i]
+
+    # A* = -adj_b*x^T
+    for i in range(n):
+        for j in range(n):
+            wp.adjoint[L][L_start + dense_index(n, i, j)] += -tmp[b_start + i] * x[b_start + j]
+
+
 @wp.kernel
 def eval_dense_solve_batched(
     L_start: wp.array(dtype=int),
@@ -1263,10 +1342,11 @@ def eval_dense_solve_batched(
     L: wp.array(dtype=float),
     b: wp.array(dtype=float),
     x: wp.array(dtype=float),
+    tmp: wp.array(dtype=float),
 ):
     batch = wp.tid()
 
-    dense_subs(L_dim[batch], L_start[batch], b_start[batch], L, b, x)
+    dense_solve(L_dim[batch], L_start[batch], b_start[batch], L, b, x, tmp)
 
 
 @wp.kernel
@@ -1365,6 +1445,11 @@ class FeatherstoneIntegrator:
             state.joint_qd = wp.clone(model.joint_qd, requires_grad=state.requires_grad)
             state.joint_qdd = wp.zeros_like(model.joint_qd, requires_grad=state.requires_grad)
             state.joint_tau = wp.empty_like(model.joint_qd, requires_grad=state.requires_grad)
+            if state.requires_grad:
+                # used in the custom grad implementation of eval_dense_solve_batched
+                state.joint_solve_tmp = wp.zeros_like(model.joint_qd, requires_grad=True)
+            else:
+                state.joint_solve_tmp = None
             state.joint_S_s = wp.empty(
                 (model.joint_dof_count,),
                 dtype=wp.spatial_vector,
@@ -1642,7 +1727,7 @@ class FeatherstoneIntegrator:
             # ----------------------------
             # articulations
 
-            if model.body_count:
+            if model.joint_count:
                 # evaluate body transforms
                 wp.launch(
                     eval_rigid_fk,
@@ -1829,8 +1914,11 @@ class FeatherstoneIntegrator:
                         device=model.device,
                     )
 
+                    # print("joint_tau:")
                     # print(state_out.joint_tau.numpy())
+                    # print("body_q:")
                     # print(state_in.body_q.numpy())
+                    # print("body_qd:")
                     # print(state_in.body_qd.numpy())
 
                     if update_mass_matrix:
@@ -1921,6 +2009,8 @@ class FeatherstoneIntegrator:
 
                         # print("joint_tau:")
                         # print(state_out.joint_tau.numpy())
+                        # print("H:")
+                        # print(model.H.numpy())
                         # print("L:")
                         # print(model.L.numpy())
 
@@ -1935,9 +2025,19 @@ class FeatherstoneIntegrator:
                             model.L,
                             state_out.joint_tau,
                         ],
-                        outputs=[state_out.joint_qdd],
+                        outputs=[
+                            state_out.joint_qdd,
+                            state_out.joint_solve_tmp,
+                        ],
                         device=model.device,
                     )
+                    # if wp.context.runtime.tape:
+                    #     wp.context.runtime.tape.record_func(
+                    #         backward=lambda: adj_matmul(
+                    #             a, b, c, a.grad, b.grad, c.grad, d.grad, alpha, beta, allow_tf32x3_arith, device
+                    #         ),
+                    #         arrays=[a, b, c, d],
+                    #     )
 
             for plugin in self.plugins:
                 plugin.before_integrate(model, state_in, state_out, dt, requires_grad)
