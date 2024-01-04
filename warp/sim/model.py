@@ -343,6 +343,12 @@ class State:
         return arrays
 
 
+class Control:
+    def __init__(self):
+        self.joint_act = None
+        self.tet_activations = None
+
+
 def compute_shape_mass(type, scale, src, density, is_solid, thickness):
     if density == 0.0 or type == GEO_PLANE:  # zero density means fixed
         return 0.0, np.zeros(3), np.zeros((3, 3))
@@ -762,6 +768,14 @@ class Model:
             state_augment_fn(self, s)
 
         return s
+
+    def control(self, requires_grad=None) -> Control:
+        c = Control()
+        if requires_grad is None:
+            requires_grad = self.requires_grad
+        c.joint_act = wp.zeros_like(self.joint_act, requires_grad=requires_grad)
+        c.tet_activations = wp.zeros_like(self.tet_activations, requires_grad=requires_grad)
+        return c
 
     def _allocate_soft_contacts(self, target, count, requires_grad=False):
         target.soft_contact_count = wp.zeros(1, dtype=wp.int32, device=self.device)
@@ -1796,6 +1810,7 @@ class ModelBuilder:
         child_xform: wp.transform = wp.transform(),
         linear_compliance: float = 0.0,
         angular_compliance: float = 0.0,
+        armature: float = 1e-2,
         name: str = None,
         collision_filter_parent: bool = True,
         enabled: bool = True,
@@ -1809,6 +1824,7 @@ class ModelBuilder:
             child_xform (:ref:`transform <transform>`): The transform of the joint in the child body's local frame
             linear_compliance: The linear compliance of the joint
             angular_compliance: The angular compliance of the joint
+            armature (float): Artificial inertia added around the joint axis (only considered by FeatherstoneIntegrator)
             name: The name of the joint
             collision_filter_parent: Whether to filter collisions between shapes of the parent and child bodies
             enabled: Whether the joint is enabled
@@ -1825,6 +1841,7 @@ class ModelBuilder:
             child_xform=child_xform,
             linear_compliance=linear_compliance,
             angular_compliance=angular_compliance,
+            armature=armature,
             name=name,
             collision_filter_parent=collision_filter_parent,
             enabled=enabled,
@@ -1878,6 +1895,7 @@ class ModelBuilder:
         child: int,
         parent_xform: wp.transform = wp.transform(),
         child_xform: wp.transform = wp.transform(),
+        armature: float = 0.0,
         parent: int = -1,
         name: str = None,
         collision_filter_parent: bool = True,
@@ -1890,6 +1908,7 @@ class ModelBuilder:
             child: The index of the child body
             parent_xform (:ref:`transform <transform>`): The transform of the joint in the parent body's local frame
             child_xform (:ref:`transform <transform>`): The transform of the joint in the child body's local frame
+            armature (float): Artificial inertia added around the joint axis (only considered by FeatherstoneIntegrator)
             parent: The index of the parent body (-1 by default to use the world frame, e.g. to make the child body and its children a floating-base mechanism)
             name: The name of the joint
             collision_filter_parent: Whether to filter collisions between shapes of the parent and child bodies
@@ -1905,6 +1924,7 @@ class ModelBuilder:
             child,
             parent_xform=parent_xform,
             child_xform=child_xform,
+            armature=armature,
             name=name,
             collision_filter_parent=collision_filter_parent,
             enabled=enabled,
