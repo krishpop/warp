@@ -9,6 +9,155 @@ import warp as wp
 import numpy as np
 
 
+for dtype in (wp.float32, wp.float64):
+
+    @wp.kernel(enable_backward=False)
+    def compute_max(
+        values: wp.array(dtype=dtype),
+        max_id: wp.int32,
+        out_max: wp.array(dtype=wp.float32),
+    ):
+        wp.atomic_max(out_max, max_id, wp.float32(values[wp.tid()]))
+
+    @wp.kernel(enable_backward=False)
+    def elem_multiply(
+        values: wp.array(dtype=dtype),
+        factor: dtype,
+    ):
+        v = values[wp.tid()]
+        values[wp.tid()] = v * factor
+
+    for dim in range(2, 7):
+        dim_vec = wp.types.vector(length=dim, dtype=dtype)
+
+        @wp.kernel(enable_backward=False)
+        def compute_max(
+            values: wp.array(dtype=dim_vec),
+            max_id: wp.int32,
+            out_max: wp.array(dtype=wp.float32),
+        ):
+            v = values[wp.tid()]
+            m = v[0]
+            for i in range(1, dim):
+                m = wp.max(m, v[i])
+            wp.atomic_max(out_max, max_id, wp.float32(m))
+
+        @wp.kernel(enable_backward=False)
+        def elem_multiply(
+            values: wp.array(dtype=dim_vec),
+            factor: dtype,
+        ):
+            v = values[wp.tid()]
+            values[wp.tid()] = v * factor
+
+    quat = wp.types.quaternion(dtype=dtype)
+
+    @wp.kernel(enable_backward=False)
+    def compute_max(
+        values: wp.array(dtype=quat),
+        max_id: wp.int32,
+        out_max: wp.array(dtype=wp.float32),
+    ):
+        v = values[wp.tid()]
+        m = v[0]
+        for i in range(1, 4):
+            m = wp.max(m, v[i])
+        wp.atomic_max(out_max, max_id, wp.float32(m))
+
+    @wp.kernel(enable_backward=False)
+    def elem_multiply(
+        values: wp.array(dtype=quat),
+        factor: dtype,
+    ):
+        v = values[wp.tid()]
+        values[wp.tid()] = v * factor
+
+    if dtype == wp.float32:
+        sv = wp.spatial_vectorf
+        tf = wp.transformf
+    else:
+        sv = wp.spatial_vectord
+        tf = wp.transformd
+
+    @wp.kernel(enable_backward=False)
+    def compute_max(
+        values: wp.array(dtype=sv),
+        max_id: wp.int32,
+        out_max: wp.array(dtype=wp.float32),
+    ):
+        v = values[wp.tid()]
+        m = v[0]
+        for i in range(1, 6):
+            m = wp.max(m, v[i])
+        wp.atomic_max(out_max, max_id, wp.float32(m))
+
+    @wp.kernel(enable_backward=False)
+    def elem_multiply(
+        values: wp.array(dtype=sv),
+        factor: dtype,
+    ):
+        v = values[wp.tid()]
+        values[wp.tid()] = v * factor
+
+    @wp.kernel(enable_backward=False)
+    def compute_max(
+        values: wp.array(dtype=tf),
+        max_id: wp.int32,
+        out_max: wp.array(dtype=wp.float32),
+    ):
+        v = values[wp.tid()]
+        m = v[0]
+        for i in range(1, 7):
+            m = wp.max(m, v[i])
+        wp.atomic_max(out_max, max_id, wp.float32(m))
+
+    @wp.kernel(enable_backward=False)
+    def elem_multiply(
+        values: wp.array(dtype=tf),
+        factor: dtype,
+    ):
+        v = values[wp.tid()]
+        values[wp.tid()] = v * factor
+
+
+class GradientSpectralNormalization:
+    """
+    Implements spectral normalization for gradients where the gradients are normalized
+    by dividing by the maximum gradient value.
+    """
+
+    def __init__(self, buffer):
+        self.grads = []
+        self.normalize_per_array = False
+        self.max_values = buffer
+
+    def __call__(self):
+        for i, grad in enumerate(self.grads):
+            max_id = i if self.normalize_per_array else 0
+            wp.launch(
+                compute_max,
+                dim=grad.shape[0],
+                inputs=[
+                    grad,
+                    max_id
+                ],
+                outputs=[
+                    self.max_values,
+                ],
+            )
+        max_values = self.max_values.numpy()
+        for i, grad in enumerate(self.grads):
+            max_id = i if self.normalize_per_array else 0
+            wp.launch(
+                elem_multiply,
+                dim=grad.shape[0],
+                inputs=[
+                    grad,
+                    1.0 / max_values[max_id],
+                ],
+            )
+
+
 class Tape:
     """
     Record kernel launches within a Tape scope to enable automatic differentiation.
@@ -39,11 +188,13 @@ class Tape:
 
     """
 
-    def __init__(self):
+    def __init__(self, buffer=None):
         self.gradients = {}
         self.const_gradients = set()
         self.launches = []
         self.scopes = []
+        self.normalization_ops = []
+        self.buffer = buffer
 
         self.enable_recording = True
 
@@ -64,11 +215,10 @@ class Tape:
         wp.context.runtime.tape = None
 
     def forward(self, check_nans=True):
-
         # run launches forwards
         from tqdm import tqdm
-        for launch in tqdm(self.launches, desc="Tape forward pass"):
 
+        for launch in tqdm(self.launches, desc="Tape forward pass"):
             kernel = launch[0]
             dim = launch[1]
             max_blocks = launch[2]
@@ -76,18 +226,15 @@ class Tape:
             outputs = launch[4]
             device = launch[5]
 
-            wp.launch(
-                kernel=kernel,
-                dim=dim,
-                inputs=inputs,
-                outputs=outputs,
-                device=device)
+            wp.launch(kernel=kernel, dim=dim, inputs=inputs, outputs=outputs, device=device)
 
             if check_nans:
                 for o in outputs:
                     if isinstance(o, wp.array):
                         if np.isnan(o.numpy()).any():
-                            raise RuntimeError("Warp: Error, NaN detected in output array. Check your kernel for errors.")
+                            raise RuntimeError(
+                                "Warp: Error, NaN detected in output array. Check your kernel for errors."
+                            )
                 # TODO handle array of structs
                 # for i in inputs:
                 #     if isinstance(i, wp.array):
@@ -178,6 +325,11 @@ class Tape:
         if not self.enable_recording:
             return
         self.launches.append([kernel, dim, max_blocks, inputs, outputs, device, meta_data])
+        if len(self.normalization_ops) > 0:
+            grad_types = set((wp.float32, wp.float64, wp.vec3f, wp.vec3d, wp.quatf, wp.quatd, wp.spatial_vectorf, wp.spatial_vectord, wp.transformf, wp.transformd))
+            self.normalization_ops[-1][1].grads.extend([
+                i.grad for i in inputs if isinstance(i, wp.array) and i.grad and i.dtype in grad_types
+            ])
 
     def record_func(self, backward, arrays):
         """
@@ -208,6 +360,15 @@ class Tape:
         if not self.enable_recording:
             return
         self.scopes.append((len(self.launches), None))
+
+    def record_normalization(self):
+        if not self.enable_recording:
+            return
+        if not self.buffer:
+            raise RuntimeError("Cannot perform gradient normalization without a buffer given to the Tape constructor")
+        normalizer = GradientSpectralNormalization(self.buffer)
+        self.normalization_ops.append((len(self.launches), normalizer))
+        self.launches.append(normalizer)
 
     # returns the adjoint of a kernel parameter
     def get_adjoint(self, a):
@@ -262,3 +423,11 @@ class Tape:
                             getattr(g, name).zero_()
                 else:
                     g.zero_()
+
+
+def normalize_gradients():
+    """
+    Normalize all gradients recorded on the tape.
+    """
+    if wp.context.runtime.tape:
+        wp.context.runtime.tape.record_normalization()
