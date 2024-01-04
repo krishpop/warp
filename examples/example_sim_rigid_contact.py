@@ -25,6 +25,8 @@ import warp.sim.render
 
 wp.init()
 
+wp.config.verify_cuda = True
+
 
 class Example:
     def __init__(self, stage):
@@ -39,15 +41,26 @@ class Example:
         self.sim_substeps = 10
         self.sim_dt = self.frame_dt / self.sim_substeps
 
-        self.num_bodies = 8
+        self.num_bodies = 1
         self.scale = 0.8
-        self.ke = 1.e+2
-        self.kd = 250.0
-        self.kf = 500.0
+        self.ke = 1e5
+        self.kd = 1e3
+        self.kf = 5e1
+
+        builder.set_ground_plane(
+            ke=self.ke,
+            kd=self.kd,
+            kf=self.kf,
+        )
 
         # boxes
         for i in range(self.num_bodies):
-            b = builder.add_body(origin=wp.transform((i, 1.0, 0.0), wp.quat_identity()))
+            builder.add_articulation()
+            b = builder.add_body()
+            # builder.add_joint_free(b, wp.transform((i, 1.0, 0.0), wp.quat_from_axis_angle((0.0, 0.0, 1.0), math.pi * 0.25)))
+            builder.add_joint_free(b, wp.transform())
+            builder.joint_q[-7:-4] = [i * 1.0, 1.0, 0.0]
+            builder.joint_q[-4:] = wp.quat_from_axis_angle((0.0, 0.0, 1.0), math.pi * 0.25)
 
             builder.add_shape_box(
                 pos=(0.0, 0.0, 0.0),
@@ -62,7 +75,13 @@ class Example:
 
         # spheres
         for i in range(self.num_bodies):
-            b = builder.add_body(origin=wp.transform((i, 1.0, 2.0), wp.quat_identity()))
+            builder.add_articulation()
+            b = builder.add_body()
+            builder.add_joint_free(b, wp.transform((i * 0.01, 1.0 + i * 0.05, 2.0), wp.quat_from_axis_angle((0.0, 0.0, 1.0), math.pi * 0.25)))
+            # builder.add_joint_free(b, wp.transform((0.0, 2.0, 0.0), wp.quat_from_axis_angle((0.0, 0.0, 1.0), math.pi * 0.25)))
+            # builder.add_joint_free(b, wp.transform((i * 0.01, 1.0 + i * 0.05, 2.0), wp.quat_identity()))
+            # builder.add_joint_free(b, wp.transform())
+            # builder.joint_q[-7:-4] = [i * 1.0, 2.0 + i * 0.05, 2.0]
 
             builder.add_shape_sphere(
                 pos=(0.0, 0.0, 0.0), radius=0.25 * self.scale, body=b, ke=self.ke, kd=self.kd, kf=self.kf
@@ -70,12 +89,22 @@ class Example:
 
         # capsules
         for i in range(self.num_bodies):
-            b = builder.add_body(origin=wp.transform((i, 1.0, 6.0), wp.quat_identity()))
+            builder.add_articulation()
+            b = builder.add_body()
+            # tf = wp.transform((0.0, 0.0, 0.0), wp.quat_from_axis_angle((0.0, 0.0, 1.0), math.pi * 0.25))
+            tf = wp.transform((i * 0.1, 1.0 + i * 0.5, 6.0), wp.quat_identity())
+            builder.add_joint_free(
+                b, tf
+            )
+            tf = wp.transform((i * 0.1, 1.0 + i * 0.5, 6.0), wp.quat_from_axis_angle((0.0, 0.0, 1.0), math.pi * 0.25))
+            # builder.add_joint_free(b)
+            # builder.joint_q[-7:-4] = tf.p
+            builder.joint_q[-4:] = tf.q
 
             builder.add_shape_capsule(
                 pos=(0.0, 0.0, 0.0),
-                radius=0.25 * self.scale,
-                half_height=self.scale * 0.5,
+                radius=0.15 * self.scale,
+                half_height=self.scale * 0.3,
                 up_axis=0,
                 body=b,
                 ke=self.ke,
@@ -83,43 +112,44 @@ class Example:
                 kf=self.kf,
             )
 
-        # initial spin
-        for i in range(len(builder.body_qd)):
-            builder.body_qd[i] = (0.0, 2.0, 10.0, 0.0, 0.0, 0.0)
+        # # initial spin
+        # for i in range(len(builder.body_qd)):
+        #     builder.body_qd[i] = (0.0, 2.0, 10.0, 0.0, 0.0, 0.0)
 
-        # meshes
-        bunny = self.load_mesh(os.path.join(os.path.dirname(__file__), "assets/bunny.usd"), "/bunny/bunny")
-        for i in range(self.num_bodies):
-            
-            b = builder.add_body(origin=wp.transform(
-                (i*0.5*self.scale, 1.0 + i*1.7*self.scale, 4.0 + i*0.5*self.scale),
-                wp.quat_from_axis_angle((0.0, 1.0, 0.0), math.pi*0.1*i)))
+        # # meshes
+        # bunny = self.load_mesh(os.path.join(os.path.dirname(__file__), "assets/bunny.usd"), "/bunny/bunny")
+        # for i in range(self.num_bodies):
 
-            builder.add_shape_mesh(
-                body=b,
-                mesh=bunny,
-                pos=(0.0, 0.0, 0.0),
-                scale=(self.scale, self.scale, self.scale),
-                ke=self.ke,
-                kd=self.kd,
-                kf=self.kf,
-                density=1e3,
-            )
+        #     b = builder.add_body()
+        #     builder.add_joint_free(b, wp.transform((i*0.5*self.scale, 1.0 + i*1.7*self.scale, 4.0 + i*0.5*self.scale),wp.quat_from_axis_angle((0.0, 1.0, 0.0), math.pi*0.1*i)))
+
+        #     builder.add_shape_mesh(
+        #         body=b,
+        #         mesh=bunny,
+        #         pos=(0.0, 0.0, 0.0),
+        #         scale=(self.scale, self.scale, self.scale),
+        #         ke=self.ke,
+        #         kd=self.kd,
+        #         kf=self.kf,
+        #         density=1e3,
+        #     )
+
+        self.integrator = wp.sim.FeatherstoneIntegrator()
+        # self.integrator = wp.sim.XPBDIntegrator()
+        # self.integrator = wp.sim.SemiImplicitIntegrator()
 
         # finalize model
         self.model = builder.finalize(integrator=self.integrator)
         self.model.ground = True
 
-        self.integrator = wp.sim.SemiImplicitIntegrator()
-
-        self.renderer = wp.sim.render.SimRenderer(self.model, stage, scaling=0.5)
+        self.renderer = wp.sim.render.SimRendererOpenGL(self.model, stage, scaling=0.5)
 
         self.state_0 = self.model.state()
         self.state_1 = self.model.state()
 
         wp.sim.eval_fk(self.model, self.model.joint_q, self.model.joint_qd, None, self.state_0)
 
-        self.use_graph = wp.get_device().is_cuda
+        self.use_graph = False  # wp.get_device().is_cuda
         self.graph = None
 
         if self.use_graph:
@@ -138,7 +168,7 @@ class Example:
         return wp.sim.Mesh(points, indices)
 
     def update(self):
-        with wp.ScopedTimer("simulate", active=True):
+        with wp.ScopedTimer("simulate", active=False):
             if self.use_graph is False or self.graph is None:
                 for _ in range(self.sim_substeps):
                     self.state_0.clear_forces()
@@ -152,7 +182,7 @@ class Example:
                 self.sim_time += self.frame_dt
 
     def render(self, is_live=False):
-        with wp.ScopedTimer("render", active=True):
+        with wp.ScopedTimer("render", active=False):
             time = 0.0 if is_live else self.sim_time
 
             self.renderer.begin_frame(time)
@@ -163,11 +193,10 @@ class Example:
 if __name__ == "__main__":
     stage = os.path.join(os.path.dirname(__file__), "outputs/example_sim_rigid_contact.usd")
     example = Example(stage)
-    example.run()
 
     profiler = {}
 
-    with wp.ScopedTimer("simulate", detailed=False, print=False, active=True, dict=profiler):
+    with wp.ScopedTimer("simulate", detailed=False, print=False, active=False, dict=profiler):
         for _ in range(example.episode_frames):
             example.update()
             example.render()

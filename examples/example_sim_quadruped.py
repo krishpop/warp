@@ -94,7 +94,7 @@ class Example:
         self.sim_time = 0.0
         self.frame_dt = 1.0 / 100.0
 
-        episode_duration = 5.0  # seconds
+        episode_duration = 50.0  # seconds
         self.episode_frames = int(episode_duration / self.frame_dt)
 
         self.sim_substeps = 5
@@ -108,20 +108,21 @@ class Example:
 
             builder.joint_target[-12:] = [0.2, 0.4, -0.6, -0.2, -0.4, 0.6, -0.2, 0.4, -0.6, 0.2, -0.4, 0.6]
 
+        # self.integrator = wp.sim.XPBDIntegrator()
+        self.integrator = wp.sim.FeatherstoneIntegrator()
+
         np.set_printoptions(suppress=True)
         # finalize model
-        self.model = builder.finalize()
+        self.model = builder.finalize(integrator=self.integrator)
         self.model.ground = True
 
         self.model.joint_attach_ke = 16000.0
         self.model.joint_attach_kd = 200.0
 
-        self.integrator = wp.sim.XPBDIntegrator()
-
         self.enable_rendering = enable_rendering
         self.renderer = None
         if self.enable_rendering:
-            self.renderer = wp.sim.render.SimRenderer(self.model, stage)
+            self.renderer = wp.sim.render.SimRendererOpenGL(self.model, stage)
 
         self.print_timers = print_timers
 
@@ -130,7 +131,7 @@ class Example:
 
         wp.sim.eval_fk(self.model, self.model.joint_q, self.model.joint_qd, None, self.state_0)
 
-        self.use_graph = wp.get_device().is_cuda
+        self.use_graph = False  # wp.get_device().is_cuda
         self.graph = None
 
         if self.use_graph:
@@ -140,7 +141,7 @@ class Example:
             self.graph = wp.capture_end()
 
     def update(self):
-        with wp.ScopedTimer("simulate", active=True, print=self.print_timers):
+        with wp.ScopedTimer("simulate", active=False, print=self.print_timers):
             if self.use_graph is False or self.graph is None:
                 for _ in range(self.sim_substeps):
                     self.state_0.clear_forces()
@@ -155,7 +156,7 @@ class Example:
 
     def render(self, is_live=False):
         if self.enable_rendering:
-            with wp.ScopedTimer("render", active=True, print=self.print_timers):
+            with wp.ScopedTimer("render", active=False, print=self.print_timers):
                 time = 0.0 if is_live else self.sim_time
 
                 self.renderer.begin_frame(time)
@@ -165,7 +166,7 @@ class Example:
     def run(self):
         profiler = {}
 
-        with wp.ScopedTimer("simulate", detailed=False, print=False, active=True, dict=profiler):
+        with wp.ScopedTimer("simulate", detailed=False, print=False, active=False, dict=profiler):
             for _ in range(self.episode_frames):
                 self.update()
                 self.render()
@@ -179,7 +180,7 @@ class Example:
         avg_steps_second = 1000.0 * float(self.num_envs) / avg_time
 
         print(f"envs: {self.num_envs} steps/second {avg_steps_second} avg_time {avg_time}")
-        
+
         self.renderer.save()
 
         return 1000.0 * float(self.num_envs) / avg_time
