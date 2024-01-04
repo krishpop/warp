@@ -810,7 +810,7 @@ class Adjoint:
         return output
 
     def resolve_func(adj, func, args, min_outputs, templates, kwds):
-        arg_types = [strip_reference(a.type) for a in args if not isinstance(a, warp.context.Function)]
+        arg_types = [strip_reference(a.type) for a in args if a is not None and not isinstance(a, warp.context.Function)]
 
         if not func.is_builtin():
             # user-defined function
@@ -910,7 +910,10 @@ class Adjoint:
 
         # evaluate the function type based on inputs
         arg_types = [strip_reference(a.type) for a in args if not isinstance(a, warp.context.Function)]
-        return_type = func.value_func(arg_types, kwds, templates)
+        if func.value_func is None:
+            return_type = None
+        else:
+            return_type = func.value_func(arg_types, kwds, templates)
 
         func_name = compute_type_str(func.native_func, templates)
         param_types = list(func.input_types.values())

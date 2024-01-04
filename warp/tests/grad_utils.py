@@ -1583,4 +1583,7 @@ def plot_state_gradients(states: list, figure_name: str = "state_grads.html", bl
     fig['layout']['xaxis']['title'] = "State"
     fig['layout']['xaxis2']['title'] = "State"
 
-    fig.write_html(figure_name, auto_open=True)
+    script = None
+    if title is not None:
+        script = f'document.title = "{title}";'
+    fig.write_html(figure_name, auto_open=True, post_script=script)
