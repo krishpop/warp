@@ -17,9 +17,16 @@
 import os
 import math
 import warp as wp
+
+import numpy as np
+np.set_printoptions(precision=5, linewidth=256, suppress=True)
+
+# wp.config.verify_cuda = True
+# wp.config.mode = "debug"
+# wp.verify_fp = True
 import warp.sim
 
-from environment import Environment, run_env, IntegratorType
+from environment import Environment, run_env, IntegratorType, RenderMode
 
 
 # @wp.kernel
@@ -147,6 +154,7 @@ def double_cartpole_cost(
 class CartpoleEnvironment(Environment):
     sim_name = "env_cartpole"
     env_offset = (2.0, 0.0, 2.0)
+    # env_offset = (0.0, 0.0, 0.0)
 
     single_cartpole = False
 
@@ -167,10 +175,19 @@ class CartpoleEnvironment(Environment):
     control_gains = [500.0]
     control_limits = [(-1.0, 1.0)]
 
-    # integrator_type = IntegratorType.EULER
+    integrator_type = IntegratorType.FEATHERSTONE
+    num_envs = 3
 
-    # requires_grad = True
+    requires_grad = False
+    use_graph_capture = False
+
+    # render_mode = RenderMode.NONE
     # use_graph_capture = False
+    # num_envs = 1
+
+    plot_joint_coords = False
+
+    eval_fk = False
 
     def create_articulation(self, builder):
         if self.single_cartpole:
@@ -184,10 +201,9 @@ class CartpoleEnvironment(Environment):
             os.path.join(os.path.dirname(__file__), path),
             builder,
             xform=wp.transform((0.0, 0.0, 0.0), wp.quat_from_axis_angle((1.0, 0.0, 0.0), -math.pi * 0.5)),
-            # xform=wp.transform(),
             floating=False,
-            density=1000.0,
-            armature=0.1,
+            density=1000,
+            armature=0.0,
             stiffness=0.0,
             damping=0.0,
             shape_ke=1.0e4,
@@ -195,17 +211,18 @@ class CartpoleEnvironment(Environment):
             shape_kf=1.0e2,
             shape_mu=1.0,
             limit_ke=1.0e4,
-            limit_kd=1.0e1,
+            limit_kd=0.0,
             enable_self_collisions=False,
         )
-        builder.collapse_fixed_joints()
+        # builder.collapse_fixed_joints()
 
         # joint initial positions
         builder.joint_q[-3:] = [0.0, 0.1, 0.0]
 
     def custom_augment_state(self, model, state):
-        state.joint_q = wp.zeros(self.model.joint_q.shape, device=self.device, requires_grad=True)
-        state.joint_qd = wp.zeros(self.model.joint_qd.shape, device=self.device, requires_grad=True)
+        if self.integrator_type != IntegratorType.FEATHERSTONE:
+            state.joint_q = wp.zeros(self.model.joint_q.shape, device=self.device, requires_grad=True)
+            state.joint_qd = wp.zeros(self.model.joint_qd.shape, device=self.device, requires_grad=True)
 
     def evaluate_cost(self, state: wp.sim.State, cost: wp.array, step: int, horizon_length: int):
         
@@ -217,7 +234,8 @@ class CartpoleEnvironment(Environment):
         #     device=self.device
         # )
 
-        wp.sim.eval_ik(self.model, state, state.joint_q, state.joint_qd)
+        if self.integrator_type != IntegratorType.FEATHERSTONE:
+            wp.sim.eval_ik(self.model, state, state.joint_q, state.joint_qd)
         wp.launch(
             single_cartpole_cost if self.single_cartpole else double_cartpole_cost,
             dim=self.num_envs,
