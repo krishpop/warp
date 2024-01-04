@@ -70,6 +70,8 @@ class Function:
         native_func=None,
         defaults=None,
         custom_replay_func=None,
+        native_snippet=None,
+        adj_native_snippet=None,
         skip_forward_codegen=False,
         skip_reverse_codegen=False,
         custom_reverse_num_input_args=-1,
@@ -77,6 +79,7 @@ class Function:
         overloaded_annotations=None,
         code_transformers=[],
         skip_adding_overload=False,
+        require_original_output_arg=False,
     ):
         self.func = func  # points to Python function decorated with @wp.func, may be None for builtins
         self.key = key
@@ -92,7 +95,10 @@ class Function:
         self.defaults = defaults
         # Function instance for a custom implementation of the replay pass
         self.custom_replay_func = custom_replay_func
+        self.native_snippet = native_snippet
+        self.adj_native_snippet = adj_native_snippet
         self.custom_grad_func = None
+        self.require_original_output_arg = require_original_output_arg
 
         if initializer_list_func is None:
             self.initializer_list_func = lambda x, y: False
@@ -172,127 +178,24 @@ class Function:
         # from within a kernel (experimental).
 
         if self.is_builtin() and self.mangled_name:
-            # store last error during overload resolution
-            error = None
-
-            for f in self.overloads:
-                if f.generic:
+            # For each of this function's existing overloads, we attempt to pack
+            # the given arguments into the C types expected by the corresponding
+            # parameters, and we rinse and repeat until we get a match.
+            for overload in self.overloads:
+                if overload.generic:
                     continue
 
-                # try and find builtin in the warp.dll
-                if not hasattr(warp.context.runtime.core, f.mangled_name):
-                    raise RuntimeError(
-                        f"Couldn't find function {self.key} with mangled name {f.mangled_name} in the Warp native library"
-                    )
-
-                try:
-                    # try and pack args into what the function expects
-                    params = []
-                    for i, (arg_name, arg_type) in enumerate(f.input_types.items()):
-                        a = args[i]
-
-                        # try to convert to a value type (vec3, mat33, etc)
-                        if issubclass(arg_type, ctypes.Array):
-                            # wrap the arg_type (which is an ctypes.Array) in a structure
-                            # to ensure parameter is passed to the .dll by value rather than reference
-                            class ValueArg(ctypes.Structure):
-                                _fields_ = [("value", arg_type)]
-
-                            x = ValueArg()
-
-                            # force conversion to ndarray first (handles tuple / list, Gf.Vec3 case)
-                            if isinstance(a, ctypes.Array) is False:
-                                # assume you want the float32 version of the function so it doesn't just
-                                # grab an override for a random data type:
-                                if arg_type._type_ != ctypes.c_float:
-                                    raise RuntimeError(
-                                        f"Error calling function '{f.key}', parameter for argument '{arg_name}' does not have c_float type."
-                                    )
-
-                                a = np.array(a)
-
-                                # flatten to 1D array
-                                v = a.flatten()
-                                if len(v) != arg_type._length_:
-                                    raise RuntimeError(
-                                        f"Error calling function '{f.key}', parameter for argument '{arg_name}' has length {len(v)}, but expected {arg_type._length_}. Could not convert parameter to {arg_type}."
-                                    )
-
-                                for i in range(arg_type._length_):
-                                    x.value[i] = v[i]
-
-                            else:
-                                # already a built-in type, check it matches
-                                if not warp.types.types_equal(type(a), arg_type):
-                                    raise RuntimeError(
-                                        f"Error calling function '{f.key}', parameter for argument '{arg_name}' has type '{type(a)}' but expected '{arg_type}'"
-                                    )
-
-                                if isinstance(a, arg_type):
-                                    x.value = a
-                                else:
-                                    # Cast the value to its argument type to make sure that it can be assigned to the field of the `ValueArg` struct.
-                                    # This could error otherwise when, for example, the field type is set to `vec3i` while the value is of type
-                                    # `vector(length=3, dtype=int)`, even though both types are semantically identical.
-                                    x.value = arg_type(a)
-
-                            params.append(x)
-
-                        else:
-                            try:
-                                # try to pack as a scalar type
-                                params.append(arg_type._type_(a))
-                            except Exception:
-                                raise RuntimeError(
-                                    f"Error calling function {f.key}, unable to pack function parameter type {type(a)} for param {arg_name}, expected {arg_type}"
-                                )
-
-                    # returns the corresponding ctype for a scalar or vector warp type
-                    def type_ctype(dtype):
-                        if dtype == float:
-                            return ctypes.c_float
-                        elif dtype == int:
-                            return ctypes.c_int32
-                        elif issubclass(dtype, ctypes.Array):
-                            return dtype
-                        elif issubclass(dtype, ctypes.Structure):
-                            return dtype
-                        else:
-                            # scalar type
-                            return dtype._type_
-
-                    value_type = type_ctype(f.value_func(None, None, None))
-
-                    # construct return value (passed by address)
-                    ret = value_type()
-                    ret_addr = ctypes.c_void_p(ctypes.addressof(ret))
-
-                    params.append(ret_addr)
-
-                    c_func = getattr(warp.context.runtime.core, f.mangled_name)
-                    c_func(*params)
-
-                    if issubclass(value_type, ctypes.Array) or issubclass(value_type, ctypes.Structure):
-                        # return vector types as ctypes
-                        return ret
-                    else:
-                        # return scalar types as int/float
-                        return ret.value
-
-                except Exception as e:
-                    # couldn't pack values to match this overload
-                    # store error and move onto the next one
-                    error = e
-                    continue
+                success, return_value = call_builtin(overload, *args)
+                if success:
+                    return return_value
 
             # overload resolution or call failed
-            # raise the last exception encountered
-            if error:
-                raise error
-            else:
-                raise RuntimeError(f"Error calling function '{f.key}'.")
+            raise RuntimeError(
+                f"Couldn't find a function '{self.key}' compatible with "
+                f"the arguments '{', '.join(type(x).__name__ for x in args)}'"
+            )
 
-        elif hasattr(self, "user_overloads") and len(self.user_overloads):
+        if hasattr(self, "user_overloads") and len(self.user_overloads):
             # user-defined function with overloads
 
             if len(kwargs):
@@ -301,28 +204,26 @@ class Function:
                 )
 
             # try and find a matching overload
-            for f in self.user_overloads.values():
-                if len(f.input_types) != len(args):
+            for overload in self.user_overloads.values():
+                if len(overload.input_types) != len(args):
                     continue
-                template_types = list(f.input_types.values())
-                arg_names = list(f.input_types.keys())
+                template_types = list(overload.input_types.values())
+                arg_names = list(overload.input_types.keys())
                 try:
                     # attempt to unify argument types with function template types
                     warp.types.infer_argument_types(args, template_types, arg_names)
-                    return f.func(*args)
+                    return overload.func(*args)
                 except Exception:
                     continue
 
             raise RuntimeError(f"Error calling function '{self.key}', no overload found for arguments {args}")
 
-        else:
-            # user-defined function with no overloads
+        # user-defined function with no overloads
+        if self.func is None:
+            raise RuntimeError(f"Error calling function '{self.key}', function is undefined")
 
-            if self.func is None:
-                raise RuntimeError(f"Error calling function '{self.key}', function is undefined")
-
-            # this function has no overloads, call it like a plain Python function
-            return self.func(*args, **kwargs)
+        # this function has no overloads, call it like a plain Python function
+        return self.func(*args, **kwargs)
 
     def is_builtin(self):
         return self.func is None
@@ -435,8 +336,186 @@ class Function:
             return None
 
     def __repr__(self):
-        inputs_str = ", ".join([f"{k}: {v.__name__}" for k, v in self.input_types.items()])
+        inputs_str = ", ".join([f"{k}: {warp.types.type_repr(v)}" for k, v in self.input_types.items()])
         return f"<Function {self.key}({inputs_str})>"
+
+
+def call_builtin(func: Function, *params) -> Tuple[bool, Any]:
+    uses_non_warp_array_type = False
+
+    # Retrieve the built-in function from Warp's dll.
+    c_func = getattr(warp.context.runtime.core, func.mangled_name)
+
+    # Try gathering the parameters that the function expects and pack them
+    # into their corresponding C types.
+    c_params = []
+    for i, (_, arg_type) in enumerate(func.input_types.items()):
+        param = params[i]
+
+        try:
+            iter(param)
+        except TypeError:
+            is_array = False
+        else:
+            is_array = True
+
+        if is_array:
+            if not issubclass(arg_type, ctypes.Array):
+                return (False, None)
+
+            # The argument expects a built-in Warp type like a vector or a matrix.
+
+            c_param = None
+
+            if isinstance(param, ctypes.Array):
+                # The given parameter is also a built-in Warp type, so we only need
+                # to make sure that it matches with the argument.
+                if not warp.types.types_equal(type(param), arg_type):
+                    return (False, None)
+
+                if isinstance(param, arg_type):
+                    c_param = param
+                else:
+                    # Cast the value to its argument type to make sure that it
+                    # can be assigned to the field of the `Param` struct.
+                    # This could error otherwise when, for example, the field type
+                    # is set to `vec3i` while the value is of type `vector(length=3, dtype=int)`,
+                    # even though both types are semantically identical.
+                    c_param = arg_type(param)
+            else:
+                # Flatten the parameter values into a flat 1-D array.
+                arr = []
+                ndim = 1
+                stack = [(0, param)]
+                while stack:
+                    depth, elem = stack.pop(0)
+                    try:
+                        # If `elem` is a sequence, then it should be possible
+                        # to add its elements to the stack for later processing.
+                        stack.extend((depth + 1, x) for x in elem)
+                    except TypeError:
+                        # Since `elem` doesn't seem to be a sequence,
+                        # we must have a leaf value that we need to add to our
+                        # resulting array.
+                        arr.append(elem)
+                        ndim = max(depth, ndim)
+
+                assert ndim > 0
+
+                # Ensure that if the given parameter value is, say, a 2-D array,
+                # then we try to resolve it against a matrix argument rather than
+                # a vector.
+                if ndim > len(arg_type._shape_):
+                    return (False, None)
+
+                elem_count = len(arr)
+                if elem_count != arg_type._length_:
+                    return (False, None)
+
+                # Retrieve the element type of the sequence while ensuring
+                # that it's homogeneous.
+                elem_type = type(arr[0])
+                for i in range(1, elem_count):
+                    if type(arr[i]) is not elem_type:
+                        raise ValueError("All array elements must share the same type.")
+
+                expected_elem_type = arg_type._wp_scalar_type_
+                if not (
+                    elem_type is expected_elem_type
+                    or (elem_type is float and expected_elem_type is warp.types.float32)
+                    or (elem_type is int and expected_elem_type is warp.types.int32)
+                    or (
+                        issubclass(elem_type, np.number)
+                        and warp.types.np_dtype_to_warp_type[np.dtype(elem_type)] is expected_elem_type
+                    )
+                ):
+                    # The parameter value has a type not matching the type defined
+                    # for the corresponding argument.
+                    return (False, None)
+
+                if elem_type in warp.types.int_types:
+                    # Pass the value through the expected integer type
+                    # in order to evaluate any integer wrapping.
+                    # For example `uint8(-1)` should result in the value `-255`.
+                    arr = tuple(elem_type._type_(x.value).value for x in arr)
+                elif elem_type in warp.types.float_types:
+                    # Extract the floating-point values.
+                    arr = tuple(x.value for x in arr)
+
+                c_param = arg_type()
+                if warp.types.type_is_matrix(arg_type):
+                    rows, cols = arg_type._shape_
+                    for i in range(rows):
+                        idx_start = i * cols
+                        idx_end = idx_start + cols
+                        c_param[i] = arr[idx_start:idx_end]
+                else:
+                    c_param[:] = arr
+
+                uses_non_warp_array_type = True
+
+            c_params.append(ctypes.byref(c_param))
+        else:
+            if issubclass(arg_type, ctypes.Array):
+                return (False, None)
+
+            if not (
+                isinstance(param, arg_type)
+                or (type(param) is float and arg_type is warp.types.float32)
+                or (type(param) is int and arg_type is warp.types.int32)
+                or warp.types.np_dtype_to_warp_type.get(getattr(param, "dtype", None)) is arg_type
+            ):
+                return (False, None)
+
+            if type(param) in warp.types.scalar_types:
+                param = param.value
+
+            # try to pack as a scalar type
+            if arg_type == warp.types.float16:
+                c_params.append(arg_type._type_(warp.types.float_to_half_bits(param)))
+            else:
+                c_params.append(arg_type._type_(param))
+
+    # returns the corresponding ctype for a scalar or vector warp type
+    value_type = func.value_func(None, None, None)
+    if value_type == float:
+        value_ctype = ctypes.c_float
+    elif value_type == int:
+        value_ctype = ctypes.c_int32
+    elif issubclass(value_type, (ctypes.Array, ctypes.Structure)):
+        value_ctype = value_type
+    else:
+        # scalar type
+        value_ctype = value_type._type_
+
+    # construct return value (passed by address)
+    ret = value_ctype()
+    ret_addr = ctypes.c_void_p(ctypes.addressof(ret))
+    c_params.append(ret_addr)
+
+    # Call the built-in function from Warp's dll.
+    c_func(*c_params)
+
+    # TODO: uncomment when we have a way to print warning messages only once.
+    # if uses_non_warp_array_type:
+    #     warp.utils.warn(
+    #         "Support for built-in functions called with non-Warp array types, "
+    #         "such as lists, tuples, NumPy arrays, and others, will be dropped "
+    #         "in the future. Use a Warp type such as `wp.vec`, `wp.mat`, "
+    #         "`wp.quat`, or `wp.transform`.",
+    #         DeprecationWarning,
+    #         stacklevel=3
+    #     )
+
+    if issubclass(value_ctype, ctypes.Array) or issubclass(value_ctype, ctypes.Structure):
+        # return vector types as ctypes
+        return (True, ret)
+
+    if value_type == warp.types.float16:
+        return (True, warp.types.half_bits_to_float(ret.value))
+
+    # return scalar types as int/float
+    return (True, ret.value)
 
 
 class KernelHooks:
@@ -447,10 +526,20 @@ class KernelHooks:
 
 # caches source and compiled entry points for a kernel (will be populated after module loads)
 class Kernel:
-    def __init__(self, func, key, module, options=None, code_transformers=[]):
+    def __init__(self, func, key=None, module=None, options=None, code_transformers=[]):
         self.func = func
-        self.module = module
-        self.key = key
+
+        if module is None:
+            self.module = get_module(func.__module__)
+        else:
+            self.module = module
+
+        if key is None:
+            unique_key = self.module.generate_unique_kernel_key(func.__name__)
+            self.key = unique_key
+        else:
+            self.key = key
+
         self.options = {} if options is None else options
 
         self.adj = warp.codegen.Adjoint(func, transformers=code_transformers)
@@ -471,8 +560,8 @@ class Kernel:
         # argument indices by name
         self.arg_indices = dict((a.label, i) for i, a in enumerate(self.adj.args))
 
-        if module:
-            module.register_kernel(self)
+        if self.module:
+            self.module.register_kernel(self)
 
     def infer_argument_types(self, args):
         template_types = list(self.adj.arg_types.values())
@@ -555,6 +644,24 @@ def func(f):
 
     # return the top of the list of overloads for this key
     return m.functions[name]
+
+
+def func_native(snippet, adj_snippet=None):
+    """
+    Decorator to register native code snippet, @func_native
+    """
+
+    def snippet_func(f):
+        name = warp.codegen.make_full_qualified_name(f)
+
+        m = get_module(f.__module__)
+        func = Function(
+            func=f, key=name, namespace="", module=m, native_snippet=snippet, adj_native_snippet=adj_snippet
+        )  # cuda snippets do not have a return value_type
+
+        return m.functions[name]
+
+    return snippet_func
 
 
 def func_grad(forward_fn):
@@ -827,6 +934,7 @@ def add_builtin(
     missing_grad=False,
     native_func=None,
     defaults=None,
+    require_original_output_arg=False,
 ):
     # wrap simple single-type functions with a value_func()
     if value_func is None:
@@ -951,6 +1059,7 @@ def add_builtin(
                     hidden=True,
                     skip_replay=skip_replay,
                     missing_grad=missing_grad,
+                    require_original_output_arg=require_original_output_arg,
                 )
 
     func = Function(
@@ -971,6 +1080,7 @@ def add_builtin(
         generic=generic,
         native_func=native_func,
         defaults=defaults,
+        require_original_output_arg=require_original_output_arg,
     )
 
     if key in builtin_functions:
@@ -980,7 +1090,7 @@ def add_builtin(
 
         # export means the function will be added to the `warp` module namespace
         # so that users can call it directly from the Python interpreter
-        if export is True:
+        if export:
             if hasattr(warp, key):
                 # check that we haven't already created something at this location
                 # if it's just an overload stub for auto-complete then overwrite it
@@ -1065,8 +1175,7 @@ class ModuleBuilder:
         while stack:
             s = stack.pop()
 
-            if s not in structs:
-                structs.append(s)
+            structs.append(s)
 
             for var in s.vars.values():
                 if isinstance(var.type, warp.codegen.Struct):
@@ -1122,9 +1231,14 @@ class ModuleBuilder:
 
         # code-gen all imported functions
         for func in self.functions.keys():
-            source += warp.codegen.codegen_func(
-                func.adj, c_func_name=func.native_func, device=device, options=self.options
-            )
+            if func.native_snippet is None:
+                source += warp.codegen.codegen_func(
+                    func.adj, c_func_name=func.native_func, device=device, options=self.options
+                )
+            else:
+                source += warp.codegen.codegen_snippet(
+                    func.adj, name=func.key, snippet=func.native_snippet, adj_snippet=func.adj_native_snippet
+                )
 
         for kernel in self.module.kernels.values():
             # each kernel gets an entry point in the module
@@ -1204,6 +1318,10 @@ class Module:
 
         self.content_hash = None
 
+        # number of times module auto-generates kernel key for user
+        # used to ensure unique kernel keys
+        self.count = 0
+
     def register_struct(self, struct):
         self.structs[struct.key] = struct
 
@@ -1245,6 +1363,11 @@ class Module:
 
         # for a reload of module on next launch
         self.unload()
+
+    def generate_unique_kernel_key(self, key):
+        unique_key = f"{key}_{self.count}"
+        self.count += 1
+        return unique_key
 
     # collect all referenced functions / structs
     # given the AST of a function or kernel
@@ -1311,16 +1434,25 @@ class Module:
                 for func in module.functions.values():
                     s = func.adj.source
                     ch.update(bytes(s, "utf-8"))
+
                     if func.custom_grad_func:
                         s = func.custom_grad_func.adj.source
                         ch.update(bytes(s, "utf-8"))
                     if func.custom_replay_func:
                         s = func.custom_replay_func.adj.source
+
+                    # cache func arg types
+                    for arg, arg_type in func.adj.arg_types.items():
+                        s = f"{arg}: {get_type_name(arg_type)}"
                         ch.update(bytes(s, "utf-8"))
 
                 # kernel source
                 for kernel in module.kernels.values():
                     ch.update(bytes(kernel.adj.source, "utf-8"))
+                    # cache kernel arg types
+                    for arg, arg_type in kernel.adj.arg_types.items():
+                        s = f"{arg}: {get_type_name(arg_type)}"
+                        ch.update(bytes(s, "utf-8"))
                     # for generic kernels the Python source is always the same,
                     # but we hash the type signatures of all the overloads
                     if kernel.is_generic:
@@ -1910,7 +2042,7 @@ class Runtime:
 
         self.core = self.load_dll(warp_lib)
 
-        if llvm_lib and os.path.exists(llvm_lib):
+        if os.path.exists(llvm_lib):
             self.llvm = self.load_dll(llvm_lib)
             # setup c-types for warp-clang.dll
             self.llvm.lookup.restype = ctypes.c_uint64
@@ -2501,8 +2633,15 @@ class Runtime:
                 dll = ctypes.CDLL(dll_path, winmode=0)
             else:
                 dll = ctypes.CDLL(dll_path)
-        except OSError:
-            raise RuntimeError(f"Failed to load the shared library '{dll_path}'")
+        except OSError as e:
+            if "GLIBCXX" in str(e):
+                raise RuntimeError(
+                    f"Failed to load the shared library '{dll_path}'.\n"
+                    "The execution environment's libstdc++ runtime is older than the version the Warp library was built for.\n"
+                    "See https://nvidia.github.io/warp/_build/html/installation.html#conda-environments for details."
+                ) from e
+            else:
+                raise RuntimeError(f"Failed to load the shared library '{dll_path}'") from e
         return dll
 
     def get_device(self, ident: Devicelike = None) -> Device:
@@ -3355,7 +3494,7 @@ def launch(
         device = runtime.get_device(device)
 
     # check function is a Kernel
-    if isinstance(kernel, Kernel) is False:
+    if not isinstance(kernel, Kernel):
         raise RuntimeError("Error launching kernel, can only launch functions decorated with @wp.kernel.")
 
     # debugging aid
@@ -3641,7 +3780,7 @@ def get_module_options(module: Optional[Any] = None) -> Dict[str, Any]:
     return get_module(m.__name__).options
 
 
-def capture_begin(device: Devicelike = None, stream=None, force_module_load=True):
+def capture_begin(device: Devicelike = None, stream=None, force_module_load=None):
     """Begin capture of a CUDA graph
 
     Captures all subsequent kernel launches and memory operations on CUDA devices.
@@ -3655,7 +3794,10 @@ def capture_begin(device: Devicelike = None, stream=None, force_module_load=True
 
     """
 
-    if warp.config.verify_cuda is True:
+    if force_module_load is None:
+        force_module_load = warp.config.graph_capture_module_load_default
+
+    if warp.config.verify_cuda:
         raise RuntimeError("Cannot use CUDA error verification during graph capture")
 
     if stream is not None:
@@ -3938,7 +4080,7 @@ def print_function(f, file, noentry=False):  # pragma: no cover
     return True
 
 
-def print_builtins(file):  # pragma: no cover
+def export_functions_rst(file):  # pragma: no cover
     header = (
         "..\n"
         "   Autogenerated File - Do not edit. Run build_docs.py to generate.\n"
@@ -3978,6 +4120,14 @@ def print_builtins(file):  # pragma: no cover
     print(".. class:: Quaternion", file=file)
     print(".. class:: Transformation", file=file)
     print(".. class:: Array", file=file)
+
+    print("\nQuery Types", file=file)
+    print("-------------", file=file)
+    print(".. autoclass:: bvh_query_t", file=file)
+    print(".. autoclass:: hash_grid_query_t", file=file)
+    print(".. autoclass:: mesh_query_aabb_t", file=file)
+    print(".. autoclass:: mesh_query_point_t", file=file)
+    print(".. autoclass:: mesh_query_ray_t", file=file)
 
     # build dictionary of all functions by group
     groups = {}
@@ -4062,7 +4212,7 @@ def export_stubs(file):  # pragma: no cover
 
             return_str = ""
 
-            if f.export is False or f.hidden is True:  # or f.generic:
+            if not f.export or f.hidden:  # or f.generic:
                 continue
 
             try:
@@ -4084,7 +4234,17 @@ def export_stubs(file):  # pragma: no cover
 
 
 def export_builtins(file: io.TextIOBase):  # pragma: no cover
-    def ctype_str(t):
+    def ctype_arg_str(t):
+        if isinstance(t, int):
+            return "int"
+        elif isinstance(t, float):
+            return "float"
+        elif t in warp.types.vector_types:
+            return f"{t.__name__}&"
+        else:
+            return t.__name__
+
+    def ctype_ret_str(t):
         if isinstance(t, int):
             return "int"
         elif isinstance(t, float):
@@ -4097,7 +4257,7 @@ def export_builtins(file: io.TextIOBase):  # pragma: no cover
 
     for k, g in builtin_functions.items():
         for f in g.overloads:
-            if f.export is False or f.generic:
+            if not f.export or f.generic:
                 continue
 
             simple = True
@@ -4111,7 +4271,7 @@ def export_builtins(file: io.TextIOBase):  # pragma: no cover
             if not simple or f.variadic:
                 continue
 
-            args = ", ".join(f"{ctype_str(v)} {k}" for k, v in f.input_types.items())
+            args = ", ".join(f"{ctype_arg_str(v)} {k}" for k, v in f.input_types.items())
             params = ", ".join(f.input_types.keys())
 
             return_type = ""
@@ -4119,7 +4279,7 @@ def export_builtins(file: io.TextIOBase):  # pragma: no cover
             try:
                 # todo: construct a default value for each of the functions args
                 # so we can generate the return type for overloaded functions
-                return_type = ctype_str(f.value_func(None, None, None))
+                return_type = ctype_ret_str(f.value_func(None, None, None))
             except Exception:
                 continue
 

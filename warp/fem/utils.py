@@ -1,10 +1,15 @@
 from typing import Any, Tuple
 
-import warp as wp
 import numpy as np
 
-from warp.utils import radix_sort_pairs, runlength_encode, array_scan
-from warp.fem.cache import borrow_temporary, borrow_temporary_like, TemporaryStore, Temporary
+import warp as wp
+from warp.fem.cache import (
+    Temporary,
+    TemporaryStore,
+    borrow_temporary,
+    borrow_temporary_like,
+)
+from warp.utils import array_scan, radix_sort_pairs, runlength_encode
 
 
 @wp.func
@@ -36,6 +41,24 @@ def generalized_inner(x: wp.mat22, y: wp.vec2):
 
 @wp.func
 def generalized_inner(x: wp.mat33, y: wp.vec3):
+    return x[0] * y[0] + x[1] * y[1] + x[2] * y[2]
+
+
+@wp.func
+def apply_right(x: Any, y: Any):
+    """Performs x y multiplication with y a square matrix and x either a row-vector or a matrix.
+    Will be removed once native @ operator is implemented.
+    """
+    return x * y
+
+
+@wp.func
+def apply_right(x: wp.vec2, y: wp.mat22):
+    return x[0] * y[0] + x[1] * y[1]
+
+
+@wp.func
+def apply_right(x: wp.vec3, y: wp.mat33):
     return x[0] * y[0] + x[1] * y[1] + x[2] * y[2]
 
 
@@ -150,7 +173,7 @@ def compress_node_indices(
     if node_indices.device.is_cuda:
         unique_node_count_host = borrow_temporary(temporary_store, shape=(1,), dtype=int, pinned=True, device="cpu")
         wp.copy(src=unique_node_count_dev.array, dest=unique_node_count_host.array, count=1)
-        wp.synchronize_stream(wp.get_stream())
+        wp.synchronize_stream(wp.get_stream(node_indices.device))
         unique_node_count_dev.release()
         unique_node_count = int(unique_node_count_host.array.numpy()[0])
         unique_node_count_host.release()
@@ -199,7 +222,7 @@ def masked_indices(
     if offsets.device.is_cuda:
         masked_count_temp = borrow_temporary(temporary_store, shape=1, dtype=int, pinned=True, device="cpu")
         wp.copy(dest=masked_count_temp.array, src=offsets, src_offset=offsets.shape[0] - 1, count=1)
-        wp.synchronize_stream(wp.get_stream())
+        wp.synchronize_stream(wp.get_stream(offsets.device))
         masked_count = int(masked_count_temp.array.numpy()[0])
         masked_count_temp.release()
     else:
@@ -398,11 +421,45 @@ def grid_to_tets(Nx: int, Ny: int, Nz: int):
     return tet_grid_vidx
 
 
+def grid_to_quads(Nx: int, Ny: int):
+    """Constructs a quadrilateral mesh topology from a dense 2D grid
+
+    The resulting quads will be indexed counter-clockwise
+
+    Args:
+        Nx: Resolution of the grid along `x` dimension
+        Ny: Resolution of the grid along `y` dimension
+
+    Returns:
+        Array of shape (Nx * Ny, 4) containing vertex indices for each quadrilateral
+    """
+
+    quad_vtx = np.array(
+        [
+            [0, 0],
+            [1, 0],
+            [1, 1],
+            [0, 1],
+        ]
+    ).T
+
+    quads = np.stack(np.meshgrid(np.arange(0, Nx), np.arange(0, Ny), indexing="ij"))
+
+    quads_vtx_shape = (*quads.shape, quad_vtx.shape[1])
+    quads_vtx = np.broadcast_to(quads.reshape(*quads.shape, 1), quads_vtx_shape) + np.broadcast_to(
+        quad_vtx.reshape(2, 1, 1, quad_vtx.shape[1]), quads_vtx_shape
+    )
+
+    quad_vtx_indices = quads_vtx[0] * (Ny + 1) + quads_vtx[1]
+
+    return quad_vtx_indices.reshape(-1, 4)
+
+
 def grid_to_hexes(Nx: int, Ny: int, Nz: int):
     """Constructs a hexahedral mesh topology from a dense 3D grid
 
     The resulting hexes will be indexed following usual convention assuming that `z` is the fastest moving index direction
-    (counter-clokwise bottom vertices, then counter-clockwise top vertices)
+    (counter-clockwise bottom vertices, then counter-clockwise top vertices)
 
     Args:
         Nx: Resolution of the grid along `x` dimension

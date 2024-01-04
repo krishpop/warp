@@ -30,6 +30,7 @@ wp.config.verify_cuda = True
 
 class Example:
     def __init__(self, stage):
+        self.device = wp.get_device()
         builder = wp.sim.ModelBuilder()
 
         self.sim_time = 0.0
@@ -63,7 +64,7 @@ class Example:
             builder.joint_q[-4:] = wp.quat_from_axis_angle((0.0, 0.0, 1.0), math.pi * 0.25)
 
             builder.add_shape_box(
-                pos=(0.0, 0.0, 0.0),
+                pos=wp.vec3(0.0, 0.0, 0.0),
                 hx=0.5 * self.scale,
                 hy=0.2 * self.scale,
                 hz=0.2 * self.scale,
@@ -84,7 +85,7 @@ class Example:
             # builder.joint_q[-7:-4] = [i * 1.0, 2.0 + i * 0.05, 2.0]
 
             builder.add_shape_sphere(
-                pos=(0.0, 0.0, 0.0), radius=0.25 * self.scale, body=b, ke=self.ke, kd=self.kd, kf=self.kf
+                pos=wp.vec3(0.0, 0.0, 0.0), radius=0.25 * self.scale, body=b, ke=self.ke, kd=self.kd, kf=self.kf
             )
 
         # capsules
@@ -154,9 +155,11 @@ class Example:
 
         if self.use_graph:
             # create update graph
-            wp.capture_begin()
-            self.update()
-            self.graph = wp.capture_end()
+            wp.capture_begin(self.device)
+            try:
+                self.update()
+            finally:
+                self.graph = wp.capture_end(self.device)
 
     def load_mesh(self, filename, path):
         asset_stage = Usd.Stage.Open(filename)

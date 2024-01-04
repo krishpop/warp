@@ -5,11 +5,12 @@
 # distribution of this software and related documentation without an express
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
+import unittest
+
 import numpy as np
 
 import warp as wp
-from warp.tests.test_base import *
-
+from warp.tests.unittest_utils import *
 
 wp.init()
 
@@ -71,6 +72,7 @@ def count_neighbors_reference(
 
 
 def test_hashgrid_query(test, device):
+    wp.load_module(device=device)
     rng = np.random.default_rng(123)
 
     grid = wp.HashGrid(dim_x, dim_y, dim_z, device)
@@ -132,18 +134,15 @@ def test_hashgrid_query(test, device):
         test.assertTrue(np.array_equal(counts, counts_ref))
 
 
-def register(parent):
-    devices = get_test_devices()
+devices = get_test_devices()
 
-    class TestHashGrid(parent):
-        pass
 
-    add_function_test(TestHashGrid, "test_hashgrid_query", test_hashgrid_query, devices=devices)
+class TestHashGrid(unittest.TestCase):
+    pass
 
-    return TestHashGrid
 
+add_function_test(TestHashGrid, "test_hashgrid_query", test_hashgrid_query, devices=devices)
 
 if __name__ == "__main__":
-    wp.force_load()
-    c = register(unittest.TestCase)
+    wp.build.clear_kernel_cache()
     unittest.main(verbosity=2, failfast=False)

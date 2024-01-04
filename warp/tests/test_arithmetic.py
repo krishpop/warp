@@ -5,9 +5,12 @@
 # distribution of this software and related documentation without an express
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
+import unittest
+
 import numpy as np
+
 import warp as wp
-from warp.tests.test_base import *
+from warp.tests.unittest_utils import *
 
 wp.init()
 
@@ -46,10 +49,9 @@ kernel_cache = dict()
 
 
 def getkernel(func, suffix=""):
-    module = wp.get_module(func.__module__)
     key = func.__name__ + "_" + suffix
     if key not in kernel_cache:
-        kernel_cache[key] = wp.Kernel(func=func, key=key, module=module)
+        kernel_cache[key] = wp.Kernel(func=func, key=key)
     return kernel_cache[key]
 
 
@@ -800,6 +802,7 @@ def test_float_to_int(test, device, dtype, register_kernels=False):
             outputs[2, i] = wp.trunc(inputs[2, i])
             outputs[3, i] = wp.floor(inputs[3, i])
             outputs[4, i] = wp.ceil(inputs[4, i])
+            outputs[5, i] = wp.frac(inputs[5, i])
 
     kernel = getkernel(check_float_to_int, suffix=dtype.__name__)
     output_select_kernel = get_select_kernel2(wptype)
@@ -807,7 +810,7 @@ def test_float_to_int(test, device, dtype, register_kernels=False):
     if register_kernels:
         return
 
-    inputs = wp.array(rng.standard_normal(size=(5, 10)).astype(dtype), dtype=wptype, requires_grad=True, device=device)
+    inputs = wp.array(rng.standard_normal(size=(6, 10)).astype(dtype), dtype=wptype, requires_grad=True, device=device)
     outputs = wp.zeros_like(inputs)
 
     wp.launch(kernel, dim=1, inputs=[inputs], outputs=[outputs], device=device)
@@ -817,6 +820,7 @@ def test_float_to_int(test, device, dtype, register_kernels=False):
     assert_np_equal(outputs.numpy()[2], np.trunc(inputs.numpy()[2]))
     assert_np_equal(outputs.numpy()[3], np.floor(inputs.numpy()[3]))
     assert_np_equal(outputs.numpy()[4], np.ceil(inputs.numpy()[4]))
+    assert_np_equal(outputs.numpy()[5], np.modf(inputs.numpy()[5])[0])
 
     # all the gradients should be zero as these functions are piecewise constant:
 
@@ -1037,51 +1041,50 @@ def test_clamp(test, device, dtype, register_kernels=False):
             tape.zero()
 
 
-def register(parent):
-    devices = get_test_devices()
+devices = get_test_devices()
 
-    class TestArithmetic(parent):
-        pass
 
-    # these unary ops only make sense for signed values:
-    for dtype in np_signed_int_types + np_float_types:
-        add_function_test_register_kernel(
-            TestArithmetic, f"test_unary_ops_{dtype.__name__}", test_unary_ops, devices=devices, dtype=dtype
-        )
+class TestArithmetic(unittest.TestCase):
+    pass
 
-    for dtype in np_float_types:
-        add_function_test_register_kernel(
-            TestArithmetic, f"test_special_funcs_{dtype.__name__}", test_special_funcs, devices=devices, dtype=dtype
-        )
-        add_function_test_register_kernel(
-            TestArithmetic,
-            f"test_special_funcs_2arg_{dtype.__name__}",
-            test_special_funcs_2arg,
-            devices=devices,
-            dtype=dtype,
-        )
-        add_function_test_register_kernel(
-            TestArithmetic, f"test_interp_{dtype.__name__}", test_interp, devices=devices, dtype=dtype
-        )
-        add_function_test_register_kernel(
-            TestArithmetic, f"test_float_to_int_{dtype.__name__}", test_float_to_int, devices=devices, dtype=dtype
-        )
 
-    for dtype in np_scalar_types:
-        add_function_test_register_kernel(
-            TestArithmetic, f"test_clamp_{dtype.__name__}", test_clamp, devices=devices, dtype=dtype
-        )
-        add_function_test_register_kernel(
-            TestArithmetic, f"test_nonzero_{dtype.__name__}", test_nonzero, devices=devices, dtype=dtype
-        )
-        add_function_test(TestArithmetic, f"test_arrays_{dtype.__name__}", test_arrays, devices=devices, dtype=dtype)
-        add_function_test_register_kernel(
-            TestArithmetic, f"test_binary_ops_{dtype.__name__}", test_binary_ops, devices=devices, dtype=dtype
-        )
+# these unary ops only make sense for signed values:
+for dtype in np_signed_int_types + np_float_types:
+    add_function_test_register_kernel(
+        TestArithmetic, f"test_unary_ops_{dtype.__name__}", test_unary_ops, devices=devices, dtype=dtype
+    )
 
-    return TestArithmetic
+for dtype in np_float_types:
+    add_function_test_register_kernel(
+        TestArithmetic, f"test_special_funcs_{dtype.__name__}", test_special_funcs, devices=devices, dtype=dtype
+    )
+    add_function_test_register_kernel(
+        TestArithmetic,
+        f"test_special_funcs_2arg_{dtype.__name__}",
+        test_special_funcs_2arg,
+        devices=devices,
+        dtype=dtype,
+    )
+    add_function_test_register_kernel(
+        TestArithmetic, f"test_interp_{dtype.__name__}", test_interp, devices=devices, dtype=dtype
+    )
+    add_function_test_register_kernel(
+        TestArithmetic, f"test_float_to_int_{dtype.__name__}", test_float_to_int, devices=devices, dtype=dtype
+    )
+
+for dtype in np_scalar_types:
+    add_function_test_register_kernel(
+        TestArithmetic, f"test_clamp_{dtype.__name__}", test_clamp, devices=devices, dtype=dtype
+    )
+    add_function_test_register_kernel(
+        TestArithmetic, f"test_nonzero_{dtype.__name__}", test_nonzero, devices=devices, dtype=dtype
+    )
+    add_function_test(TestArithmetic, f"test_arrays_{dtype.__name__}", test_arrays, devices=devices, dtype=dtype)
+    add_function_test_register_kernel(
+        TestArithmetic, f"test_binary_ops_{dtype.__name__}", test_binary_ops, devices=devices, dtype=dtype
+    )
 
 
 if __name__ == "__main__":
-    c = register(unittest.TestCase)
+    wp.build.clear_kernel_cache()
     unittest.main(verbosity=2, failfast=False)

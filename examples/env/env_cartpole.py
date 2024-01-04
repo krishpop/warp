@@ -200,7 +200,7 @@ class CartpoleEnvironment(Environment):
         wp.sim.parse_urdf(
             os.path.join(os.path.dirname(__file__), path),
             builder,
-            xform=wp.transform((0.0, 0.0, 0.0), wp.quat_from_axis_angle((1.0, 0.0, 0.0), -math.pi * 0.5)),
+            xform=wp.transform((0.0, 0.0, 0.0), wp.quat_from_axis_angle(wp.vec3(1.0, 0.0, 0.0), -math.pi * 0.5)),
             floating=False,
             density=1000,
             armature=0.0,

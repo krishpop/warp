@@ -28,7 +28,7 @@ custom_tile_arrangement = False
 # whether to display the pixels in a matplotlib figure
 show_plot = True
 # whether to render depth image to a Warp array
-render_mode = warp.render.RenderMode.DEPTH
+render_mode = "depth"
 
 renderer = wp.render.OpenGLRenderer(vsync=False)
 instance_ids = []
@@ -53,7 +53,7 @@ if num_tiles > 1:
 
 renderer.render_ground()
 
-channels = 1 if render_mode == warp.render.RenderMode.DEPTH else 3
+channels = 1 if render_mode == "depth" else 3
 if show_plot:
     import matplotlib.pyplot as plt
 
@@ -79,14 +79,14 @@ if show_plot:
             if dim >= num_tiles:
                 ax.axis("off")
                 continue
-            if render_mode == warp.render.RenderMode.DEPTH:
+            if render_mode == "depth":
                 img_plots.append(ax.imshow(tile_temp, vmin=renderer.camera_near_plane, vmax=renderer.camera_far_plane))
             else:
                 img_plots.append(ax.imshow(tile_temp))
     else:
         fig = plt.figure(1)
         pixels = wp.zeros((renderer.screen_height, renderer.screen_width, channels), dtype=wp.float32)
-        if render_mode == warp.render.RenderMode.DEPTH:
+        if render_mode == "depth":
             img_plot = plt.imshow(pixels.numpy(), vmin=renderer.camera_near_plane, vmax=renderer.camera_far_plane)
         else:
             img_plot = plt.imshow(pixels.numpy())
@@ -104,14 +104,14 @@ while renderer.is_running():
     renderer.render_cylinder(
         "cylinder",
         [3.2, 1.0, np.sin(time + 0.5)],
-        np.array(wp.quat_from_axis_angle((1.0, 0.0, 0.0), np.sin(time + 0.5))),
+        np.array(wp.quat_from_axis_angle(wp.vec3(1.0, 0.0, 0.0), wp.sin(time + 0.5))),
         radius=0.5,
         half_height=0.8,
     )
     renderer.render_cone(
         "cone",
         [-1.2, 1.0, 0.0],
-        np.array(wp.quat_from_axis_angle((0.707, 0.707, 0.0), time)),
+        np.array(wp.quat_from_axis_angle(wp.vec3(0.707, 0.707, 0.0), time)),
         radius=0.5,
         half_height=0.8,
     )

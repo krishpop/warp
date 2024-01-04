@@ -1,10 +1,20 @@
-import numpy as np
-import warp as wp
+# Copyright (c) 2023 NVIDIA CORPORATION.  All rights reserved.
+# NVIDIA CORPORATION and its licensors retain all intellectual property
+# and proprietary rights in and to this software, related documentation
+# and any modifications thereto.  Any use, reproduction, disclosure or
+# distribution of this software and related documentation without an express
+# license agreement from NVIDIA CORPORATION is strictly prohibited.
 
+import unittest
+
+import numpy as np
+
+import warp as wp
 from warp.sparse import bsr_zeros, bsr_set_from_triplets, bsr_get_diag, bsr_diag, bsr_identity, bsr_copy, bsr_scale
 from warp.sparse import bsr_set_transpose, bsr_transposed
 from warp.sparse import bsr_axpy, bsr_mm, bsr_axpy_work_arrays, bsr_mm_work_arrays, bsr_mv
-from warp.tests.test_base import *
+from warp.tests.unittest_utils import *
+
 
 wp.init()
 
@@ -91,6 +101,15 @@ def test_bsr_from_triplets(test, device):
 
     assert_np_equal(res, ref, 0.0001)
 
+    # test zero-length inputs
+    bsr_set_from_triplets(
+        bsr,
+        wp.array([], dtype=int, device=device),
+        wp.array([], dtype=int, device=device),
+        wp.array([], shape=(0, block_shape[0], block_shape[1]), dtype=float, device=device),
+    )
+    test.assertEqual(bsr.nnz, 0)
+
 
 def test_bsr_get_set_diag(test, device):
     rng = np.random.default_rng(123)
@@ -154,6 +173,8 @@ def test_bsr_get_set_diag(test, device):
 
 def make_test_bsr_transpose(block_shape, scalar_type):
     def test_bsr_transpose(test, device):
+        rng = np.random.default_rng(123)
+
         nrow = 4
         ncol = 5
         nnz = 6
@@ -161,7 +182,7 @@ def make_test_bsr_transpose(block_shape, scalar_type):
         rows = wp.array([0, 1, 2, 3, 2, 1], dtype=int, device=device)
         cols = wp.array([1, 4, 1, 3, 0, 2], dtype=int, device=device)
 
-        vals_np = np.random.rand(nnz, block_shape[0], block_shape[1])
+        vals_np = rng.random(size=(nnz, block_shape[0], block_shape[1]))
         vals = wp.array(vals_np, dtype=scalar_type, device=device).reshape((nnz, block_shape[0], block_shape[1]))
 
         bsr = bsr_zeros(nrow, ncol, wp.types.matrix(shape=block_shape, dtype=scalar_type), device=device)
@@ -396,7 +417,7 @@ def make_test_bsr_mv(block_shape, scalar_type):
         A.ncol = A.ncol + 1
         with test.assertRaisesRegex(ValueError, "Number of columns"):
             bsr_mv(A, x, y)
-        
+
         A.ncol = A.ncol - 1
         A.nrow = A.nrow - 1
         with test.assertRaisesRegex(ValueError, "Number of rows"):
@@ -405,40 +426,35 @@ def make_test_bsr_mv(block_shape, scalar_type):
     return test_bsr_mv
 
 
-def register(parent):
-    devices = get_test_devices()
+devices = get_test_devices()
 
-    class TestSparse(parent):
-        pass
 
-    add_function_test(TestSparse, "test_csr_from_triplets", test_csr_from_triplets, devices=devices)
-    add_function_test(TestSparse, "test_bsr_from_triplets", test_bsr_from_triplets, devices=devices)
-    add_function_test(TestSparse, "test_bsr_get_diag", test_bsr_get_set_diag, devices=devices)
-    add_function_test(TestSparse, "test_bsr_copy_scale", test_bsr_copy_scale, devices=devices)
+class TestSparse(unittest.TestCase):
+    pass
 
-    add_function_test(TestSparse, "test_csr_transpose", make_test_bsr_transpose((1, 1), wp.float32), devices=devices)
-    add_function_test(
-        TestSparse, "test_bsr_transpose_1_3", make_test_bsr_transpose((1, 3), wp.float32), devices=devices
-    )
-    add_function_test(
-        TestSparse, "test_bsr_transpose_3_3", make_test_bsr_transpose((3, 3), wp.float64), devices=devices
-    )
 
-    add_function_test(TestSparse, "test_csr_axpy", make_test_bsr_axpy((1, 1), wp.float32), devices=devices)
-    add_function_test(TestSparse, "test_bsr_axpy_1_3", make_test_bsr_axpy((1, 3), wp.float32), devices=devices)
-    add_function_test(TestSparse, "test_bsr_axpy_3_3", make_test_bsr_axpy((3, 3), wp.float64), devices=devices)
+add_function_test(TestSparse, "test_csr_from_triplets", test_csr_from_triplets, devices=devices)
+add_function_test(TestSparse, "test_bsr_from_triplets", test_bsr_from_triplets, devices=devices)
+add_function_test(TestSparse, "test_bsr_get_diag", test_bsr_get_set_diag, devices=devices)
+add_function_test(TestSparse, "test_bsr_copy_scale", test_bsr_copy_scale, devices=devices)
 
-    add_function_test(TestSparse, "test_csr_mm", make_test_bsr_mm((1, 1), wp.float32), devices=devices)
-    add_function_test(TestSparse, "test_bsr_mm_1_3", make_test_bsr_mm((1, 3), wp.float32), devices=devices)
-    add_function_test(TestSparse, "test_bsr_mm_3_3", make_test_bsr_mm((3, 3), wp.float64), devices=devices)
+add_function_test(TestSparse, "test_csr_transpose", make_test_bsr_transpose((1, 1), wp.float32), devices=devices)
+add_function_test(TestSparse, "test_bsr_transpose_1_3", make_test_bsr_transpose((1, 3), wp.float32), devices=devices)
+add_function_test(TestSparse, "test_bsr_transpose_3_3", make_test_bsr_transpose((3, 3), wp.float64), devices=devices)
 
-    add_function_test(TestSparse, "test_csr_mv", make_test_bsr_mv((1, 1), wp.float32), devices=devices)
-    add_function_test(TestSparse, "test_bsr_mv_1_3", make_test_bsr_mv((1, 3), wp.float32), devices=devices)
-    add_function_test(TestSparse, "test_bsr_mv_3_3", make_test_bsr_mv((3, 3), wp.float64), devices=devices)
+add_function_test(TestSparse, "test_csr_axpy", make_test_bsr_axpy((1, 1), wp.float32), devices=devices)
+add_function_test(TestSparse, "test_bsr_axpy_1_3", make_test_bsr_axpy((1, 3), wp.float32), devices=devices)
+add_function_test(TestSparse, "test_bsr_axpy_3_3", make_test_bsr_axpy((3, 3), wp.float64), devices=devices)
 
-    return TestSparse
+add_function_test(TestSparse, "test_csr_mm", make_test_bsr_mm((1, 1), wp.float32), devices=devices)
+add_function_test(TestSparse, "test_bsr_mm_1_3", make_test_bsr_mm((1, 3), wp.float32), devices=devices)
+add_function_test(TestSparse, "test_bsr_mm_3_3", make_test_bsr_mm((3, 3), wp.float64), devices=devices)
+
+add_function_test(TestSparse, "test_csr_mv", make_test_bsr_mv((1, 1), wp.float32), devices=devices)
+add_function_test(TestSparse, "test_bsr_mv_1_3", make_test_bsr_mv((1, 3), wp.float32), devices=devices)
+add_function_test(TestSparse, "test_bsr_mv_3_3", make_test_bsr_mv((3, 3), wp.float64), devices=devices)
 
 
 if __name__ == "__main__":
-    c = register(unittest.TestCase)
+    wp.build.clear_kernel_cache()
     unittest.main(verbosity=2)

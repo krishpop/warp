@@ -21,11 +21,6 @@ import ctypes
 Mat44 = Union[List[float], List[List[float]], np.ndarray]
 
 
-class RenderMode(Enum):
-    RGB = 0
-    DEPTH = 1
-
-
 wp.set_module_options({"enable_backward": False})
 
 shape_vertex_shader = """
@@ -2221,9 +2216,9 @@ Instances: {len(self._instances)}"""
             self.clear()
             self.app.event_loop.exit()
 
-    def get_pixels(self, target_image: wp.array, split_up_tiles=True, mode=RenderMode.RGB):
+    def get_pixels(self, target_image: wp.array, split_up_tiles=True, mode="rgb"):
         """
-        Read the pixels from the frame buffer into the given array.
+        Read the pixels from the frame buffer (RGB or depth are supported) into the given array.
 
         If `split_up_tiles` is False, array must be of shape (screen_height, screen_width, 3) for RGB mode or
         (screen_height, screen_width, 1) for depth mode.
@@ -2233,14 +2228,14 @@ Instances: {len(self._instances)}"""
         Args:
             target_image (array): The array to read the pixels into. Must have float32 as dtype and be on a CUDA device.
             split_up_tiles (bool): Whether to split up the viewport into tiles, see :meth:`setup_tiled_rendering`.
-            mode (RenderMode): Whether to read RGB or depth pixels.
+            mode (str): can be either "rgb" or "depth"
 
         Returns:
             bool: Whether the pixels were successfully read.
         """
         from pyglet import gl
 
-        channels = 3 if mode == RenderMode.RGB else 1
+        channels = 3 if mode == "rgb" else 1
 
         if split_up_tiles:
             assert (
@@ -2266,15 +2261,15 @@ Instances: {len(self._instances)}"""
             ), f"Shape of `target_image` array does not match {self.screen_height} x {self.screen_width} x {channels}"
 
         gl.glBindBuffer(gl.GL_PIXEL_PACK_BUFFER, self._frame_pbo)
-        if mode == RenderMode.RGB:
+        if mode == "rgb":
             gl.glBindTexture(gl.GL_TEXTURE_2D, self._frame_texture)
-        if mode == RenderMode.DEPTH:
+        if mode == "depth":
             gl.glBindTexture(gl.GL_TEXTURE_2D, self._frame_depth_texture)
         try:
             # read screen texture into PBO
-            if mode == RenderMode.RGB:
+            if mode == "rgb":
                 gl.glGetTexImage(gl.GL_TEXTURE_2D, 0, gl.GL_RGB, gl.GL_UNSIGNED_BYTE, ctypes.c_void_p(0))
-            elif mode == RenderMode.DEPTH:
+            elif mode == "depth":
                 gl.glGetTexImage(gl.GL_TEXTURE_2D, 0, gl.GL_DEPTH_COMPONENT, gl.GL_FLOAT, ctypes.c_void_p(0))
         except gl.GLException:
             # this can happen if the window is closed/being moved to a different display
@@ -2288,14 +2283,14 @@ Instances: {len(self._instances)}"""
             int(self._frame_pbo.value), self._device, wp.RegisteredGLBuffer.WRITE_DISCARD
         )
         screen_size = self.screen_height * self.screen_width
-        if mode == RenderMode.RGB:
+        if mode == "rgb":
             img = pbo_buffer.map(dtype=wp.uint8, shape=(screen_size * channels))
-        elif mode == RenderMode.DEPTH:
+        elif mode == "depth":
             img = pbo_buffer.map(dtype=wp.float32, shape=(screen_size * channels))
         img = img.to(target_image.device)
         if split_up_tiles:
             positions = wp.array(self._tile_viewports, ndim=2, dtype=wp.int32, device=target_image.device)
-            if mode == RenderMode.RGB:
+            if mode == "rgb":
                 wp.launch(
                     copy_rgb_frame_tiles,
                     dim=(self.num_tiles, self._tile_width, self._tile_height),
@@ -2303,7 +2298,7 @@ Instances: {len(self._instances)}"""
                     outputs=[target_image],
                     device=target_image.device,
                 )
-            elif mode == RenderMode.DEPTH:
+            elif mode == "depth":
                 wp.launch(
                     copy_depth_frame_tiles,
                     dim=(self.num_tiles, self._tile_width, self._tile_height),
@@ -2320,7 +2315,7 @@ Instances: {len(self._instances)}"""
                     device=target_image.device,
                 )
         else:
-            if mode == RenderMode.RGB:
+            if mode == "rgb":
                 wp.launch(
                     copy_rgb_frame,
                     dim=(self.screen_width, self.screen_height),
@@ -2328,7 +2323,7 @@ Instances: {len(self._instances)}"""
                     outputs=[target_image],
                     device=target_image.device,
                 )
-            elif mode == RenderMode.DEPTH:
+            elif mode == "depth":
                 wp.launch(
                     copy_depth_frame,
                     dim=(self.screen_width, self.screen_height),

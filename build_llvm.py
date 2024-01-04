@@ -1,6 +1,7 @@
 import os
 import subprocess
 import sys
+import platform
 
 import warp
 from warp.build_dll import build_dll_for_arch, run_cmd
@@ -9,62 +10,75 @@ from warp.build_dll import build_dll_for_arch, run_cmd
 base_path = os.path.dirname(os.path.realpath(__file__))
 build_path = os.path.join(base_path, "warp")
 
-llvm_project_dir = "external/llvm-project"
-llvm_project_path = os.path.join(base_path, llvm_project_dir)
-llvm_path = os.path.join(llvm_project_path, "llvm")
+llvm_project_path = os.path.join(base_path, "external/llvm-project")
 llvm_build_path = os.path.join(llvm_project_path, "out/build/")
 llvm_install_path = os.path.join(llvm_project_path, "out/install/")
 
+
+# return a canonical machine architecture string
+# - "x86_64" for x86-64, aka. AMD64, aka. x64
+# - "aarch64" for AArch64, aka. ARM64
+def machine_architecture() -> str:
+    machine = platform.machine()
+    if machine == "x86_64" or machine == "AMD64":
+        return "x86_64"
+    if machine == "aarch64" or machine == "arm64":
+        return "aarch64"
+    raise RuntimeError(f"Unrecognized machine architecture {machine}")
+
+
 # Fetch prebuilt Clang/LLVM libraries
-if os.name == "nt":
-    packman = "tools\\packman\\packman.cmd"
-    packages = {"x86_64": "15.0.7-windows-x86_64-ptx-vs142"}
-else:
-    packman = "./tools/packman/packman"
-    if sys.platform == "darwin":
-        packages = {
-            "arm64": "15.0.7-darwin-aarch64-macos11",
-            "x86_64": "15.0.7-darwin-x86_64-macos11",
-        }
+def fetch_prebuilt_libraries():
+    if os.name == "nt":
+        packman = "tools\\packman\\packman.cmd"
+        packages = {"x86_64": "15.0.7-windows-x86_64-ptx-vs142"}
     else:
-        packages = {"x86_64": "15.0.7-linux-x86_64-ptx-gcc7.5-cxx11abi0"}
+        packman = "./tools/packman/packman"
+        if sys.platform == "darwin":
+            packages = {
+                "arm64": "15.0.7-darwin-aarch64-macos11",
+                "x86_64": "15.0.7-darwin-x86_64-macos11",
+            }
+        else:
+            packages = {
+                "arm64": "15.0.7-linux-aarch64-gcc7.5",
+                "x86_64": "15.0.7-linux-x86_64-ptx-gcc7.5-cxx11abi0",
+            }
 
-for arch in packages:
-    subprocess.check_call(
-        [
-            packman,
-            "install",
-            "-l",
-            f"./_build/host-deps/llvm-project/release-{arch}",
-            "clang+llvm-warp",
-            packages[arch],
-        ]
-    )
+    for arch in packages:
+        subprocess.check_call(
+            [
+                packman,
+                "install",
+                "-l",
+                f"./_build/host-deps/llvm-project/release-{arch}",
+                "clang+llvm-warp",
+                packages[arch],
+            ]
+        )
 
 
-def build_from_source_for_arch(args, arch):
-    # Install dependencies
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "gitpython"])
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "cmake"])
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "ninja"])
+def build_from_source_for_arch(args, arch, llvm_source):
+    # Check out the LLVM project Git repository, unless it already exists
+    if not os.path.exists(llvm_source):
+        # Install dependencies
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "gitpython"])
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "cmake"])
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "ninja"])
 
-    from git import Repo
+        from git import Repo
 
-    repo_url = "https://github.com/llvm/llvm-project.git"
+        repo_url = "https://github.com/llvm/llvm-project.git"
+        print(f"Cloning LLVM project from {repo_url}...")
 
-    if not os.path.exists(llvm_project_path):
-        print("Cloning LLVM project...")
         shallow_clone = True  # https://github.blog/2020-12-21-get-up-to-speed-with-partial-clone-and-shallow-clone/
         if shallow_clone:
-            repo = Repo.clone_from(
-                repo_url, to_path=llvm_project_path, single_branch=True, branch="llvmorg-15.0.7", depth=1
-            )
+            repo = Repo.clone_from(repo_url, to_path=llvm_source, single_branch=True, branch="llvmorg-15.0.7", depth=1)
         else:
-            repo = Repo.clone_from(repo_url, to_path=llvm_project_path)
+            repo = Repo.clone_from(repo_url, to_path=llvm_source)
             repo.git.checkout("tags/llvmorg-15.0.7", "-b", "llvm-15.0.7")
-    else:
-        print(f"Found existing {llvm_project_dir} directory")
-        repo = Repo(llvm_project_path)
+
+    print(f"Using LLVM project source from {llvm_source}")
 
     # CMake supports Debug, Release, RelWithDebInfo, and MinSizeRel builds
     if warp.config.mode == "release":
@@ -91,13 +105,17 @@ def build_from_source_for_arch(args, arch):
 
     if sys.platform == "darwin":
         host_triple = f"{arch}-apple-macos11"
+        osx_architectures = arch  # build one architecture only
     elif os.name == "nt":
         host_triple = f"{arch}-pc-windows"
+        osx_architectures = ""
     else:
         host_triple = f"{arch}-pc-linux"
+        osx_architectures = ""
 
-    build_path = os.path.join(llvm_build_path, f"{warp.config.mode}-{ arch}")
-    install_path = os.path.join(llvm_install_path, f"{warp.config.mode}-{ arch}")
+    llvm_path = os.path.join(llvm_source, "llvm")
+    build_path = os.path.join(llvm_build_path, f"{warp.config.mode}-{arch}")
+    install_path = os.path.join(llvm_install_path, f"{warp.config.mode}-{arch}")
 
     # Build LLVM and Clang
     cmake_gen = [
@@ -131,7 +149,7 @@ def build_from_source_for_arch(args, arch):
         "-D", "CMAKE_CXX_FLAGS=-D_GLIBCXX_USE_CXX11_ABI=0",  # The pre-C++11 ABI is still the default on the CentOS 7 toolchain
         "-D", f"CMAKE_INSTALL_PREFIX={install_path}",
         "-D", f"LLVM_HOST_TRIPLE={host_triple}",
-        "-D", f"CMAKE_OSX_ARCHITECTURES={ arch}",
+        "-D", f"CMAKE_OSX_ARCHITECTURES={osx_architectures}",
 
         # Disable unused tools and features
         "-D", "CLANG_BUILD_TOOLS=FALSE",
@@ -276,10 +294,25 @@ def build_from_source_for_arch(args, arch):
 
 
 def build_from_source(args):
-    build_from_source_for_arch(args, "x86_64")
+    print("Building Clang/LLVM from source...")
 
+    if args.llvm_source_path is not None:
+        llvm_source = args.llvm_source_path
+    else:
+        llvm_source = llvm_project_path
+
+    # build for the machine's architecture
+    if machine_architecture() == "x86_64":
+        build_from_source_for_arch(args, "x86_64", llvm_source)
+    else:
+        build_from_source_for_arch(args, "arm64", llvm_source)
+
+    # for Apple systems also cross-compile for building a universal binary
     if sys.platform == "darwin":
-        build_from_source_for_arch(args, "arm64")
+        if machine_architecture() == "x86_64":
+            build_from_source_for_arch(args, "arm64", llvm_source)
+        else:
+            build_from_source_for_arch(args, "x86_64", llvm_source)
 
 
 # build warp-clang.dll
@@ -299,7 +332,7 @@ def build_warp_clang_for_arch(args, lib_name, arch):
             libpath = os.path.join(install_path, "lib")
         else:
             # obtain Clang and LLVM libraries from packman
-            assert os.path.exists("_build/host-deps/llvm-project"), "run build.bat / build.sh"
+            fetch_prebuilt_libraries()
             libpath = os.path.join(base_path, f"_build/host-deps/llvm-project/release-{arch}/lib")
 
         for _, _, libs in os.walk(libpath):
@@ -350,4 +383,7 @@ def build_warp_clang(args, lib_name):
         os.remove(f"{dylib_path}-arm64")
 
     else:
-        build_warp_clang_for_arch(args, lib_name, "x86_64")
+        if machine_architecture() == "x86_64":
+            build_warp_clang_for_arch(args, lib_name, "x86_64")
+        else:
+            build_warp_clang_for_arch(args, lib_name, "arm64")

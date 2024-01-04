@@ -5,12 +5,13 @@
 # distribution of this software and related documentation without an express
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
-import numpy as np
 import unittest
 from typing import Any
 
+import numpy as np
+
 import warp as wp
-from warp.tests.test_base import *
+from warp.tests.unittest_utils import *
 
 wp.init()
 
@@ -457,77 +458,104 @@ def test_generic_type_as_argument(test, device):
         wp.synchronize()
 
 
-def register(parent):
-    class TestGenerics(parent):
-        pass
+def test_type_operator_mispell(test, device):
+    @wp.kernel
+    def kernel():
+        i = wp.tid()
+        _ = typez(i)(0)
 
-    devices = get_test_devices()
+    with test.assertRaisesRegex(RuntimeError, r"Unknown function or operator: 'typez'$"):
+        wp.launch(
+            kernel,
+            dim=1,
+            inputs=[],
+            device=device,
+        )
 
-    add_kernel_test(TestGenerics, name="test_generic_adder", kernel=test_generic_adder, dim=1, devices=devices)
-    add_kernel_test(TestGenerics, name="test_specialized_func", kernel=test_specialized_func, dim=1, devices=devices)
 
-    add_function_test(TestGenerics, "test_generic_array_kernel", test_generic_array_kernel, devices=devices)
-    add_function_test(TestGenerics, "test_generic_accumulator_kernel", test_generic_accumulator_kernel, devices=devices)
-    add_function_test(TestGenerics, "test_generic_fill", test_generic_fill, devices=devices)
-    add_function_test(TestGenerics, "test_generic_fill_overloads", test_generic_fill_overloads, devices=devices)
-    add_function_test(TestGenerics, "test_generic_transform_kernel", test_generic_transform_kernel, devices=devices)
-    add_function_test(
-        TestGenerics, "test_generic_transform_array_kernel", test_generic_transform_array_kernel, devices=devices
-    )
-    add_function_test(TestGenerics, "test_generic_type_cast", test_generic_type_cast, devices=devices)
-    add_function_test(TestGenerics, "test_generic_type_construction", test_generic_type_construction, devices=devices)
-    add_function_test(
-        TestGenerics, "test_generic_scalar_construction", test_generic_scalar_construction, devices=devices
-    )
-    add_function_test(TestGenerics, "test_generic_type_as_argument", test_generic_type_as_argument, devices=devices)
+def test_type_attribute_error(test, device):
+    @wp.kernel
+    def kernel():
+        a = wp.vec3(0.0)
+        _ = a.dtype.shape
 
-    foo = Foo()
-    foo.x = 17.0
-    foo.y = 25.0
-    foo.z = 42.0
+    with test.assertRaisesRegex(AttributeError, r"`shape` is not an attribute of '<class 'warp.types.float32'>'"):
+        wp.launch(
+            kernel,
+            dim=1,
+            inputs=[],
+            device=device,
+        )
 
-    bar = Bar()
-    bar.x = wp.vec3(1, 2, 3)
-    bar.y = wp.vec3(10, 20, 30)
-    bar.z = wp.vec3(11, 22, 33)
 
-    add_kernel_test(
-        TestGenerics,
-        name="test_generic_struct_kernel",
-        kernel=test_generic_struct_kernel,
-        dim=1,
-        inputs=[foo],
-        devices=devices,
-    )
-    add_kernel_test(
-        TestGenerics,
-        name="test_generic_struct_kernel",
-        kernel=test_generic_struct_kernel,
-        dim=1,
-        inputs=[bar],
-        devices=devices,
-    )
+class TestGenerics(unittest.TestCase):
+    pass
 
-    add_kernel_test(
-        TestGenerics,
-        name="test_generic_struct_construction_kernel",
-        kernel=test_generic_struct_construction_kernel,
-        dim=1,
-        inputs=[foo],
-        devices=devices,
-    )
-    add_kernel_test(
-        TestGenerics,
-        name="test_generic_struct_construction_kernel",
-        kernel=test_generic_struct_construction_kernel,
-        dim=1,
-        inputs=[bar],
-        devices=devices,
-    )
 
-    return TestGenerics
+devices = get_test_devices()
 
+add_kernel_test(TestGenerics, name="test_generic_adder", kernel=test_generic_adder, dim=1, devices=devices)
+add_kernel_test(TestGenerics, name="test_specialized_func", kernel=test_specialized_func, dim=1, devices=devices)
+
+add_function_test(TestGenerics, "test_generic_array_kernel", test_generic_array_kernel, devices=devices)
+add_function_test(TestGenerics, "test_generic_accumulator_kernel", test_generic_accumulator_kernel, devices=devices)
+add_function_test(TestGenerics, "test_generic_fill", test_generic_fill, devices=devices)
+add_function_test(TestGenerics, "test_generic_fill_overloads", test_generic_fill_overloads, devices=devices)
+add_function_test(TestGenerics, "test_generic_transform_kernel", test_generic_transform_kernel, devices=devices)
+add_function_test(
+    TestGenerics, "test_generic_transform_array_kernel", test_generic_transform_array_kernel, devices=devices
+)
+add_function_test(TestGenerics, "test_generic_type_cast", test_generic_type_cast, devices=devices)
+add_function_test(TestGenerics, "test_generic_type_construction", test_generic_type_construction, devices=devices)
+add_function_test(TestGenerics, "test_generic_scalar_construction", test_generic_scalar_construction, devices=devices)
+add_function_test(TestGenerics, "test_generic_type_as_argument", test_generic_type_as_argument, devices=devices)
+
+foo = Foo()
+foo.x = 17.0
+foo.y = 25.0
+foo.z = 42.0
+
+bar = Bar()
+bar.x = wp.vec3(1, 2, 3)
+bar.y = wp.vec3(10, 20, 30)
+bar.z = wp.vec3(11, 22, 33)
+
+add_kernel_test(
+    TestGenerics,
+    name="test_generic_struct_kernel",
+    kernel=test_generic_struct_kernel,
+    dim=1,
+    inputs=[foo],
+    devices=devices,
+)
+add_kernel_test(
+    TestGenerics,
+    name="test_generic_struct_kernel",
+    kernel=test_generic_struct_kernel,
+    dim=1,
+    inputs=[bar],
+    devices=devices,
+)
+
+add_kernel_test(
+    TestGenerics,
+    name="test_generic_struct_construction_kernel",
+    kernel=test_generic_struct_construction_kernel,
+    dim=1,
+    inputs=[foo],
+    devices=devices,
+)
+add_kernel_test(
+    TestGenerics,
+    name="test_generic_struct_construction_kernel",
+    kernel=test_generic_struct_construction_kernel,
+    dim=1,
+    inputs=[bar],
+    devices=devices,
+)
+add_function_test(TestGenerics, "test_type_operator_mispell", test_type_operator_mispell, devices=devices)
+add_function_test(TestGenerics, "test_type_attribute_error", test_type_attribute_error, devices=devices)
 
 if __name__ == "__main__":
-    c = register(unittest.TestCase)
+    wp.build.clear_kernel_cache()
     unittest.main(verbosity=2)
