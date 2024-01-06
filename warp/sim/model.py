@@ -2331,10 +2331,10 @@ class ModelBuilder:
                 # recompute inverse mass and inertia
                 if m > 0.0:
                     self.body_inv_mass.append(1.0 / m)
-                    self.body_inv_inertia.append(np.linalg.inv(inertia))
+                    self.body_inv_inertia.append(wp.inverse(inertia))
                 else:
                     self.body_inv_mass.append(0.0)
-                    self.body_inv_inertia.append(np.zeros((3, 3)))
+                    self.body_inv_inertia.append(wp.mat33(0.0))
             else:
                 self.body_inv_mass.append(body["inv_mass"])
                 self.body_inv_inertia.append(body["inv_inertia"])
@@ -4145,8 +4145,6 @@ class ModelBuilder:
             m.body_name = self.body_name
 
             # joints
-            m.joint_count = self.joint_count
-            m.joint_axis_count = self.joint_axis_count
             m.joint_type = wp.array(self.joint_type, dtype=wp.int32)
             m.joint_parent = wp.array(self.joint_parent, dtype=wp.int32)
             m.joint_child = wp.array(self.joint_child, dtype=wp.int32)
@@ -4192,6 +4190,10 @@ class ModelBuilder:
             m.articulation_start = wp.array(articulation_start, dtype=wp.int32)
 
             # counts
+            m.joint_count = self.joint_count
+            m.joint_axis_count = self.joint_axis_count
+            m.joint_dof_count = self.joint_dof_count
+            m.joint_coord_count = self.joint_coord_count
             m.particle_count = len(self.particle_q)
             m.body_count = len(self.body_q)
             m.shape_count = len(self.shape_geo_type)
@@ -4221,9 +4223,6 @@ class ModelBuilder:
             m.rigid_contact_margin = self.rigid_contact_margin
             m.rigid_contact_torsional_friction = self.rigid_contact_torsional_friction
             m.rigid_contact_rolling_friction = self.rigid_contact_rolling_friction
-
-            m.joint_dof_count = self.joint_dof_count
-            m.joint_coord_count = self.joint_coord_count
 
             # store refs to geometry
             m.geo_meshes = self.geo_meshes
