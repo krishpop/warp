@@ -1838,24 +1838,6 @@ class array(Array):
         self.ctype = None
 
     @property
-    def grad(self):
-        return self._grad
-
-    @grad.setter
-    def grad(self, value):
-        # trigger re-creation of C-representation
-        self.ctype = None
-        if value is None:
-            self.grad_ptr = None
-            self._grad = None
-            return
-        if self._grad is None:
-            self.grad_ptr = value.ptr
-            self._grad = value
-        else:
-            self._grad.assign(value)
-
-    @property
     def requires_grad(self):
         return self._requires_grad
 
@@ -1997,7 +1979,7 @@ class array(Array):
         if self.ptr:
             # use the CUDA default stream for synchronous behaviour with other streams
             with warp.ScopedStream(self.device.null_stream):
-                a = self.to("cpu")
+                a = self.to("cpu", requires_grad=False)
             # convert through __array_interface__
             # Note: this handles arrays of structs using `descr`, so the result will be a structured NumPy array
             return np.array(a, copy=False)
@@ -2062,13 +2044,13 @@ class array(Array):
             # scalar
             return list(a.flatten())
 
-    def to(self, device):
+    def to(self, device, requires_grad=None):
         """Returns a Warp array with this array's data moved to the specified device, no-op if already on device."""
         device = warp.get_device(device)
         if self.device == device:
             return self
         else:
-            return warp.clone(self, device=device)
+            return warp.clone(self, device=device, requires_grad=requires_grad)
 
     def flatten(self):
         """Returns a zero-copy view of the array collapsed to 1-D. Only supported for contiguous arrays."""
@@ -3776,9 +3758,6 @@ class HashGrid:
             self.id = runtime.core.hash_grid_create_host(dim_x, dim_y, dim_z)
         else:
             self.id = runtime.core.hash_grid_create_device(self.device.context, dim_x, dim_y, dim_z)
-        
-        # indicates whether the grid data has been reserved for use by a kernel
-        self.reserved = False
 
         # indicates whether the grid data has been reserved for use by a kernel
         self.reserved = False
