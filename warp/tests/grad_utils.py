@@ -1825,6 +1825,7 @@ def plot_state_gradients(
     fig["layout"]["xaxis"]["title"] = "State"
     fig["layout"]["xaxis2"]["title"] = "State"
 
+    # apply HTML title via JavaScript
     script = None
     if title is not None:
         script = f'document.title = "{title}";'
