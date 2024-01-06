@@ -221,10 +221,14 @@ class Environment:
                     articulation_builder, xform, separate_collision_group=self.separate_collision_group_per_env
                 )
             self.bodies_per_env = len(articulation_builder.body_q)
+            self.dof_q_per_env = articulation_builder.joint_coord_count
+            self.dof_qd_per_env = articulation_builder.joint_dof_count
         except NotImplementedError:
             # custom simulation setup where something other than an articulation is used
             self.setup(builder)
             self.bodies_per_env = len(builder.body_q)
+            self.dof_q_per_env = builder.joint_coord_count
+            self.dof_qd_per_env = builder.joint_dof_count
 
         self.model = builder.finalize(integrator=self.integrator, requires_grad=self.requires_grad)
         self.customize_model(self.model)
@@ -288,6 +292,10 @@ class Environment:
                 **self.usd_render_settings,
             )
 
+    def uses_generalized_coordinates(self):
+        # whether the model uses generalized or maximal coordinates (joint q/qd vs body q/qd) in the state
+        return self.integrator_type == IntegratorType.FEATHERSTONE
+
     def create_articulation(self, builder):
         raise NotImplementedError
 
@@ -333,6 +341,7 @@ class Environment:
             state_temp_dict = self.state_temp.__dict__ if self.state_temp is not None else None
         for i in range(self.sim_substeps):
             if self.custom_dynamics is not None:
+                self.custom_update()
                 self.custom_dynamics(self.model, self.state_0, self.state_1, self.sim_dt)
             else:
                 self.state_0.clear_forces()
@@ -358,6 +367,7 @@ class Environment:
     def update_grad(self):
         for i in range(self.sim_substeps):
             if self.custom_dynamics is not None:
+                self.custom_update()
                 self.custom_dynamics(
                     self.model, self.states[self.sim_step], self.states[self.sim_step + 1], self.sim_dt
                 )
