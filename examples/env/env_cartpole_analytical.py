@@ -9,8 +9,6 @@
 # Cartpole environment with analytical dynamics formulation
 ###########################################################################
 
-import os
-import math
 import warp as wp
 
 import numpy as np
@@ -22,83 +20,32 @@ np.set_printoptions(precision=5, linewidth=256, suppress=True)
 # wp.verify_fp = True
 import warp.sim
 
-from environment import Environment, run_env, IntegratorType, RenderMode
+from environment import Environment, run_env, IntegratorType
 
 
-if False:
+@wp.func
+def angle_normalize(x: float):
+    return ((x + wp.pi) % (2.0 * wp.pi)) - wp.pi
 
-    @wp.kernel
-    def single_cartpole_cost(
-        body_q: wp.array(dtype=wp.transform),
-        body_qd: wp.array(dtype=wp.spatial_vector),
-        cost: wp.array(dtype=wp.float32),
-    ):
-        env_id = wp.tid()
 
-        pos_cart = wp.transform_get_translation(body_q[env_id * 2])
-        # cart must be at target (x = 3)
-        cart_cost = (3.0 - pos_cart[0]) ** 2.0
+@wp.kernel
+def single_cartpole_cost(
+    joint_q: wp.array(dtype=wp.float32),
+    joint_qd: wp.array(dtype=wp.float32),
+    joint_act: wp.array(dtype=wp.float32),
+    cost: wp.array(dtype=wp.float32),
+):
+    env_id = wp.tid()
 
-        vel_cart = body_qd[env_id * 2]
+    x = joint_q[env_id * 2 + 0]
+    th = joint_q[env_id * 2 + 1]
+    thdot = joint_qd[env_id * 2 + 1]
+    u = joint_act[env_id * 2]
 
-        # encourage zero velocity
-        vel_cost = wp.length_sq(vel_cart)
+    # from https://github.com/openai/gym/blob/master/gym/envs/classic_control/pendulum.py#L270
+    c = angle_normalize(th) ** 2.0 + 0.1 * thdot**2.0 + (u * 1e-4) ** 2.0 + 1.0 * x**2.0
 
-        # wp.atomic_add(cost, env_id, (cart_cost + 0.02 * vel_cost))
-        wp.atomic_add(cost, env_id, cart_cost + 0.02 * vel_cost)
-
-else:
-
-    @wp.kernel
-    def single_cartpole_cost2(
-        body_q: wp.array(dtype=wp.transform),
-        body_qd: wp.array(dtype=wp.spatial_vector),
-        cost: wp.array(dtype=wp.float32),
-    ):
-        env_id = wp.tid()
-
-        pos_cart = wp.transform_get_translation(body_q[env_id * 2])
-        pos_pole = wp.transform_vector(body_q[env_id * 2 + 1], wp.vec3(0.0, 0.0, 1.0))
-        # wp.printf("[%.3f %.3f %.3f]\n", pos_pole[0], pos_pole[1], pos_pole[2])
-
-        # cart must be at the origin (x = 0)
-        cart_cost = pos_cart[0] ** 2.0
-        # pole must be upright (x = 0, y as high as possible)
-        # pole_cost = pos_pole[0] ** 2.0 - 0.1 * pos_pole[1]
-        pole_cost = (1.0 - pos_pole[1]) ** 2.0 * 1000.0 + (pos_cart[0] - pos_pole[0]) ** 2.0 * 10.0
-
-        # wp.printf("pos_pole = [%.3f %.3f %.3f]\n", pos_pole[0], pos_pole[1], pos_pole[2])
-
-        vel_cart = body_qd[env_id * 2]
-        vel_pole = body_qd[env_id * 2 + 1]
-
-        # encourage zero velocity
-        vel_cost = wp.length_sq(vel_cart) + wp.length_sq(vel_pole)
-
-        wp.atomic_add(cost, env_id, 1.0e-2 * pole_cost)  # (10.0 * (cart_cost + 0.0 * pole_cost) + 0.0 * vel_cost))
-        # wp.atomic_add(cost, env_id, 10.0 * (cart_cost + pole_cost) + 0.02 * vel_cost)
-
-    @wp.func
-    def angle_normalize(x: float):
-        return ((x + wp.pi) % (2.0 * wp.pi)) - wp.pi
-
-    @wp.kernel
-    def single_cartpole_cost(
-        joint_q: wp.array(dtype=wp.float32),
-        joint_qd: wp.array(dtype=wp.float32),
-        joint_act: wp.array(dtype=wp.float32),
-        cost: wp.array(dtype=wp.float32),
-    ):
-        env_id = wp.tid()
-
-        th = joint_q[env_id * 2 + 1]
-        thdot = joint_qd[env_id * 2 + 1]
-        u = joint_act[env_id * 2]
-
-        # from https://github.com/openai/gym/blob/master/gym/envs/classic_control/pendulum.py#L270
-        c = angle_normalize(th) ** 2.0 + 0.1 * thdot**2.0 + (u * 1e-4) ** 2.0
-
-        wp.atomic_add(cost, env_id, c)
+    wp.atomic_add(cost, env_id, c)
 
 
 @wp.kernel
@@ -114,7 +61,7 @@ def cartpole_dynamics(
     joint_qd_next: wp.array(dtype=wp.float32),
 ):
     env_id = wp.tid()
-    # from https://courses.ece.ucsb.edu/ECE594/594D_W10Byl/hw/cartpole_eom.pdf
+    # Eq. 24, 25 from https://courses.ece.ucsb.edu/ECE594/594D_W10Byl/hw/cartpole_eom.pdf
     f = joint_act[env_id * 2]
     x = joint_q[env_id * 2 + 0]
     th = joint_q[env_id * 2 + 1]
@@ -128,13 +75,15 @@ def cartpole_dynamics(
     sinth = wp.sin(th)
     costh = wp.cos(th)
     msum = mass_cart + mass_pole
+    denom = mass_cart + mass_pole * (1.0 - costh * costh)
+    mpstt = -mass_pole * pole_length * sinth * thd * thd
+    gs = -gravity * sinth
 
-    mlsinth = mass_pole * pole_length * sinth
-    fterm = f + mlsinth * thd * thd
+    thdd = mpstt * costh + gs * msum + costh * f
+    thdd /= pole_length * denom
 
-    denom = pole_length * (costh * costh * mass_pole - msum)
-    xdd = (-gravity * mlsinth * costh - pole_length * fterm) / denom
-    thdd = (msum * gravity * sinth + costh * fterm) / denom
+    xdd = mpstt + mass_pole * gs * costh + f
+    xdd /= denom
 
     # semi-implicit Euler
     xd_next = xd + dt * xdd
@@ -151,9 +100,8 @@ def cartpole_dynamics(
 class AnalyticalCartpoleEnvironment(Environment):
     sim_name = "env_analytical_cartpole"
     env_offset = (2.0, 0.0, 2.0)
-    # env_offset = (0.0, 0.0, 0.0)
 
-    single_cartpole = False
+    start_angle = 0.1  # radians
 
     opengl_render_settings = dict(scaling=3.0, draw_axis=False)
     usd_render_settings = dict(scaling=100.0)
@@ -166,10 +114,8 @@ class AnalyticalCartpoleEnvironment(Environment):
     control_limits = [(-1.0, 1.0)]
 
     integrator_type = IntegratorType.FEATHERSTONE
+    sim_substeps_euler = 1
     num_envs = 100
-
-    requires_grad = False
-    use_graph_capture = True
 
     default_mass_cart = 0.5
     default_mass_pole = 0.3
@@ -196,7 +142,7 @@ class AnalyticalCartpoleEnvironment(Environment):
         builder.add_joint_revolute(parent=cart, child=pole, axis=wp.vec3(0.0, 0.0, 1.0))
 
         # pole angle
-        builder.joint_q[1] = 0.1
+        builder.joint_q[1] = self.start_angle
 
     def customize_model(self, model):
         # allocate model parameters
