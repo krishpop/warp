@@ -1099,8 +1099,8 @@ def apply_joint_torques(
 
     # write forces
     if id_p >= 0:
-        wp.atomic_add(body_f, id_p, wp.spatial_vector(t_total + wp.cross(r_p, f_total), f_total))
-    wp.atomic_sub(body_f, id_c, wp.spatial_vector(t_total + wp.cross(r_c, f_total), f_total))
+        wp.atomic_sub(body_f, id_p, wp.spatial_vector(t_total + wp.cross(r_p, f_total), f_total))
+    wp.atomic_add(body_f, id_c, wp.spatial_vector(t_total + wp.cross(r_c, f_total), f_total))
 
 
 @wp.func
