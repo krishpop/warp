@@ -67,7 +67,7 @@ class StickyContactEnvironment(Environment):
         builder.add_joint_free(child=b1, parent_xform=wp.transform(wp.vec3(0.0, 0.2, 0.0)))
 
         b2 = builder.add_body()
-        builder.add_shape_box(b2, hx=0.15, hy=0.15, hz=0.15, ka=0.1, thickness=0.01)
+        builder.add_shape_box(b2, hx=0.15, hy=0.15, hz=0.15, ka=0.1, thickness=0.0)
         builder.add_joint_prismatic(
             axis=wp.vec3(0.0, 1.0, 0.0), parent=-1, child=b2, parent_xform=wp.transform(wp.vec3(0.0, 0.5 + 0.15, 0.0))
         )
