@@ -30,6 +30,7 @@ def parse_urdf(
     shape_ke=1.0e4,
     shape_kd=1.0e3,
     shape_kf=1.0e2,
+    shape_ka=0.0,
     shape_mu=0.25,
     shape_restitution=0.5,
     shape_thickness=0.0,
@@ -59,6 +60,7 @@ def parse_urdf(
         shape_ke (float): The stiffness of the shape contacts (used by SemiImplicitIntegrator).
         shape_kd (float): The damping of the shape contacts (used by SemiImplicitIntegrator).
         shape_kf (float): The friction stiffness of the shape contacts (used by SemiImplicitIntegrator).
+        shape_ka (float): The adhesion distance of the shape contacts (used by SemiImplicitIntegrator).
         shape_mu (float): The friction coefficient of the shape contacts.
         shape_restitution (float): The restitution coefficient of the shape contacts.
         shape_thickness (float): The thickness to add to the shape geometry.
@@ -112,6 +114,7 @@ def parse_urdf(
                     ke=shape_ke,
                     kd=shape_kd,
                     kf=shape_kf,
+                    ka=shape_ka,
                     mu=shape_mu,
                     restitution=shape_restitution,
                     thickness=shape_thickness,
@@ -130,6 +133,7 @@ def parse_urdf(
                     ke=shape_ke,
                     kd=shape_kd,
                     kf=shape_kf,
+                    ka=shape_ka,
                     mu=shape_mu,
                     restitution=shape_restitution,
                     thickness=shape_thickness,
@@ -149,6 +153,7 @@ def parse_urdf(
                     ke=shape_ke,
                     kd=shape_kd,
                     kf=shape_kf,
+                    ka=shape_ka,
                     mu=shape_mu,
                     up_axis=2,  # cylinders in URDF are aligned with z-axis
                     restitution=shape_restitution,
@@ -203,6 +208,7 @@ def parse_urdf(
                             ke=shape_ke,
                             kd=shape_kd,
                             kf=shape_kf,
+                            ka=shape_ka,
                             mu=shape_mu,
                             restitution=shape_restitution,
                             thickness=shape_thickness,
@@ -224,6 +230,7 @@ def parse_urdf(
                         ke=shape_ke,
                         kd=shape_kd,
                         kf=shape_kf,
+                        ka=shape_ka,
                         mu=shape_mu,
                         restitution=shape_restitution,
                         thickness=shape_thickness,

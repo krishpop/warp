@@ -76,6 +76,7 @@ class ModelShapeMaterials:
     ke: wp.array(dtype=float)  # The contact elastic stiffness (only used by Euler integrator)
     kd: wp.array(dtype=float)  # The contact damping stiffness (only used by Euler integrator)
     kf: wp.array(dtype=float)  # The contact friction stiffness (only used by Euler integrator)
+    ka: wp.array(dtype=float)  # The contact adhesion distance (values greater than 0 mean adhesive contact; only used by Euler integrator)
     mu: wp.array(dtype=float)  # The coefficient of friction
     restitution: wp.array(dtype=float)  # The coefficient of restitution (only used by XPBD integrator)
 
@@ -151,7 +152,7 @@ class JointAxis:
 
 class SDF:
     """Describes a signed distance field for simulation
-    
+
     Attributes:
 
         volume (Volume): The volume defining the SDF
@@ -178,7 +179,7 @@ class SDF:
 
 class Mesh:
     """Describes a triangle collision mesh for simulation
-    
+
     Example mesh creation from a triangle OBJ mesh file:
     ====================================================
 
@@ -1067,6 +1068,7 @@ class ModelBuilder:
     default_shape_ke = 1.0e5
     default_shape_kd = 1000.0
     default_shape_kf = 1000.0
+    default_shape_ka = 0.0
     default_shape_mu = 0.5
     default_shape_restitution = 0.0
     default_shape_density = 1000.0
@@ -1103,6 +1105,7 @@ class ModelBuilder:
         self.shape_material_ke = []
         self.shape_material_kd = []
         self.shape_material_kf = []
+        self.shape_material_ka = []
         self.shape_material_mu = []
         self.shape_material_restitution = []
         # collision groups within collisions are handled
@@ -1441,6 +1444,7 @@ class ModelBuilder:
             "shape_material_ke",
             "shape_material_kd",
             "shape_material_kf",
+            "shape_material_ka",
             "shape_material_mu",
             "shape_material_restitution",
             "shape_collision_radius",
@@ -2445,6 +2449,7 @@ class ModelBuilder:
         ke: float = default_shape_ke,
         kd: float = default_shape_kd,
         kf: float = default_shape_kf,
+        ka: float = default_shape_ka,
         mu: float = default_shape_mu,
         restitution: float = default_shape_restitution,
         thickness: float = 0.0,
@@ -2466,6 +2471,7 @@ class ModelBuilder:
             ke: The contact elastic stiffness
             kd: The contact damping stiffness
             kf: The contact friction stiffness
+            ka: The contact adhesion distance
             mu: The coefficient of friction
             restitution: The coefficient of restitution
             thickness: The thickness of the plane (0 by default) for collision handling
@@ -2502,6 +2508,7 @@ class ModelBuilder:
             ke,
             kd,
             kf,
+            ka,
             mu,
             restitution,
             thickness,
@@ -2519,6 +2526,7 @@ class ModelBuilder:
         ke: float = default_shape_ke,
         kd: float = default_shape_kd,
         kf: float = default_shape_kf,
+        ka: float = default_shape_ka,
         mu: float = default_shape_mu,
         restitution: float = default_shape_restitution,
         is_solid: bool = True,
@@ -2538,6 +2546,7 @@ class ModelBuilder:
             ke: The contact elastic stiffness
             kd: The contact damping stiffness
             kf: The contact friction stiffness
+            ka: The contact adhesion distance
             mu: The coefficient of friction
             restitution: The coefficient of restitution
             is_solid: Whether the sphere is solid or hollow
@@ -2562,6 +2571,7 @@ class ModelBuilder:
             ke,
             kd,
             kf,
+            ka,
             mu,
             restitution,
             thickness + radius,
@@ -2583,6 +2593,7 @@ class ModelBuilder:
         ke: float = default_shape_ke,
         kd: float = default_shape_kd,
         kf: float = default_shape_kf,
+        ka: float = default_shape_ka,
         mu: float = default_shape_mu,
         restitution: float = default_shape_restitution,
         is_solid: bool = True,
@@ -2604,6 +2615,7 @@ class ModelBuilder:
             ke: The contact elastic stiffness
             kd: The contact damping stiffness
             kf: The contact friction stiffness
+            ka: The contact adhesion distance
             mu: The coefficient of friction
             restitution: The coefficient of restitution
             is_solid: Whether the box is solid or hollow
@@ -2628,6 +2640,7 @@ class ModelBuilder:
             ke,
             kd,
             kf,
+            ka,
             mu,
             restitution,
             thickness,
@@ -2649,6 +2662,7 @@ class ModelBuilder:
         ke: float = default_shape_ke,
         kd: float = default_shape_kd,
         kf: float = default_shape_kf,
+        ka: float = default_shape_ka,
         mu: float = default_shape_mu,
         restitution: float = default_shape_restitution,
         is_solid: bool = True,
@@ -2670,6 +2684,7 @@ class ModelBuilder:
             ke: The contact elastic stiffness
             kd: The contact damping stiffness
             kf: The contact friction stiffness
+            ka: The contact adhesion distance
             mu: The coefficient of friction
             restitution: The coefficient of restitution
             is_solid: Whether the capsule is solid or hollow
@@ -2701,6 +2716,7 @@ class ModelBuilder:
             ke,
             kd,
             kf,
+            ka,
             mu,
             restitution,
             thickness + radius,
@@ -2722,6 +2738,7 @@ class ModelBuilder:
         ke: float = default_shape_ke,
         kd: float = default_shape_kd,
         kf: float = default_shape_kf,
+        ka: float = default_shape_ka,
         mu: float = default_shape_mu,
         restitution: float = default_shape_restitution,
         is_solid: bool = True,
@@ -2743,6 +2760,7 @@ class ModelBuilder:
             ke: The contact elastic stiffness
             kd: The contact damping stiffness
             kf: The contact friction stiffness
+            ka: The contact adhesion distance
             mu: The coefficient of friction
             restitution: The coefficient of restitution
             is_solid: Whether the cylinder is solid or hollow
@@ -2774,6 +2792,7 @@ class ModelBuilder:
             ke,
             kd,
             kf,
+            ka,
             mu,
             restitution,
             thickness,
@@ -2795,6 +2814,7 @@ class ModelBuilder:
         ke: float = default_shape_ke,
         kd: float = default_shape_kd,
         kf: float = default_shape_kf,
+        ka: float = default_shape_ka,
         mu: float = default_shape_mu,
         restitution: float = default_shape_restitution,
         is_solid: bool = True,
@@ -2816,6 +2836,7 @@ class ModelBuilder:
             ke: The contact elastic stiffness
             kd: The contact damping stiffness
             kf: The contact friction stiffness
+            ka: The contact adhesion distance
             mu: The coefficient of friction
             restitution: The coefficient of restitution
             is_solid: Whether the cone is solid or hollow
@@ -2847,6 +2868,7 @@ class ModelBuilder:
             ke,
             kd,
             kf,
+            ka,
             mu,
             restitution,
             thickness,
@@ -2867,6 +2889,7 @@ class ModelBuilder:
         ke: float = default_shape_ke,
         kd: float = default_shape_kd,
         kf: float = default_shape_kf,
+        ka: float = default_shape_ka,
         mu: float = default_shape_mu,
         restitution: float = default_shape_restitution,
         is_solid: bool = True,
@@ -2887,6 +2910,7 @@ class ModelBuilder:
             ke: The contact elastic stiffness
             kd: The contact damping stiffness
             kf: The contact friction stiffness
+            ka: The contact adhesion distance
             mu: The coefficient of friction
             restitution: The coefficient of restitution
             is_solid: If True, the mesh is solid, otherwise it is a hollow surface with the given wall thickness
@@ -2911,6 +2935,7 @@ class ModelBuilder:
             ke,
             kd,
             kf,
+            ka,
             mu,
             restitution,
             thickness,
@@ -2931,6 +2956,7 @@ class ModelBuilder:
         ke: float = default_shape_ke,
         kd: float = default_shape_kd,
         kf: float = default_shape_kf,
+        ka: float = default_shape_ka,
         mu: float = default_shape_mu,
         restitution: float = default_shape_restitution,
         is_solid: bool = True,
@@ -2949,6 +2975,7 @@ class ModelBuilder:
             ke: The contact elastic stiffness
             kd: The contact damping stiffness
             kf: The contact friction stiffness
+            ka: The contact adhesion distance
             mu: The coefficient of friction
             restitution: The coefficient of restitution
             is_solid: If True, the mesh is solid, otherwise it is a hollow surface with the given wall thickness
@@ -2971,6 +2998,7 @@ class ModelBuilder:
             ke,
             kd,
             kf,
+            ka,
             mu,
             restitution,
             thickness,
@@ -3012,6 +3040,7 @@ class ModelBuilder:
         ke,
         kd,
         kf,
+        ka,
         mu,
         restitution,
         thickness=default_geo_thickness,
@@ -3040,6 +3069,7 @@ class ModelBuilder:
         self.shape_material_ke.append(ke)
         self.shape_material_kd.append(kd)
         self.shape_material_kf.append(kf)
+        self.shape_material_ka.append(ka)
         self.shape_material_mu.append(mu)
         self.shape_material_restitution.append(restitution)
         self.shape_collision_group.append(collision_group)
@@ -4066,6 +4096,7 @@ class ModelBuilder:
             m.shape_materials.ke = wp.array(self.shape_material_ke, dtype=wp.float32, requires_grad=requires_grad)
             m.shape_materials.kd = wp.array(self.shape_material_kd, dtype=wp.float32, requires_grad=requires_grad)
             m.shape_materials.kf = wp.array(self.shape_material_kf, dtype=wp.float32, requires_grad=requires_grad)
+            m.shape_materials.ka = wp.array(self.shape_material_ka, dtype=wp.float32, requires_grad=requires_grad)
             m.shape_materials.mu = wp.array(self.shape_material_mu, dtype=wp.float32, requires_grad=requires_grad)
             m.shape_materials.restitution = wp.array(
                 self.shape_material_restitution, dtype=wp.float32, requires_grad=requires_grad
