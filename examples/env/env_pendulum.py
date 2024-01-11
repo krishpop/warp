@@ -42,7 +42,7 @@ class PendulumEnvironment(Environment):
     use_tiled_rendering = False
     show_joints = True
 
-    activate_ground_plane = True
+    activate_ground_plane = False
     
     num_envs = 1
 
@@ -109,8 +109,8 @@ class PendulumEnvironment(Environment):
                         parent=parent,
                         child=b,
                         axis=(0.0, 0.0, 1.0),
-                        # parent_xform=parent_joint_xform,
-                        child_xform=parent_joint_xform,
+                        parent_xform=parent_joint_xform,
+                        # child_xform=parent_joint_xform,
                         limit_lower=self.lower,
                         limit_upper=self.upper,
                         target=self.target,
@@ -202,6 +202,13 @@ class PendulumEnvironment(Environment):
                     ],
                     parent_xform=parent_joint_xform,
                 )
+
+    def custom_update(self):
+        wp.launch(apply_forces,
+                  dim=self.num_envs,
+                  inputs=[self.sim_time, self.act_dim],
+                  outputs=[self.state.joint_act],)
+        builder.joint_act[0] = 100.0
 
 
 if __name__ == "__main__":
