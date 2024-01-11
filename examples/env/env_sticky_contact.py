@@ -57,10 +57,6 @@ class StickyContactEnvironment(Environment):
     show_rigid_contact_points = True
     contact_points_radius = 0.02
 
-    controllable_dofs = [3, 4, 5]
-    control_gains = [100.0] * 3
-    control_limits = [(-1.0, 1.0)] * 3
-
     episode_duration = 5.0
 
     integrator_type = IntegratorType.FEATHERSTONE
@@ -73,7 +69,7 @@ class StickyContactEnvironment(Environment):
         b2 = builder.add_body()
         builder.add_shape_box(b2, hx=0.15, hy=0.15, hz=0.15, ka=0.1, thickness=0.01)
         builder.add_joint_prismatic(
-            axis=wp.vec3(0.0, 1.0, 0.0), parent=-1, child=b3, parent_xform=wp.transform(wp.vec3(0.0, 0.5 + 0.15, 0.0))
+            axis=wp.vec3(0.0, 1.0, 0.0), parent=-1, child=b2, parent_xform=wp.transform(wp.vec3(0.0, 0.5 + 0.15, 0.0))
         )
         builder.joint_q[-1] = 0.8
 
