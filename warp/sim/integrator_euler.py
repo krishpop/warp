@@ -1376,7 +1376,6 @@ def apply_body_impulses(
 def eval_joint_force(
     q: float,
     qd: float,
-    qdd: float,
     target: float,
     target_ke: float,
     target_kd: float,
@@ -1406,7 +1405,7 @@ def eval_joint_force(
     if mode == wp.sim.JOINT_MODE_TARGET_POSITION:
         target_f = -target_ke * (q - target) - target_kd * qd
     if mode == wp.sim.JOINT_MODE_TARGET_VELOCITY:
-        target_f = -target_ke * (qd - target) - target_kd * qdd
+        target_f = -target_ke * (qd - target)
 
     return act + limit_f + damping_f + target_f
 
@@ -1527,7 +1526,6 @@ def eval_body_joints(
         f_total = axis_p * -eval_joint_force(
             q,
             qd,
-            0.0,
             joint_target[axis_start],
             joint_target_ke[axis_start],
             joint_target_kd[axis_start],
@@ -1564,7 +1562,6 @@ def eval_body_joints(
         t_total = axis_p * -eval_joint_force(
             q,
             qd,
-            0.0,
             joint_target[axis_start],
             joint_target_ke[axis_start],
             joint_target_kd[axis_start],
@@ -1621,7 +1618,6 @@ def eval_body_joints(
         t_total += axis_0 * -eval_joint_force(
             angles[0],
             wp.dot(axis_0, w_err),
-            0.0,
             joint_target[axis_start + 0],
             joint_target_ke[axis_start + 0],
             joint_target_kd[axis_start + 0],
@@ -1635,7 +1631,6 @@ def eval_body_joints(
         t_total += axis_1 * -eval_joint_force(
             angles[1],
             wp.dot(axis_1, w_err),
-            0.0,
             joint_target[axis_start + 1],
             joint_target_ke[axis_start + 1],
             joint_target_kd[axis_start + 1],
@@ -1649,7 +1644,6 @@ def eval_body_joints(
         t_total += axis_2 * -eval_joint_force(
             angles[2],
             wp.dot(axis_2, w_err),
-            0.0,
             joint_target[axis_start + 2],
             joint_target_ke[axis_start + 2],
             joint_target_kd[axis_start + 2],
@@ -1687,7 +1681,6 @@ def eval_body_joints(
         t_total += axis_0 * -eval_joint_force(
             angles[0],
             wp.dot(axis_0, w_err),
-            0.0,
             joint_target[axis_start + 0],
             joint_target_ke[axis_start + 0],
             joint_target_kd[axis_start + 0],
@@ -1701,7 +1694,6 @@ def eval_body_joints(
         t_total += axis_1 * -eval_joint_force(
             angles[1],
             wp.dot(axis_1, w_err),
-            0.0,
             joint_target[axis_start + 1],
             joint_target_ke[axis_start + 1],
             joint_target_kd[axis_start + 1],
@@ -1717,7 +1709,6 @@ def eval_body_joints(
         t_total += axis_2 * -eval_joint_force(
             angles[2],
             wp.dot(axis_2, w_err),
-            0.0,
             0.0,
             joint_attach_ke,
             joint_attach_kd * angular_damping_scale,
@@ -1742,7 +1733,6 @@ def eval_body_joints(
             f_total += axis_0 * -eval_joint_force(
                 q0,
                 qd0,
-                0.0,
                 joint_target[axis_start + 0],
                 joint_target_ke[axis_start + 0],
                 joint_target_kd[axis_start + 0],
@@ -1765,7 +1755,6 @@ def eval_body_joints(
             f_total += axis_1 * -eval_joint_force(
                 q1,
                 qd1,
-                0.0,
                 joint_target[axis_start + 1],
                 joint_target_ke[axis_start + 1],
                 joint_target_kd[axis_start + 1],
@@ -1788,7 +1777,6 @@ def eval_body_joints(
             f_total += axis_2 * -eval_joint_force(
                 q2,
                 qd2,
-                0.0,
                 joint_target[axis_start + 2],
                 joint_target_ke[axis_start + 2],
                 joint_target_kd[axis_start + 2],
@@ -1830,7 +1818,6 @@ def eval_body_joints(
             t_total = axis_p * -eval_joint_force(
                 q,
                 qd,
-                0.0,
                 joint_target[i_0],
                 joint_target_ke[i_0],
                 joint_target_kd[i_0],
@@ -1875,7 +1862,6 @@ def eval_body_joints(
             t_total += axis_0 * -eval_joint_force(
                 angles[0],
                 wp.dot(axis_0, w_err),
-                0.0,
                 joint_target[i_0],
                 joint_target_ke[i_0],
                 joint_target_kd[i_0],
@@ -1889,7 +1875,6 @@ def eval_body_joints(
             t_total += axis_1 * -eval_joint_force(
                 angles[1],
                 wp.dot(axis_1, w_err),
-                0.0,
                 joint_target[i_1],
                 joint_target_ke[i_1],
                 joint_target_kd[i_1],
@@ -1905,7 +1890,6 @@ def eval_body_joints(
             t_total += axis_2 * -eval_joint_force(
                 angles[2],
                 wp.dot(axis_2, w_err),
-                0.0,
                 0.0,
                 joint_attach_ke,
                 joint_attach_kd * angular_damping_scale,
@@ -1943,7 +1927,6 @@ def eval_body_joints(
             t_total += axis_0 * -eval_joint_force(
                 angles[0],
                 wp.dot(axis_0, w_err),
-                0.0,
                 joint_target[i_0],
                 joint_target_ke[i_0],
                 joint_target_kd[i_0],
@@ -1957,7 +1940,6 @@ def eval_body_joints(
             t_total += axis_1 * -eval_joint_force(
                 angles[1],
                 wp.dot(axis_1, w_err),
-                0.0,
                 joint_target[i_1],
                 joint_target_ke[i_1],
                 joint_target_kd[i_1],
@@ -1971,7 +1953,6 @@ def eval_body_joints(
             t_total += axis_2 * -eval_joint_force(
                 angles[2],
                 wp.dot(axis_2, w_err),
-                0.0,
                 joint_target[i_2],
                 joint_target_ke[i_2],
                 joint_target_kd[i_2],

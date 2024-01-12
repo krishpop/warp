@@ -421,7 +421,6 @@ def jcalc_tau(
     joint_S_s: wp.array(dtype=wp.spatial_vector),
     joint_q: wp.array(dtype=float),
     joint_qd: wp.array(dtype=float),
-    joint_qdd: wp.array(dtype=float),
     joint_act: wp.array(dtype=float),
     joint_target: wp.array(dtype=float),
     joint_axis_mode: wp.array(dtype=int),
@@ -441,7 +440,6 @@ def jcalc_tau(
 
         q = joint_q[coord_start]
         qd = joint_qd[dof_start]
-        qdd = joint_qdd[dof_start]
         act = joint_act[dof_start]
 
         target = joint_target[axis_start]
@@ -456,7 +454,7 @@ def jcalc_tau(
 
         # total torque / force on the joint
         t = -wp.dot(S_s, body_f_s) + eval_joint_force(
-            q, qd, qdd, target, target_ke, target_kd, act, lower, upper, limit_ke, limit_kd, mode
+            q, qd, target, target_ke, target_kd, act, lower, upper, limit_ke, limit_kd, mode
         )
 
         tau[dof_start] = t
@@ -492,7 +490,6 @@ def jcalc_tau(
 
             q = joint_q[coord_start + i]
             qd = joint_qd[dof_start + i]
-            qdd = joint_qdd[dof_start + i]
             act = joint_act[dof_start + i]
 
             target = joint_target[axis_start + i]
@@ -506,7 +503,7 @@ def jcalc_tau(
 
             # total torque / force on the joint
             t = -wp.dot(S_s, body_f_s) + eval_joint_force(
-                q, qd, qdd, target, target_ke, target_kd, act, lower, upper, limit_ke, limit_kd, mode
+                q, qd, target, target_ke, target_kd, act, lower, upper, limit_ke, limit_kd, mode
             )
 
             tau[dof_start + i] = t
@@ -946,7 +943,6 @@ def eval_rigid_tau(
     joint_axis_mode: wp.array(dtype=int),
     joint_q: wp.array(dtype=float),
     joint_qd: wp.array(dtype=float),
-    joint_qdd: wp.array(dtype=float),
     joint_act: wp.array(dtype=float),
     joint_target: wp.array(dtype=float),
     joint_target_ke: wp.array(dtype=float),
@@ -958,8 +954,6 @@ def eval_rigid_tau(
     joint_S_s: wp.array(dtype=wp.spatial_vector),
     body_fb_s: wp.array(dtype=wp.spatial_vector),
     body_f_ext: wp.array(dtype=wp.spatial_vector),
-    body_q: wp.array(dtype=wp.transform),
-    joint_X_p: wp.array(dtype=wp.transform),
     # outputs
     body_ft_s: wp.array(dtype=wp.spatial_vector),
     tau: wp.array(dtype=float),
@@ -1001,7 +995,6 @@ def eval_rigid_tau(
             joint_S_s,
             joint_q,
             joint_qd,
-            joint_qdd,
             joint_act,
             joint_target,
             joint_axis_mode,
@@ -1892,7 +1885,6 @@ class FeatherstoneIntegrator:
                             model.joint_axis_mode,
                             state_in.joint_q,
                             state_in.joint_qd,
-                            state_in.joint_qdd,
                             state_in.joint_act,
                             model.joint_target,
                             model.joint_target_ke,
@@ -1904,8 +1896,6 @@ class FeatherstoneIntegrator:
                             state_out.joint_S_s,
                             state_out.body_f_s,
                             body_f,
-                            state_in.body_q,
-                            model.joint_X_p,
                         ],
                         outputs=[
                             state_out.body_ft_s,
