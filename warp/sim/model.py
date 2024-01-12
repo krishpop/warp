@@ -2123,7 +2123,7 @@ class ModelBuilder:
             enabled=enabled,
         )
 
-    def plot_articulation(self):
+    def plot_articulation(self, plot_shapes=True):
         """Plots the model's articulation."""
 
         def joint_type_str(type):
@@ -2143,16 +2143,21 @@ class ModelBuilder:
                 return "compound"
             elif type == JOINT_FIXED:
                 return "fixed"
+            elif type == JOINT_DISTANCE:
+                return "distance"
             return "unknown"
 
-        vertices = ["world"] + self.body_name + [f"shape_{i}" for i in range(self.shape_count)]
+        vertices = ["world"] + self.body_name
+        if plot_shapes:
+            vertices += [f"shape_{i}" for i in range(self.shape_count)]
         edges = []
         edge_labels = []
         for i in range(self.joint_count):
             edges.append((self.joint_child[i] + 1, self.joint_parent[i] + 1))
             edge_labels.append(f"{self.joint_name[i]}\n({joint_type_str(self.joint_type[i])})")
-        for i in range(self.shape_count):
-            edges.append((len(self.body_name) + i + 1, self.shape_body[i] + 1))
+        if plot_shapes:
+            for i in range(self.shape_count):
+                edges.append((len(self.body_name) + i + 1, self.shape_body[i] + 1))
         wp.sim.plot_graph(vertices, edges, edge_labels=edge_labels)
 
     def collapse_fixed_joints(self, verbose=wp.config.verbose):
