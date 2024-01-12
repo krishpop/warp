@@ -151,7 +151,6 @@ def integrate_bodies(
     body_qd_new[tid] = qd_new
 
 
-
 @wp.kernel
 def eval_springs(
     x: wp.array(dtype=wp.vec3),
@@ -1264,13 +1263,13 @@ def eval_rigid_contact_impulses(
 
     # # contact damping
     # fd = wp.min(vn, 0.0) * kd * wp.step(d)
-    
+
     baumgarte_rel_vel = baumgarte_erp * d / dt
     rel_vel = bv_a - bv_b
     normal_rel_vel = wp.dot(n, rel_vel)
     if normal_rel_vel >= 0.0:
         return
-    
+
     temp1 = inv_I_a * wp.cross(r_a, n)
     temp2 = inv_I_b * wp.cross(r_b, n)
     ang = wp.dot(n, wp.cross(temp1, r_a) + wp.cross(temp2, r_b))
@@ -1371,6 +1370,7 @@ def apply_body_impulses(
         w1 = wp.vec3(0.0)
 
     qd_out[tid] = wp.spatial_vector(w1, v1)
+
 
 @wp.func
 def eval_joint_force(
@@ -2213,16 +2213,16 @@ def compute_forces(model, state, particle_f, body_f, requires_grad, dt):
                     contact_state.rigid_contact_shape1,
                     False,
                     dt,
-                    baumgarte_erp
+                    baumgarte_erp,
                 ],
                 outputs=[state.body_impulses],
                 device=model.device,
             )
             # print(state.body_impulses.numpy())
-            
+
             q2 = wp.clone(state.body_q)
             qd2 = wp.clone(state.body_qd)
-            
+
             # print("\n\nbefore:")
             # print(q2.numpy())
             wp.launch(
@@ -2247,6 +2247,7 @@ def compute_forces(model, state, particle_f, body_f, requires_grad, dt):
                 device=model.device,
             )
             import numpy as np
+
             max_diff = np.max(np.abs(q2.numpy() - state.body_q.numpy()))
             print("max_diff", max_diff)
             # print("after:")
