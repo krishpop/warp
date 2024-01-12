@@ -750,6 +750,7 @@ def broadphase_collision_pairs(
     rigid_contact_max: int,
     rigid_contact_margin: float,
     mesh_contact_max: int,
+    iterate_mesh_vertices: bool,
     # outputs
     contact_count: wp.array(dtype=int),
     contact_shape0: wp.array(dtype=int),
@@ -832,7 +833,10 @@ def broadphase_collision_pairs(
         elif actual_type_b == wp.sim.GEO_MESH:
             num_contacts_a = 2
             mesh_b = wp.mesh_get(geo.source[actual_shape_b])
-            num_contacts_b = 0  # mesh_b.points.shape[0]
+            if iterate_mesh_vertices:
+                num_contacts_b = mesh_b.points.shape[0]
+            else:
+                num_contacts_b = 0
             num_contacts = num_contacts_a + num_contacts_b
             index = wp.atomic_add(contact_count, 0, num_contacts)
             if index + num_contacts - 1 >= rigid_contact_max:
@@ -877,7 +881,10 @@ def broadphase_collision_pairs(
         elif actual_type_b == wp.sim.GEO_MESH:
             num_contacts_a = 8
             mesh_b = wp.mesh_get(geo.source[actual_shape_b])
-            num_contacts_b = 0  # mesh_b.points.shape[0]
+            if iterate_mesh_vertices:
+                num_contacts_b = mesh_b.points.shape[0]
+            else:
+                num_contacts_b = 0
             num_contacts = num_contacts_a + num_contacts_b
             index = wp.atomic_add(contact_count, 0, num_contacts)
             if index + num_contacts - 1 >= rigid_contact_max:
@@ -1425,7 +1432,7 @@ def handle_contact_pairs(
         contact_thickness[index] = thickness
 
 
-def collide(model, state, edge_sdf_iter: int = 10):
+def collide(model, state, edge_sdf_iter: int = 10, iterate_mesh_vertices: bool = True):
     """
     Generates contact points for the particles and rigid bodies in the model,
     to be used in the contact dynamics kernel of the integrator.
@@ -1434,6 +1441,7 @@ def collide(model, state, edge_sdf_iter: int = 10):
         model: the model to be simulated
         state: the state of the model
         edge_sdf_iter: number of search iterations for finding closest contact points between edges and SDF
+        iterate_mesh_vertices: whether to iterate over all vertices of a mesh for contact generation (used for capsule/box <> mesh collision)
     """
 
     with wp.ScopedTimer("collide", False):
@@ -1503,6 +1511,7 @@ def collide(model, state, edge_sdf_iter: int = 10):
                     model.rigid_contact_max,
                     model.rigid_contact_margin,
                     model.rigid_mesh_contact_max,
+                    iterate_mesh_vertices,
                 ],
                 outputs=[
                     contact_state.rigid_contact_count,
@@ -1531,6 +1540,7 @@ def collide(model, state, edge_sdf_iter: int = 10):
                     model.rigid_contact_max,
                     model.rigid_contact_margin,
                     model.rigid_mesh_contact_max,
+                    iterate_mesh_vertices,
                 ],
                 outputs=[
                     contact_state.rigid_contact_count,

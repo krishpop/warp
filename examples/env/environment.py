@@ -130,6 +130,8 @@ class Environment:
 
     # distance threshold at which contacts are generated
     rigid_contact_margin: float = 0.05
+    # whether to iterate over mesh vertices for box/capsule collision
+    rigid_contact_iterate_mesh_vertices: bool = True
 
     # number of search iterations for finding closest contact points between edges and SDF
     edge_sdf_iter: int = 10
@@ -346,7 +348,7 @@ class Environment:
             else:
                 self.state_0.clear_forces()
                 self.custom_update()
-                wp.sim.collide(self.model, self.state_0, edge_sdf_iter=self.edge_sdf_iter)
+                wp.sim.collide(self.model, self.state_0, edge_sdf_iter=self.edge_sdf_iter, iterate_mesh_vertices=self.rigid_contact_iterate_mesh_vertices)
                 self.integrator.simulate(self.model, self.state_0, self.state_1, self.sim_dt)
             if i < self.sim_substeps - 1 or not self.use_graph_capture:
                 # we can just swap the state references
@@ -374,7 +376,7 @@ class Environment:
             else:
                 self.states[self.sim_step].clear_forces()
                 self.custom_update()
-                wp.sim.collide(self.model, self.states[self.sim_step], edge_sdf_iter=self.edge_sdf_iter)
+                wp.sim.collide(self.model, self.states[self.sim_step], edge_sdf_iter=self.edge_sdf_iter, iterate_mesh_vertices=self.rigid_contact_iterate_mesh_vertices)
                 self.integrator.simulate(
                     self.model, self.states[self.sim_step], self.states[self.sim_step + 1], self.sim_dt
                 )
