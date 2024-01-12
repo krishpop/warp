@@ -1193,7 +1193,7 @@ def compute_linear_correction_3d(
     # Eq. 4-5
     d_lambda = (-c - alpha * lambda_in)
     # TODO consider damping for velocity correction?
-    # deltaLambda = -(err + alpha * lambda_in + gamma * derr)
+    # delta_lambda = -(err + alpha * lambda_in + gamma * derr)
     if w + alpha > 0.0:
         d_lambda /= w * (dt + gamma) + alpha / dt
 
@@ -1837,6 +1837,7 @@ def solve_body_joints(
                         err = (derr - target) * dt
                         compliance = 1.0 / axis_stiffness[dim]
                     damping = axis_damping[dim]
+                    derr = 0.0
 
             if wp.abs(err) > 1e-9:
                 lambda_in = 0.0
@@ -2039,6 +2040,7 @@ def solve_body_joints(
                         err = (derr - target) * dt
                         compliance = 1.0 / axis_stiffness[dim]
                     damping = axis_damping[dim]
+                    derr = 0.0
 
             d_lambda = (
                 compute_angular_correction(
@@ -2046,6 +2048,7 @@ def solve_body_joints(
                 )
                 * angular_relaxation
             )
+
             # update deltas
             ang_delta_p += angular_p * d_lambda
             ang_delta_c += angular_c * d_lambda
@@ -2086,11 +2089,11 @@ def compute_contact_constraint_delta(
     denom += wp.dot(rot_angular_a, I_inv_a * rot_angular_a)
     denom += wp.dot(rot_angular_b, I_inv_b * rot_angular_b)
 
-    deltaLambda = -err
+    delta_lambda = -err
     if denom > 0.0:
-        deltaLambda /= dt * denom
+        delta_lambda /= dt * denom
 
-    return deltaLambda * relaxation
+    return delta_lambda * relaxation
 
 
 @wp.func
@@ -2129,11 +2132,11 @@ def compute_positional_correction(
     alpha = compliance
     gamma = compliance * damping
 
-    deltaLambda = -(err + alpha * lambda_in + gamma * derr)
+    delta_lambda = -(err + alpha * lambda_in + gamma * derr)
     if denom + alpha > 0.0:
-        deltaLambda /= (dt + gamma) * denom + alpha / dt
+        delta_lambda /= (dt + gamma) * denom + alpha / dt
 
-    return deltaLambda
+    return delta_lambda
 
 
 @wp.func
@@ -2166,11 +2169,11 @@ def compute_angular_correction(
     alpha = compliance
     gamma = compliance * damping
 
-    deltaLambda = -(err + alpha * lambda_in + gamma * derr)
+    delta_lambda = -(err + alpha * lambda_in + gamma * derr)
     if denom + alpha > 0.0:
-        deltaLambda /= (dt + gamma) * denom + alpha / dt
+        delta_lambda /= (dt + gamma) * denom + alpha / dt
 
-    return deltaLambda
+    return delta_lambda
 
 
 @wp.kernel
