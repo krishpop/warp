@@ -1476,6 +1476,7 @@ class ModelBuilder:
 
         self.up_vector = articulation.up_vector
         self.gravity = articulation.gravity
+        self._ground_params = articulation._ground_params
 
         if update_num_env_count:
             self.num_envs += 1
