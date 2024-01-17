@@ -224,9 +224,8 @@ def jcalc_transform(
         ia = axis_start + lin_axis_count
         iq = start + lin_axis_count
         if ang_axis_count == 1:
-            axis = joint_axis[axis_start + lin_axis_count + 0]
-            qi = wp.quat_from_axis_angle(axis, joint_q[start + lin_axis_count + 0])
-            rot = qi * rot
+            axis = joint_axis[ia]
+            rot = wp.quat_from_axis_angle(axis, joint_q[iq])
         if ang_axis_count == 2:
             rot, _ = compute_2d_rotational_dofs(
                 joint_axis[ia + 0],
@@ -501,10 +500,20 @@ def jcalc_tau(
             target_kd = joint_target_kd[axis_start + i]
             mode = joint_axis_mode[axis_start + i]
 
-            # total torque / force on the joint
-            t = -wp.dot(S_s, body_f_s) + eval_joint_force(
+            f = eval_joint_force(
                 q, qd, target, target_ke, target_kd, act, lower, upper, limit_ke, limit_kd, mode
             )
+
+            # total torque / force on the joint
+            t = -wp.dot(S_s, body_f_s) + f
+
+            # wp.printf("D6 joint tau[%d] = %f  (target: %.3f, q: %.3f, qd: %.3f, act: %.3f, target_ke: %.3f, target_kd: %.3f, mode: %d)\n",
+            #           i, f, target, q, qd, act, target_ke, target_kd, mode)
+            # wp.printf("D6 joint tau[%d] = %f (S_s: %.3f, %.3f, %.3f, %.3f, %.3f, %.3f      body_f_s: %.3f, %.3f, %.3f, %.3f, %.3f, %.3f)\n",
+            #           i, t,
+            #           S_s[0], S_s[1], S_s[2], S_s[3], S_s[4], S_s[5],
+            #           body_f_s[0], body_f_s[1], body_f_s[2], body_f_s[3], body_f_s[4], body_f_s[5],
+            #           )
 
             tau[dof_start + i] = t
 
@@ -2028,6 +2037,9 @@ class FeatherstoneIntegrator:
                     #         ),
                     #         arrays=[a, b, c, d],
                     #     )
+                    # print("joint_qdd:")
+                    # print(state_out.joint_qdd.numpy())
+                    # print("\n\n")
 
             for plugin in self.plugins:
                 plugin.before_integrate(model, state_in, state_out, dt, requires_grad)

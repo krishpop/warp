@@ -1403,9 +1403,9 @@ def eval_joint_force(
 
     target_f = 0.0
     if mode == wp.sim.JOINT_MODE_TARGET_POSITION:
-        target_f = -target_ke * (q - target) - target_kd * qd
+        target_f = target_ke * (target - q) - target_kd * qd
     if mode == wp.sim.JOINT_MODE_TARGET_VELOCITY:
-        target_f = -target_ke * (qd - target)
+        target_f = target_ke * (target - qd)
 
     return act + limit_f + damping_f + target_f
 
