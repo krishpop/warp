@@ -741,19 +741,19 @@ def parse_usd(
                     builder.body_inv_mass[body_id] = 0.0
                 # update inertia
                 builder.body_inertia[body_id] *= mass_ratio
-                if builder.body_inertia[body_id].any():
-                    builder.body_inv_inertia[body_id] = np.linalg.inv(builder.body_inertia[body_id])
+                if np.array(builder.body_inertia[body_id]).any():
+                    builder.body_inv_inertia[body_id] = wp.inverse(builder.body_inertia[body_id])
                 else:
-                    builder.body_inv_inertia[body_id] = np.zeros((3, 3), dtype=np.float32)
+                    builder.body_inv_inertia[body_id] = wp.mat33(*np.zeros((3, 3), dtype=np.float32))
 
             if np.linalg.norm(i_diag) > 0.0:
                 rot = np.array(wp.quat_to_matrix(i_rot), dtype=np.float32).reshape(3, 3)
                 inertia = rot @ np.diag(i_diag) @ rot.T
                 builder.body_inertia[body_id] = inertia
                 if inertia.any():
-                    builder.body_inv_inertia[body_id] = np.linalg.inv(inertia)
+                    builder.body_inv_inertia[body_id] = wp.inverse(wp.mat33(*inertia))
                 else:
-                    builder.body_inv_inertia[body_id] = np.zeros((3, 3), dtype=np.float32)
+                    builder.body_inv_inertia[body_id] = wp.mat33(*np.zeros((3, 3), dtype=np.float32))
 
     parse_prim(
         stage.GetDefaultPrim(), incoming_xform=wp.transform(), incoming_scale=np.ones(3, dtype=np.float32) * linear_unit
