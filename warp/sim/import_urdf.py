@@ -38,6 +38,7 @@ def parse_urdf(
     limit_kd=10.0,
     scale=1.0,
     parse_visuals_as_colliders=False,
+    force_show_colliders=False,
     enable_self_collisions=True,
     ignore_inertial_definitions=True,
     ensure_nonstatic_links=True,
@@ -68,6 +69,7 @@ def parse_urdf(
         limit_kd (float): The damping of the joint limits (used by SemiImplicitIntegrator).
         scale (float): The scaling factor to apply to the imported mechanism.
         parse_visuals_as_colliders (bool): If True, the geometry defined under the `<visual>` tags is used for collision handling instead of the `<collision>` geoemtries.
+        force_show_colliders (bool): If True, the collision shapes are always shown, even if there are visual shapes.
         enable_self_collisions (bool): If True, self-collisions are enabled.
         ignore_inertial_definitions (bool): If True, the inertial parameters defined in the URDF are ignored and the inertia is calculated from the shape geometry.
         ensure_nonstatic_links (bool): If True, links with zero mass are given a small mass (see `static_link_mass`) to ensure they are dynamic.
@@ -267,7 +269,7 @@ def parse_urdf(
         else:
             parse_shapes(link, visuals, density=0.0, just_visual=True)
 
-        show_colliders = False
+        show_colliders = force_show_colliders
         if parse_visuals_as_colliders:
             show_colliders = True
         elif len(visuals) == 0:
