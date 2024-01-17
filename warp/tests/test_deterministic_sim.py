@@ -121,7 +121,7 @@ def run_env(env):
 def check_histories_equal(test, history1, history2, history_name):
     for i in range(len(history1)):
         test.assertTrue(
-            np.allclose(history1[i], history2[i], atol=1e-2, rtol=1e-2),
+            np.allclose(history1[i], history2[i], atol=1e-5, rtol=1e-5),
             f"{history_name} mismatch at frame {i}, delta={np.max(np.abs(history1[i] - history2[i]))}",
         )
 
