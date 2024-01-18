@@ -28,7 +28,7 @@ class Demo(Environment):
 
     sim_name = "example_sim_contact_primitive"
     env_offset = (10.0, 0.0, 20.0)
-    opengl_render_settings = dict(scaling=3.0)
+    opengl_render_settings = dict(scaling=0.5)
     usd_render_settings = dict(scaling=10.0)
 
     episode_duration = 20.0
@@ -39,16 +39,17 @@ class Demo(Environment):
     xpbd_settings = dict(
         iterations=3,
         rigid_contact_relaxation=0.8,
-        enable_restitution=True,
+        # enable_restitution=True,
     )
 
     num_envs = 1
 
     separate_collision_group_per_env = True
     integrator_type = IntegratorType.XPBD
+    # integrator_type = IntegratorType.EULER
     # render_mode = RenderMode.USD
 
-    use_graph_capture = True
+    use_graph_capture = False
 
     def load_mesh(self, filename, use_meshio=True):
         if use_meshio:
@@ -159,8 +160,8 @@ class Demo(Environment):
                 restitution=self.restitution)
 
         if True:
-            axis = np.array((1.0, 0.0, 0.0))
-            axis /= np.linalg.norm(axis)
+            axis = wp.vec3(1.0, 0.0, 0.0)
+            axis = wp.normalize(axis)
             builder.add_shape_plane(
                 pos=(0.0, 3.5, -6.0),
                 rot=wp.quat_from_axis_angle(axis, math.pi * 0.15),
@@ -183,8 +184,8 @@ class Demo(Environment):
                 restitution=self.restitution)
 
         if True:
-            axis = np.array((0.2, 0.1, 0.7))
-            axis = axis / np.linalg.norm(axis)
+            axis = wp.vec3(0.2, 0.1, 0.7)
+            axis = wp.normalize(axis)
             loaded_mesh = self.load_mesh(
                 # os.path.join(os.path.dirname(__file__), "assets/monkey.obj"))
                 os.path.join(os.path.dirname(__file__), "assets/bowl.obj"))
