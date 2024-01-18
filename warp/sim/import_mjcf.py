@@ -25,6 +25,7 @@ def parse_mjcf(
     contact_ke=1000.0,
     contact_kd=100.0,
     contact_kf=100.0,
+    contact_ka=100.0,
     contact_mu=0.5,
     contact_restitution=0.5,
     limit_ke=100.0,
@@ -51,6 +52,7 @@ def parse_mjcf(
         contact_ke (float): The stiffness of the shape contacts (used by SemiImplicitIntegrator).
         contact_kd (float): The damping of the shape contacts (used by SemiImplicitIntegrator).
         contact_kf (float): The friction stiffness of the shape contacts (used by SemiImplicitIntegrator).
+        contact_ka (float): The adhesion distance of the shape contacts (used by SemiImplicitIntegrator).
         contact_mu (float): The friction coefficient of the shape contacts.
         contact_restitution (float): The restitution coefficient of the shape contacts.
         limit_ke (float): The stiffness of the joint limits (used by SemiImplicitIntegrator).
@@ -72,6 +74,15 @@ def parse_mjcf(
     mjcf_dirname = os.path.dirname(mjcf_filename)
     file = ET.parse(mjcf_filename)
     root = file.getroot()
+
+    contact_vars = dict(
+        ke=contact_ke,
+        kd=contact_kd,
+        kf=contact_kf,
+        ka=contact_ka,
+        mu=contact_mu,
+        restitution=contact_restitution,
+    )
 
     use_degrees = True  # angles are in degrees by default
     euler_seq = [1, 2, 3]  # XYZ by default
@@ -355,11 +366,7 @@ def parse_mjcf(
                     rot=geom_rot,
                     radius=geom_size[0],
                     density=geom_density,
-                    ke=contact_ke,
-                    kd=contact_kd,
-                    kf=contact_kf,
-                    mu=contact_mu,
-                    restitution=contact_restitution,
+                    **contact_vars,
                 )
 
             elif geom_type == "box":
@@ -371,11 +378,7 @@ def parse_mjcf(
                     hy=geom_size[1],
                     hz=geom_size[2],
                     density=geom_density,
-                    ke=contact_ke,
-                    kd=contact_kd,
-                    kf=contact_kf,
-                    mu=contact_mu,
-                    restitution=contact_restitution,
+                    **contact_vars,
                 )
 
             elif geom_type == "mesh" and parse_meshes:
@@ -393,10 +396,7 @@ def parse_mjcf(
                     mesh=mesh,
                     scale=mesh_scale,
                     density=density,
-                    ke=contact_ke,
-                    kd=contact_kd,
-                    kf=contact_kf,
-                    mu=contact_mu,
+                    **contact_vars,
                 )
 
             elif geom_type in {"capsule", "cylinder"}:
@@ -431,12 +431,8 @@ def parse_mjcf(
                         radius=geom_radius,
                         half_height=geom_height,
                         density=density,
-                        ke=contact_ke,
-                        kd=contact_kd,
-                        kf=contact_kf,
-                        mu=contact_mu,
-                        restitution=contact_restitution,
                         up_axis=geom_up_axis,
+                        **contact_vars,
                     )
                 else:
                     builder.add_shape_capsule(
@@ -446,12 +442,8 @@ def parse_mjcf(
                         radius=geom_radius,
                         half_height=geom_height,
                         density=density,
-                        ke=contact_ke,
-                        kd=contact_kd,
-                        kf=contact_kf,
-                        mu=contact_mu,
-                        restitution=contact_restitution,
                         up_axis=geom_up_axis,
+                        **contact_vars,
                     )
 
             else:
