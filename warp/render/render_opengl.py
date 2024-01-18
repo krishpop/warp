@@ -927,6 +927,7 @@ class OpenGLRenderer:
         self._first_mouse = True
         self._left_mouse_pressed = False
         self._keys_pressed = defaultdict(bool)
+        self._input_processors = []
         self._key_callbacks = []
 
         self.render_2d_callbacks = []
@@ -1890,6 +1891,10 @@ Instances: {len(self._instances)}"""
         import pyglet
         from pyglet.math import Vec3 as PyVec3
 
+        for cb in self._input_processors:
+            if cb(self._key_handler) == pyglet.event.EVENT_HANDLED:
+                return
+
         if self._key_handler[pyglet.window.key.W] or self._key_handler[pyglet.window.key.UP]:
             self._camera_pos += self._camera_front * (self._camera_speed * self._frame_speed)
             self.update_view_matrix()
@@ -1905,11 +1910,18 @@ Instances: {len(self._instances)}"""
             self._camera_pos += camera_side * (self._camera_speed * self._frame_speed)
             self.update_view_matrix()
 
+    def register_input_processor(self, callback):
+        self._input_processors.append(callback)
+
     def _key_press_callback(self, symbol, modifiers):
         import pyglet
 
         if not self.enable_keyboard_interaction:
             return
+
+        for cb in self._key_callbacks:
+            if cb(symbol, modifiers) == pyglet.event.EVENT_HANDLED:
+                return pyglet.event.EVENT_HANDLED
 
         if symbol == pyglet.window.key.ESCAPE:
             self.close()
@@ -1929,9 +1941,6 @@ Instances: {len(self._instances)}"""
             self.render_depth = not self.render_depth
         if symbol == pyglet.window.key.B:
             self.enable_backface_culling = not self.enable_backface_culling
-
-        for cb in self._key_callbacks:
-            cb(symbol, modifiers)
 
     def register_key_press_callback(self, callback):
         self._key_callbacks.append(callback)
