@@ -35,36 +35,39 @@ class Demo(Environment):
 
     num_envs = 1
 
-    sim_substeps_euler = 50
-    sim_substeps_xpbd = 15
+    sim_substeps_euler = 30
+    sim_substeps_xpbd = 5
+
+    activate_ground_plane = True
+    # use_graph_capture = False
 
     # integrator_type = IntegratorType.EULER
 
     xpbd_settings = dict(
-        iterations=3,
-        enable_restitution=False,
+        iterations=8,
+        # enable_restitution=True,
         rigid_contact_con_weighting=False,
-        soft_contact_relaxation=1.0,
+        soft_contact_relaxation=0.2,
     )
 
-    def load_mesh(self, filename, use_meshio=True, scale=np.ones(3)):
+    def load_mesh(self, filename, use_meshio=False, scale=np.ones(3)):
         if use_meshio:
             import meshio
             m = meshio.read(filename)
-            mesh_points = np.array(m.points) * scale
+            mesh_points = np.array(m.points) * np.array(scale)
             mesh_indices = np.array(m.cells[0].data, dtype=np.int32).flatten()
         else:
             import openmesh
             m = openmesh.read_trimesh(filename)
-            mesh_points = np.array(m.points()) * scale
+            mesh_points = np.array(m.points()) * np.array(scale)
             mesh_indices = np.array(m.face_vertex_indices(), dtype=np.int32).flatten()
         return wp.sim.Mesh(mesh_points, mesh_indices)
 
     def create_articulation(self, builder: ModelBuilder):
-        self.ke = 1.e+6
-        self.kd = 250.0
-        self.kf = 500.0
-        self.mu = 1.0
+        self.ke = 1.e+2
+        self.kd = 25.0
+        self.kf = 5.0
+        self.mu = 0.5
         self.restitution = 0.9
 
         builder.set_ground_plane(
@@ -77,20 +80,24 @@ class Demo(Environment):
 
         if True:
             # funnel
-            funnel_mesh = self.load_mesh(os.path.join(os.path.dirname(__file__), "assets/funnel2.obj"))
+            funnel_mesh = self.load_mesh(
+                # os.path.join(os.path.dirname(__file__), "assets/funnel2.obj"),
+                # os.path.join(os.path.dirname(__file__), "assets/funnel3.obj"),
+                os.path.join(os.path.dirname(__file__), "assets/funnel4.obj"),
+                scale=(0.1, 0.1, 0.1),)
             builder.add_shape_mesh(
                 body=-1,
                 mesh=funnel_mesh,
                 pos=(0.0, 12.0, 0.0),
                 rot=(wp.sin(math.pi / 4), 0.0, 0.0, wp.sin(math.pi / 4)),
-                scale=(0.1, 0.1, 0.1),
+                # scale=(0.1, 0.1, 0.1),
                 ke=self.ke,
                 kd=self.kd,
                 kf=self.kf,
                 mu=self.mu,
                 restitution=self.restitution,
                 density=0.0,
-                thickness=0.01,
+                thickness=0.0,
             )
         else:
             builder.add_shape_sphere(
@@ -113,7 +120,7 @@ class Demo(Environment):
 
         radius = 0.2
         spacing = 0.7
-        mass = radius * radius * radius * 0.5
+        mass = radius * radius * radius * 0.5 * 100.0
         # spheres
         for i in range(height):
             for j in range(width):
@@ -146,6 +153,8 @@ class Demo(Environment):
         self.model.rigid_contact_rolling_friction = 0.05
         self.model.rigid_contact_torsion_friction = 0.05
         self.model.rigid_contact_margin = 0.05
+        self.model.soft_contact_restitution = self.restitution
+        # self.model.soft_contact_margin = 0.3
 
 
 if __name__ == "__main__":
