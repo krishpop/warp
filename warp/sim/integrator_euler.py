@@ -2227,14 +2227,14 @@ def compute_forces(model, state, particle_f, body_f, requires_grad, dt):
                 ],
                 device=model.device,
             )
-            import numpy as np
+            # import numpy as np
 
-            max_diff = np.max(np.abs(q2.numpy() - state.body_q.numpy()))
-            print("max_diff", max_diff)
+            # max_diff = np.max(np.abs(q2.numpy() - state.body_q.numpy()))
+            # print("max_diff", max_diff)
             # print("after:")
             # print(q2.numpy())
-            # state.body_q.assign(q2)
-            # state.body_qd.assign(qd2)
+            state.body_q.assign(q2)
+            state.body_qd.assign(qd2)
 
     if model.joint_count:
         wp.launch(
@@ -2422,7 +2422,8 @@ class SemiImplicitIntegrator:
         self.plugins.append(plugin)
 
     def augment_state(self, model, state):
-        state.body_impulses = wp.zeros_like(state.body_qd)
+        if model.body_count:
+            state.body_impulses = wp.zeros_like(state.body_qd)
 
         for plugin in self.plugins:
             if not plugin.initialized:
