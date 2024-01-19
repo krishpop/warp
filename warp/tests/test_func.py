@@ -118,6 +118,26 @@ def test_native_func_export(test, device):
         tol=1.0e-3,
     )
 
+    v = wp.vec2(0.0)
+    v += wp.vec2(1.0, 1.0)
+    assert(v == wp.vec2(1.0, 1.0))
+    v -= wp.vec2(1.0, 1.0)
+    assert(v == wp.vec2(0.0, 0.0))
+    v = wp.vec2(2.0, 2.0) - wp.vec2(1.0, 1.0)
+    assert(v == wp.vec2(1.0, 1.0))
+    v *= 2.0
+    assert(v == wp.vec2(2.0, 2.0))
+    v = v * 2.0
+    assert(v == wp.vec2(4.0, 4.0))
+    v = v / 2.0
+    assert(v == wp.vec2(2.0, 2.0))
+    v /= 2.0
+    assert(v == wp.vec2(1.0, 1.0))
+    v = -v
+    assert(v == wp.vec2(-1.0, -1.0))
+    v = +v
+    assert(v == wp.vec2(-1.0, -1.0))
+
     m22 = wp.mat22(1.0, 2.0, 3.0, 4.0)
     m22 = m22 + m22
 
@@ -125,14 +145,39 @@ def test_native_func_export(test, device):
     test.assertEqual(str(m22), "[[2.0, 4.0],\n [6.0, 8.0]]")
 
     t = wp.transform(
-        wp.vec3(0.0, 0.0, 0.0),
-        wp.quat(0.0, 0.0, 0.0, 1.0),
+        wp.vec3(1.0, 2.0, 3.0),
+        wp.quat(4.0, 5.0, 6.0, 7.0),
     )
-    assert_np_equal(np.array([*t]), np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]))
+    test.assertSequenceEqual(t, (1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0))
+    test.assertSequenceEqual(t * (1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0), (396.0, 432.0, 720.0, 56.0, 70.0, 84.0, -28.0))
+    test.assertSequenceEqual(
+        t * wp.transform((1.0, 2.0, 3.0), (4.0, 5.0, 6.0, 7.0)), (396.0, 432.0, 720.0, 56.0, 70.0, 84.0, -28.0)
+    )
 
     f = wp.sin(math.pi * 0.5)
     test.assertAlmostEqual(f, 1.0, places=3)
 
+    m = wp.mat22(0.0, 0.0, 0.0, 0.0)
+    m += wp.mat22(1.0, 1.0, 1.0, 1.0)
+    assert(m == wp.mat22(1.0, 1.0, 1.0, 1.0))
+    m -= wp.mat22(1.0, 1.0, 1.0, 1.0)
+    assert(m == wp.mat22(0.0, 0.0, 0.0, 0.0))
+    m = wp.mat22(2.0, 2.0, 2.0, 2.0) - wp.mat22(1.0, 1.0, 1.0, 1.0)
+    assert(m == wp.mat22(1.0, 1.0, 1.0, 1.0))
+    m *= 2.0
+    assert(m == wp.mat22(2.0, 2.0, 2.0, 2.0))
+    m = m * 2.0
+    assert(m == wp.mat22(4.0, 4.0, 4.0, 4.0))
+    m = m / 2.0
+    assert(m == wp.mat22(2.0, 2.0, 2.0, 2.0))
+    m /= 2.0
+    assert(m == wp.mat22(1.0, 1.0, 1.0, 1.0))
+    m = -m
+    assert(m == wp.mat22(-1.0, -1.0, -1.0, -1.0))
+    m = +m
+    assert(m == wp.mat22(-1.0, -1.0, -1.0, -1.0))
+    m = m * m
+    assert(m == wp.mat22(2.0, 2.0, 2.0, 2.0))
 
 def test_user_func_export(test, device):
     # tests calling overloaded user-defined functions from Python
@@ -211,6 +256,16 @@ def test_func_defaults():
     wp.expect_near(1.0, 1.1, 0.5)
 
 
+@wp.func
+def sign(x: float):
+    return 123.0
+
+
+@wp.kernel
+def test_builtin_shadowing():
+    wp.expect_eq(sign(1.23), 123.0)
+
+
 def register(parent):
     devices = get_test_devices()
 
@@ -225,6 +280,7 @@ def register(parent):
     add_function_test(TestFunc, func=test_func_closure_capture, name="test_func_closure_capture", devices=devices)
     add_function_test(TestFunc, func=test_multi_valued_func, name="test_multi_valued_func", devices=devices)
     add_kernel_test(TestFunc, kernel=test_func_defaults, name="test_func_defaults", dim=1, devices=devices)
+    add_kernel_test(TestFunc, kernel=test_builtin_shadowing, name="test_builtin_shadowing", dim=1, devices=devices)
 
     return TestFunc
 

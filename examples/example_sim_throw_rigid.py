@@ -20,8 +20,7 @@ from warp.sim import ModelBuilder
 import warp as wp
 import numpy as np
 import os
-
-DEBUG = True
+DEBUG = False
 
 
 if DEBUG:
@@ -36,12 +35,7 @@ wp.init()
 
 
 @wp.kernel
-def sim_loss(
-    body_q: wp.array(dtype=wp.transform),
-    body_qd: wp.array(dtype=wp.spatial_vector),
-    target_pos: wp.vec3,
-    loss: wp.array(dtype=wp.float32),
-):
+def sim_loss(body_q: wp.array(dtype=wp.transform), body_qd: wp.array(dtype=wp.spatial_vector), target_pos: wp.vec3, loss: wp.array(dtype=wp.float32)):
     i = wp.tid()
     tf = body_q[i]
     dist = wp.length_sq(wp.transform_get_translation(tf) - target_pos)
@@ -134,13 +128,8 @@ class Environment:
         self.simulate()
         final_state = self.states[-1]
 
-        wp.launch(
-            sim_loss,
-            dim=1,
-            inputs=[final_state.body_q, final_state.body_qd, self.target_pos],
-            outputs=[self.loss],
-            device=action.device,
-        )
+        wp.launch(sim_loss, dim=1, inputs=[final_state.body_q, final_state.body_qd,
+                  self.target_pos], outputs=[self.loss], device=action.device)
 
         return self.loss
 
@@ -226,13 +215,11 @@ class Environment:
                         track_outputs=[self.loss],
                         track_input_names=["action"],
                         track_output_names=["loss"],
-                        array_names=array_names,
-                    )
+                        array_names=array_names)
 
                 if True:
-                    plot_state_gradients(
-                        self.states, os.path.join(os.path.dirname(__file__), "example_sim_throw_rigid_state_grads.html")
-                    )
+                    plot_state_gradients(self.states, os.path.join(os.path.dirname(
+                        __file__), "example_sim_throw_rigid_state_grads.html"))
 
             if False:
                 check_jacobian(
@@ -244,9 +231,7 @@ class Environment:
                 )
 
             l = self.loss.numpy()[0]
-            print(
-                f"iter {i}/{num_iter}\t action: {action.numpy()}\t action.grad: {action.grad.numpy()}\t loss: {l:.3f}"
-            )
+            print(f"iter {i}/{num_iter}\t action: {action.numpy()}\t action.grad: {action.grad.numpy()}\t loss: {l:.3f}")
             losses.append(l)
 
             # print("action grad", opt_vars.grad.numpy())
@@ -255,7 +240,6 @@ class Environment:
             tape.zero()
 
         import matplotlib.pyplot as plt
-
         plt.plot(losses)
         plt.grid()
         plt.title("Loss")
@@ -272,10 +256,11 @@ if DEBUG:
 else:
     sim = Environment(device=wp.get_preferred_device())
 
-best_actions = sim.optimize(num_iter=80, lr=0.5, render=True)
+best_actions = sim.optimize(num_iter=80, lr=0.5, render=False)
 
 sim.renderer = wp.sim.render.SimRendererOpenGL(
-    sim.model, os.path.join(os.path.dirname(__file__), "outputs", "example_sim_trajopt.usd"), scaling=1.0
-)
+    sim.model,
+    os.path.join(os.path.dirname(__file__), "outputs", "example_sim_trajopt.usd"),
+    scaling=1.0)
 sim.simulate()
 sim.renderer.save()

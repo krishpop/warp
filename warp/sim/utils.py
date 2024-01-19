@@ -340,7 +340,9 @@ def remesh_ftetwild(vertices, faces, stop_quality=10, max_its=50, edge_length_r=
     tetra = wm.Tetrahedralizer(stop_quality=stop_quality, max_its=max_its, edge_length_r=edge_length_r, epsilon=epsilon)
     tetra.set_mesh(vertices, np.array(faces).reshape(-1, 3))
     tetra.tetrahedralize()
-    tet_vertices, tet_indices = tetra.get_tet_mesh()
+    ret = tetra.get_tet_mesh()
+    # parse tet-mesh return values to handle variable length return, depending on ftetwild version
+    tet_vertices, tet_indices = ret[0], ret[1]
 
     def face_indices(tet):
         face1 = (tet[0], tet[2], tet[1])

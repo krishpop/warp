@@ -5,15 +5,16 @@
 # distribution of this software and related documentation without an express
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
+import argparse
+import os
+from enum import Enum
+from typing import Tuple
+
+import numpy as np
+
 import warp as wp
 import warp.sim
 import warp.sim.render
-
-import argparse
-import os
-import numpy as np
-from enum import Enum
-from typing import Tuple
 
 wp.init()
 
@@ -30,6 +31,7 @@ class RenderMode(Enum):
 class IntegratorType(Enum):
     EULER = "euler"
     XPBD = "xpbd"
+    FEATHERSTONE = "featherstone"
 
     def __str__(self):
         return self.value
@@ -166,7 +168,7 @@ class Environment:
         self.parser.add_argument("--profile", help="Enable profiling", type=bool, default=self.profile)
 
     def parse_args(self):
-        args = self.parser.parse_args()
+        args, _ = self.parser.parse_known_args()
         self.integrator_type = args.integrator
         self.render_mode = args.visualizer
         self.num_envs = args.num_envs
@@ -183,6 +185,9 @@ class Environment:
         elif self.integrator_type == IntegratorType.XPBD:
             self.sim_substeps = self.sim_substeps_xpbd
             self.integrator = wp.sim.XPBDIntegrator(**self.xpbd_settings)
+        elif self.integrator_type == IntegratorType.FEATHERSTONE:
+            self.sim_substeps = self.sim_substeps_euler
+            self.integrator = wp.sim.FeatherstoneIntegrator(**self.euler_settings)
 
         if self.episode_frames is None:
             self.episode_frames = int(self.episode_duration / self.frame_dt)
@@ -228,7 +233,7 @@ class Environment:
         self.model.joint_attach_ke = self.joint_attach_ke
         self.model.joint_attach_kd = self.joint_attach_kd
 
-        self.model.state_augment_fns.append(self.custom_augment_state)
+        self.model.augment_state_fns.append(self.custom_augment_state)
 
         if self.requires_grad:
             self.states = [self.model.state() for _ in range(self.sim_steps + 1)]
@@ -254,7 +259,8 @@ class Environment:
                 show_rigid_contact_points=self.show_rigid_contact_points,
                 contact_points_radius=self.contact_points_radius,
                 show_joints=self.show_joints,
-                **self.opengl_render_settings)
+                **self.opengl_render_settings,
+            )
             if self.use_tiled_rendering and self.num_envs > 1:
                 floor_id = self.model.shape_count - 1
                 # all shapes except the floor
@@ -265,7 +271,7 @@ class Environment:
                     additional_instances.append(floor_id)
                 self.renderer.setup_tiled_rendering(
                     instances=[
-                        instance_ids[i * shapes_per_env: (i + 1) * shapes_per_env] + additional_instances
+                        instance_ids[i * shapes_per_env : (i + 1) * shapes_per_env] + additional_instances
                         for i in range(self.num_envs)
                     ]
                 )
@@ -331,8 +337,9 @@ class Environment:
                 # we can just swap the state references
                 self.state_0, self.state_1 = self.state_1, self.state_0
             elif self.use_graph_capture:
-                assert hasattr(self, "state_temp") and self.state_temp is not None, \
-                    "state_temp must be allocated when using graph capture"
+                assert (
+                    hasattr(self, "state_temp") and self.state_temp is not None
+                ), "state_temp must be allocated when using graph capture"
                 # swap states by actually copying the state arrays to make sure the graph capture works
                 for key, value in state_0_dict.items():
                     if isinstance(value, wp.array):
@@ -347,8 +354,9 @@ class Environment:
             self.states[self.sim_step].clear_forces()
             self.custom_update()
             wp.sim.collide(self.model, self.states[self.sim_step], edge_sdf_iter=self.edge_sdf_iter)
-            self.integrator.simulate(self.model, self.states[self.sim_step],
-                                     self.states[self.sim_step + 1], self.sim_dt)
+            self.integrator.simulate(
+                self.model, self.states[self.sim_step], self.states[self.sim_step + 1], self.sim_dt
+            )
             self.sim_time += self.sim_dt
             self.sim_step += 1
 
@@ -374,6 +382,12 @@ class Environment:
         if self.eval_fk:
             wp.sim.eval_fk(self.model, self.model.joint_q, self.model.joint_qd, None, self.state)
 
+        if self.model.particle_count > 1:
+            self.model.particle_grid.build(
+                self.state.particle_q,
+                self.model.particle_max_radius * 2.0,
+            )
+
     def run(self):
         # ---------------
         # run simulation
@@ -392,10 +406,7 @@ class Environment:
         if self.use_graph_capture:
             # create update graph
             wp.capture_begin()
-
-            # simulate
             self.update()
-
             graph = wp.capture_end()
 
         if self.plot_body_coords:
@@ -417,6 +428,11 @@ class Environment:
             running = True
             while running:
                 for f in range(self.episode_frames):
+                    if self.model.particle_count > 1:
+                        self.model.particle_grid.build(
+                            self.state.particle_q,
+                            self.model.particle_max_radius * 2.0,
+                        )
                     if self.use_graph_capture:
                         wp.capture_launch(graph)
                         self.sim_time += self.frame_dt
@@ -501,7 +517,7 @@ class Environment:
                 ax[i, 6].yaxis.get_major_locator().set_params(integer=True)
             plt.show()
 
-        if self.plot_joint_coords:
+        if self.plot_joint_coords and len(joint_q_history) > 0:
             import matplotlib.pyplot as plt
 
             joint_q_history = np.array(joint_q_history)
@@ -538,6 +554,7 @@ class Environment:
             q_start = self.model.joint_q_start.numpy()
             qd_start = self.model.joint_qd_start.numpy()
             qd_i = qd_start[joint_id]
+            num_joint_free = 0  # needed to offset joint_limits, which skip free joint type
             for dim in range(ncols * nrows):
                 ax = axes[dim // ncols, dim % ncols]
                 if dim >= dof_q:
@@ -546,12 +563,14 @@ class Environment:
                 ax.grid()
                 ax.plot(joint_q_history[:, dim])
                 if joint_type[joint_id] != wp.sim.JOINT_FREE:
-                    lower = joint_lower[qd_i]
+                    lower = joint_lower[qd_i - num_joint_free]
                     if abs(lower) < 2 * np.pi:
                         ax.axhline(lower, color="red")
-                    upper = joint_upper[qd_i]
+                    upper = joint_upper[qd_i - num_joint_free]
                     if abs(upper) < 2 * np.pi:
                         ax.axhline(upper, color="red")
+                else:
+                    num_joint_free += 1
                 joint_name = joint_type_names[joint_type[joint_id]]
                 ax.set_title(f"$\\mathbf{{q_{{{dim}}}}}$ ({self.model.joint_name[joint_id]} / {joint_name} {joint_id})")
                 if joint_id < self.model.joint_count - 1 and q_start[joint_id + 1] == dim + 1:

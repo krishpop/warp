@@ -39,6 +39,8 @@ from .model import JOINT_D6
 from .integrator_euler import SemiImplicitIntegrator, SemiImplicitIntegratorPlugin
 from .integrator_euler import VariationalImplicitIntegrator
 
+from .integrator_featherstone import FeatherstoneIntegrator
+
 from .integrator_xpbd import XPBDIntegrator
 
 from .collide import collide
@@ -48,7 +50,7 @@ from .import_mjcf import parse_mjcf
 from .import_urdf import parse_urdf
 from .import_partnet import parse_partnet_urdf
 from .import_snu import parse_snu
-from .import_usd import parse_usd
+from .import_usd import parse_usd, resolve_usd_from_url
 
 from .utils import quat_from_euler, quat_between_vectors, remesh, load_mesh, plot_graph
 

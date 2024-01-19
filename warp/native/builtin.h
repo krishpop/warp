@@ -787,6 +787,10 @@ inline CUDA_CALLABLE half sqrt(half x)
     return ::sqrtf(float(x));
 }
 
+inline CUDA_CALLABLE float cbrt(float x) { return ::cbrtf(x); }
+inline CUDA_CALLABLE double cbrt(double x) { return ::cbrt(x); }
+inline CUDA_CALLABLE half cbrt(half x) { return ::cbrtf(float(x)); }
+
 inline CUDA_CALLABLE float tan(float x) { return ::tanf(x); }
 inline CUDA_CALLABLE float sinh(float x) { return ::sinhf(x);}
 inline CUDA_CALLABLE float cosh(float x) { return ::coshf(x);}
@@ -813,21 +817,18 @@ inline CUDA_CALLABLE float rint(float x) { return ::rintf(x); }
 inline CUDA_CALLABLE float trunc(float x) { return ::truncf(x); }
 inline CUDA_CALLABLE float floor(float x) { return ::floorf(x); }
 inline CUDA_CALLABLE float ceil(float x) { return ::ceilf(x); }
-inline CUDA_CALLABLE float frac(float x) { return x - trunc(x); }
 
 inline CUDA_CALLABLE double round(double x) { return ::round(x); }
 inline CUDA_CALLABLE double rint(double x) { return ::rint(x); }
 inline CUDA_CALLABLE double trunc(double x) { return ::trunc(x); }
 inline CUDA_CALLABLE double floor(double x) { return ::floor(x); }
 inline CUDA_CALLABLE double ceil(double x) { return ::ceil(x); }
-inline CUDA_CALLABLE double frac(double x) { return x - trunc(x); }
 
 inline CUDA_CALLABLE half round(half x) { return ::roundf(float(x)); }
 inline CUDA_CALLABLE half rint(half x) { return ::rintf(float(x)); }
 inline CUDA_CALLABLE half trunc(half x) { return ::truncf(float(x)); }
 inline CUDA_CALLABLE half floor(half x) { return ::floorf(float(x)); }
 inline CUDA_CALLABLE half ceil(half x) { return ::ceilf(float(x)); }
-inline CUDA_CALLABLE half frac(half x) { return float(x) - trunc(float(x)); }
 
 #define DECLARE_ADJOINTS(T)\
 inline CUDA_CALLABLE void adj_log(T a, T& adj_a, T adj_ret)\
@@ -974,6 +975,16 @@ inline CUDA_CALLABLE void adj_sqrt(T x, T& adj_x, T adj_ret)\
         assert(0);\
     })\
 }\
+inline CUDA_CALLABLE void adj_cbrt(T x, T& adj_x, T adj_ret)\
+{\
+    T cbrt_x = cbrt(x);\
+    adj_x += (T(1)/T(3))*(T(1)/(cbrt_x*cbrt_x))*adj_ret;\
+    DO_IF_FPCHECK(if (!isfinite(adj_x))\
+    {\
+        printf("%s:%d - adj_cbrt(%f, %f, %f)\n", __FILE__, __LINE__, float(x), float(adj_x), float(adj_ret));\
+        assert(0);\
+    })\
+}\
 inline CUDA_CALLABLE void adj_degrees(T x, T& adj_x, T adj_ret)\
 {\
     adj_x += RAD_TO_DEG * adj_ret;\
@@ -986,8 +997,7 @@ inline CUDA_CALLABLE void adj_round(T x, T& adj_x, T adj_ret){ }\
 inline CUDA_CALLABLE void adj_rint(T x, T& adj_x, T adj_ret){ }\
 inline CUDA_CALLABLE void adj_trunc(T x, T& adj_x, T adj_ret){ }\
 inline CUDA_CALLABLE void adj_floor(T x, T& adj_x, T adj_ret){ }\
-inline CUDA_CALLABLE void adj_ceil(T x, T& adj_x, T adj_ret){ }\
-inline CUDA_CALLABLE void adj_frac(T x, T& adj_x, T adj_ret){ }
+inline CUDA_CALLABLE void adj_ceil(T x, T& adj_x, T adj_ret){ }
 
 DECLARE_ADJOINTS(float16)
 DECLARE_ADJOINTS(float32)
@@ -1250,6 +1260,10 @@ inline CUDA_CALLABLE int atomic_min(int* address, int val)
 
 } // namespace wp
 
+
+// printf defined globally in crt.h
+inline CUDA_CALLABLE void adj_printf(const char* fmt, ...) {}
+
 #include "vec.h"
 #include "mat.h"
 #include "quat.h"
@@ -1413,9 +1427,6 @@ inline CUDA_CALLABLE void adj_print(transform_t<Type> t, transform_t<Type>& adj_
 
 inline CUDA_CALLABLE void adj_print(str t, str& adj_t) {}
 
-
-// printf defined globally in crt.h
-inline CUDA_CALLABLE void adj_printf(const char* fmt, ...) {}
 
 
 template <typename T>

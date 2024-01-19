@@ -170,6 +170,7 @@ def drone_cost(
     body_q: wp.array(dtype=wp.transform),
     body_qd: wp.array(dtype=wp.spatial_vector),
     target: wp.vec3,
+    step: int,
     horizon_length: int,
     cost: wp.array(dtype=wp.float32),
 ):
@@ -186,8 +187,13 @@ def drone_cost(
 
     # encourage zero velocity
     vel_cost = wp.length_sq(vel_drone)
+    
+    # time_factor = wp.float(step) / wp.float(horizon_length)
+    discount = 0.9 ** wp.float(horizon_length-step-1) / wp.float(horizon_length)**2.0
+    # discount = 0.5 ** wp.float(step) / wp.float(horizon_length)
+    # discount = 1.0 / wp.float(horizon_length)
 
-    wp.atomic_add(cost, env_id, (drone_cost + 0.02 * vel_cost + 0.1 * upright_cost) / wp.float(horizon_length))
+    wp.atomic_add(cost, env_id, (10.0 * drone_cost + 0.02 * vel_cost + 0.1 * upright_cost) * discount)
 
 
 class DroneEnvironment(Environment):
@@ -200,8 +206,8 @@ class DroneEnvironment(Environment):
 
     # use_graph_capture = False
 
-    sim_substeps_euler = 16
-    sim_substeps_xpbd = 5
+    sim_substeps_euler = 1
+    sim_substeps_xpbd = 1
 
     activate_ground_plane = False
 
@@ -271,17 +277,35 @@ class DroneEnvironment(Environment):
             self.prop_shape = wp.array(self.prop_shapes, dtype=int, device=self.device)
             self.prop_rotation = wp.zeros(len(self.prop_shapes), dtype=float, device=self.device)
 
+            import pyglet
+            self.count_target_swaps = 0
+            self.possible_targets = [
+                wp.vec3(0.0, 0.5, 1.0),
+                wp.vec3(1.0, 0.5, 0.0),
+                wp.vec3(0.0, 0.5, -1.0),
+                wp.vec3(-1.0, 0.5, 0.0),
+            ]
+            def swap_target(key, modifiers):
+                if key == pyglet.window.key.N:
+                    self.count_target_swaps += 1
+                    self.flight_target = self.possible_targets[self.count_target_swaps % len(self.possible_targets)]
+                    self.invalidate_cuda_graph = True
+            self.renderer.register_key_press_callback(swap_target)
+
     # def custom_update(self):
     #     self.state.prop_control.fill_(wp.sin(self.sim_time) * 1e-4 + 0.187)
     # def custom_update(self):
     #     self.state.prop_control.fill_(1.0)
 
-    def custom_render(self, render_state):
+    def custom_render(self, render_state, renderer=None):
+        if renderer is None:
+            renderer = self.renderer
         for i in range(self.num_envs):
-            self.renderer.render_sphere(
+            renderer.render_sphere(
                 f"target_{i}", self.flight_target + self.env_offsets[i], wp.quat_identity(), radius=0.05)
+            # print("target", self.flight_target + self.env_offsets[i])
 
-        if self.render_mode == RenderMode.OPENGL:
+        if isinstance(renderer, wp.sim.render.SimRendererOpenGL):
             # directly animate shape instances in renderer because model.shape_transform is not considered
             # by the OpenGLRenderer online
             if self.renderer._wp_instance_transforms is None:
@@ -293,17 +317,30 @@ class DroneEnvironment(Environment):
                         self.prop_shape, self.drone_plugin.props_wp, self.frame_dt],
                 outputs=[self.renderer._wp_instance_transforms],
                 device=self.device)
+        if isinstance(renderer, wp.sim.render.SimRendererUsd):
+            # update shape transforms in model
+            wp.launch(
+                update_prop_rotation,
+                dim=len(self.prop_shapes),
+                inputs=[self.prop_rotation, render_state.prop_control,
+                        self.prop_shape, self.drone_plugin.props_wp, self.frame_dt],
+                outputs=[self.model.shape_transform],
+                device=self.device)
+            tfs = self.model.shape_transform.numpy()
+            for i in range(4):
+                tf = tfs[i + 2]
+                renderer.render_ref(f"body_0_drone_0/shape_{i + 2}", "", pos=None, rot=tf[-4:], scale=None)
 
     @property
     def control(self):
         # overwrite control property to actuate propellers, not joints
         return self.state.prop_control
 
-    def evaluate_cost(self, state: wp.sim.State, cost: wp.array, horizon_length: int):
+    def evaluate_cost(self, state: wp.sim.State, cost: wp.array, step: int, horizon_length: int):
         wp.launch(
             drone_cost,
             dim=self.num_envs,
-            inputs=[state.body_q, state.body_qd, self.flight_target, horizon_length],
+            inputs=[state.body_q, state.body_qd, self.flight_target, step, horizon_length],
             outputs=[cost],
             device=self.device
         )

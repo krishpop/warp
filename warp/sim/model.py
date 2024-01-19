@@ -108,6 +108,7 @@ class JointAxis:
         target_ke (float): The proportional gain of the joint axis target drive PD controller
         target_kd (float): The derivative gain of the joint axis target drive PD controller
         mode (int): The mode of the joint axis, see `Joint modes`_
+        armature (float): Artificial inertia added around the joint axis (only considered by FeatherstoneIntegrator)
     """
 
     def __init__(
@@ -121,6 +122,7 @@ class JointAxis:
         target_ke=0.0,
         target_kd=0.0,
         mode=JOINT_MODE_TARGET_POSITION,
+        armature=1e-2,
     ):
         if isinstance(axis, JointAxis):
             self.axis = axis.axis
@@ -132,6 +134,7 @@ class JointAxis:
             self.target_ke = axis.target_ke
             self.target_kd = axis.target_kd
             self.mode = axis.mode
+            self.armature = axis.armature
         else:
             self.axis = np.array(wp.normalize(np.array(axis, dtype=np.float32)))
             self.limit_lower = limit_lower
@@ -147,6 +150,7 @@ class JointAxis:
             self.target_ke = target_ke
             self.target_kd = target_kd
             self.mode = mode
+            self.armature = armature
 
 
 class SDF:
@@ -495,7 +499,7 @@ class Model:
         joint_X_p (array): Joint transform in parent frame, shape [joint_count, 7], float
         joint_X_c (array): Joint mass frame in child frame, shape [joint_count, 7], float
         joint_axis (array): Joint axis in child frame, shape [joint_axis_count, 3], float
-        joint_armature (array): Armature for each joint, shape [joint_count], float
+        joint_armature (array): Armature for each joint axis (only used by FeatherstoneIntegrator), shape [joint_count], float
         joint_target (array): Joint target position/velocity (depending on joint axis mode), shape [joint_axis_count], float
         joint_target_ke (array): Joint stiffness, shape [joint_axis_count], float
         joint_target_kd (array): Joint damping, shape [joint_axis_count], float
@@ -696,8 +700,9 @@ class Model:
         self.device = wp.get_device(device)
         self.integrator = integrator
 
-        # list of functions to call to augment the state
-        self.state_augment_fns: List[Callable[[State]]] = []
+        # list of functions to call to augment the state and model
+        self.augment_state_fns: List[Callable[[State]]] = []
+        self.augment_model_fns: List[Callable[[Model]]] = []
 
     def state(self, requires_grad=None) -> State:
         """Returns a state object for the model
@@ -755,7 +760,7 @@ class Model:
 
         if self.integrator is not None and hasattr(self.integrator, "augment_state"):
             self.integrator.augment_state(self, s)
-        for state_augment_fn in self.state_augment_fns:
+        for state_augment_fn in self.augment_state_fns:
             state_augment_fn(self, s)
 
         return s
@@ -767,6 +772,7 @@ class Model:
         target.soft_contact_body_pos = wp.zeros(count, dtype=wp.vec3, device=self.device, requires_grad=requires_grad)
         target.soft_contact_body_vel = wp.zeros(count, dtype=wp.vec3, device=self.device, requires_grad=requires_grad)
         target.soft_contact_normal = wp.zeros(count, dtype=wp.vec3, device=self.device, requires_grad=requires_grad)
+        target.soft_contact_tids = wp.zeros(count, dtype=int, device=self.device)
 
     def allocate_soft_contacts(self, count, requires_grad=False):
         self._allocate_soft_contacts(self, count, requires_grad)
@@ -1221,6 +1227,9 @@ class ModelBuilder:
         # if setting is None, the number of worst-case number of contacts will be calculated in self.finalize()
         self.num_rigid_contacts_per_env = None
 
+        # custom functions to exectue on the model after this ModelBuilder has been finalized
+        self.augment_model_fns = []
+
     @property
     def shape_count(self):
         return len(self.shape_geo_type)
@@ -1579,8 +1588,7 @@ class ModelBuilder:
                 self.joint_limit_upper.append(dim.limit_upper)
             else:
                 self.joint_limit_upper.append(1e6)
-            # self.joint_limit_lower.append(dim.limit_lower)
-            # self.joint_limit_upper.append(dim.limit_upper)
+            self.joint_armature.append(dim.armature)
 
         for dim in linear_axes:
             add_axis_dim(dim)
@@ -1640,9 +1648,9 @@ class ModelBuilder:
         self,
         parent: int,
         child: int,
-        parent_xform: wp.transform,
-        child_xform: wp.transform,
-        axis: Vec3,
+        parent_xform: wp.transform = wp.transform(),
+        child_xform: wp.transform = wp.transform(),
+        axis: Vec3 = (1.0, 0.0, 0.0),
         target: float = 0.0,
         target_ke: float = 0.0,
         target_kd: float = 0.0,
@@ -1711,9 +1719,9 @@ class ModelBuilder:
         self,
         parent: int,
         child: int,
-        parent_xform: wp.transform,
-        child_xform: wp.transform,
-        axis: Vec3,
+        parent_xform: wp.transform = wp.transform(),
+        child_xform: wp.transform = wp.transform(),
+        axis: Vec3 = (1.0, 0.0, 0.0),
         target: float = 0.0,
         target_ke: float = 0.0,
         target_kd: float = 0.0,
@@ -2163,7 +2171,6 @@ class ModelBuilder:
 
             data = {
                 "type": self.joint_type[i],
-                # 'armature': self.joint_armature[i],
                 "q": self.joint_q[q_start : q_start + q_dim],
                 "qd": self.joint_qd[qd_start : qd_start + qd_dim],
                 "act": self.joint_act[qd_start : qd_start + qd_dim],
@@ -2195,6 +2202,7 @@ class ModelBuilder:
                         "limit_kd": self.joint_limit_kd[j],
                         "limit_lower": self.joint_limit_lower[j],
                         "limit_upper": self.joint_limit_upper[j],
+                        'armature': self.joint_armature[j],
                     }
                 )
 
@@ -2326,6 +2334,7 @@ class ModelBuilder:
         self.joint_enabled.clear()
         self.joint_linear_compliance.clear()
         self.joint_angular_compliance.clear()
+        self.joint_armature.clear()
         self.joint_X_p.clear()
         self.joint_X_c.clear()
         self.joint_axis.clear()
@@ -2367,6 +2376,7 @@ class ModelBuilder:
                 self.joint_limit_upper.append(axis["limit_upper"])
                 self.joint_limit_ke.append(axis["limit_ke"])
                 self.joint_limit_kd.append(axis["limit_kd"])
+                self.joint_armature.append(axis["armature"])
 
     # muscles
     def add_muscle(
@@ -4101,7 +4111,6 @@ class ModelBuilder:
             m.joint_name = self.joint_name
 
             # dynamics properties
-            # TODO unused joint_armature
             m.joint_armature = wp.array(self.joint_armature, dtype=wp.float32, requires_grad=requires_grad)
             m.joint_target = wp.array(self.joint_target, dtype=wp.float32, requires_grad=requires_grad)
             m.joint_target_ke = wp.array(self.joint_target_ke, dtype=wp.float32, requires_grad=requires_grad)
@@ -4176,5 +4185,10 @@ class ModelBuilder:
             m.gravity = np.array(self.up_vector) * self.gravity
 
             m.enable_tri_collisions = False
+
+            if integrator is not None and hasattr(integrator, "augment_model"):
+                integrator.augment_model(m)
+            for augment_model_fn in self.augment_model_fns:
+                augment_model_fn(m)
 
             return m

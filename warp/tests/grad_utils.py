@@ -9,7 +9,6 @@ from collections import defaultdict
 from typing import Callable, Dict, List, Literal, Set, Tuple
 import warp as wp
 import numpy as np
-from functools import wraps
 
 
 # whether quaternions and transforms should be normalized before computing the finite difference Jacobian
@@ -18,15 +17,15 @@ NORMALIZE_FD_INPUTS = False
 
 class FontColors:
     # https://stackoverflow.com/a/287944
-    HEADER = "\033[95m"
-    OKBLUE = "\033[94m"
-    OKCYAN = "\033[96m"
-    OKGREEN = "\033[92m"
-    WARNING = "\033[93m"
-    FAIL = "\033[91m"
-    ENDC = "\033[0m"
-    BOLD = "\033[1m"
-    UNDERLINE = "\033[4m"
+    HEADER = '\033[95m'
+    OKBLUE = '\033[94m'
+    OKCYAN = '\033[96m'
+    OKGREEN = '\033[92m'
+    WARNING = '\033[93m'
+    FAIL = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
 
 
 def function_jacobian(func: Callable, inputs: List, max_outputs_per_var: int = -1):
@@ -83,20 +82,11 @@ def function_jacobian_fd(func: Callable, inputs: List, eps: float = 1e-4, max_fd
     return jac_fd
 
 
-def check_jacobian(
-    func: Callable,
-    inputs: List,
-    input_names,
-    output_names,
-    eps: float = 1e-4,
-    jacobian_name: str = "",
-    max_fd_dims_per_var: int = 500,
-    max_outputs_per_var: int = 500,
-    atol: float = 0.1,
-    rtol: float = 0.1,
-    plot_jac_on_fail: bool = False,
-    tabulate_errors: bool = True,
-):
+def check_jacobian(func: Callable, inputs: List,
+                   input_names, output_names,
+                   eps: float = 1e-4,
+                   jacobian_name: str = "", max_fd_dims_per_var: int = 500, max_outputs_per_var: int = 500,
+                   atol: float = 0.1, rtol: float = 0.1, plot_jac_on_fail: bool = False, tabulate_errors: bool = True):
     """
     Checks that the autodiff Jacobian of the function is correct by comparing it to the
     numerical Jacobian computed using finite differences.
@@ -104,36 +94,18 @@ def check_jacobian(
 
     jac_ad, outputs, ad_in, ad_out = function_jacobian(func, inputs, max_outputs_per_var=max_outputs_per_var)
     jac_fd = function_jacobian_fd(func, inputs, eps=eps, max_fd_dims_per_var=max_fd_dims_per_var)
-    return compare_jacobians(
-        jac_ad,
-        jac_fd,
-        inputs,
-        outputs,
-        input_names,
-        output_names,
-        jacobian_name=jacobian_name,
-        max_fd_dims_per_var=max_fd_dims_per_var,
-        max_outputs_per_var=max_outputs_per_var,
-        ad_in=ad_in,
-        ad_out=ad_out,
-        atol=atol,
-        rtol=rtol,
-        plot_jac_on_fail=plot_jac_on_fail,
-        tabulate_errors=tabulate_errors,
-    )
+    return compare_jacobians(jac_ad, jac_fd, inputs, outputs, input_names, output_names,
+                             jacobian_name=jacobian_name, max_fd_dims_per_var=max_fd_dims_per_var,
+                             max_outputs_per_var=max_outputs_per_var,
+                             ad_in=ad_in, ad_out=ad_out,
+                             atol=atol, rtol=rtol,
+                             plot_jac_on_fail=plot_jac_on_fail,
+                             tabulate_errors=tabulate_errors)
 
 
 def is_differentiable(x):
     # TODO add support for structs
-    return isinstance(x, wp.array) and x.dtype not in (
-        wp.int32,
-        wp.int64,
-        wp.int16,
-        wp.uint8,
-        wp.uint16,
-        wp.uint32,
-        wp.uint64,
-    )
+    return isinstance(x, wp.array) and x.dtype not in (wp.int32, wp.int64, wp.int16, wp.uint8, wp.uint16, wp.uint32, wp.uint64)
 
 
 def get_struct_vars(x: wp.codegen.StructInstance):
@@ -249,9 +221,7 @@ def tape_jacobian(tape: wp.Tape, inputs: List[wp.array], outputs: List[wp.array]
 
     for input_id, input in enumerate(inputs):
         if is_differentiable(input) and not input.requires_grad:
-            print(
-                f"{FontColors.WARNING}Error while evaluating tape Jacobian: input {input_id} (array of {input.dtype}) does not have requires_grad enabled{FontColors.ENDC}"
-            )
+            print(f"{FontColors.WARNING}Error while evaluating tape Jacobian: input {input_id} (array of {input.dtype}) does not have requires_grad enabled{FontColors.ENDC}")
 
     def eval_row(out):
         nonlocal row_id
@@ -271,14 +241,14 @@ def tape_jacobian(tape: wp.Tape, inputs: List[wp.array], outputs: List[wp.array]
                     for varname, var in get_struct_vars(input).items():
                         if is_differentiable(var):
                             grad = tape.gradients[var].numpy().flatten()
-                            jac_ad[row_id, col_id : col_id + len(grad)] = grad
+                            jac_ad[row_id, col_id:col_id + len(grad)] = grad
                             col_id += len(grad)
                 elif is_differentiable(input):
                     if input not in tape.gradients:
                         col_id += len(input.numpy().flatten())
                     else:
                         grad = tape.gradients[input].numpy().flatten()
-                        jac_ad[row_id, col_id : col_id + len(grad)] = grad
+                        jac_ad[row_id, col_id:col_id + len(grad)] = grad
                         col_id += len(grad)
             tape.zero()
             row_id += 1
@@ -323,9 +293,7 @@ def randomize_vars(vars):
             randomize_vars(var)
 
 
-def tape_jacobian_fd(
-    tape: wp.Tape, inputs: List[wp.array], outputs: List[wp.array], eps: float = 1e-4, max_fd_dims_per_var: int = 500
-):
+def tape_jacobian_fd(tape: wp.Tape, inputs: List[wp.array], outputs: List[wp.array], eps: float = 1e-4, max_fd_dims_per_var: int = 500):
     """
     Computes the Jacobian of a Warp kernel launch mapping from all differentiable inputs to all differentiable outputs
     using finite differences.
@@ -382,9 +350,7 @@ def tape_jacobian_fd(
     return jac_fd
 
 
-def kernel_jacobian(
-    kernel: wp.Kernel, dim: int, inputs: List[wp.array], outputs: List[wp.array], max_outputs_per_var=-1
-):
+def kernel_jacobian(kernel: wp.Kernel, dim: int, inputs: List[wp.array], outputs: List[wp.array], max_outputs_per_var=-1):
     """
     Computes the Jacobian of a Warp kernel launch mapping from all differentiable inputs to all differentiable outputs.
     """
@@ -393,20 +359,18 @@ def kernel_jacobian(
     device = get_device(inputs + outputs)
     tape = wp.Tape()
     with tape:
-        wp.launch(kernel=kernel, dim=dim, inputs=diff_inputs, outputs=diff_outputs, device=device)
+        wp.launch(
+            kernel=kernel,
+            dim=dim,
+            inputs=diff_inputs,
+            outputs=diff_outputs,
+            device=device)
     tape.zero()
 
     return tape_jacobian(tape, diff_inputs, diff_outputs, max_outputs_per_var)
 
 
-def kernel_jacobian_fd(
-    kernel: wp.Kernel,
-    dim: int,
-    inputs: List[wp.array],
-    outputs: List[wp.array],
-    eps: float = 1e-4,
-    max_fd_dims_per_var: int = 500,
-):
+def kernel_jacobian_fd(kernel: wp.Kernel, dim: int, inputs: List[wp.array], outputs: List[wp.array], eps: float = 1e-4, max_fd_dims_per_var: int = 500):
     """
     Computes the Jacobian of a Warp kernel launch mapping from all differentiable inputs to all differentiable outputs
     using finite differences.
@@ -449,23 +413,16 @@ def kernel_jacobian_fd(
                     for j in range(limit):
                         x1 = np_in_original_flat[j] + eps2
                         np_in[j] = x1
-                        setattr(
-                            diff_inputs[input_id],
-                            varname,
-                            normalize_inputs(wp.array(np_in.reshape(in_shape), dtype=var.dtype, device=var.device)),
-                        )
+                        setattr(diff_inputs[input_id], varname, normalize_inputs(
+                            wp.array(np_in.reshape(in_shape), dtype=var.dtype, device=var.device)))
                         y1 = f(diff_inputs)
                         x2 = np_in_original_flat[j] - eps2
                         np_in[j] = x2
-                        setattr(
-                            diff_inputs[input_id],
-                            varname,
-                            normalize_inputs(wp.array(np_in.reshape(in_shape), dtype=var.dtype, device=var.device)),
-                        )
+                        setattr(diff_inputs[input_id], varname, normalize_inputs(
+                            wp.array(np_in.reshape(in_shape), dtype=var.dtype, device=var.device)))
                         y2 = f(diff_inputs)
-                        setattr(
-                            diff_inputs[input_id], varname, wp.array(np_in_original, dtype=var.dtype, device=var.device)
-                        )
+                        setattr(diff_inputs[input_id], varname, wp.array(
+                            np_in_original, dtype=var.dtype, device=var.device))
                         jac_fd[:, col_id] = (y1 - y2) / (x1 - x2)
                         col_id += 1
         elif is_differentiable(input):
@@ -482,14 +439,12 @@ def kernel_jacobian_fd(
                 x1 = np_in_original_flat[j] + eps2
                 np_in[j] = x1
                 diff_inputs[input_id] = normalize_inputs(
-                    wp.array(np_in.reshape(in_shape), dtype=input.dtype, device=input.device)
-                )
+                    wp.array(np_in.reshape(in_shape), dtype=input.dtype, device=input.device))
                 y1 = f(diff_inputs)
                 x2 = np_in_original_flat[j] - eps2
                 np_in[j] = x2
                 diff_inputs[input_id] = normalize_inputs(
-                    wp.array(np_in.reshape(in_shape), dtype=input.dtype, device=input.device)
-                )
+                    wp.array(np_in.reshape(in_shape), dtype=input.dtype, device=input.device))
                 y2 = f(diff_inputs)
                 diff_inputs[input_id] = wp.array(np_in_original, dtype=input.dtype, device=input.device)
                 jac_fd[:, col_id] = (y1 - y2) / (x1 - x2)
@@ -498,27 +453,23 @@ def kernel_jacobian_fd(
     return jac_fd
 
 
-def plot_matrix(
-    ax, mat, vmin, vmax, input_ticks=None, input_ticks_labels=None, output_ticks=None, output_ticks_labels=None
-):
+def plot_matrix(ax, mat, vmin, vmax, input_ticks=None, input_ticks_labels=None, output_ticks=None, output_ticks_labels=None):
     from matplotlib.colors import LogNorm
-
     mat = np.copy(mat)
     mat[mat == 0.0] = np.nan
     if vmin is not None and vmin < vmax and vmin > 0.0:
-        ax.imshow(mat, cmap="jet", interpolation="nearest", norm=LogNorm(vmin=vmin, vmax=vmax))
+        ax.imshow(mat, cmap='jet', interpolation='nearest', norm=LogNorm(vmin=vmin, vmax=vmax))
     elif vmin is not None and vmin < vmax:
-        ax.imshow(mat, cmap="jet", interpolation="nearest", vmin=vmin, vmax=vmax)
+        ax.imshow(mat, cmap='jet', interpolation='nearest', vmin=vmin, vmax=vmax)
     else:
-        ax.imshow(mat, cmap="jet", interpolation="nearest")
+        ax.imshow(mat, cmap='jet', interpolation='nearest')
     if input_ticks is not None and len(input_ticks) > 0:
         # grid lines should start at the beginning of each matrix entry
         ax.set_xticks([tick - 0.5 for tick in input_ticks])
         if input_ticks_labels is not None and len(input_ticks_labels) > 0:
             if len(input_ticks_labels) > 1:
-                ax.set_xticklabels(
-                    [f"{label} ({tick})" for label, tick in zip(input_ticks_labels, input_ticks)], rotation=90
-                )
+                ax.set_xticklabels([f"{label} ({tick})" for label, tick in zip(
+                    input_ticks_labels, input_ticks)], rotation=90)
             else:
                 ax.set_xticklabels(input_ticks_labels)
     if output_ticks is not None and len(output_ticks) > 0:
@@ -533,20 +484,14 @@ def plot_matrix(
 
 
 def plot_jacobian_comparison(
-    jac_ad,
-    jac_fd,
-    title="",
-    input_ticks=None,
-    input_ticks_labels=None,
-    output_ticks=None,
-    output_ticks_labels=None,
-    highlight_xs=None,
-    highlight_ys=None,
+    jac_ad, jac_fd, title="",
+    input_ticks=None, input_ticks_labels=None,
+    output_ticks=None, output_ticks_labels=None,
+    highlight_xs=None, highlight_ys=None,
 ):
     import matplotlib.pyplot as plt
-
     fig, axs = plt.subplots(1, 3)
-    plt.suptitle(title, fontsize=16, fontweight="bold")
+    plt.suptitle(title, fontsize=16, fontweight='bold')
 
     vmin = min(np.min(jac_ad), np.min(jac_fd))
     vmax = max(np.max(jac_ad), np.max(jac_fd))
@@ -558,7 +503,7 @@ def plot_jacobian_comparison(
     plot_matrix(axs[2], diff, None, None, input_ticks, input_ticks_labels, output_ticks, output_ticks_labels)
     axs[2].set_title("Difference")
     if highlight_xs is not None and highlight_ys is not None:
-        axs[2].scatter(highlight_xs, highlight_ys, marker="x", color="red")
+        axs[2].scatter(highlight_xs, highlight_ys, marker='x', color='red')
     plt.tight_layout(h_pad=0.0, w_pad=0.0)
     # plt.tight_layout()
     plt.show()
@@ -587,23 +532,7 @@ def get_ticks(vars, labels):
     return ticks, ticks_labels, lengths
 
 
-def compare_jacobians(
-    jacobian_ad,
-    jacobian_fd,
-    inputs,
-    outputs,
-    input_names,
-    output_names,
-    jacobian_name: str = "",
-    max_fd_dims_per_var: int = 500,
-    max_outputs_per_var: int = 500,
-    ad_in=None,
-    ad_out=None,
-    atol: float = 0.1,
-    rtol: float = 0.1,
-    plot_jac_on_fail: bool = False,
-    tabulate_errors: bool = True,
-):
+def compare_jacobians(jacobian_ad, jacobian_fd, inputs, outputs, input_names, output_names, jacobian_name: str = "", max_fd_dims_per_var: int = 500, max_outputs_per_var: int = 500, ad_in=None, ad_out=None, atol: float = 0.1, rtol: float = 0.1, plot_jac_on_fail: bool = False, tabulate_errors: bool = True):
     """
     Compare two Jacobians, one computed analytically and one computed using finite differences.
     Returns a boolean indicating whether the two Jacobians close enough w.r.t. atol and rtol, and a dictionary of accuracy statistics.
@@ -631,7 +560,8 @@ def compare_jacobians(
     def compute_max_abs_error(a, b):
         abs_diff = np.abs(a - b)
         max_abs_error = np.max(abs_diff)
-        max_abs_error_idx = np.unravel_index(np.argmax(abs_diff), abs_diff.shape)
+        max_abs_error_idx = np.unravel_index(
+            np.argmax(abs_diff), abs_diff.shape)
         return max_abs_error, max_abs_error_idx
 
     def compute_max_rel_error(a, b):
@@ -642,7 +572,8 @@ def compare_jacobians(
         rel_diff = np.abs(a - b) / denom
         rel_diff[np.isnan(rel_diff)] = 0
         max_rel_error = np.max(rel_diff)
-        max_rel_error_idx = np.unravel_index(np.argmax(rel_diff), rel_diff.shape)
+        max_rel_error_idx = np.unravel_index(
+            np.argmax(rel_diff), rel_diff.shape)
         return max_rel_error, max_rel_error_idx
 
     def compute_mean_abs_error(a, b):
@@ -677,29 +608,42 @@ def compare_jacobians(
     max_abs_error, max_abs_error_idx = compute_max_abs_error(jacobian_ad, jacobian_fd)
     labels = find_variable_names(max_abs_error_idx)
     print(
-        f"Max absolute error: {colorize_error(max_abs_error, atol)} at {max_abs_error_idx} ({labels[0]} -> {labels[1]}): {jacobian_ad[max_abs_error_idx]} vs {jacobian_fd[max_abs_error_idx]}"
-    )
+        f"Max absolute error: {colorize_error(max_abs_error, atol)} at {max_abs_error_idx} ({labels[0]} -> {labels[1]}): {jacobian_ad[max_abs_error_idx]} vs {jacobian_fd[max_abs_error_idx]}")
     max_rel_error, max_rel_error_idx = compute_max_rel_error(jacobian_ad, jacobian_fd)
     labels = find_variable_names(max_rel_error_idx)
     print(
-        f"Max relative error: {colorize_error(max_rel_error, rtol)} at {max_rel_error_idx} ({labels[0]} -> {labels[1]}): {jacobian_ad[max_rel_error_idx]} vs {jacobian_fd[max_rel_error_idx]}"
-    )
+        f"Max relative error: {colorize_error(max_rel_error, rtol)} at {max_rel_error_idx} ({labels[0]} -> {labels[1]}): {jacobian_ad[max_rel_error_idx]} vs {jacobian_fd[max_rel_error_idx]}")
 
     # compute relative condition number
     # ||J(x)|| / (||f(x)|| / ||x||)
-    rel_condition_number = np.linalg.norm(jacobian_ad, ord="fro")
+    rel_condition_number = np.linalg.norm(jacobian_ad, ord='fro')
     if ad_in is not None and ad_out is not None:
         nfx = np.linalg.norm(ad_out, ord=2)
         if nfx > 0:
-            rel_condition_number = np.linalg.norm(jacobian_ad, ord="fro") * np.linalg.norm(ad_in, ord=2) / nfx
+            rel_condition_number = np.linalg.norm(jacobian_ad, ord='fro') * np.linalg.norm(ad_in, ord=2) / nfx
     print(f"Relative condition number: {rel_condition_number}")
 
     # compute condition numbers
-    cond_stat = {"total": compute_condition_number(jacobian_ad), "individual": {}}
-    max_abs_error_stat = {"total": max_abs_error, "individual": {}}
-    max_rel_error_stat = {"total": max_rel_error, "individual": {}}
-    mean_abs_error_stat = {"total": compute_mean_abs_error(jacobian_ad, jacobian_fd), "individual": {}}
-    mean_rel_error_stat = {"total": compute_mean_rel_error(jacobian_ad, jacobian_fd), "individual": {}}
+    cond_stat = {
+        "total": compute_condition_number(jacobian_ad),
+        "individual": {}
+    }
+    max_abs_error_stat = {
+        "total": max_abs_error,
+        "individual": {}
+    }
+    max_rel_error_stat = {
+        "total": max_rel_error,
+        "individual": {}
+    }
+    mean_abs_error_stat = {
+        "total": compute_mean_abs_error(jacobian_ad, jacobian_fd),
+        "individual": {}
+    }
+    mean_rel_error_stat = {
+        "total": compute_mean_rel_error(jacobian_ad, jacobian_fd),
+        "individual": {}
+    }
 
     if tabulate_errors:
         headers = ["Input", "Output", "Jac Block", "Sensitivity", "Max Rel Error", "Row", "Col", "AD", "FD"]
@@ -710,19 +654,17 @@ def compare_jacobians(
         for output_tick, output_label in zip(output_ticks, output_ticks_labels):
             input_len = min(input_lengths[input_label], max_fd_dims_per_var)
             output_len = min(output_lengths[output_label], max_outputs_per_var)
-            jacobian_ad_sub = jacobian_ad[output_tick : output_tick + output_len, input_tick : input_tick + input_len]
-            jacobian_fd_sub = jacobian_fd[output_tick : output_tick + output_len, input_tick : input_tick + input_len]
+            jacobian_ad_sub = jacobian_ad[output_tick:output_tick + output_len, input_tick:input_tick + input_len]
+            jacobian_fd_sub = jacobian_fd[output_tick:output_tick + output_len, input_tick:input_tick + input_len]
             cond_stat["individual"][(input_label, output_label)] = compute_condition_number(jacobian_ad_sub)
             max_abs = compute_max_abs_error(jacobian_ad_sub, jacobian_fd_sub)
             max_rel = compute_max_rel_error(jacobian_ad_sub, jacobian_fd_sub)
             max_abs_error_stat["individual"][(input_label, output_label)] = max_abs[0]
             max_rel_error_stat["individual"][(input_label, output_label)] = max_rel[0]
-            mean_abs_error_stat["individual"][(input_label, output_label)] = compute_mean_abs_error(
-                jacobian_ad_sub, jacobian_fd_sub
-            )
-            mean_rel_error_stat["individual"][(input_label, output_label)] = compute_mean_rel_error(
-                jacobian_ad_sub, jacobian_fd_sub
-            )
+            mean_abs_error_stat["individual"][(input_label, output_label)
+                                              ] = compute_mean_abs_error(jacobian_ad_sub, jacobian_fd_sub)
+            mean_rel_error_stat["individual"][(input_label, output_label)
+                                              ] = compute_mean_rel_error(jacobian_ad_sub, jacobian_fd_sub)
             actual_idx = (max_rel[1][0] + output_tick, max_rel[1][1] + input_tick)
             if max_rel[0] > 0.0:
                 highlight_xs.append(actual_idx[1])  # swap because row is vertical
@@ -731,19 +673,13 @@ def compare_jacobians(
                 prefix, postfix = "", ""
                 if max_abs[0] > atol or not np.isfinite(max_abs[0]):
                     prefix, postfix = FontColors.FAIL, FontColors.ENDC
-                table.append(
-                    [
-                        prefix + input_label + postfix,
-                        prefix + output_label + postfix,
-                        f"[{output_tick}:{output_tick+output_len}, {input_tick}:{input_tick+input_len}]",
-                        cond_stat["individual"][(input_label, output_label)],
-                        max_rel[0],
-                        actual_idx[0],
-                        actual_idx[1],
-                        f"{prefix}{jacobian_ad[actual_idx]}{postfix}",
-                        f"{prefix}{jacobian_fd[actual_idx]}{postfix}",
-                    ]
-                )
+                table.append([prefix + input_label + postfix, prefix + output_label + postfix,
+                              f"[{output_tick}:{output_tick+output_len}, {input_tick}:{input_tick+input_len}]",
+                              cond_stat["individual"][(input_label, output_label)],
+                              max_rel[0],
+                              actual_idx[0], actual_idx[1],
+                              f"{prefix}{jacobian_ad[actual_idx]}{postfix}",
+                              f"{prefix}{jacobian_fd[actual_idx]}{postfix}"])
 
     stats = {
         "sensitivity": {
@@ -758,47 +694,28 @@ def compare_jacobians(
         "jacobian": {
             "ad": jacobian_ad,
             "fd": jacobian_fd,
-        },
+        }
     }
 
     if tabulate_errors:
         try:
             from tabulate import tabulate
-
             print(tabulate(table, headers="firstrow"))
         except ImportError:
             print("Install tabulate via `pip install tabulate` to print errors")
 
     if not result and plot_jac_on_fail:
         plot_jacobian_comparison(
-            jacobian_ad,
-            jacobian_fd,
+            jacobian_ad, jacobian_fd,
             f"{jacobian_name} Jacobian",
-            input_ticks,
-            input_ticks_labels,
-            output_ticks,
-            output_ticks_labels,
-            highlight_xs,
-            highlight_ys,
-        )
+            input_ticks, input_ticks_labels,
+            output_ticks, output_ticks_labels,
+            highlight_xs, highlight_ys)
 
     return result, stats
 
 
-def check_kernel_jacobian(
-    kernel: Callable,
-    dim: Tuple[int],
-    inputs: list,
-    outputs: list,
-    eps: float = 1e-4,
-    max_fd_dims_per_var: int = 500,
-    max_outputs_per_var: int = 500,
-    atol: float = 0.1,
-    rtol: float = 0.1,
-    plot_jac_on_fail: bool = False,
-    tabulate_errors: bool = True,
-    warn_about_missing_requires_grad: bool = True,
-):
+def check_kernel_jacobian(kernel: Callable, dim: Tuple[int], inputs: list, outputs: list, eps: float = 1e-4, max_fd_dims_per_var: int = 500, max_outputs_per_var: int = 500, atol: float = 0.1, rtol: float = 0.1, plot_jac_on_fail: bool = False, tabulate_errors: bool = True, warn_about_missing_requires_grad: bool = True):
     """
     Checks that the Jacobian of the Warp kernel is correct by comparing it to the
     numerical Jacobian computed using finite differences.
@@ -810,75 +727,40 @@ def check_kernel_jacobian(
             if isinstance(input, wp.codegen.StructInstance):
                 for varname, var in get_struct_vars(input).items():
                     if is_differentiable(var) and not var.requires_grad:
-                        print(
-                            FontColors.WARNING
-                            + f'Warning: input "{kernel.adj.args[input_id].label}.{varname}" is differentiable but requires_grad is False'
-                            + FontColors.ENDC
-                        )
+                        print(FontColors.WARNING +
+                              f"Warning: input \"{kernel.adj.args[input_id].label}.{varname}\" is differentiable but requires_grad is False" + FontColors.ENDC)
             elif is_differentiable(input) and not input.requires_grad:
-                print(
-                    FontColors.WARNING
-                    + f'Warning: input "{kernel.adj.args[input_id].label}" is differentiable but requires_grad is False'
-                    + FontColors.ENDC
-                )
+                print(FontColors.WARNING +
+                      f"Warning: input \"{kernel.adj.args[input_id].label}\" is differentiable but requires_grad is False" + FontColors.ENDC)
         for output_id, output in enumerate(outputs):
             if isinstance(output, wp.codegen.StructInstance):
                 for varname, var in get_struct_vars(output).items():
                     if is_differentiable(var) and not var.requires_grad:
-                        print(
-                            FontColors.WARNING
-                            + f'Warning: output "{kernel.adj.args[output_id + len(inputs)].label}.{varname}" is differentiable but requires_grad is False'
-                            + FontColors.ENDC
-                        )
+                        print(FontColors.WARNING +
+                              f"Warning: output \"{kernel.adj.args[output_id + len(inputs)].label}.{varname}\" is differentiable but requires_grad is False" + FontColors.ENDC)
             elif is_differentiable(output) and not output.requires_grad:
-                print(
-                    FontColors.WARNING
-                    + f'Warning: output "{kernel.adj.args[output_id + len(inputs)].label}" is differentiable but requires_grad is False'
-                    + FontColors.ENDC
-                )
+                print(FontColors.WARNING +
+                      f"Warning: output \"{kernel.adj.args[output_id + len(inputs)].label}\" is differentiable but requires_grad is False" + FontColors.ENDC)
 
     # find input/output names mapping to Jacobian indices for tick labels
     arg_names = [arg.label for arg in kernel.adj.args]
-    input_names = arg_names[: len(inputs)]
-    output_names = arg_names[len(inputs) :]
-    jac_ad, ad_in, ad_out = kernel_jacobian(kernel, dim, inputs, outputs, max_outputs_per_var=max_outputs_per_var)
+    input_names = arg_names[:len(inputs)]
+    output_names = arg_names[len(inputs):]
+    jac_ad, ad_in, ad_out = kernel_jacobian(
+        kernel, dim, inputs, outputs, max_outputs_per_var=max_outputs_per_var)
     if jac_ad is None:
         return True, "Jacobian is empty because there are either no inputs or outputs"
-    jac_fd = kernel_jacobian_fd(kernel, dim, inputs, outputs, eps=eps, max_fd_dims_per_var=max_fd_dims_per_var)
+    jac_fd = kernel_jacobian_fd(
+        kernel, dim, inputs, outputs, eps=eps, max_fd_dims_per_var=max_fd_dims_per_var)
 
-    return compare_jacobians(
-        jac_ad,
-        jac_fd,
-        inputs,
-        outputs,
-        ad_in=ad_in,
-        ad_out=ad_out,
-        jacobian_name=kernel.key,
-        input_names=input_names,
-        output_names=output_names,
-        atol=atol,
-        rtol=rtol,
-        max_outputs_per_var=max_outputs_per_var,
-        max_fd_dims_per_var=max_fd_dims_per_var,
-        tabulate_errors=tabulate_errors,
-        plot_jac_on_fail=plot_jac_on_fail,
-    )
+    return compare_jacobians(jac_ad, jac_fd, inputs, outputs, ad_in=ad_in, ad_out=ad_out,
+                             jacobian_name=kernel.key, input_names=input_names, output_names=output_names,
+                             atol=atol, rtol=rtol,
+                             max_outputs_per_var=max_outputs_per_var, max_fd_dims_per_var=max_fd_dims_per_var,
+                             tabulate_errors=tabulate_errors, plot_jac_on_fail=plot_jac_on_fail)
 
 
-def check_tape_jacobians(
-    tape: wp.Tape,
-    inputs: list,
-    outputs: list,
-    input_names: list,
-    output_names: list,
-    eps: float = 1e-4,
-    max_fd_dims_per_var: int = 500,
-    max_outputs_per_var: int = 500,
-    atol: float = 0.1,
-    rtol: float = 0.1,
-    plot_jac_on_fail: bool = True,
-    tabulate_errors: bool = True,
-):
+def check_tape_jacobians(tape: wp.Tape, inputs: list, outputs: list, input_names: list, output_names: list, eps: float = 1e-4, max_fd_dims_per_var: int = 500, max_outputs_per_var: int = 500, atol: float = 0.1, rtol: float = 0.1, plot_jac_on_fail: bool = True, tabulate_errors: bool = True):
     jac_ad, flat_ins, flat_outs = tape_jacobian(tape, inputs, outputs)
     jac_fd = tape_jacobian_fd(tape, inputs, outputs)
     input_ticks, input_ticks_labels = None, None
@@ -889,31 +771,20 @@ def check_tape_jacobians(
         output_ticks, output_ticks_labels, output_lengths = get_ticks(outputs, output_names)
 
     s = f" Comparison of AD and FD Jacobians for Tape containing {len(tape.launches)} kernel launches "
-    s = s.center(120, "#")
+    s = s.center(120, '#')
     print(FontColors.HEADER + s + FontColors.ENDC)
 
-    result = compare_jacobians(
-        jac_ad,
-        jac_fd,
-        inputs,
-        outputs,
-        ad_in=flat_ins,
-        ad_out=flat_outs,
-        jacobian_name="Tape",
-        input_names=input_names,
-        output_names=output_names,
-        atol=atol,
-        rtol=rtol,
-        max_outputs_per_var=max_outputs_per_var,
-        max_fd_dims_per_var=max_fd_dims_per_var,
-        tabulate_errors=tabulate_errors,
-        plot_jac_on_fail=plot_jac_on_fail,
-    )
+    result = compare_jacobians(jac_ad, jac_fd, inputs, outputs, ad_in=flat_ins, ad_out=flat_outs,
+                               jacobian_name="Tape", input_names=input_names, output_names=output_names,
+                               atol=atol, rtol=rtol,
+                               max_outputs_per_var=max_outputs_per_var, max_fd_dims_per_var=max_fd_dims_per_var,
+                               tabulate_errors=tabulate_errors, plot_jac_on_fail=plot_jac_on_fail)
 
     if not plot_jac_on_fail:
         plot_jacobian_comparison(
-            jac_ad, jac_fd, "Tape Jacobian", input_ticks, input_ticks_labels, output_ticks, output_ticks_labels
-        )
+            jac_ad, jac_fd, "Tape Jacobian",
+            input_ticks, input_ticks_labels,
+            output_ticks, output_ticks_labels)
 
     return result
 
@@ -934,7 +805,7 @@ def make_struct_of_arrays(xs):
     return total
 
 
-def populate_array_names(object, array_names, prefix="", postfix=""):
+def populate_array_names(object, array_names, prefix='', postfix=''):
     if object is None or not hasattr(object, "__dict__"):
         return
     for key, value in object.__dict__.items():
@@ -943,7 +814,7 @@ def populate_array_names(object, array_names, prefix="", postfix=""):
         if isinstance(value, list):
             for i, entry in enumerate(value):
                 if isinstance(entry, wp.array):
-                    array_names[entry] = f"{prefix}{key}[{i}]{postfix}"
+                    array_names[entry] = f'{prefix}{key}[{i}]{postfix}'
                 # else:
                 #     populate_array_names(entry, array_names, prefix=prefix + key, postfix=f'[{i}]')
     return array_names
@@ -992,7 +863,6 @@ def check_backward_pass(
         array_names[arr] = name
 
     import networkx as nx
-
     G = nx.DiGraph()
     node_labels = {}
     kernel_launch_count = defaultdict(int)
@@ -1006,7 +876,7 @@ def check_backward_pass(
     d2_lines = ["direction: down"]
     d2_connections = []
     d2_prefixes = {}
-    chart_indent = "\t"
+    chart_indent = '\t'
 
     input_output_ptr = set()
     for input in track_inputs:
@@ -1027,31 +897,16 @@ def check_backward_pass(
                 else:
                     node_labels[x.ptr] = name
             return
-        nondifferentiable = x.dtype in [
-            wp.int8,
-            wp.uint8,
-            wp.int16,
-            wp.uint16,
-            wp.int32,
-            wp.uint32,
-            wp.int64,
-            wp.uint64,
-        ]
-        G.add_node(
-            x.ptr,
-            label=f'"{name}"',
-            requires_grad=x.requires_grad,
-            is_kernel=False,
-            nondifferentiable=nondifferentiable,
-        )
-        arr_id = f"arr{x.ptr}"
+        nondifferentiable = (x.dtype in [
+                             wp.int8, wp.uint8, wp.int16, wp.uint16, wp.int32, wp.uint32, wp.int64, wp.uint64])
+        G.add_node(x.ptr, label=f'"{name}"', requires_grad=x.requires_grad,
+                   is_kernel=False, nondifferentiable=nondifferentiable)
+        arr_id = f'arr{x.ptr}'
         type_str = str(x.dtype).split("'")[1]
         if render_mermaid is not None:
             class_name = "array" if not x.requires_grad else "array_grad"
             mermaid_lines.append(chart_indent + f'{arr_id}(["`{name}`"]):::{class_name}')
-            tooltip = (
-                f"Array {name} / ptr={x.ptr}, shape={str(x.shape)}, dtype={type_str}, requires_grad={x.requires_grad}"
-            )
+            tooltip = f"Array {name} / ptr={x.ptr}, shape={str(x.shape)}, dtype={type_str}, requires_grad={x.requires_grad}"
             mermaid_lines.append(chart_indent + f'click {arr_id} callback "{tooltip}"')
         if render_d2 is not None:
             d2_lines.append(chart_indent + f'{arr_id}: "{name}"')
@@ -1088,19 +943,18 @@ def check_backward_pass(
                 if active_scope[1] is None:
                     chart_indent = chart_indent[:-1]
                     if render_mermaid is not None:
-                        mermaid_lines.append(chart_indent + "end\n")
+                        mermaid_lines.append(chart_indent + 'end\n')
                     if render_d2 is not None:
-                        d2_lines.append(chart_indent + "}\n")
+                        d2_lines.append(chart_indent + '}\n')
                     active_scope_stack = active_scope_stack[:-1]
                 else:
                     if render_mermaid is not None:
-                        mermaid_lines.append(
-                            "\n" + chart_indent + f'subgraph scope{active_scope_id} ["`**{active_scope[1]}**`"]'
-                        )
+                        mermaid_lines.append('\n' + chart_indent +
+                                             f'subgraph scope{active_scope_id} ["`**{active_scope[1]}**`"]')
                     if render_d2 is not None:
-                        d2_lines.append("\n" + chart_indent + f'scope{active_scope_id}: "{active_scope[1]}" {{')
-                    active_scope_stack.append(f"scope{active_scope_id}")
-                    chart_indent += "\t"
+                        d2_lines.append('\n' + chart_indent + f'scope{active_scope_id}: "{active_scope[1]}" {{')
+                    active_scope_stack.append(f'scope{active_scope_id}')
+                    chart_indent += '\t'
             # check if we are in the next scope now
             while active_scope_id < len(tape.scopes) - 1 and launch_id == tape.scopes[active_scope_id + 1][0]:
                 active_scope_id += 1
@@ -1109,19 +963,18 @@ def check_backward_pass(
                 if active_scope[1] is None:
                     chart_indent = chart_indent[:-1]
                     if render_mermaid is not None:
-                        mermaid_lines.append(chart_indent + "end\n")
+                        mermaid_lines.append(chart_indent + 'end\n')
                     if render_d2 is not None:
-                        d2_lines.append(chart_indent + "}\n")
+                        d2_lines.append(chart_indent + '}\n')
                     active_scope_stack = active_scope_stack[:-1]
                 else:
                     if render_mermaid is not None:
-                        mermaid_lines.append(
-                            "\n" + chart_indent + f'subgraph scope{active_scope_id} ["`**{active_scope[1]}**`"]'
-                        )
+                        mermaid_lines.append('\n' + chart_indent +
+                                             f'subgraph scope{active_scope_id} ["`**{active_scope[1]}**`"]')
                     if render_d2 is not None:
-                        d2_lines.append("\n" + chart_indent + f'scope{active_scope_id}: "{active_scope[1]}" {{')
-                    active_scope_stack.append(f"scope{active_scope_id}")
-                    chart_indent += "\t"
+                        d2_lines.append('\n' + chart_indent + f'scope{active_scope_id}: "{active_scope[1]}" {{')
+                    active_scope_stack.append(f'scope{active_scope_id}')
+                    chart_indent += '\t'
 
         kernel, dim, _max_blocks, inputs, outputs, _device, meta_data = tuple(launch)
         kernel_name = f"{kernel.key}/{kernel_launch_count[kernel.key]}"
@@ -1138,21 +991,12 @@ def check_backward_pass(
             active_scope_kernels[kernel.key] = launch_id
             if render_mermaid is not None:
                 mermaid_lines.append(chart_indent + f'kernel{launch_id}[["`{kernel_name}`"]]:::kernel')
-                tooltip = (
-                    meta_data["stack_trace"][:300]
-                    .replace("\n", " ")
-                    .replace('"', " ")
-                    .replace("'", " ")
-                    .replace("[", "&#91;")
-                    .replace("]", "&#93;")
-                    .replace("`", "&#96;")
-                    .replace(":", "&#58;")
-                    .replace("\\", "&#92;")
-                    .replace("/", "&#47;")
-                    .replace("(", "&#40;")
-                    .replace(")", "&#41;")
-                    .replace(",", "")
-                )
+                tooltip = meta_data["stack_trace"][:300] \
+                    .replace('\n', ' ').replace('"', " ").replace("'", " ") \
+                    .replace('[', '&#91;').replace(']', '&#93;').replace('`', '&#96;') \
+                    .replace(':', '&#58;').replace('\\', '&#92;').replace('/', '&#47;') \
+                    .replace('(', '&#40;').replace(')', '&#41;') \
+                    .replace(',', '')
                 mermaid_lines.append(chart_indent + f'click kernel{launch_id} callback "{tooltip}"')
             if render_d2 is not None:
                 d2_lines.append(chart_indent + f'kernel{launch_id}: "{kernel_name}"')
@@ -1186,23 +1030,23 @@ def check_backward_pass(
                         output_arrays.append(var.ptr)
                         computed_nodes.add(var.ptr)
         if simplify_graph:
-            k_id = f"kernel{active_scope_kernels[kernel.key]}"
+            k_id = f'kernel{active_scope_kernels[kernel.key]}'
         else:
-            k_id = f"kernel{launch_id}"
+            k_id = f'kernel{launch_id}'
         for input_x in input_arrays:
             G.add_edge(input_x, kernel_name)
             if render_mermaid is not None:
-                mermaid_lines.append(chart_indent + f"arr{input_x} --> {k_id}")
+                mermaid_lines.append(chart_indent + f'arr{input_x} --> {k_id}')
             if render_d2 is not None:
-                d2_lines.append(chart_indent + f"arr{input_x} -> {k_id}")
+                d2_lines.append(chart_indent + f'arr{input_x} -> {k_id}')
         for output_x in output_arrays:
             # track how many kernels modify each array
             manipulated_nodes[output_x].append(kernel.key)
             G.add_edge(kernel_name, output_x)
             if render_mermaid is not None:
-                mermaid_lines.append(chart_indent + f"{k_id} --> arr{output_x}")
+                mermaid_lines.append(chart_indent + f'{k_id} --> arr{output_x}')
             if render_d2 is not None:
-                d2_lines.append(chart_indent + f"{k_id} -> arr{output_x}")
+                d2_lines.append(chart_indent + f'{k_id} -> arr{output_x}')
 
         kernel_launch_count[kernel.key] += 1
 
@@ -1219,44 +1063,31 @@ def check_backward_pass(
                     for path in paths:
                         # XXX all arrays up until the last one have to be differentiable
                         if not all([G.nodes[i]["requires_grad"] or G.nodes[i]["nondifferentiable"] for i in path[:-1]]):
+                            print(FontColors.WARNING +
+                                  f"Warning: nondifferentiable node on path from {node_labels[x.ptr]} to {node_labels[y.ptr]} via [{' -> '.join([node_labels[p] for p in path])}]."
+                                  + FontColors.ENDC)
                             print(
-                                FontColors.WARNING
-                                + f"Warning: nondifferentiable node on path from {node_labels[x.ptr]} to {node_labels[y.ptr]} via [{' -> '.join([node_labels[p] for p in path])}]."
-                                + FontColors.ENDC
-                            )
-                            print(
-                                f"Nondifferentiable array(s): [{', '.join([node_labels[p] for p in path if not G.nodes[p]['requires_grad']])}]"
-                            )
+                                f"Nondifferentiable array(s): [{', '.join([node_labels[p] for p in path if not G.nodes[p]['requires_grad']])}]")
                             all_differentiable = False
                     if all_differentiable:
-                        many_overwrites = set(node for node in path if len(manipulated_nodes[node]) > 1)
+                        many_overwrites = set(node for node in path if len(
+                            manipulated_nodes[node]) > 1)
                         if len(many_overwrites) > 0:
-                            print(
-                                FontColors.WARNING
-                                + f"Warning: multiple kernels manipulate array(s) on path from {node_labels[x.ptr]} to {node_labels[y.ptr]}."
-                                + FontColors.ENDC
-                            )
+                            print(FontColors.WARNING +
+                                  f"Warning: multiple kernels manipulate array(s) on path from {node_labels[x.ptr]} to {node_labels[y.ptr]}." + FontColors.ENDC)
                             for node in many_overwrites:
                                 print(
-                                    f"\tArray {node_labels[node]} is manipulated by kernels [{', '.join([kernel for kernel in manipulated_nodes[node]])}]."
-                                )
+                                    f"\tArray {node_labels[node]} is manipulated by kernels [{', '.join([kernel for kernel in manipulated_nodes[node]])}].")
                         else:
-                            print(
-                                FontColors.OKGREEN
-                                + f"Path from {node_labels[x.ptr]} to {node_labels[y.ptr]} is differentiable."
-                                + FontColors.ENDC
-                            )
+                            print(FontColors.OKGREEN +
+                                  f"Path from {node_labels[x.ptr]} to {node_labels[y.ptr]} is differentiable." + FontColors.ENDC)
                 except nx.NetworkXNoPath:
-                    print(
-                        FontColors.FAIL
-                        + f"Error: there is no computation path from {node_labels[x.ptr]} to {node_labels[y.ptr]}"
-                        + FontColors.ENDC
-                    )
+                    print(FontColors.FAIL +
+                          f"Error: there is no computation path from {node_labels[x.ptr]} to {node_labels[y.ptr]}" + FontColors.ENDC)
 
     def shorten_label(label):
         import re
-
-        return "\n".join(re.split(r"__|_|\.", label))
+        return "\n".join(re.split(r'__|_|\.', label))
 
     shortened_node_labels = {key: shorten_label(label) for key, label in node_labels.items()}
 
@@ -1264,11 +1095,11 @@ def check_backward_pass(
         # generate mermaid flowchart as HTML
         chart = "graph LR\n"
         mermaid_lines.append("")
-        mermaid_lines.append("\tclassDef array fill:#CCCCCC")
-        mermaid_lines.append("\tclassDef array_grad fill:#80E6FF")
-        mermaid_lines.append("\tclassDef kernel fill:#FFB380")
+        mermaid_lines.append('\tclassDef array fill:#CCCCCC')
+        mermaid_lines.append('\tclassDef array_grad fill:#80E6FF')
+        mermaid_lines.append('\tclassDef kernel fill:#FFB380')
         chart += "\n".join(mermaid_lines)
-        html = f"""<html>
+        html = f'''<html>
 <head>
 <style>
     .mermaidTooltip {{
@@ -1295,13 +1126,12 @@ def check_backward_pass(
 </body>
 
 </html>
-"""
+'''
         with open(render_mermaid, "w") as f:
             f.write(html)
 
             # open HTML in browser
             import webbrowser
-
             webbrowser.open(render_mermaid)
 
     if render_d2 is not None:
@@ -1317,16 +1147,16 @@ def check_backward_pass(
         # graph.set_ranksep(2)
         # print(graph.get_nodes())
         for n in graph.get_nodes():
-            n.set("label", shorten_label(n.get_attributes()["label"]))
+            n.set("label", shorten_label(n.get_attributes()['label']))
             n.set("color", "black")
             n.set("style", "filled")
             n.set("fontname", "Arial")
-            if n.get_attributes()["is_kernel"] == "True":
+            if n.get_attributes()['is_kernel'] == "True":
                 n.set("shape", "rectangle")
                 n.set("fillcolor", "yellow")
             else:
                 n.set("shape", "ellipse")
-                if n.get_attributes()["requires_grad"] == "True":
+                if n.get_attributes()['requires_grad'] == "True":
                     n.set("fillcolor", "#00B7FF4E")
                 else:
                     n.set("fillcolor", "#A7A7A74E")
@@ -1340,15 +1170,11 @@ def check_backward_pass(
         import matplotlib as mpl
         import matplotlib.pyplot as plt
         import xml.etree.ElementTree as ET
-
         # try:
         # pos = nx.nx_agraph.graphviz_layout(
         #     G, prog='dot', args='-Grankdir="LR"')
         pos = nx.nx_agraph.graphviz_layout(
-            G,
-            prog="dot",
-            args='-Grankdir="TB" -Goverlap_scaling="10" -Gsize="10" -Gpad="0.0" -Gnodesep="0.5" -Gsep="10" -Granksep="3" -Gmindist="1.0"',
-        )
+            G, prog='dot', args='-Grankdir="TB" -Goverlap_scaling="10" -Gsize="10" -Gpad="0.0" -Gnodesep="0.5" -Gsep="10" -Granksep="3" -Gmindist="1.0"')
         # pos = nx.nx_agraph.graphviz_layout(
         #     G, prog='neato', args='-Grankdir="TB" -Goverlap_scaling="10" -Gsize="10" -Gpad="0.0" -Gnodesep="0.5" -Gsep="10" -Granksep="3" -Gmindist="1.0"')
         # pos = nx.nx_pydot.pydot_layout(G)
@@ -1382,29 +1208,26 @@ def check_backward_pass(
             mpl.patches.Patch(color="lightgray", label="no grad"),
             mpl.patches.Patch(color="yellow", label="kernel"),
         ]
-        legend = plt.legend(handles=handles, loc="upper right", prop={"size": 2})
+        legend = plt.legend(handles=handles, loc="upper right", prop={'size': 2})
         legend.get_frame().set_linewidth(0.2)
 
         node_size = 150
         font_size = 5  # 0.01
-        default_draw_args = dict(alpha=0.9, edgecolors="black", linewidths=0.1, node_size=node_size)
+        default_draw_args = dict(
+            alpha=0.9, edgecolors="black", linewidths=0.1, node_size=node_size)
         ax = plt.gca()
         # print(pos)
         import matplotlib.patches as patches
         from io import BytesIO
-
         for key, p in pos.items():
             if key not in kernel_nodes:
                 continue
             w, h = node_size, node_size
             p = patches.Rectangle(
-                (p[0] - w / 2, p[1] - h / 2),
-                w,
-                h,
-                fill=True,
-                clip_on=False,
-                facecolor="yellow",
-                edgecolor="black",
+                (p[0] - w / 2, p[1] - h / 2), w, h,
+                fill=True, clip_on=False,
+                facecolor='yellow',
+                edgecolor='black',
                 linewidth=0.1,
             )
             p.set_gid(key)
@@ -1416,33 +1239,27 @@ def check_backward_pass(
         #     print(f"Kernel {kernel_name} has gid {artist.get_gid()}")
         # then draw arrays
         nx.draw_networkx_nodes(G, pos, nodelist=array_nodes, node_color=node_colors, **default_draw_args)
-        nx.draw_networkx_labels(
-            G,
-            pos,
-            labels=shortened_node_labels,
-            font_size=font_size,
-            bbox=dict(facecolor="white", alpha=0.8, edgecolor="none", pad=0.0),
-        )
+        nx.draw_networkx_labels(G, pos, labels=shortened_node_labels, font_size=font_size, bbox=dict(
+            facecolor='white', alpha=0.8, edgecolor='none', pad=0.0))
 
-        nx.draw_networkx_edges(
-            G, pos, edgelist=G.edges(), arrows=True, edge_color="black", node_size=node_size
-        )  # , width=0.1, arrowsize=2.0)
+        nx.draw_networkx_edges(G, pos, edgelist=G.edges(), arrows=True, edge_color='black',
+                               node_size=node_size)  # , width=0.1, arrowsize=2.0)
 
-        plt.axis("off")
+        plt.axis('off')
         if render_graphviz_plot_png is not None:
             plt.savefig(render_graphviz_plot_png, dpi=1100, bbox_inches="tight", pad_inches=0.0)
 
         if render_graphviz_plot_svg is not None:
             f = BytesIO()
             plt.savefig(f, format="svg", dpi=1200)
-            plt.savefig("tape_graph.svg", format="svg", dpi=1200)
+            plt.savefig("tape_graph.svg", format='svg', dpi=1200)
 
             tree, xmlid = ET.XMLID(f.getvalue())
 
             for key, kernel_data in kernel_instances.items():
                 kernel_rect = tree.find(f'.//*[@id="{key}"]')
-                tooltip = ET.Element("ns0:title")
-                tooltip.text = kernel_data["meta_data"]["stack_trace"]
+                tooltip = ET.Element('ns0:title')
+                tooltip.text = kernel_data['meta_data']['stack_trace']
                 kernel_rect.append(tooltip)
 
             ET.ElementTree(tree).write("tape_graph.svg")
@@ -1450,15 +1267,11 @@ def check_backward_pass(
         plt.show()
 
     if check_input_output_jacobian and len(track_inputs) > 0 and len(track_outputs) > 0:
-        assert len(track_inputs) == len(
-            track_input_names
-        ), "track_inputs and track_input_names must have the same length"
+        assert len(track_inputs) == len(track_input_names), "track_inputs and track_input_names must have the same length"
         assert len(track_outputs) == len(
-            track_output_names
-        ), "track_outputs and track_output_names must have the same length"
-        check_tape_jacobians(
-            tape, track_inputs, track_outputs, track_input_names, track_output_names, plot_jac_on_fail=plot_jac_on_fail
-        )
+            track_output_names), "track_outputs and track_output_names must have the same length"
+        check_tape_jacobians(tape, track_inputs, track_outputs, track_input_names,
+                             track_output_names, plot_jac_on_fail=plot_jac_on_fail)
 
     stats = {}
     kernel_names = set()
@@ -1468,13 +1281,12 @@ def check_backward_pass(
         if len(whitelist_kernels) > 0 and kernel.key not in whitelist_kernels:
             continue
         if check_kernel_jacobians and kernel.key not in blacklist_kernels:
-            msg = f'Checking Jacobian of kernel "{kernel.key}" (launch {kernel_launch_count[kernel.key]})...'
+            msg = f"Checking Jacobian of kernel \"{kernel.key}\" (launch {kernel_launch_count[kernel.key]})..."
             print("".join(["#"] * len(msg)))
             print(FontColors.OKCYAN + msg + FontColors.ENDC)
             try:
                 result, kernel_stats = check_kernel_jacobian(
-                    kernel, dim, inputs, outputs, plot_jac_on_fail=plot_jac_on_fail, eps=jacobian_fd_eps
-                )
+                    kernel, dim, inputs, outputs, plot_jac_on_fail=plot_jac_on_fail, eps=jacobian_fd_eps)
                 print(result)
                 if isinstance(kernel_stats, str):
                     print(kernel_stats)
@@ -1493,15 +1305,12 @@ def check_backward_pass(
         # plot evolution of Jacobian statistics
         if plotting == "matplotlib":
             import itertools
-
             any_stat = next(iter(stats.values()))
             all_stats_names = itertools.chain.from_iterable(
-                [any_stat[cat].keys() for cat in ["sensitivity", "accuracy"]]
-            )
+                [any_stat[cat].keys() for cat in ["sensitivity", "accuracy"]])
             all_stats_names = [key for key in all_stats_names if key not in ("total", "individual")]
             for kernel_name, stat in stats.items():
                 import matplotlib.pyplot as plt
-
                 num = len(all_stats_names)
                 ncols = int(np.ceil(np.sqrt(num)))
                 nrows = int(np.ceil(num / float(ncols)))
@@ -1518,9 +1327,8 @@ def check_backward_pass(
                     if dim >= num:
                         ax.axis("off")
                         continue
-                kernel_stats = list(
-                    itertools.chain.from_iterable([stat[cat].items() for cat in ["sensitivity", "accuracy"]])
-                )
+                kernel_stats = list(itertools.chain.from_iterable(
+                    [stat[cat].items() for cat in ["sensitivity", "accuracy"]]))
                 for dim, (stat_name, cond) in enumerate(kernel_stats):
                     ax = axes[dim // ncols, dim % ncols]
                     ax.set_title(f"{stat_name}")
@@ -1534,9 +1342,10 @@ def check_backward_pass(
                     if data_has_positive:
                         ax.set_yscale("log")
                     if dim == len(kernel_stats) - 1:
-                        ax.legend(loc="lower left", bbox_to_anchor=(1.05, 0.0), fancybox=True, shadow=True, ncol=2)
+                        ax.legend(loc='lower left', bbox_to_anchor=(1.05, 0.0), fancybox=True, shadow=True, ncol=2)
                     ax.grid()
-                plt.subplots_adjust(hspace=0.2, wspace=0.2, top=0.9, left=0.1, right=0.9, bottom=0.1)
+                plt.subplots_adjust(hspace=0.2, wspace=0.2,
+                                    top=0.9, left=0.1, right=0.9, bottom=0.1)
                 plt.show()
         elif plotting == "plotly":
             import dash
@@ -1546,51 +1355,36 @@ def check_backward_pass(
             import plotly.graph_objects as go
             import plotly.express as px
 
-            external_stylesheets = ["https://codepen.io/chriddyp/pen/bWLwgP.css"]
+            external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
             app = Dash(__name__, external_stylesheets=external_stylesheets)
 
             kernel_names = sorted(list(kernel_names))
 
             colors = px.colors.qualitative.Dark24
 
-            app.layout = html.Div(
-                [
-                    dcc.Store(id="appstate", data={"kernel": kernel_names[0], "mode": "jacobian"}),
-                    html.Div(
-                        [
-                            dcc.Dropdown(
-                                options=[{"label": name, "value": name} for name in kernel_names],
-                                value=kernel_names[0],
-                                placeholder="Select a kernel",
-                                id="kernel-dropdown",
-                            ),
-                        ],
-                        style={"width": "49%", "display": "inline-block"},
+            app.layout = html.Div([
+                dcc.Store(id='appstate', data={
+                    "kernel": kernel_names[0], "mode": "jacobian"}),
+                html.Div([
+                    dcc.Dropdown(
+                        options=[{"label": name, "value": name}
+                                 for name in kernel_names],
+                        value=kernel_names[0],
+                        placeholder="Select a kernel",
+                        id="kernel-dropdown",
                     ),
-                    html.Div(
-                        [
-                            dcc.Tabs(
-                                id="mode-selector",
-                                value="jacobian",
-                                children=[
-                                    dcc.Tab(label="Jacobian", value="jacobian"),
-                                    dcc.Tab(label="Sensitivity", value="sensitivity"),
-                                    dcc.Tab(label="Accuracy", value="accuracy"),
-                                ],
-                            )
-                        ],
-                        style={"width": "49%", "display": "inline-block"},
-                    ),
-                    html.Div(id="view-content"),
-                ]
-            )
+                ], style={'width': '49%', 'display': 'inline-block'}),
+                html.Div([
+                    dcc.Tabs(id="mode-selector", value="jacobian", children=[
+                        dcc.Tab(label="Jacobian", value="jacobian"),
+                        dcc.Tab(label="Sensitivity", value="sensitivity"),
+                        dcc.Tab(label="Accuracy", value="accuracy"),
+                    ])
+                ], style={'width': '49%', 'display': 'inline-block'}),
+                html.Div(id='view-content')
+            ])
 
-            @app.callback(
-                Output("appstate", "data"),
-                Input("kernel-dropdown", "value"),
-                Input("mode-selector", "value"),
-                State("appstate", "data"),
-            )
+            @app.callback(Output('appstate', 'data'), Input('kernel-dropdown', 'value'), Input('mode-selector', 'value'), State('appstate', 'data'))
             def update_kernel(kernel, mode, data):
                 if kernel is not None:
                     data["kernel"] = kernel
@@ -1598,7 +1392,7 @@ def check_backward_pass(
                     data["mode"] = mode
                 return data
 
-            @app.callback(Output("view-content", "children"), Input("appstate", "data"), State("appstate", "data"))
+            @app.callback(Output('view-content', 'children'), Input('appstate', 'data'), State('appstate', 'data'))
             def update_view(arg, data):
                 print("selection:", data)
                 selected_kernel = data["kernel"]
@@ -1606,66 +1400,53 @@ def check_backward_pass(
                 selected_stats = stats[selected_kernel][selected_mode]
                 if selected_mode == "jacobian":
                     fig = make_subplots(
-                        rows=1,
-                        cols=3,
-                        subplot_titles=["AD Jacobian", "FD Jacobian", "Difference"],
+                        rows=1, cols=3,
+                        subplot_titles=["AD Jacobian",
+                                        "FD Jacobian", "Difference"],
                     )
-                    fig.add_trace(px.imshow(selected_stats["ad"][0]).data[0], row=1, col=1)
-                    fig.add_trace(px.imshow(selected_stats["fd"][0]).data[0], row=1, col=2)
-                    fig.add_trace(px.imshow(selected_stats["ad"][0] - selected_stats["fd"][0]).data[0], row=1, col=3)
-                    fig.update_layout(coloraxis=dict(colorscale="RdBu_r"))
+                    fig.add_trace(
+                        px.imshow(selected_stats["ad"][0]).data[0], row=1, col=1)
+                    fig.add_trace(
+                        px.imshow(selected_stats["fd"][0]).data[0], row=1, col=2)
+                    fig.add_trace(px.imshow(
+                        selected_stats["ad"][0] - selected_stats["fd"][0]).data[0], row=1, col=3)
+                    fig.update_layout(coloraxis=dict(colorscale='RdBu_r'))
                 else:
                     selected_stat_items = selected_stats.items()
                     num = len(selected_stat_items)
                     ncols = int(np.ceil(np.sqrt(num)))
                     nrows = int(np.ceil(num / float(ncols)))
                     fig = make_subplots(
-                        rows=nrows,
-                        cols=ncols,
+                        rows=nrows, cols=ncols,
                         subplot_titles=list(selected_stats.keys()),
                         shared_xaxes=True,
                         vertical_spacing=0.07,
-                        horizontal_spacing=0.05,
-                    )
+                        horizontal_spacing=0.05)
 
                     previous_labels = set()  # avoid duplicate legend entries
                     for dim, (stat_name, stat) in enumerate(selected_stat_items):
                         row = dim // ncols + 1
                         col = dim % ncols + 1
-                        fig.add_trace(
-                            go.Scatter(
-                                y=stat["total"],
-                                name="total",
-                                line=dict(color="#000000"),
-                                legendgroup="group0",
-                                showlegend=(dim == 0),
-                            ),
-                            row=row,
-                            col=col,
-                        )
+                        fig.add_trace(go.Scatter(
+                            y=stat["total"], name="total", line=dict(color="#000000"), legendgroup='group0', showlegend=(dim == 0)), row=row, col=col)
                         fig.update_yaxes(type="log", row=row, col=col)
                         for i, (key, value) in enumerate(stat["individual"].items()):
                             label = "{0} → {1}".format(key[0], key[1])
-                            fig.add_trace(
-                                go.Scatter(
-                                    x=np.arange(len(value)),
-                                    y=value,
-                                    name=label,
-                                    legendgroup=f"group{label}",
-                                    showlegend=(label not in previous_labels),
-                                    hoverlabel=dict(namelength=-1),
-                                    line=dict(color=colors[i % len(colors)]),
-                                ),
-                                row=row,
-                                col=col,
-                            )
+                            fig.add_trace(go.Scatter(
+                                x=np.arange(len(value)),
+                                y=value,
+                                name=label,
+                                legendgroup=f'group{label}',
+                                showlegend=(label not in previous_labels),
+                                hoverlabel=dict(namelength=-1),
+                                line=dict(color=colors[i % len(colors)])), row=row, col=col)
                             previous_labels.add(label)
 
                 fig.update_layout(
                     margin=dict(l=20, r=20, t=30, b=20),
                 )
 
-                return dcc.Graph(figure=fig, style={"width": "100vw", "height": "90vh"})
+                return dcc.Graph(figure=fig, style={'width': '100vw', 'height': '90vh'})
 
             # @app.callback(Output('view-content', 'children'), Input('tabs', 'value'))
             # def stat_selection(tab):
@@ -1705,13 +1486,10 @@ def check_backward_pass(
             app.run()
 
 
-def check_tape_safety(
-    function: Callable, inputs: list, outputs: list = None, tol: float = 1e-5, check_nans: bool = False
-):
+def check_tape_safety(function: Callable, inputs: list, outputs: list = None, tol: float = 1e-5, check_nans: bool = False):
     """
     Check if all operations in the given function are recordable by a Warp tape so that the results from `tape.forward()` match the function outputs.
     """
-
     def flatten_outputs(outputs):
         if isinstance(outputs, (list, tuple)):
             return flatten_arrays(outputs)
@@ -1740,26 +1518,26 @@ def check_tape_safety(
         return True
 
 
-def plot_state_gradients(
-    states: list, figure_name: str = "state_grads.html", blacklist_vars=set(["body_q_temp", "body_qd_temp"])
-):
+def plot_state_gradients(states: list, figure_name: str = "state_grads.html", blacklist_vars=set(["body_q_temp", "body_qd_temp"]), title: str = None):
     from plotly.subplots import make_subplots
     import plotly.graph_objects as go
 
     colors = [
-        "#1f77b4",  # muted blue
-        "#ff7f0e",  # safety orange
-        "#2ca02c",  # cooked asparagus green
-        "#d62728",  # brick red
-        "#9467bd",  # muted purple
-        "#8c564b",  # chestnut brown
-        "#e377c2",  # raspberry yogurt pink
-        "#7f7f7f",  # middle gray
-        "#bcbd22",  # curry yellow-green
-        "#17becf",  # blue-teal
+        '#1f77b4',  # muted blue
+        '#ff7f0e',  # safety orange
+        '#2ca02c',  # cooked asparagus green
+        '#d62728',  # brick red
+        '#9467bd',  # muted purple
+        '#8c564b',  # chestnut brown
+        '#e377c2',  # raspberry yogurt pink
+        '#7f7f7f',  # middle gray
+        '#bcbd22',  # curry yellow-green
+        '#17becf'   # blue-teal
     ]
 
     fig = make_subplots(cols=2, subplot_titles=["Value Absolute Maximum", "Gradient Absolute Maximum"])
+    if title is not None:
+        fig.update_layout(title_text=title, title_x=0.5)
     absmax = {}
     for i, state in enumerate(states):
         for key, value in state.__dict__.items():
@@ -1784,120 +1562,25 @@ def plot_state_gradients(
         series = np.array(series)
         val_series, grad_series = series[:, 0], series[:, 1]
         color = colors[i % len(colors)]
-        fig.add_trace(
-            go.Scatter(x=np.arange(len(val_series)), y=val_series, name=key, legendgroup=key, line=dict(color=color)),
+        fig.add_trace(go.Scatter(
+            x=np.arange(len(val_series)),
+            y=val_series,
+            name=key,
+            legendgroup=key,
+            line=dict(color=color),),
             row=1,
-            col=1,
-        )
-        fig.add_trace(
-            go.Scatter(
-                x=np.arange(len(grad_series)),
-                y=grad_series,
-                name=key,
-                legendgroup=key,
-                line=dict(color=color),
-                showlegend=False,
-            ),
+            col=1)
+        fig.add_trace(go.Scatter(
+            x=np.arange(len(grad_series)),
+            y=grad_series,
+            name=key,
+            legendgroup=key,
+            line=dict(color=color),
+            showlegend=False),
             row=1,
-            col=2,
-        )
+            col=2)
     fig.update_yaxes(type="log")
+    fig['layout']['xaxis']['title'] = "State"
+    fig['layout']['xaxis2']['title'] = "State"
 
     fig.write_html(figure_name, auto_open=True)
-
-
-def tape_check(tol: float = 1e-5, check_nans: bool = False):
-    """
-    Check if all operations in the given function are recordable by a Warp tape so that the results from `tape.forward()` match the function outputs.
-    Usage:
-            @tape_check(tol=1e-5, check_nans=False)
-            def some_function(a, b):
-                # your code
-                return result
-    """
-
-    def decorator(function: Callable):
-        @wraps(function)
-        def wrapper(*inputs, **kwargs):
-            def flatten_outputs(outputs):
-                if isinstance(outputs, (list, tuple)):
-                    return flatten_arrays(outputs)
-                else:
-                    return outputs.numpy().flatten().copy()
-
-            tape = wp.Tape()
-            with tape:
-                fun_outputs = function(*inputs, **kwargs)
-            outputs = kwargs.get("outputs", fun_outputs)
-            ref_output = flatten_outputs(outputs)
-            # reset output arrays to a random value to ensure the tape will actually update them
-            # randomize_vars(outputs)
-            zero_vars(outputs)
-            tape.forward(check_nans=check_nans)
-            tape_output = flatten_outputs(outputs)
-            print("Output from direct fn call:", ref_output)
-            print("Output from tape.forward():", tape_output)
-            delta = ref_output - tape_output
-            err = np.max(np.abs(delta))
-            if err > tol or np.isnan(err):
-                print(FontColors.FAIL + "Tape output does not match function output!" + FontColors.ENDC)
-                return False
-            else:
-                print(FontColors.OKGREEN + "Tape output matches function output." + FontColors.ENDC)
-                return True
-
-        return wrapper
-
-    return decorator
-
-
-def jacobian_check(
-    input_names,
-    output_names,
-    eps: float = 1e-4,
-    jacobian_name: str = "",
-    max_fd_dims_per_var: int = 500,
-    max_outputs_per_var: int = 500,
-    atol: float = 0.1,
-    rtol: float = 0.1,
-    plot_jac_on_fail: bool = False,
-    tabulate_errors: bool = True,
-):
-    """
-    Decorator to check that the autodiff Jacobian of the function is correct by comparing it to the
-    numerical Jacobian computed using finite differences.
-    Usage:
-        ```{python}
-            @jacobian_check(input_names=["input1", "input2"], output_names=["output"])
-            def some_function(input1, input2):
-                # your code
-                return result
-        ```
-    """
-
-    def decorator(func: Callable):
-        @wraps(func)
-        def wrapper(*inputs, **kwargs):
-            jac_ad, outputs, ad_in, ad_out = function_jacobian(func, inputs, max_outputs_per_var=max_outputs_per_var)
-            jac_fd = function_jacobian_fd(func, inputs, eps=eps, max_fd_dims_per_var=max_fd_dims_per_var)
-            return compare_jacobians(
-                jac_ad,
-                jac_fd,
-                inputs,
-                outputs,
-                input_names,
-                output_names,
-                jacobian_name=jacobian_name,
-                max_fd_dims_per_var=max_fd_dims_per_var,
-                max_outputs_per_var=max_outputs_per_var,
-                ad_in=ad_in,
-                ad_out=ad_out,
-                atol=atol,
-                rtol=rtol,
-                plot_jac_on_fail=plot_jac_on_fail,
-                tabulate_errors=tabulate_errors,
-            )
-
-        return wrapper
-
-    return decorator

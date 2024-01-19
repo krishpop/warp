@@ -13,11 +13,18 @@ from .utils import tab10_color_map
 
 from collections import defaultdict
 from typing import List, Tuple, Union, Optional
+from enum import Enum
 
 import numpy as np
 import ctypes
 
 Mat44 = Union[List[float], List[List[float]], np.ndarray]
+
+
+class RenderMode(Enum):
+    RGB = 0
+    DEPTH = 1
+
 
 wp.set_module_options({"enable_backward": False})
 
@@ -222,6 +229,42 @@ void main() {
 }
 """
 
+frame_depth_fragment_shader = """
+#version 330 core
+in vec2 TexCoord;
+
+out vec4 FragColor;
+
+uniform sampler2D textureSampler;
+
+vec3 bourkeColorMap(float v) {
+    vec3 c = vec3(1.0, 1.0, 1.0);
+
+    v = clamp(v, 0.0, 1.0); // Ensures v is between 0 and 1
+
+    if (v < 0.25) {
+        c.r = 0.0;
+        c.g = 4.0 * v;
+    } else if (v < 0.5) {
+        c.r = 0.0;
+        c.b = 1.0 + 4.0 * (0.25 - v);
+    } else if (v < 0.75) {
+        c.r = 4.0 * (v - 0.5);
+        c.b = 0.0;
+    } else {
+        c.g = 1.0 + 4.0 * (0.75 - v);
+        c.b = 0.0;
+    }
+
+    return c;
+}
+
+void main() {
+    float depth = texture(textureSampler, TexCoord).r;
+    FragColor = vec4(bourkeColorMap(sqrt(1.0 - depth)), 1.0);
+}
+"""
+
 
 @wp.kernel
 def update_vbo_transforms(
@@ -411,7 +454,7 @@ def assemble_gfx_vertices(
 
 
 @wp.kernel
-def copy_frame(
+def copy_rgb_frame(
     input_img: wp.array(dtype=wp.uint8),
     width: int,
     height: int,
@@ -432,7 +475,26 @@ def copy_frame(
 
 
 @wp.kernel
-def copy_frame_tiles(
+def copy_depth_frame(
+    input_img: wp.array(dtype=wp.float32),
+    width: int,
+    height: int,
+    near: float,
+    far: float,
+    # outputs
+    output_img: wp.array(dtype=wp.float32, ndim=3),
+):
+    w, v = wp.tid()
+    pixel = v * width + w
+    # flip vertically (OpenGL coordinates start at bottom)
+    v = height - v - 1
+    d = 2.0 * input_img[pixel] - 1.0
+    d = 2.0 * near * far / ((far - near) * d - near - far)
+    output_img[v, w, 0] = -d
+
+
+@wp.kernel
+def copy_rgb_frame_tiles(
     input_img: wp.array(dtype=wp.uint8),
     positions: wp.array(dtype=int, ndim=2),
     screen_width: int,
@@ -463,7 +525,34 @@ def copy_frame_tiles(
 
 
 @wp.kernel
-def copy_frame_tile(
+def copy_depth_frame_tiles(
+    input_img: wp.array(dtype=wp.float32),
+    positions: wp.array(dtype=int, ndim=2),
+    screen_width: int,
+    screen_height: int,
+    tile_height: int,
+    near: float,
+    far: float,
+    # outputs
+    output_img: wp.array(dtype=wp.float32, ndim=4),
+):
+    tile, x, y = wp.tid()
+    p = positions[tile]
+    qx = x + p[0]
+    qy = y + p[1]
+    pixel = qy * screen_width + qx
+    # flip vertically (OpenGL coordinates start at bottom)
+    y = tile_height - y - 1
+    if qx >= screen_width or qy >= screen_height:
+        output_img[tile, y, x, 0] = far
+        return  # prevent out-of-bounds access
+    d = 2.0 * input_img[pixel] - 1.0
+    d = 2.0 * near * far / ((far - near) * d - near - far)
+    output_img[tile, y, x, 0] = -d
+
+
+@wp.kernel
+def copy_rgb_frame_tile(
     input_img: wp.array(dtype=wp.uint8),
     offset_x: int,
     offset_y: int,
@@ -768,8 +857,8 @@ class OpenGLRenderer:
         up_axis="Y",
         screen_width=1024,
         screen_height=768,
-        near_plane=0.01,
-        far_plane=1000.0,
+        near_plane=1.0,
+        far_plane=100.0,
         camera_fov=45.0,
         camera_pos=(0.0, 2.0, 10.0),
         camera_front=(0.0, 0.0, -1.0),
@@ -780,6 +869,7 @@ class OpenGLRenderer:
         draw_axis=True,
         show_info=True,
         render_wireframe=False,
+        render_depth=False,
         axis_scale=1.0,
         vsync=False,
         headless=False,
@@ -807,6 +897,7 @@ class OpenGLRenderer:
         self.draw_axis = draw_axis
         self.show_info = show_info
         self.render_wireframe = render_wireframe
+        self.render_depth = render_depth
         self.enable_backface_culling = enable_backface_culling
 
         self._device = wp.get_cuda_device()
@@ -892,6 +983,7 @@ class OpenGLRenderer:
         self._tile_projection_matrices = None
 
         self._frame_texture = None
+        self._frame_depth_texture = None
         self._frame_fbo = None
         self._frame_pbo = None
 
@@ -907,6 +999,8 @@ class OpenGLRenderer:
 
         gl.glClearColor(*self.background_color, 1)
         gl.glEnable(gl.GL_DEPTH_TEST)
+        gl.glDepthMask(True)
+        gl.glDepthRange(0.0, 1.0)
 
         self._shape_shader = ShaderProgram(
             Shader(shape_vertex_shader, "vertex"), Shader(shape_fragment_shader, "fragment")
@@ -981,7 +1075,7 @@ class OpenGLRenderer:
                 gl.glGetUniformLocation(self._sky_shader.id, str_buffer("sunDirection")), *self._sun_direction
             )
 
-        # Create VAO, VBO, and EBO
+        # create VAO, VBO, and EBO
         self._sky_vao = gl.GLuint()
         gl.glGenVertexArrays(1, self._sky_vao)
         gl.glBindVertexArray(self._sky_vao)
@@ -999,7 +1093,7 @@ class OpenGLRenderer:
         gl.glBindBuffer(gl.GL_ELEMENT_ARRAY_BUFFER, self._sky_ebo)
         gl.glBufferData(gl.GL_ELEMENT_ARRAY_BUFFER, indices.nbytes, indices.ctypes.data, gl.GL_STATIC_DRAW)
 
-        # Set up vertex attributes
+        # set up vertex attributes
         vertex_stride = vertices.shape[1] * vertices.itemsize
         # positions
         gl.glVertexAttribPointer(0, 3, gl.GL_FLOAT, gl.GL_FALSE, vertex_stride, ctypes.c_void_p(0))
@@ -1033,6 +1127,7 @@ class OpenGLRenderer:
 
         # create frame buffer for rendering to a texture
         self._frame_texture = None
+        self._frame_depth_texture = None
         self._frame_fbo = None
         self._setup_framebuffer()
 
@@ -1080,7 +1175,15 @@ class OpenGLRenderer:
         gl.glUseProgram(self._frame_shader.id)
         self._frame_loc_texture = gl.glGetUniformLocation(self._frame_shader.id, str_buffer("textureSampler"))
 
-        # Unbind the VBO and VAO
+        self._frame_depth_shader = ShaderProgram(
+            Shader(frame_vertex_shader, "vertex"), Shader(frame_depth_fragment_shader, "fragment")
+        )
+        gl.glUseProgram(self._frame_depth_shader.id)
+        self._frame_loc_depth_texture = gl.glGetUniformLocation(
+            self._frame_depth_shader.id, str_buffer("textureSampler")
+        )
+
+        # unbind the VBO and VAO
         gl.glBindBuffer(gl.GL_ARRAY_BUFFER, 0)
         gl.glBindVertexArray(0)
 
@@ -1326,7 +1429,11 @@ class OpenGLRenderer:
         if self._frame_texture is None:
             self._frame_texture = gl.GLuint()
             gl.glGenTextures(1, self._frame_texture)
+        if self._frame_depth_texture is None:
+            self._frame_depth_texture = gl.GLuint()
+            gl.glGenTextures(1, self._frame_depth_texture)
 
+        # set up RGB texture
         gl.glBindFramebuffer(gl.GL_FRAMEBUFFER, 0)
         gl.glBindBuffer(gl.GL_PIXEL_UNPACK_BUFFER, 0)
         gl.glBindTexture(gl.GL_TEXTURE_2D, self._frame_texture)
@@ -1343,6 +1450,22 @@ class OpenGLRenderer:
         )
         gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, gl.GL_LINEAR)
         gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, gl.GL_LINEAR)
+
+        # set up depth texture
+        gl.glBindTexture(gl.GL_TEXTURE_2D, self._frame_depth_texture)
+        gl.glTexImage2D(
+            gl.GL_TEXTURE_2D,
+            0,
+            gl.GL_DEPTH_COMPONENT32,
+            self.screen_width,
+            self.screen_height,
+            0,
+            gl.GL_DEPTH_COMPONENT,
+            gl.GL_FLOAT,
+            None,
+        )
+        gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, gl.GL_LINEAR)
+        gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, gl.GL_LINEAR)
         gl.glBindTexture(gl.GL_TEXTURE_2D, 0)
 
         # create a framebuffer object (FBO)
@@ -1355,28 +1478,15 @@ class OpenGLRenderer:
             gl.glFramebufferTexture2D(
                 gl.GL_FRAMEBUFFER, gl.GL_COLOR_ATTACHMENT0, gl.GL_TEXTURE_2D, self._frame_texture, 0
             )
-
-            self._frame_depth_renderbuffer = gl.GLuint()
-            gl.glGenRenderbuffers(1, self._frame_depth_renderbuffer)
-            gl.glBindRenderbuffer(gl.GL_RENDERBUFFER, self._frame_depth_renderbuffer)
-            gl.glRenderbufferStorage(gl.GL_RENDERBUFFER, gl.GL_DEPTH_COMPONENT, self.screen_width, self.screen_height)
-
-            # attach the depth renderbuffer to the FBO
-            gl.glFramebufferRenderbuffer(
-                gl.GL_FRAMEBUFFER, gl.GL_DEPTH_ATTACHMENT, gl.GL_RENDERBUFFER, self._frame_depth_renderbuffer
+            # attach the depth texture to the FBO as its depth attachment
+            gl.glFramebufferTexture2D(
+                gl.GL_FRAMEBUFFER, gl.GL_DEPTH_ATTACHMENT, gl.GL_TEXTURE_2D, self._frame_depth_texture, 0
             )
 
             if gl.glCheckFramebufferStatus(gl.GL_FRAMEBUFFER) != gl.GL_FRAMEBUFFER_COMPLETE:
                 print("Framebuffer is not complete!")
                 gl.glBindFramebuffer(gl.GL_FRAMEBUFFER, 0)
                 sys.exit(1)
-
-            gl.glBindRenderbuffer(gl.GL_RENDERBUFFER, 0)
-        else:
-            # rescale framebuffer
-            gl.glBindRenderbuffer(gl.GL_RENDERBUFFER, self._frame_depth_renderbuffer)
-            gl.glRenderbufferStorage(gl.GL_RENDERBUFFER, gl.GL_DEPTH_COMPONENT, self.screen_width, self.screen_height)
-            gl.glBindRenderbuffer(gl.GL_RENDERBUFFER, 0)
 
         # unbind the FBO (switch back to the default framebuffer)
         gl.glBindFramebuffer(gl.GL_FRAMEBUFFER, 0)
@@ -1387,7 +1497,11 @@ class OpenGLRenderer:
         gl.glBindBuffer(gl.GL_PIXEL_PACK_BUFFER, self._frame_pbo)  # binding to this buffer
 
         # allocate memory for PBO
-        pixels = np.zeros((self.screen_height, self.screen_width, 3), dtype=np.uint8)
+        rgb_bytes_per_pixel = 3
+        depth_bytes_per_pixel = 4
+        pixels = np.zeros(
+            (self.screen_height, self.screen_width, rgb_bytes_per_pixel + depth_bytes_per_pixel), dtype=np.uint8
+        )
         gl.glBufferData(gl.GL_PIXEL_PACK_BUFFER, pixels.nbytes, pixels.ctypes.data, gl.GL_DYNAMIC_DRAW)
         gl.glBindBuffer(gl.GL_PIXEL_PACK_BUFFER, 0)
 
@@ -1546,7 +1660,6 @@ class OpenGLRenderer:
 
         if self._frame_fbo is not None:
             gl.glBindFramebuffer(gl.GL_FRAMEBUFFER, self._frame_fbo)
-            gl.glBindBuffer(gl.GL_PIXEL_UNPACK_BUFFER, self._frame_fbo)
 
         gl.glClearColor(*self.background_color, 1)
         gl.glClear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT)
@@ -1584,15 +1697,26 @@ class OpenGLRenderer:
 
         # render frame buffer texture to screen
         if self._frame_fbo is not None:
-            with self._frame_shader:
-                gl.glActiveTexture(gl.GL_TEXTURE0)
-                gl.glBindTexture(gl.GL_TEXTURE_2D, self._frame_texture)
-                gl.glUniform1i(self._frame_loc_texture, 0)
+            if self.render_depth:
+                with self._frame_depth_shader:
+                    gl.glActiveTexture(gl.GL_TEXTURE0)
+                    gl.glBindTexture(gl.GL_TEXTURE_2D, self._frame_depth_texture)
+                    gl.glUniform1i(self._frame_loc_depth_texture, 0)
 
-                gl.glBindVertexArray(self._frame_vao)
-                gl.glDrawElements(gl.GL_TRIANGLES, len(self._frame_indices), gl.GL_UNSIGNED_INT, None)
-                gl.glBindVertexArray(0)
-                gl.glBindTexture(gl.GL_TEXTURE_2D, 0)
+                    gl.glBindVertexArray(self._frame_vao)
+                    gl.glDrawElements(gl.GL_TRIANGLES, len(self._frame_indices), gl.GL_UNSIGNED_INT, None)
+                    gl.glBindVertexArray(0)
+                    gl.glBindTexture(gl.GL_TEXTURE_2D, 0)
+            else:
+                with self._frame_shader:
+                    gl.glActiveTexture(gl.GL_TEXTURE0)
+                    gl.glBindTexture(gl.GL_TEXTURE_2D, self._frame_texture)
+                    gl.glUniform1i(self._frame_loc_texture, 0)
+
+                    gl.glBindVertexArray(self._frame_vao)
+                    gl.glDrawElements(gl.GL_TRIANGLES, len(self._frame_indices), gl.GL_UNSIGNED_INT, None)
+                    gl.glBindVertexArray(0)
+                    gl.glBindTexture(gl.GL_TEXTURE_2D, 0)
 
         # check for OpenGL errors
         # check_gl_error()
@@ -1771,6 +1895,8 @@ Instances: {len(self._instances)}"""
             self.show_info = not self.show_info
         if symbol == pyglet.window.key.X:
             self.render_wireframe = not self.render_wireframe
+        if symbol == pyglet.window.key.T:
+            self.render_depth = not self.render_depth
         if symbol == pyglet.window.key.B:
             self.enable_backface_culling = not self.enable_backface_culling
 
@@ -1871,7 +1997,7 @@ Instances: {len(self._instances)}"""
             gl.glDeleteBuffers(1, self._instance_color1_buffer)
             gl.glDeleteBuffers(1, self._instance_color2_buffer)
 
-        # Create instance buffer and bind it as an instanced array
+        # create instance buffer and bind it as an instanced array
         self._instance_transform_gl_buffer = gl.GLuint()
         gl.glGenBuffers(1, self._instance_transform_gl_buffer)
         gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self._instance_transform_gl_buffer)
@@ -1879,7 +2005,7 @@ Instances: {len(self._instances)}"""
         transforms = np.tile(np.diag(np.ones(4, dtype=np.float32)), (len(self._instances), 1, 1))
         gl.glBufferData(gl.GL_ARRAY_BUFFER, transforms.nbytes, transforms.ctypes.data, gl.GL_DYNAMIC_DRAW)
 
-        # Create CUDA buffer for instance transforms
+        # create CUDA buffer for instance transforms
         self._instance_transform_cuda_buffer = wp.RegisteredGLBuffer(
             int(self._instance_transform_gl_buffer.value), self._device
         )
@@ -1907,7 +2033,7 @@ Instances: {len(self._instances)}"""
         gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self._instance_color2_buffer)
         gl.glBufferData(gl.GL_ARRAY_BUFFER, colors2.nbytes, colors2.ctypes.data, gl.GL_STATIC_DRAW)
 
-        # Set up instance attribute pointers
+        # set up instance attribute pointers
         matrix_size = transforms[0].nbytes
 
         instance_ids = []
@@ -2028,8 +2154,26 @@ Instances: {len(self._instances)}"""
             self.clear()
             self.app.event_loop.exit()
 
-    def get_pixels(self, target_image: wp.array, split_up_tiles=True):
+    def get_pixels(self, target_image: wp.array, split_up_tiles=True, mode=RenderMode.RGB):
+        """
+        Read the pixels from the frame buffer into the given array.
+
+        If `split_up_tiles` is False, array must be of shape (screen_height, screen_width, 3) for RGB mode or
+        (screen_height, screen_width, 1) for depth mode.
+        If `split_up_tiles` is True, the pixels will be split up into tiles (see :attr:`tile_width` and :attr:`tile_height` for dimensions):
+        array must be of shape (num_tiles, tile_height, tile_width, 3) for RGB mode or (num_tiles, tile_height, tile_width, 1) for depth mode.
+
+        Args:
+            target_image (array): The array to read the pixels into. Must have float32 as dtype and be on a CUDA device.
+            split_up_tiles (bool): Whether to split up the viewport into tiles, see :meth:`setup_tiled_rendering`.
+            mode (RenderMode): Whether to read RGB or depth pixels.
+
+        Returns:
+            bool: Whether the pixels were successfully read.
+        """
         from pyglet import gl
+
+        channels = 3 if mode == RenderMode.RGB else 1
 
         if split_up_tiles:
             assert (
@@ -2045,20 +2189,26 @@ Instances: {len(self._instances)}"""
                 self.num_tiles,
                 self._tile_height,
                 self._tile_width,
-                3,
-            ), f"Shape of `target_image` array does not match {self.num_tiles} x {self.screen_height} x {self.screen_width} x 3"
+                channels,
+            ), f"Shape of `target_image` array does not match {self.num_tiles} x {self.screen_height} x {self.screen_width} x {channels}"
         else:
             assert target_image.shape == (
                 self.screen_height,
                 self.screen_width,
-                3,
-            ), f"Shape of `target_image` array does not match {self.screen_height} x {self.screen_width} x 3"
+                channels,
+            ), f"Shape of `target_image` array does not match {self.screen_height} x {self.screen_width} x {channels}"
 
         gl.glBindBuffer(gl.GL_PIXEL_PACK_BUFFER, self._frame_pbo)
-        gl.glBindTexture(gl.GL_TEXTURE_2D, self._frame_texture)
+        if mode == RenderMode.RGB:
+            gl.glBindTexture(gl.GL_TEXTURE_2D, self._frame_texture)
+        if mode == RenderMode.DEPTH:
+            gl.glBindTexture(gl.GL_TEXTURE_2D, self._frame_depth_texture)
         try:
             # read screen texture into PBO
-            gl.glGetTexImage(gl.GL_TEXTURE_2D, 0, gl.GL_RGB, gl.GL_UNSIGNED_BYTE, ctypes.c_void_p(0))
+            if mode == RenderMode.RGB:
+                gl.glGetTexImage(gl.GL_TEXTURE_2D, 0, gl.GL_RGB, gl.GL_UNSIGNED_BYTE, ctypes.c_void_p(0))
+            elif mode == RenderMode.DEPTH:
+                gl.glGetTexImage(gl.GL_TEXTURE_2D, 0, gl.GL_DEPTH_COMPONENT, gl.GL_FLOAT, ctypes.c_void_p(0))
         except gl.GLException:
             # this can happen if the window is closed/being moved to a different display
             gl.glBindTexture(gl.GL_TEXTURE_2D, 0)
@@ -2071,63 +2221,54 @@ Instances: {len(self._instances)}"""
             int(self._frame_pbo.value), self._device, wp.RegisteredGLBuffer.WRITE_DISCARD
         )
         screen_size = self.screen_height * self.screen_width
-        img = pbo_buffer.map(dtype=wp.uint8, shape=(screen_size * 3))
+        if mode == RenderMode.RGB:
+            img = pbo_buffer.map(dtype=wp.uint8, shape=(screen_size * channels))
+        elif mode == RenderMode.DEPTH:
+            img = pbo_buffer.map(dtype=wp.float32, shape=(screen_size * channels))
         img = img.to(target_image.device)
         if split_up_tiles:
             positions = wp.array(self._tile_viewports, ndim=2, dtype=wp.int32, device=target_image.device)
-            wp.launch(
-                copy_frame_tiles,
-                dim=(self.num_tiles, self._tile_width, self._tile_height),
-                inputs=[img, positions, self.screen_width, self.screen_height, self._tile_height],
-                outputs=[target_image],
-                device=target_image.device,
-            )
+            if mode == RenderMode.RGB:
+                wp.launch(
+                    copy_rgb_frame_tiles,
+                    dim=(self.num_tiles, self._tile_width, self._tile_height),
+                    inputs=[img, positions, self.screen_width, self.screen_height, self._tile_height],
+                    outputs=[target_image],
+                    device=target_image.device,
+                )
+            elif mode == RenderMode.DEPTH:
+                wp.launch(
+                    copy_depth_frame_tiles,
+                    dim=(self.num_tiles, self._tile_width, self._tile_height),
+                    inputs=[
+                        img,
+                        positions,
+                        self.screen_width,
+                        self.screen_height,
+                        self._tile_height,
+                        self.camera_near_plane,
+                        self.camera_far_plane,
+                    ],
+                    outputs=[target_image],
+                    device=target_image.device,
+                )
         else:
-            wp.launch(
-                copy_frame,
-                dim=(self.screen_width, self.screen_height),
-                inputs=[img, self.screen_width, self.screen_height],
-                outputs=[target_image],
-                device=target_image.device,
-            )
-        pbo_buffer.unmap()
-        return True
-
-    def get_tile_pixels(self, tile_id: int, target_image: wp.array):
-        from pyglet import gl
-
-        viewport = self._tile_viewports[tile_id]
-        assert target_image.shape == (
-            viewport[3],
-            viewport[2],
-            3,
-        ), f"Shape of `target_image` array does not match {viewport[3]} x {viewport[2]} x 3"
-        gl.glBindBuffer(gl.GL_PIXEL_PACK_BUFFER, self._frame_pbo)
-        gl.glBindTexture(gl.GL_TEXTURE_2D, self._frame_texture)
-        try:
-            # read screen texture into PBO
-            gl.glGetTexImage(gl.GL_TEXTURE_2D, 0, gl.GL_RGB, gl.GL_UNSIGNED_BYTE, ctypes.c_void_p(0))
-        except gl.GLException:
-            # this can happen if the window is closed/being moved to a different display
-            gl.glBindTexture(gl.GL_TEXTURE_2D, 0)
-            gl.glBindBuffer(gl.GL_PIXEL_PACK_BUFFER, 0)
-            return False
-        gl.glBindTexture(gl.GL_TEXTURE_2D, 0)
-        gl.glBindBuffer(gl.GL_PIXEL_PACK_BUFFER, 0)
-
-        pbo_buffer = wp.RegisteredGLBuffer(
-            int(self._frame_pbo.value), self._device, wp.RegisteredGLBuffer.WRITE_DISCARD
-        )
-        screen_size = self.screen_height * self.screen_width
-        img = pbo_buffer.map(dtype=wp.uint8, shape=(screen_size * 3))
-        img = img.to(target_image.device)
-        wp.launch(
-            copy_frame_tiles,
-            dim=(self.num_tiles, self._tile_width, self._tile_height),
-            inputs=[img, viewport[0], viewport[1], self.screen_width, self.screen_height, self._tile_height],
-            outputs=[target_image],
-            device=target_image.device,
-        )
+            if mode == RenderMode.RGB:
+                wp.launch(
+                    copy_rgb_frame,
+                    dim=(self.screen_width, self.screen_height),
+                    inputs=[img, self.screen_width, self.screen_height],
+                    outputs=[target_image],
+                    device=target_image.device,
+                )
+            elif mode == RenderMode.DEPTH:
+                wp.launch(
+                    copy_depth_frame,
+                    dim=(self.screen_width, self.screen_height),
+                    inputs=[img, self.screen_width, self.screen_height, self.camera_near_plane, self.camera_far_plane],
+                    outputs=[target_image],
+                    device=target_image.device,
+                )
         pbo_buffer.unmap()
         return True
 
@@ -2650,7 +2791,12 @@ Instances: {len(self._instances)}"""
         cuda_buffer.unmap()
 
     @staticmethod
-    def _create_sphere_mesh(radius=1.0, num_latitudes=default_num_segments, num_longitudes=default_num_segments, reverse_winding=False):
+    def _create_sphere_mesh(
+        radius=1.0,
+        num_latitudes=default_num_segments,
+        num_longitudes=default_num_segments,
+        reverse_winding=False,
+    ):
         vertices = []
         indices = []
 
@@ -2764,7 +2910,7 @@ Instances: {len(self._instances)}"""
             top_radius = radius
         side_slope = -np.arctan2(top_radius - radius, 2 * half_height)
 
-        # Create the cylinder base and top vertices
+        # create the cylinder base and top vertices
         for j in (-1, 1):
             center_index = max(j, 0)
             if j == 1:
@@ -2792,12 +2938,10 @@ Instances: {len(self._instances)}"""
                 vertex = np.hstack([position[[x_dir, y_dir, z_dir]], normal[[x_dir, y_dir, z_dir]], uv])
                 cap_vertices.append(vertex)
 
-                indices.extend(
-                    [center_index, i + center_index * segments + 2,
-                        (i + 1) % segments + center_index * segments + 2][::-j]
-                )
+                cs = center_index * segments
+                indices.extend([center_index, i + cs + 2, (i + 1) % segments + cs + 2][::-j])
 
-        # Create the cylinder side indices
+        # create the cylinder side indices
         for i in range(segments):
             index1 = len(cap_vertices) + i + segments
             index2 = len(cap_vertices) + ((i + 1) % segments) + segments

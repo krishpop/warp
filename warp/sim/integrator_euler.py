@@ -1665,6 +1665,10 @@ def compute_forces(model, state, particle_f, body_f, requires_grad):
 
     # particle shape contact
     if model.particle_count and model.shape_count > 1:
+        if state.has_soft_contact_vars:
+            contact_state = state
+        else:
+            contact_state = model
         wp.launch(
             kernel=eval_particle_contacts,
             dim=model.soft_contact_max,
@@ -1683,12 +1687,12 @@ def compute_forces(model, state, particle_f, body_f, requires_grad):
                 model.soft_contact_kf,
                 model.soft_contact_mu,
                 model.particle_adhesion,
-                model.soft_contact_count,
-                model.soft_contact_particle,
-                model.soft_contact_shape,
-                model.soft_contact_body_pos,
-                model.soft_contact_body_vel,
-                model.soft_contact_normal,
+                contact_state.soft_contact_count,
+                contact_state.soft_contact_particle,
+                contact_state.soft_contact_shape,
+                contact_state.soft_contact_body_pos,
+                contact_state.soft_contact_body_vel,
+                contact_state.soft_contact_normal,
                 model.soft_contact_max,
             ],
             # outputs
