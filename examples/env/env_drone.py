@@ -302,7 +302,7 @@ class DroneEnvironment(Environment):
             renderer = self.renderer
         for i in range(self.num_envs):
             renderer.render_sphere(
-                f"target_{i}", self.flight_target + self.env_offsets[i], wp.quat_identity(), radius=0.05)
+                f"target_{i}", self.flight_target + wp.vec3(self.env_offsets[i]), wp.quat_identity(), radius=0.05)
             # print("target", self.flight_target + self.env_offsets[i])
 
         if isinstance(renderer, wp.sim.render.SimRendererOpenGL):
