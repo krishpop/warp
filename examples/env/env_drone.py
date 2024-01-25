@@ -20,6 +20,7 @@ import warp.sim
 from environment import Environment, run_env, IntegratorType, RenderMode
 
 
+# air density at sea level
 air_density = wp.constant(1.225)  # kg / m^3
 
 
@@ -54,11 +55,11 @@ class PropellerData:
         # compute max thrust and torque
         revolutions_per_second = max_rpm / 60
         max_speed = revolutions_per_second * wp.TAU  # radians / sec
-        self.max_speed_square = max_speed ** 2
+        self.max_speed_square = max_speed**2
 
-        nsquared = revolutions_per_second ** 2
-        self.max_thrust = self.thrust * air_density * nsquared * self.diameter ** 4
-        self.max_torque = self.power * air_density * nsquared * self.diameter ** 5 / wp.TAU
+        nsquared = revolutions_per_second**2
+        self.max_thrust = self.thrust * air_density * nsquared * self.diameter**4
+        self.max_torque = self.power * air_density * nsquared * self.diameter**5 / wp.TAU
 
 
 @wp.struct
@@ -95,11 +96,235 @@ def compute_prop_wrenches(
     wp.atomic_add(body_f, prop.body, wp.spatial_vector(torque, force))
 
 
+@wp.struct
+class DragVertex:
+    body: int
+    pos: wp.vec3
+    normal: wp.vec3
+    area: float
+    drag_coefficient: float
+    omnidirectional: wp.bool
+
+
+@wp.func
+def counter_increment(counter: wp.array(dtype=int), counter_index: int, tids: wp.array(dtype=int), tid: int):
+    # increment counter, remember which thread received which counter value
+    next_count = wp.atomic_add(counter, counter_index, 1)
+    tids[tid] = next_count
+    return next_count
+
+
+@wp.func_replay(counter_increment)
+def replay_counter_increment(counter: wp.array(dtype=int), counter_index: int, tids: wp.array(dtype=int), tid: int):
+    return tids[tid]
+
+
+@wp.kernel
+def count_drag_vertices(
+    shape_body: wp.array(dtype=int),
+    geo: warp.sim.ModelShapeGeometry,
+    # outputs
+    vertex_counter: wp.array(dtype=int),
+):
+    tid = wp.tid()
+    shape = tid
+    body = shape_body[shape]
+    if body == -1:
+        return
+    geo_type = geo.type[shape]
+
+    if geo_type == wp.sim.GEO_SPHERE:
+        wp.atomic_add(vertex_counter, 0, 1)
+        return
+    if geo_type == wp.sim.GEO_BOX:
+        wp.atomic_add(vertex_counter, 0, 6)
+        return
+    if geo_type == wp.sim.GEO_MESH:
+        mesh = wp.mesh_get(geo.source[shape])
+        wp.atomic_add(vertex_counter, 0, mesh.indices.shape[0] // 3)
+        return
+    wp.printf("Unsupported geometry type %d for computing drag vertices\n", geo_type)
+
+
+@wp.kernel
+def generate_drag_vertices(
+    shape_body: wp.array(dtype=int),
+    shape_X_bs: wp.array(dtype=wp.transform),
+    geo: warp.sim.ModelShapeGeometry,
+    # outputs
+    vertex_counter: wp.array(dtype=int),
+    vertex_tids: wp.array(dtype=int),
+    drag_vertices: wp.array(dtype=DragVertex),
+):
+    tid = wp.tid()
+    shape = tid
+    body = shape_body[shape]
+    if body == -1:
+        return
+    X_bs = shape_X_bs[shape]
+    geo_type = geo.type[shape]
+    geo_scale = geo.scale[shape]
+
+    if geo_type == wp.sim.GEO_SPHERE:
+        radius = geo_scale[0]
+        area = 4.0 * wp.PI * radius**2.0
+        drag_coefficient = 0.47
+        vertex_id = counter_increment(vertex_counter, 0, vertex_tids, tid)
+        pos = wp.transform_get_translation(X_bs)
+        normal = wp.vec3(0.0)
+        omnidirectional = True
+        drag_vertices[vertex_id] = DragVertex(
+            body,
+            pos,
+            normal,
+            area,
+            drag_coefficient,
+            omnidirectional,
+        )
+        return
+
+    if geo_type == wp.sim.GEO_BOX:
+        hx, hy, hz = geo_scale[0], geo_scale[1], geo_scale[2]
+        drag_coefficient = 1.05
+        omnidirectional = False
+
+        # font + back sides
+        area = 4.0 * hy * hz
+        vertex_id = counter_increment(vertex_counter, 0, vertex_tids, tid)
+        pos = wp.transform_point(X_bs, wp.vec3(hx, 0.0, 0.0))
+        normal = wp.transform_vector(X_bs, wp.vec3(1.0, 0.0, 0.0))
+        drag_vertices[vertex_id] = DragVertex(
+            body,
+            pos,
+            normal,
+            area,
+            drag_coefficient,
+            omnidirectional,
+        )
+        vertex_id = counter_increment(vertex_counter, 0, vertex_tids, tid)
+        pos = wp.transform_point(X_bs, wp.vec3(-hx, 0.0, 0.0))
+        normal = wp.transform_vector(X_bs, wp.vec3(-1.0, 0.0, 0.0))
+        drag_vertices[vertex_id] = DragVertex(
+            body,
+            pos,
+            normal,
+            area,
+            drag_coefficient,
+            omnidirectional,
+        )
+
+        # top + bottom sides
+        area = 4.0 * hx * hz
+        vertex_id = counter_increment(vertex_counter, 0, vertex_tids, tid)
+        pos = wp.transform_point(X_bs, wp.vec3(0.0, hy, 0.0))
+        normal = wp.transform_vector(X_bs, wp.vec3(0.0, 1.0, 0.0))
+        drag_vertices[vertex_id] = DragVertex(
+            body,
+            pos,
+            normal,
+            area,
+            drag_coefficient,
+            omnidirectional,
+        )
+        vertex_id = counter_increment(vertex_counter, 0, vertex_tids, tid)
+        pos = wp.transform_point(X_bs, wp.vec3(0.0, -hy, 0.0))
+        normal = wp.transform_vector(X_bs, wp.vec3(0.0, -1.0, 0.0))
+        drag_vertices[vertex_id] = DragVertex(
+            body,
+            pos,
+            normal,
+            area,
+            drag_coefficient,
+            omnidirectional,
+        )
+
+        # left + right sides
+        area = 4.0 * hx * hy
+        vertex_id = counter_increment(vertex_counter, 0, vertex_tids, tid)
+        pos = wp.transform_point(X_bs, wp.vec3(0.0, 0.0, hz))
+        normal = wp.transform_vector(X_bs, wp.vec3(0.0, 0.0, 1.0))
+        drag_vertices[vertex_id] = DragVertex(
+            body,
+            pos,
+            normal,
+            area,
+            drag_coefficient,
+            omnidirectional,
+        )
+        vertex_id = counter_increment(vertex_counter, 0, vertex_tids, tid)
+        pos = wp.transform_point(X_bs, wp.vec3(0.0, 0.0, -hz))
+        normal = wp.transform_vector(X_bs, wp.vec3(0.0, 0.0, -1.0))
+        drag_vertices[vertex_id] = DragVertex(
+            body,
+            pos,
+            normal,
+            area,
+            drag_coefficient,
+            omnidirectional,
+        )
+        return
+
+    if geo_type == wp.sim.GEO_MESH:
+        mesh = wp.mesh_get(geo.source[shape])
+        vertex_count = mesh.indices.shape[0] // 3
+        drag_coefficient = 0.5  # XXX there is no drag coefficient for arbitrary triangles
+        omnidirectional = False
+        for i in range(vertex_count):
+            vertex_id = counter_increment(vertex_counter, 0, vertex_tids, tid)
+            i0 = mesh.indices[i * 3 + 0]
+            i1 = mesh.indices[i * 3 + 1]
+            i2 = mesh.indices[i * 3 + 2]
+            v0 = mesh.points[i0]
+            v1 = mesh.points[i1]
+            v2 = mesh.points[i2]
+            pos = wp.transform_point(X_bs, (v0 + v1 + v2) / 3.0)
+            normal = wp.normalize(wp.cross(v1 - v0, v2 - v0))
+            area = wp.length(wp.cross(v1 - v0, v2 - v0)) / 2.0
+            drag_vertices[vertex_id] = DragVertex(
+                body,
+                pos,
+                wp.transform_vector(X_bs, normal),
+                area,
+                drag_coefficient,
+                omnidirectional,
+            )
+        return
+
+
+@wp.kernel
+def compute_drag_wrenches(
+    drag_vertices: wp.array(dtype=DragVertex),
+    body_q: wp.array(dtype=wp.transform),
+    body_qd: wp.array(dtype=wp.spatial_vector),
+    wind_velocity: wp.vec3,
+    # outputs
+    body_f: wp.array(dtype=wp.spatial_vector),
+):
+    tid = wp.tid()
+    vertex = drag_vertices[tid]
+    tf = body_q[vertex.body]
+    vel = body_qd[vertex.body]
+    lin_vel = wp.spatial_bottom(vel) - wind_velocity
+    ang_vel = wp.spatial_top(vel)
+    world_vertex = wp.transform_point(tf, vertex.pos)
+    world_vertex_vel = lin_vel + wp.cross(ang_vel, world_vertex)
+    if vertex.omnidirectional:
+        vel_normal = wp.length_sq(world_vertex_vel)
+    else:
+        world_normal = wp.transform_vector(tf, vertex.normal)
+        vel_normal = wp.dot(world_normal, world_vertex_vel)
+    if vel_normal > 1e-6:
+        force = world_normal * (-vertex.drag_coefficient * vel_normal**2.0 * vertex.area * air_density / 2.0)
+        torque = wp.cross(vertex.pos, force)
+        wp.atomic_add(body_f, vertex.body, wp.spatial_vector(torque, force))
+
+
 class DroneSimulationPlugin(wp.sim.SemiImplicitIntegratorPlugin):
-    def __init__(self):
+    def __init__(self, wind_velocity=wp.vec3(0.0)):
         super().__init__()
         self.props = []
         self.props_wp = None
+        self.wind_velocity = wind_velocity
 
     def add_propeller(
         self,
@@ -122,6 +347,21 @@ class DroneSimulationPlugin(wp.sim.SemiImplicitIntegratorPlugin):
     def on_init(self, model, integrator):
         self.props_wp = wp.array(self.props, dtype=Propeller, device=model.device)
 
+        # generate drag vertices for all shapes
+        self.drag_vertex_counter = wp.zeros(1, dtype=int, device=model.device)
+        wp.launch(count_drag_vertices, dim=model.shape_count, inputs=[model.shape_body, model.shape_geo], outputs=[self.drag_vertex_counter])
+        self.drag_vertex_count = int(self.drag_vertex_counter.numpy()[0])
+        self.drag_vertex_tids = wp.zeros(self.drag_vertex_count, dtype=int, device=model.device)
+        self.drag_vertices = wp.zeros(self.drag_vertex_count, dtype=DragVertex, device=model.device)
+        self.drag_vertex_counter.zero_()
+        wp.launch(
+            generate_drag_vertices,
+            dim=model.shape_count,
+            inputs=[model.shape_body, model.shape_transform, model.shape_geo],
+            outputs=[self.drag_vertex_counter, self.drag_vertex_tids, self.drag_vertices],
+        )
+        print(f"Generated {self.drag_vertex_count} drag vertices")
+
     def before_integrate(self, model, state_in, state_out, dt, requires_grad):
         assert self.props_wp is not None, "DroneSimulationPlugin not initialized"
         # print(state_in.body_f.numpy())
@@ -138,6 +378,13 @@ class DroneSimulationPlugin(wp.sim.SemiImplicitIntegratorPlugin):
         # if np.any(np.isnan(state_in.body_f.numpy())):
         #     raise RuntimeError("NaN in generated body_f", state_in.body_f.numpy())
 
+        wp.launch(
+            compute_drag_wrenches,
+            dim=self.drag_vertex_count,
+            inputs=[self.drag_vertices, state_in.body_q, state_in.body_qd, self.wind_velocity],
+            outputs=[state_in.body_f],
+        )
+
     # def after_integrate(self, model, state_in, state_out, dt, requires_grad):
     #     import numpy as np
     #     if np.any(np.isnan(state_out.body_qd.numpy())):
@@ -145,7 +392,9 @@ class DroneSimulationPlugin(wp.sim.SemiImplicitIntegratorPlugin):
 
     def augment_state(self, model, state):
         # add state vector for the propeller control inputs
-        state.prop_control = wp.zeros(len(self.props), dtype=float, device=model.device, requires_grad=model.requires_grad)
+        state.prop_control = wp.zeros(
+            len(self.props), dtype=float, device=model.device, requires_grad=model.requires_grad
+        )
 
 
 @wp.kernel
@@ -187,13 +436,35 @@ def drone_cost(
 
     # encourage zero velocity
     vel_cost = wp.length_sq(vel_drone)
-    
+
     # time_factor = wp.float(step) / wp.float(horizon_length)
-    discount = 0.9 ** wp.float(horizon_length-step-1) / wp.float(horizon_length)**2.0
+    discount = 0.9 ** wp.float(horizon_length - step - 1) / wp.float(horizon_length) ** 2.0
     # discount = 0.5 ** wp.float(step) / wp.float(horizon_length)
     # discount = 1.0 / wp.float(horizon_length)
 
     wp.atomic_add(cost, env_id, (10.0 * drone_cost + 0.02 * vel_cost + 0.1 * upright_cost) * discount)
+
+
+@wp.func
+def standard_temperature(geopot: float):
+    # standard atmospheric pressure
+    # Below 51km: Practical Meteorology by Roland Stull, pg 12
+    # Above 51km: http://www.braeunig.us/space/atmmodel.htm
+    if geopot <= 11.0:  # troposphere
+        return 288.15 - (6.5 * geopot)
+    elif geopot <= 20.0:  # stratosphere
+        return 216.65
+    elif geopot <= 32.0:
+        return 196.65 + geopot
+    elif geopot <= 47.0:
+        return 228.65 + 2.8 * (geopot - 32.0)
+    elif geopot <= 51:  # mesosphere
+        return 270.65
+    elif geopot <= 71.0:
+        return 270.65 - 2.8 * (geopot - 51.0)
+    elif geopot <= 84.85:
+        return 214.65 - 2.0 * (geopot - 71.0)
+    return 3.0
 
 
 class DroneEnvironment(Environment):
@@ -223,8 +494,10 @@ class DroneEnvironment(Environment):
 
     flight_target = wp.vec3(0.0, 0.5, 1.0)
 
+    wind_velocity = wp.vec3(10.0, 0.0, 0.0)
+
     def __init__(self):
-        self.drone_plugin = DroneSimulationPlugin()
+        self.drone_plugin = DroneSimulationPlugin(wind_velocity=self.wind_velocity)
         self.euler_settings["plugins"] = [self.drone_plugin]
         super().__init__()
 
@@ -248,7 +521,8 @@ class DroneEnvironment(Environment):
                     hz=prop_data.diameter / 15.0,
                     density=0.0,
                     has_ground_collision=False,
-                    collision_group=i)
+                    collision_group=i,
+                )
                 self.prop_shapes.append(prop_shape)
 
         for i in range(self.num_envs):
@@ -259,13 +533,15 @@ class DroneEnvironment(Environment):
                 hx=self.drone_crossbar_length,
                 hy=self.drone_crossbar_height,
                 hz=self.drone_crossbar_width,
-                collision_group=i)
+                collision_group=i,
+            )
             builder.add_shape_box(
                 drone,
                 hx=self.drone_crossbar_width,
                 hy=self.drone_crossbar_height,
                 hz=self.drone_crossbar_length,
-                collision_group=i)
+                collision_group=i,
+            )
 
             add_prop(drone, i, wp.vec3(self.drone_crossbar_length, 0.0, 0.0), False)
             add_prop(drone, i, wp.vec3(-self.drone_crossbar_length, 0.0, 0.0))
@@ -278,6 +554,7 @@ class DroneEnvironment(Environment):
             self.prop_rotation = wp.zeros(len(self.prop_shapes), dtype=float, device=self.device)
 
             import pyglet
+
             self.count_target_swaps = 0
             self.possible_targets = [
                 wp.vec3(0.0, 0.5, 1.0),
@@ -285,11 +562,13 @@ class DroneEnvironment(Environment):
                 wp.vec3(0.0, 0.5, -1.0),
                 wp.vec3(-1.0, 0.5, 0.0),
             ]
+
             def swap_target(key, modifiers):
                 if key == pyglet.window.key.N:
                     self.count_target_swaps += 1
                     self.flight_target = self.possible_targets[self.count_target_swaps % len(self.possible_targets)]
                     self.invalidate_cuda_graph = True
+
             self.renderer.register_key_press_callback(swap_target)
 
     # def custom_update(self):
@@ -302,7 +581,8 @@ class DroneEnvironment(Environment):
             renderer = self.renderer
         for i in range(self.num_envs):
             renderer.render_sphere(
-                f"target_{i}", self.flight_target + wp.vec3(self.env_offsets[i]), wp.quat_identity(), radius=0.05)
+                f"target_{i}", self.flight_target + wp.vec3(self.env_offsets[i]), wp.quat_identity(), radius=0.05
+            )
             # print("target", self.flight_target + self.env_offsets[i])
 
         if isinstance(renderer, wp.sim.render.SimRendererOpenGL):
@@ -313,19 +593,31 @@ class DroneEnvironment(Environment):
             wp.launch(
                 update_prop_rotation,
                 dim=len(self.prop_shapes),
-                inputs=[self.prop_rotation, render_state.prop_control,
-                        self.prop_shape, self.drone_plugin.props_wp, self.frame_dt],
+                inputs=[
+                    self.prop_rotation,
+                    render_state.prop_control,
+                    self.prop_shape,
+                    self.drone_plugin.props_wp,
+                    self.frame_dt,
+                ],
                 outputs=[self.renderer._wp_instance_transforms],
-                device=self.device)
+                device=self.device,
+            )
         if isinstance(renderer, wp.sim.render.SimRendererUsd):
             # update shape transforms in model
             wp.launch(
                 update_prop_rotation,
                 dim=len(self.prop_shapes),
-                inputs=[self.prop_rotation, render_state.prop_control,
-                        self.prop_shape, self.drone_plugin.props_wp, self.frame_dt],
+                inputs=[
+                    self.prop_rotation,
+                    render_state.prop_control,
+                    self.prop_shape,
+                    self.drone_plugin.props_wp,
+                    self.frame_dt,
+                ],
                 outputs=[self.model.shape_transform],
-                device=self.device)
+                device=self.device,
+            )
             tfs = self.model.shape_transform.numpy()
             for i in range(4):
                 tf = tfs[i + 2]
@@ -342,7 +634,7 @@ class DroneEnvironment(Environment):
             dim=self.num_envs,
             inputs=[state.body_q, state.body_qd, self.flight_target, step, horizon_length],
             outputs=[cost],
-            device=self.device
+            device=self.device,
         )
         # import numpy as np
         # if np.any(np.isnan(cost.numpy())):
