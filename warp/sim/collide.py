@@ -483,7 +483,7 @@ def volume_grad(volume: wp.uint64, p: wp.vec3):
 
 @wp.func
 def counter_increment(counter: wp.array(dtype=int), counter_index: int, tids: wp.array(dtype=int), tid: int):
-    # increment counter but only if it is smaller than index_limit, remember which thread received which counter value
+    # increment counter, remember which thread received which counter value
     next_count = wp.atomic_add(counter, counter_index, 1)
     tids[tid] = next_count
     return next_count
