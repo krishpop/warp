@@ -14,14 +14,19 @@
 #
 ###########################################################################
 
+import numpy as np
 import warp as wp
 import warp.sim
+from warp.sim.collide import sphere_sdf, box_sdf, capsule_sdf, cylinder_sdf, cone_sdf, mesh_sdf, plane_sdf
 
 from environment import Environment, run_env, IntegratorType, RenderMode
 
 
 # air density at sea level
 air_density = wp.constant(1.225)  # kg / m^3
+
+carbon_fiber_density = 1750.0  # kg / m^3
+abs_density = 1050.0  # kg / m^3
 
 
 class PropellerData:
@@ -315,7 +320,7 @@ def compute_drag_wrenches(
         vel_normal = wp.dot(world_normal, world_vertex_vel)
     if vel_normal > 1e-6:
         force = world_normal * (-vertex.drag_coefficient * vel_normal**2.0 * vertex.area * air_density / 2.0)
-        torque = wp.cross(vertex.pos, force)
+        torque = wp.cross(world_vertex, force)
         wp.atomic_add(body_f, vertex.body, wp.spatial_vector(torque, force))
 
 
@@ -349,7 +354,12 @@ class DroneSimulationPlugin(wp.sim.SemiImplicitIntegratorPlugin):
 
         # generate drag vertices for all shapes
         self.drag_vertex_counter = wp.zeros(1, dtype=int, device=model.device)
-        wp.launch(count_drag_vertices, dim=model.shape_count, inputs=[model.shape_body, model.shape_geo], outputs=[self.drag_vertex_counter])
+        wp.launch(
+            count_drag_vertices,
+            dim=model.shape_count,
+            inputs=[model.shape_body, model.shape_geo],
+            outputs=[self.drag_vertex_counter],
+        )
         self.drag_vertex_count = int(self.drag_vertex_counter.numpy()[0])
         self.drag_vertex_tids = wp.zeros(self.drag_vertex_count, dtype=int, device=model.device)
         self.drag_vertices = wp.zeros(self.drag_vertex_count, dtype=DragVertex, device=model.device)
@@ -408,7 +418,7 @@ def update_prop_rotation(
 ):
     tid = wp.tid()
     prop = props[tid]
-    speed = prop_control[tid] * prop.max_speed_square / 2000.0  # a bit slower for better rendering
+    speed = prop_control[tid] * prop.max_speed_square / 20.0  # a bit slower for better rendering
     wp.atomic_add(prop_rotation, tid, prop.turning_direction * speed * dt)
     shape = prop_shape[tid]
     shape_transform[shape] = wp.transform(prop.pos, wp.quat_from_axis_angle(prop.dir, prop_rotation[tid]))
@@ -419,8 +429,10 @@ def drone_cost(
     body_q: wp.array(dtype=wp.transform),
     body_qd: wp.array(dtype=wp.spatial_vector),
     target: wp.vec3,
+    prop_control: wp.array(dtype=float),
     step: int,
     horizon_length: int,
+    # outputs
     cost: wp.array(dtype=wp.float32),
 ):
     env_id = wp.tid()
@@ -437,12 +449,82 @@ def drone_cost(
     # encourage zero velocity
     vel_cost = wp.length_sq(vel_drone)
 
+    control = wp.vec4(prop_control[env_id* 4 + 0], prop_control[env_id* 4 + 1], prop_control[env_id* 4 + 2], prop_control[env_id* 4 + 3])
+    control_cost = wp.dot(control, control)
+
     # time_factor = wp.float(step) / wp.float(horizon_length)
     discount = 0.9 ** wp.float(horizon_length - step - 1) / wp.float(horizon_length) ** 2.0
     # discount = 0.5 ** wp.float(step) / wp.float(horizon_length)
     # discount = 1.0 / wp.float(horizon_length)
 
-    wp.atomic_add(cost, env_id, (10.0 * drone_cost + 0.02 * vel_cost + 0.1 * upright_cost) * discount)
+    wp.atomic_add(cost, env_id, (10.0 * drone_cost + 10.0 * control_cost + 0.02 * vel_cost + 0.1 * upright_cost) * discount)
+
+
+@wp.kernel
+def collision_cost(
+    body_q: wp.array(dtype=wp.transform),
+    obstacle_ids: wp.array(dtype=int, ndim=2),
+    shape_X_bs: wp.array(dtype=wp.transform),
+    geo: warp.sim.ModelShapeGeometry,
+    margin: float,
+    weighting: float,
+    # outputs
+    cost: wp.array(dtype=wp.float32),
+):
+    env_id, obs_id = wp.tid()
+    shape_index = obstacle_ids[env_id, obs_id]
+
+    px = wp.transform_get_translation(body_q[env_id])
+
+    X_bs = shape_X_bs[shape_index]
+
+    # transform particle position to shape local space
+    x_local = wp.transform_point(X_bs, px)
+
+    # geo description
+    geo_type = geo.type[shape_index]
+    geo_scale = geo.scale[shape_index]
+
+    # evaluate shape sdf
+    d = 1.0e6
+
+    if geo_type == wp.sim.GEO_SPHERE:
+        d = sphere_sdf(wp.vec3(), geo_scale[0], x_local)
+
+    if geo_type == wp.sim.GEO_BOX:
+        d = box_sdf(geo_scale, x_local)
+
+    if geo_type == wp.sim.GEO_CAPSULE:
+        d = capsule_sdf(geo_scale[0], geo_scale[1], x_local)
+
+    if geo_type == wp.sim.GEO_CYLINDER:
+        d = cylinder_sdf(geo_scale[0], geo_scale[1], x_local)
+
+    if geo_type == wp.sim.GEO_CONE:
+        d = cone_sdf(geo_scale[0], geo_scale[1], x_local)
+
+    if geo_type == wp.sim.GEO_MESH:
+        mesh = geo.source[shape_index]
+        min_scale = wp.min(geo_scale)
+        max_dist = margin / min_scale
+        d = mesh_sdf(mesh, wp.cw_div(x_local, geo_scale), max_dist)
+        d *= min_scale  # TODO fix this, mesh scaling needs to be handled properly
+
+    if geo_type == wp.sim.GEO_SDF:
+        volume = geo.source[shape_index]
+        xpred_local = wp.volume_world_to_index(volume, wp.cw_div(x_local, geo_scale))
+        nn = wp.vec3(0.0, 0.0, 0.0)
+        d = wp.volume_sample_grad_f(volume, xpred_local, wp.Volume.LINEAR, nn)
+
+    if geo_type == wp.sim.GEO_PLANE:
+        d = plane_sdf(geo_scale[0], geo_scale[1], x_local)
+
+    if d < margin:
+        c = d - margin
+        # L2 distance
+        wp.atomic_add(cost, env_id, weighting * c * c)
+        # log-barrier function
+        # wp.atomic_add(cost, env_id, weighting * wp.log(-c))
 
 
 @wp.func
@@ -467,6 +549,32 @@ def standard_temperature(geopot: float):
     return 3.0
 
 
+@wp.kernel
+def move_air_molecules(
+    env_bounds_lower: wp.vec3,
+    env_bounds_upper: wp.vec3,
+    wind_velocity: wp.vec3,
+    noise_velocity: wp.vec3,
+    dt: float,
+    # outputs
+    positions: wp.array(dtype=wp.vec3),
+    velocities: wp.array(dtype=wp.vec3),
+):
+    tid = wp.tid()
+    pos = positions[tid]
+    vel = velocities[tid]
+    state = wp.rand_init(123, tid)
+    for i in range(3):
+        if pos[i] < env_bounds_lower[i] or pos[i] > env_bounds_upper[i]:
+            l, u = env_bounds_lower[i], env_bounds_upper[i]
+            pos[i] = wp.randf(state, u, l)
+            vel[i] = wind_velocity[i]
+    vel += noise_velocity * wp.randf(state, -1.0, 1.0)
+    pos += vel * dt
+    positions[tid] = pos
+    velocities[tid] = vel
+
+
 class DroneEnvironment(Environment):
     sim_name = "env_drone"
 
@@ -489,12 +597,18 @@ class DroneEnvironment(Environment):
     integrator_type = IntegratorType.EULER
 
     controllable_dofs = [0, 1, 2, 3]
-    control_gains = [1.0] * 4
-    control_limits = [(0.1, 0.3)] * 4
+    control_gains = [4.0] * 4
+    control_limits = [(0.1, 0.6)] * 4
 
     flight_target = wp.vec3(0.0, 0.5, 1.0)
 
-    wind_velocity = wp.vec3(10.0, 0.0, 0.0)
+    wind_velocity = wp.vec3(2.0, 0.0, 0.0)
+
+    visualize_air_molecules = True
+    air_molecule_bounds_lower = wp.vec3(-10.0, 0.0, -10.0)
+    air_molecule_bounds_upper = wp.vec3(10.0, 20.0, 10.0)
+    air_molecule_noise_velocity = wp.vec3(0.0, 0.0, 0.0)
+    air_molecule_count = 10000
 
     def __init__(self):
         self.drone_plugin = DroneSimulationPlugin(wind_velocity=self.wind_velocity)
@@ -504,8 +618,12 @@ class DroneEnvironment(Environment):
         # arrays to keep track of propeller rotation just for rendering
         self.prop_rotation = None
 
+        # radius of the collision sphere around the drone
+        self.collision_radius = 1.5 * self.drone_crossbar_length
+
     def setup(self, builder):
         self.prop_shapes = []
+        self.obstacle_shapes = []
 
         def add_prop(drone, i, pos, cw=True):
             normal = wp.vec3(0.0, 1.0, 0.0)
@@ -530,10 +648,19 @@ class DroneEnvironment(Environment):
             drone = builder.add_body(name=f"drone_{i}", origin=xform)
             builder.add_shape_box(
                 drone,
+                hx=self.drone_crossbar_length * 0.3,
+                hy=self.drone_crossbar_height * 3.0,
+                hz=self.drone_crossbar_length * 0.3,
+                collision_group=i,
+                density=carbon_fiber_density,
+            )
+            builder.add_shape_box(
+                drone,
                 hx=self.drone_crossbar_length,
                 hy=self.drone_crossbar_height,
                 hz=self.drone_crossbar_width,
                 collision_group=i,
+                density=carbon_fiber_density,
             )
             builder.add_shape_box(
                 drone,
@@ -541,6 +668,7 @@ class DroneEnvironment(Environment):
                 hy=self.drone_crossbar_height,
                 hz=self.drone_crossbar_length,
                 collision_group=i,
+                density=carbon_fiber_density,
             )
 
             add_prop(drone, i, wp.vec3(self.drone_crossbar_length, 0.0, 0.0), False)
@@ -548,11 +676,54 @@ class DroneEnvironment(Environment):
             add_prop(drone, i, wp.vec3(0.0, 0.0, self.drone_crossbar_length))
             add_prop(drone, i, wp.vec3(0.0, 0.0, -self.drone_crossbar_length), False)
 
+            obstacle_shapes = [
+                builder.add_shape_capsule(
+                    -1,
+                    pos=(0.5, 0.5, 0.5),
+                    radius=0.15,
+                    collision_group=i,
+                ),
+                builder.add_shape_capsule(
+                    -1,
+                    pos=(-0.5, 0.5, 0.5),
+                    radius=0.15,
+                    collision_group=i,
+                ),
+                builder.add_shape_capsule(
+                    -1,
+                    pos=(0.5, 0.5, -0.5),
+                    radius=0.15,
+                    collision_group=i,
+                ),
+                builder.add_shape_capsule(
+                    -1,
+                    pos=(-0.5, 0.5, -0.5),
+                    radius=0.15,
+                    collision_group=i,
+                ),
+            ]
+            self.obstacle_shapes.append(obstacle_shapes)
+
+            self.obstacle_shape_count_per_env = len(obstacle_shapes)
+
     def before_simulate(self):
-        if self.render_mode == RenderMode.OPENGL:
+        self.obstacle_shapes_wp = wp.array(self.obstacle_shapes, dtype=int, device=self.device)
+
+        if self.visualize_air_molecules:
+            lower = np.array(self.air_molecule_bounds_lower)
+            upper = np.array(self.air_molecule_bounds_upper)
+            pos = np.random.uniform(size=(self.air_molecule_count, 3)) * (upper - lower) + lower
+            self.air_molecule_positions = wp.array(pos, dtype=wp.vec3, device=self.device)
+            self.air_molecule_velocities = wp.array(
+                np.tile(np.array(self.wind_velocity), (self.air_molecule_count, 1)), dtype=wp.vec3, device=self.device
+            )
+            self.air_molecule_colors = np.tile((0.1, 0.2, 0.8), (self.air_molecule_count, 1))
+
+        if self.render_mode != RenderMode.NONE:
             self.prop_shape = wp.array(self.prop_shapes, dtype=int, device=self.device)
             self.prop_rotation = wp.zeros(len(self.prop_shapes), dtype=float, device=self.device)
 
+        if self.render_mode == RenderMode.OPENGL:
             import pyglet
 
             self.count_target_swaps = 0
@@ -581,9 +752,32 @@ class DroneEnvironment(Environment):
             renderer = self.renderer
         for i in range(self.num_envs):
             renderer.render_sphere(
-                f"target_{i}", self.flight_target + wp.vec3(self.env_offsets[i]), wp.quat_identity(), radius=0.05
+                f"target_{i}",
+                self.flight_target + wp.vec3(self.env_offsets[i]),
+                wp.quat_identity(),
+                radius=0.05,
             )
             # print("target", self.flight_target + self.env_offsets[i])
+
+        if self.visualize_air_molecules:
+            wp.launch(
+                move_air_molecules,
+                dim=self.air_molecule_count,
+                inputs=[
+                    self.air_molecule_bounds_lower,
+                    self.air_molecule_bounds_upper,
+                    self.wind_velocity,
+                    self.air_molecule_noise_velocity,
+                    self.frame_dt,
+                ],
+                outputs=[self.air_molecule_positions, self.air_molecule_velocities],
+            )
+            renderer.render_points(
+                "air_molecules",
+                self.air_molecule_positions.numpy(),
+                radius=0.01,
+                colors=self.air_molecule_colors,
+            )
 
         if isinstance(renderer, wp.sim.render.SimRendererOpenGL):
             # directly animate shape instances in renderer because model.shape_transform is not considered
@@ -632,7 +826,21 @@ class DroneEnvironment(Environment):
         wp.launch(
             drone_cost,
             dim=self.num_envs,
-            inputs=[state.body_q, state.body_qd, self.flight_target, step, horizon_length],
+            inputs=[state.body_q, state.body_qd, self.flight_target, state.prop_control, step, horizon_length],
+            outputs=[cost],
+            device=self.device,
+        )
+        wp.launch(
+            collision_cost,
+            dim=(self.num_envs, self.obstacle_shape_count_per_env),
+            inputs=[
+                state.body_q,
+                self.obstacle_shapes_wp,
+                self.model.shape_transform,
+                self.model.shape_geo,
+                self.collision_radius,
+                1e0,
+            ],
             outputs=[cost],
             device=self.device,
         )
