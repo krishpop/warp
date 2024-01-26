@@ -237,7 +237,7 @@ class Controller:
     def __init__(self, env_fn):
 
         # total number of time steps in the trajectory that is optimized
-        self.traj_length = 500
+        self.traj_length = 5000
 
         # time steps between control points
         self.control_step = 10
@@ -495,7 +495,7 @@ class Controller:
         # gradient-based optimization
         if self._optimizer is None:
             # TODO try Adam
-            self._optimizer = SGD([self.rollout_trajectories], lr=1e-2, nesterov=False, momentum=0.0)
+            self._optimizer = SGD([self.rollout_trajectories], lr=1.5e-2, nesterov=False, momentum=0.0)
             # self._optimizer = Adam([self.rollout_trajectories], lr=1e-4)
         if self.use_graph_capture:
             self.sample_controls(self.best_traj)
