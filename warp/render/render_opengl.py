@@ -667,6 +667,45 @@ class ShapeInstancer:
 
         self.face_count = len(indices)
 
+    def update_colors(self, colors1, colors2):
+        from pyglet import gl
+
+        if colors1 is None:
+            colors1 = np.tile(self.color1, (self.num_instances, 1))
+        if colors2 is None:
+            colors2 = np.tile(self.color2, (self.num_instances, 1))
+        if np.shape(colors1) != (self.num_instances, 3):
+            colors1 = np.tile(colors1, (self.num_instances, 1))
+        if np.shape(colors2) != (self.num_instances, 3):
+            colors2 = np.tile(colors2, (self.num_instances, 1))
+        colors1 = np.array(colors1, dtype=np.float32)
+        colors2 = np.array(colors2, dtype=np.float32)
+
+        gl.glBindVertexArray(self.vao)
+
+        # create buffer for checkerboard colors
+        if self.instance_color1_buffer is None:
+            self.instance_color1_buffer = gl.GLuint()
+            gl.glGenBuffers(1, self.instance_color1_buffer)
+        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.instance_color1_buffer)
+        gl.glBufferData(gl.GL_ARRAY_BUFFER, colors1.nbytes, colors1.ctypes.data, gl.GL_STATIC_DRAW)
+
+        if self.instance_color2_buffer is None:
+            self.instance_color2_buffer = gl.GLuint()
+            gl.glGenBuffers(1, self.instance_color2_buffer)
+        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.instance_color2_buffer)
+        gl.glBufferData(gl.GL_ARRAY_BUFFER, colors2.nbytes, colors2.ctypes.data, gl.GL_STATIC_DRAW)
+
+        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.instance_color1_buffer)
+        gl.glVertexAttribPointer(7, 3, gl.GL_FLOAT, gl.GL_FALSE, colors1[0].nbytes, ctypes.c_void_p(0))
+        gl.glEnableVertexAttribArray(7)
+        gl.glVertexAttribDivisor(7, 1)
+
+        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.instance_color2_buffer)
+        gl.glVertexAttribPointer(8, 3, gl.GL_FLOAT, gl.GL_FALSE, colors2[0].nbytes, ctypes.c_void_p(0))
+        gl.glEnableVertexAttribArray(8)
+        gl.glVertexAttribDivisor(8, 1)
+
     def allocate_instances(self, positions, rotations=None, colors1=None, colors2=None, scalings=None):
         from pyglet import gl
 
@@ -723,30 +762,10 @@ class ShapeInstancer:
             int(self.instance_transform_gl_buffer.value), self.device
         )
 
-        if colors1 is None:
-            colors1 = np.tile(self.color1, (self.num_instances, 1))
-        if colors2 is None:
-            colors2 = np.tile(self.color2, (self.num_instances, 1))
-        colors1 = np.array(colors1, dtype=np.float32)
-        colors2 = np.array(colors2, dtype=np.float32)
-
-        # create buffer for checkerboard colors
-        if self.instance_color1_buffer is None:
-            self.instance_color1_buffer = gl.GLuint()
-            gl.glGenBuffers(1, self.instance_color1_buffer)
-        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.instance_color1_buffer)
-        gl.glBufferData(gl.GL_ARRAY_BUFFER, colors1.nbytes, colors1.ctypes.data, gl.GL_STATIC_DRAW)
-
-        if self.instance_color2_buffer is None:
-            self.instance_color2_buffer = gl.GLuint()
-            gl.glGenBuffers(1, self.instance_color2_buffer)
-        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.instance_color2_buffer)
-        gl.glBufferData(gl.GL_ARRAY_BUFFER, colors2.nbytes, colors2.ctypes.data, gl.GL_STATIC_DRAW)
+        self.update_colors(colors1, colors2)
 
         # Set up instance attribute pointers
         matrix_size = vbo_transforms[0].nbytes
-
-        gl.glBindVertexArray(self.vao)
 
         gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.instance_transform_gl_buffer)
 
@@ -757,16 +776,6 @@ class ShapeInstancer:
             )
             gl.glEnableVertexAttribArray(3 + i)
             gl.glVertexAttribDivisor(3 + i, 1)
-
-        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.instance_color1_buffer)
-        gl.glVertexAttribPointer(7, 3, gl.GL_FLOAT, gl.GL_FALSE, colors1[0].nbytes, ctypes.c_void_p(0))
-        gl.glEnableVertexAttribArray(7)
-        gl.glVertexAttribDivisor(7, 1)
-
-        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.instance_color2_buffer)
-        gl.glVertexAttribPointer(8, 3, gl.GL_FLOAT, gl.GL_FALSE, colors2[0].nbytes, ctypes.c_void_p(0))
-        gl.glEnableVertexAttribArray(8)
-        gl.glVertexAttribDivisor(8, 1)
 
         gl.glBindVertexArray(0)
 
@@ -807,6 +816,9 @@ class ShapeInstancer:
             )
 
             self._instance_transform_cuda_buffer.unmap()
+
+        if colors1 is not None or colors2 is not None:
+            self.update_colors(colors1, colors2)
 
     def render(self):
         from pyglet import gl
@@ -910,7 +922,7 @@ class OpenGLRenderer:
         self.window.switch_to()
 
         self.screen_width, self.screen_height = self.window.get_framebuffer_size()
-        
+
         self.enable_mouse_interaction = enable_mouse_interaction
         self.enable_keyboard_interaction = enable_keyboard_interaction
 
@@ -2462,7 +2474,15 @@ Instances: {len(self._instances)}"""
         )
 
     def render_sphere(
-        self, name: str, pos: tuple, rot: tuple, radius: float, parent_body: str = None, is_template: bool = False
+        self,
+        name: str,
+        pos: tuple,
+        rot: tuple,
+        radius: float,
+        parent_body: str = None,
+        is_template: bool = False,
+        color1=None,
+        color2=None,
     ):
         """Add a sphere for visualization
 
@@ -2474,14 +2494,14 @@ Instances: {len(self._instances)}"""
         geo_hash = hash(("sphere", radius))
         if geo_hash in self._shape_geo_hash:
             shape = self._shape_geo_hash[geo_hash]
-            if self.update_shape_instance(name, pos, rot):
+            if self.update_shape_instance(name, pos, rot, color1=color1, color2=color2):
                 return shape
         else:
             vertices, indices = self._create_sphere_mesh(radius)
             shape = self.register_shape(geo_hash, vertices, indices)
         if not is_template:
             body = self._resolve_body_id(parent_body)
-            self.add_shape_instance(name, shape, body, pos, rot)
+            self.add_shape_instance(name, shape, body, pos, rot, color1=color1, color2=color2)
         return shape
 
     def render_capsule(
@@ -2801,6 +2821,7 @@ Instances: {len(self._instances)}"""
             instancer = self._shape_instancers[name]
             if len(lines) != instancer.num_instances:
                 instancer.allocate_instances(np.zeros((len(lines), 3)))
+            instancer.update_colors(color, color)
 
         lines_wp = wp.array(lines, dtype=wp.vec3, ndim=2, device=self._device)
         with instancer:
