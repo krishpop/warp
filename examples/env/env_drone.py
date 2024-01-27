@@ -88,6 +88,8 @@ def compute_prop_wrenches(
     props: wp.array(dtype=Propeller),
     controls: wp.array(dtype=float),
     body_q: wp.array(dtype=wp.transform),
+    body_com: wp.array(dtype=wp.vec3),
+    # outputs
     body_f: wp.array(dtype=wp.spatial_vector),
 ):
     tid = wp.tid()
@@ -97,7 +99,10 @@ def compute_prop_wrenches(
     dir = wp.transform_vector(tf, prop.dir)
     force = dir * prop.max_thrust * control
     torque = dir * prop.max_torque * control * prop.turning_direction
-    torque += wp.cross(wp.transform_vector(tf, prop.pos), force)
+    moment_arm = wp.transform_point(tf, prop.pos) - wp.transform_point(tf, body_com[prop.body])
+    torque += wp.cross(moment_arm, force)
+    # apply angular damping
+    torque *= 0.8
     wp.atomic_add(body_f, prop.body, wp.spatial_vector(torque, force))
 
 
@@ -124,7 +129,7 @@ def replay_counter_increment(counter: wp.array(dtype=int), counter_index: int, t
     return tids[tid]
 
 
-@wp.kernel
+@wp.kernel(enable_backward=False)
 def count_drag_vertices(
     shape_body: wp.array(dtype=int),
     geo: warp.sim.ModelShapeGeometry,
@@ -350,7 +355,7 @@ class DroneSimulationPlugin(wp.sim.SemiImplicitIntegratorPlugin):
         self.props.append(prop)
 
     def on_init(self, model, integrator):
-        self.props_wp = wp.array(self.props, dtype=Propeller, device=model.device)
+        self.props_wp = wp.array(self.props, dtype=Propeller, device=model.device, requires_grad=model.requires_grad)
 
         # generate drag vertices for all shapes
         self.drag_vertex_counter = wp.zeros(1, dtype=int, device=model.device)
@@ -362,7 +367,7 @@ class DroneSimulationPlugin(wp.sim.SemiImplicitIntegratorPlugin):
         )
         self.drag_vertex_count = int(self.drag_vertex_counter.numpy()[0])
         self.drag_vertex_tids = wp.zeros(self.drag_vertex_count, dtype=int, device=model.device)
-        self.drag_vertices = wp.zeros(self.drag_vertex_count, dtype=DragVertex, device=model.device)
+        self.drag_vertices = wp.zeros(self.drag_vertex_count, dtype=DragVertex, device=model.device, requires_grad=model.requires_grad)
         self.drag_vertex_counter.zero_()
         wp.launch(
             generate_drag_vertices,
@@ -374,12 +379,14 @@ class DroneSimulationPlugin(wp.sim.SemiImplicitIntegratorPlugin):
 
     def before_integrate(self, model, state_in, state_out, dt, requires_grad):
         assert self.props_wp is not None, "DroneSimulationPlugin not initialized"
+
+        state_in.body_f.zero_()
         # print(state_in.body_f.numpy())
         # print("control:", state_in.prop_control.numpy())
         wp.launch(
             compute_prop_wrenches,
             dim=len(self.props),
-            inputs=[self.props_wp, state_in.prop_control, state_in.body_q],
+            inputs=[self.props_wp, state_in.prop_control, state_in.body_q, model.body_com],
             outputs=[state_in.body_f],
             device=model.device,
         )
@@ -407,7 +414,7 @@ class DroneSimulationPlugin(wp.sim.SemiImplicitIntegratorPlugin):
         )
 
 
-@wp.kernel
+@wp.kernel(enable_backward=False)
 def update_prop_rotation(
     prop_rotation: wp.array(dtype=float),
     prop_control: wp.array(dtype=float),
@@ -439,7 +446,7 @@ def drone_cost(
     tf = body_q[env_id]
 
     pos_drone = wp.transform_get_translation(tf)
-    drone_cost = wp.length_sq(pos_drone - target)
+    pos_cost = wp.length_sq(pos_drone - target)
     upvector = wp.vec3(0.0, 1.0, 0.0)
     drone_up = wp.transform_vector(tf, upvector)
     upright_cost = wp.length_sq(drone_up - upvector)
@@ -453,11 +460,11 @@ def drone_cost(
     control_cost = wp.dot(control, control)
 
     # time_factor = wp.float(step) / wp.float(horizon_length)
-    discount = 0.9 ** wp.float(horizon_length - step - 1) / wp.float(horizon_length) ** 2.0
+    discount = 0.8 ** wp.float(horizon_length - step - 1) / wp.float(horizon_length) ** 2.0
     # discount = 0.5 ** wp.float(step) / wp.float(horizon_length)
     # discount = 1.0 / wp.float(horizon_length)
 
-    wp.atomic_add(cost, env_id, (10.0 * drone_cost + 10.0 * control_cost + 0.02 * vel_cost + 0.1 * upright_cost) * discount)
+    wp.atomic_add(cost, env_id, (1000.0 * pos_cost + 0.5 * control_cost + 0.2 * vel_cost + 10.0 * upright_cost) * discount)
 
 
 @wp.kernel
@@ -520,42 +527,21 @@ def collision_cost(
         d = plane_sdf(geo_scale[0], geo_scale[1], x_local)
 
     if d < margin:
-        c = d - margin
+        c = margin - d
         # L2 distance
         wp.atomic_add(cost, env_id, weighting * c * c)
         # log-barrier function
-        # wp.atomic_add(cost, env_id, weighting * wp.log(-c))
+        # wp.atomic_add(cost, env_id, weighting * wp.log(c))
 
 
-@wp.func
-def standard_temperature(geopot: float):
-    # standard atmospheric pressure
-    # Below 51km: Practical Meteorology by Roland Stull, pg 12
-    # Above 51km: http://www.braeunig.us/space/atmmodel.htm
-    if geopot <= 11.0:  # troposphere
-        return 288.15 - (6.5 * geopot)
-    elif geopot <= 20.0:  # stratosphere
-        return 216.65
-    elif geopot <= 32.0:
-        return 196.65 + geopot
-    elif geopot <= 47.0:
-        return 228.65 + 2.8 * (geopot - 32.0)
-    elif geopot <= 51:  # mesosphere
-        return 270.65
-    elif geopot <= 71.0:
-        return 270.65 - 2.8 * (geopot - 51.0)
-    elif geopot <= 84.85:
-        return 214.65 - 2.0 * (geopot - 71.0)
-    return 3.0
-
-
-@wp.kernel
+@wp.kernel(enable_backward=False)
 def move_air_molecules(
     env_bounds_lower: wp.vec3,
     env_bounds_upper: wp.vec3,
     wind_velocity: wp.vec3,
     noise_velocity: wp.vec3,
     dt: float,
+    seed: int,
     # outputs
     positions: wp.array(dtype=wp.vec3),
     velocities: wp.array(dtype=wp.vec3),
@@ -563,14 +549,16 @@ def move_air_molecules(
     tid = wp.tid()
     pos = positions[tid]
     vel = velocities[tid]
-    state = wp.rand_init(123, tid)
+    state = wp.rand_init(seed, tid)
     for i in range(3):
         if pos[i] < env_bounds_lower[i] or pos[i] > env_bounds_upper[i]:
             l, u = env_bounds_lower[i], env_bounds_upper[i]
             pos[i] = wp.randf(state, u, l)
-            vel[i] = wind_velocity[i]
-    vel += noise_velocity * wp.randf(state, -1.0, 1.0)
-    pos += vel * dt
+    rx = wp.randf(state, -1.0, 1.0) * noise_velocity[0]
+    ry = wp.randf(state, -1.0, 1.0) * noise_velocity[1]
+    rz = wp.randf(state, -1.0, 1.0) * noise_velocity[2]
+    vel = 0.99 * vel + wp.vec3(rx, ry, rz)
+    pos += (wind_velocity + vel) * dt
     positions[tid] = pos
     velocities[tid] = vel
 
@@ -597,17 +585,17 @@ class DroneEnvironment(Environment):
     integrator_type = IntegratorType.EULER
 
     controllable_dofs = [0, 1, 2, 3]
-    control_gains = [4.0] * 4
-    control_limits = [(0.1, 0.6)] * 4
+    control_gains = [0.8] * 4
+    control_limits = [(0.1, 1.0)] * 4
 
     flight_target = wp.vec3(0.0, 0.5, 1.0)
 
-    wind_velocity = wp.vec3(2.0, 0.0, 0.0)
+    wind_velocity = wp.vec3(0.0, 0.0, 0.0)
 
     visualize_air_molecules = True
     air_molecule_bounds_lower = wp.vec3(-10.0, 0.0, -10.0)
     air_molecule_bounds_upper = wp.vec3(10.0, 20.0, 10.0)
-    air_molecule_noise_velocity = wp.vec3(0.0, 0.0, 0.0)
+    air_molecule_noise_velocity = wp.vec3(3e-3, 3e-3, 3e-3)
     air_molecule_count = 10000
 
     def __init__(self):
@@ -619,7 +607,7 @@ class DroneEnvironment(Environment):
         self.prop_rotation = None
 
         # radius of the collision sphere around the drone
-        self.collision_radius = 1.5 * self.drone_crossbar_length
+        self.collision_radius = 2.5 * self.drone_crossbar_length
 
     def setup(self, builder):
         self.prop_shapes = []
@@ -646,14 +634,14 @@ class DroneEnvironment(Environment):
         for i in range(self.num_envs):
             xform = wp.transform(self.env_offsets[i], wp.quat_identity())
             drone = builder.add_body(name=f"drone_{i}", origin=xform)
-            builder.add_shape_box(
-                drone,
-                hx=self.drone_crossbar_length * 0.3,
-                hy=self.drone_crossbar_height * 3.0,
-                hz=self.drone_crossbar_length * 0.3,
-                collision_group=i,
-                density=carbon_fiber_density,
-            )
+            # builder.add_shape_box(
+            #     drone,
+            #     hx=self.drone_crossbar_length * 0.3,
+            #     hy=self.drone_crossbar_height * 3.0,
+            #     hz=self.drone_crossbar_length * 0.3,
+            #     collision_group=i,
+            #     density=carbon_fiber_density,
+            # )
             builder.add_shape_box(
                 drone,
                 hx=self.drone_crossbar_length,
@@ -718,6 +706,7 @@ class DroneEnvironment(Environment):
                 np.tile(np.array(self.wind_velocity), (self.air_molecule_count, 1)), dtype=wp.vec3, device=self.device
             )
             self.air_molecule_colors = np.tile((0.1, 0.2, 0.8), (self.air_molecule_count, 1))
+            self.air_molecule_random_seed = 123
 
         if self.render_mode != RenderMode.NONE:
             self.prop_shape = wp.array(self.prop_shapes, dtype=int, device=self.device)
@@ -769,9 +758,11 @@ class DroneEnvironment(Environment):
                     self.wind_velocity,
                     self.air_molecule_noise_velocity,
                     self.frame_dt,
+                    self.air_molecule_random_seed,
                 ],
                 outputs=[self.air_molecule_positions, self.air_molecule_velocities],
             )
+            self.air_molecule_random_seed += 1
             renderer.render_points(
                 "air_molecules",
                 self.air_molecule_positions.numpy(),
