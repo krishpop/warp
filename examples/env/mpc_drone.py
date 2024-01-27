@@ -25,7 +25,8 @@ from tqdm import trange
 
 import matplotlib.pyplot as plt
 
-DEBUG_PLOTS = True
+DEBUG_PLOTS = False
+CHECK_NANS = False
 
 # wp.config.verify_cuda = True
 # wp.config.mode = "debug"
@@ -36,12 +37,10 @@ wp.init()
 
 
 if DEBUG_PLOTS:
-
     import pyqtgraph as pg
     from PyQt5 import QtWidgets
 
     class MainWindow(QtWidgets.QMainWindow):
-
         def __init__(self, *args, **kwargs):
             super(MainWindow, self).__init__(*args, **kwargs)
 
@@ -173,10 +172,10 @@ def interpolate_control_cubic(
     # Eq. 18
     phi_1 = 0.5 * ((c3 - c2) + (c2 - c1)) / dt
     # Eq. 20-23
-    a = 2.0 * q ** 3.0 - 3.0 * q ** 2.0 + 1.0
-    b = (q ** 3.0 - 2.0 * q ** 2.0 + q) * dt
-    c = -2.0 * q ** 3.0 + 3.0 * q ** 2.0
-    d = (q ** 3.0 - q ** 2.0) * dt
+    a = 2.0 * q**3.0 - 3.0 * q**2.0 + 1.0
+    b = (q**3.0 - 2.0 * q**2.0 + q) * dt
+    c = -2.0 * q**3.0 + 3.0 * q**2.0
+    d = (q**3.0 - q**2.0) * dt
     torque_id = env_id * torque_dim + control_dims[control_id]
     action = a * c1 + b * phi_0 + c * c2 + d * phi_1
     torques[torque_id] = action * control_gains[control_id]
@@ -221,21 +220,17 @@ def enforce_control_limits(
 ):
     env_id, t_id, control_id = wp.tid()
     lo, hi = control_limits[control_id, 0], control_limits[control_id, 1]
-    control_points[env_id, t_id, control_id] = wp.clamp(
-        control_points[env_id, t_id, control_id], lo, hi
-    )
+    control_points[env_id, t_id, control_id] = wp.clamp(control_points[env_id, t_id, control_id], lo, hi)
 
 
 class Controller:
-
     noise_scale = 0.1
 
-    # interpolation_mode = InterpolationMode.INTERPOLATE_LINEAR
+    interpolation_mode = InterpolationMode.INTERPOLATE_LINEAR
     # interpolation_mode = InterpolationMode.INTERPOLATE_CUBIC
-    interpolation_mode = InterpolationMode.INTERPOLATE_HOLD
+    # interpolation_mode = InterpolationMode.INTERPOLATE_HOLD
 
     def __init__(self, env_fn):
-
         # total number of time steps in the trajectory that is optimized
         self.traj_length = 5000
 
@@ -246,7 +241,7 @@ class Controller:
         # total number of horizon time steps
         self.horizon_length = self.num_control_points * self.control_step
         # number of trajectories to sample for optimization
-        self.num_threads = 1
+        self.num_threads = 16
         # number of steps to follow before optimizing again
         self.optimization_interval = 1
 
@@ -271,7 +266,7 @@ class Controller:
         self.env_ref.init()
         self.dof_count = len(self.env_ref.control)
 
-        self.use_graph_capture = wp.get_device(self.device).is_cuda
+        self.use_graph_capture = wp.get_device(self.device).is_cuda and not CHECK_NANS
 
         # optimized control points for the current horizon
         self.best_traj = None
@@ -328,8 +323,9 @@ class Controller:
                 if i == 0:
                     p.setTitle("Cost")
                     # p.setYRange(0.0, 10.0)
-                    self.cost_plot = p.plot(np.arange(self.num_threads), np.zeros(
-                        self.num_threads), symbol='o', symbolSize=4)
+                    self.cost_plot = p.plot(
+                        np.arange(self.num_threads), np.zeros(self.num_threads), symbol="o", symbolSize=4
+                    )
                 else:
                     p.setTitle(f"Control {i-1}")
                     p.setYRange(*self.env_rollout.control_limits[i - 1])
@@ -339,7 +335,7 @@ class Controller:
                 thread_plots = []
                 for j in range(1, self.control_dim + 1):
                     pen = pg.mkPen(color=self.plot_colors[i % len(self.plot_colors)])
-                    p = self.rollout_plot_axs[j].plot(self.data_xs, ys, pen=pen, symbol='o', symbolSize=2)
+                    p = self.rollout_plot_axs[j].plot(self.data_xs, ys, pen=pen, symbol="o", symbolSize=2)
                     thread_plots.append(p)
                 self.rollout_plots.append(thread_plots)
 
@@ -363,15 +359,17 @@ class Controller:
                 squeeze=False,
                 sharex=True,
             )
-            scaled_control_limits = np.array(self.env_rollout.control_limits) * \
-                np.array(self.env_rollout.control_gains)[:, np.newaxis]
+            scaled_control_limits = (
+                np.array(self.env_rollout.control_limits) * np.array(self.env_rollout.control_gains)[:, np.newaxis]
+            )
             for i in range(num_plots):
                 p = self.plotting_window.graphWidget2.addPlot(row=i // ncols, col=i % ncols)
                 if i == 0:
                     p.setTitle("Ref Cost")
                     # p.setYRange(0.0, 10.0)
-                    self.ref_cost_plot = p.plot(np.arange(self.num_threads), np.zeros(
-                        self.num_threads), pen=pg.mkPen(color=(255, 0, 0)))
+                    self.ref_cost_plot = p.plot(
+                        np.arange(self.num_threads), np.zeros(self.num_threads), pen=pg.mkPen(color=(255, 0, 0))
+                    )
                 else:
                     p.setTitle(f"Ref Control {i-1}")
                     p.setYRange(*scaled_control_limits[i - 1])
@@ -401,11 +399,19 @@ class Controller:
         elif self.interpolation_mode == InterpolationMode.INTERPOLATE_CUBIC:
             self.num_control_points_data += 3
         # optimized control points for the current horizon (3-dimensional to be compatible with rollout trajectories)
-        self.best_traj = wp.zeros((1, self.num_control_points_data, self.control_dim),
-                                  dtype=float, requires_grad=self.use_diff_sim, device=self.device)
+        self.best_traj = wp.zeros(
+            (1, self.num_control_points_data, self.control_dim),
+            dtype=float,
+            requires_grad=self.use_diff_sim,
+            device=self.device,
+        )
         # control point samples for the current horizon
         self.rollout_trajectories = wp.zeros(
-            (self.num_threads, self.num_control_points_data, self.control_dim), dtype=float, requires_grad=self.use_diff_sim, device=self.device)
+            (self.num_threads, self.num_control_points_data, self.control_dim),
+            dtype=float,
+            requires_grad=self.use_diff_sim,
+            device=self.device,
+        )
         # self.rollout_trajectories = wp.array(
         #     [
         #         -np.ones((self.num_control_points_data, self.control_dim)),
@@ -413,8 +419,9 @@ class Controller:
         #         np.zeros((self.num_control_points_data, self.control_dim)),
         #     ], dtype=float, requires_grad=self.use_diff_sim, device=self.device)
         # cost of each trajectory
-        self.rollout_costs = wp.zeros((self.num_threads,), dtype=float,
-                                      requires_grad=self.use_diff_sim, device=self.device)
+        self.rollout_costs = wp.zeros(
+            (self.num_threads,), dtype=float, requires_grad=self.use_diff_sim, device=self.device
+        )
 
     def run(self):
         self.env_rollout.before_simulate()
@@ -454,7 +461,8 @@ class Controller:
                     self.renderer_usd.end_frame()
 
             ref_cost.zero_()
-            self.env_ref.evaluate_cost(self.env_ref.state, ref_cost, t, self.traj_length)
+            # use some fake step and traj_length numbers here to not have discount factor applied
+            self.env_ref.evaluate_cost(self.env_ref.state, ref_cost, 1, 1)
             self.env_ref_costs.append(ref_cost.numpy()[0])
 
             if DEBUG_PLOTS:
@@ -491,23 +499,24 @@ class Controller:
         self.pick_best_control()
 
     def optimize(self, state):
-        num_opt_steps = 15
+        num_opt_steps = 10
         # gradient-based optimization
         if self._optimizer is None:
             # TODO try Adam
-            self._optimizer = SGD([self.rollout_trajectories], lr=1.5e-2, nesterov=False, momentum=0.0)
-            # self._optimizer = Adam([self.rollout_trajectories], lr=1e-4)
+            self._optimizer = SGD([self.rollout_trajectories.flatten()], lr=2.e-2, nesterov=False, momentum=0.0)
+            # self._optimizer = Adam([self.rollout_trajectories.flatten()], lr=1e-2)
         if self.use_graph_capture:
             self.sample_controls(self.best_traj)
             if self._opt_graph is None or self.env_ref.invalidate_cuda_graph:
                 self.env_rollout.flight_target = self.env_ref.flight_target
                 wp.capture_begin()
+                self.sample_controls(self.best_traj)
                 self.tape = wp.Tape()
                 with self.tape:
                     self.rollout(state, self.rollout_trajectories)
                 self.rollout_costs.grad.fill_(1.0)
                 self.tape.backward()
-                self._optimizer.step([self.rollout_trajectories.grad])
+                self._optimizer.step([self.rollout_trajectories.grad.flatten()])
                 self.clamp_controls()
                 self.tape.zero()
                 self._opt_graph = wp.capture_end()
@@ -536,7 +545,6 @@ class Controller:
                     self.tape = wp.Tape()
                     with self.tape:
                         self.rollout(state, self.rollout_trajectories)
-                        
 
                     # check_backward_pass(
                     #     self.tape,
@@ -557,14 +565,13 @@ class Controller:
                     self.tape.backward()
                 else:
                     jac_fd = function_jacobian_fd(
-                        lambda controls: self.rollout(state, controls),
-                        inputs=[self.rollout_trajectories],
-                        eps=1e-3)
+                        lambda controls: self.rollout(state, controls), inputs=[self.rollout_trajectories], eps=1e-3
+                    )
                     self.rollout_trajectories.grad.assign(jac_fd)
 
-                self._optimizer.step([self.rollout_trajectories.grad])
+                self._optimizer.step([self.rollout_trajectories.grad.flatten()])
                 lr = 1.5e-3
-                print(f"\niter {it} cost:", self.rollout_costs.numpy().flatten())
+                # print(f"\niter {it} cost:", self.rollout_costs.numpy().flatten())
                 # print("\tchecked cost 1:", self.rollout(state, self.rollout_trajectories).numpy())
                 # print("\tchecked cost 2:", self.rollout(state, self.rollout_trajectories).numpy())
 
@@ -578,12 +585,13 @@ class Controller:
                 #     inputs=[self.rollout_trajectories],
                 #     eps=1e-3)
                 # print("\tjac_fd 2:", jac_fd.flatten())
-                self.rollout_trajectories.assign(self.rollout_trajectories.numpy() -
-                                                 lr * self.rollout_trajectories.grad.numpy())
-                print("\tgrad:", self.rollout_trajectories.grad.numpy().flatten())
-                print("\tcontrols:", self.rollout_trajectories.numpy().flatten())
+                self.rollout_trajectories.assign(
+                    self.rollout_trajectories.numpy() - lr * self.rollout_trajectories.grad.numpy()
+                )
+                # print("\tgrad:", self.rollout_trajectories.grad.numpy().flatten())
+                # print("\tcontrols:", self.rollout_trajectories.numpy().flatten())
                 self.clamp_controls()
-                print("\tclamped controls:", self.rollout_trajectories.numpy().flatten())
+                # print("\tclamped controls:", self.rollout_trajectories.numpy().flatten())
                 if not use_fd_grads:
                     self.tape.zero()
         wp.synchronize()
@@ -600,9 +608,29 @@ class Controller:
             dim=(self.num_control_points_data, self.control_dim),
             inputs=[self.rollout_trajectories, lowest_cost_id],
             outputs=[self.best_traj],
-            device=self.device
+            device=self.device,
         )
         self.rollout_trajectories[-1].assign(self.best_traj[0])
+
+        if self.env_ref.render_mode != RenderMode.NONE:
+            # render position trajectories
+            qs = np.array([s.body_q.numpy() for s in self.env_rollout.states])
+            min_cost = np.min(costs)
+            max_cost = np.max(costs)
+            for i in range(self.num_threads):
+                color = wp.render.bourke_color_map(min_cost, max_cost, costs[i])
+                self.env_ref.renderer.render_line_strip(
+                    name=f"rollout_{i}",
+                    vertices=qs[:, i, :3],
+                    color=color,
+                    radius=0.005,
+                )
+
+        # if True or CHECK_NANS:
+        #     if np.isnan(self.rollout_trajectories.numpy()).any():
+        #         raise RuntimeError("NaN detected in rollout trajectories")
+        #     if np.isnan(self.env_rollout.state.body_qd.numpy()).any():
+        #         raise RuntimeError("NaN detected in rollout simulation")
 
         if DEBUG_PLOTS:
             self.cost_plot.setData(np.arange(self.num_threads), costs)
@@ -612,7 +640,7 @@ class Controller:
                 env_ref_acts = np.array(self.env_ref_acts)
                 for j in range(self.control_dim):
                     for i in range(plotting_threads):
-                        self.rollout_plots[i][j].setData(self.data_xs, trajs[i, :self.num_control_points, j])
+                        self.rollout_plots[i][j].setData(self.data_xs, trajs[i, : self.num_control_points, j])
                     self.ref_plots[j].setData(np.arange(len(env_ref_acts)), env_ref_acts[:, j])
 
     def clamp_controls(self):
@@ -638,12 +666,12 @@ class Controller:
                     self.dof_count,
                 ],
                 outputs=[env.control],
-                device=self.device)
+                device=self.device,
+            )
             if env == self.env_ref:
                 self.env_ref_acts.append(env.control.numpy()[self.controllable_dofs_np])
             if DEBUG_PLOTS and not self.use_graph_capture:
-                self.control_hist.append(env.control.numpy()[
-                    self.controllable_dofs_np].reshape((-1, self.control_dim)))
+                self.control_hist.append(env.control.numpy()[self.controllable_dofs_np].reshape((-1, self.control_dim)))
 
         def update_control_linear():
             wp.launch(
@@ -657,12 +685,12 @@ class Controller:
                     self.dof_count,
                 ],
                 outputs=[env.control],
-                device=self.device)
+                device=self.device,
+            )
             if env == self.env_ref:
                 self.env_ref_acts.append(env.control.numpy()[self.controllable_dofs_np])
             if DEBUG_PLOTS and not self.use_graph_capture:
-                self.control_hist.append(env.control.numpy()[
-                    self.controllable_dofs_np].reshape((-1, self.control_dim)))
+                self.control_hist.append(env.control.numpy()[self.controllable_dofs_np].reshape((-1, self.control_dim)))
 
         def update_control_cubic():
             wp.launch(
@@ -677,12 +705,12 @@ class Controller:
                     self.dof_count,
                 ],
                 outputs=[env.control],
-                device=self.device)
+                device=self.device,
+            )
             if env == self.env_ref:
                 self.env_ref_acts.append(env.control.numpy()[self.controllable_dofs_np])
             if DEBUG_PLOTS and not self.use_graph_capture:
-                self.control_hist.append(env.control.numpy()[
-                    self.controllable_dofs_np].reshape((-1, self.control_dim)))
+                self.control_hist.append(env.control.numpy()[self.controllable_dofs_np].reshape((-1, self.control_dim)))
 
         def update_control_direct():
             wp.launch(
@@ -697,7 +725,8 @@ class Controller:
                     env.bodies_per_env,
                 ],
                 outputs=[env.state.body_f],
-                device=self.device)
+                device=self.device,
+            )
 
         # env.custom_update = update_control_direct
         # return
@@ -720,22 +749,22 @@ class Controller:
         wp.launch(
             replicate_states,
             dim=self.num_threads,
-            inputs=[
-                state.body_q,
-                state.body_qd,
-                self.body_count
-            ],
-            outputs=[
-                self.env_rollout.state.body_q,
-                self.env_rollout.state.body_qd
-            ],
-            device=self.device
+            inputs=[state.body_q, state.body_qd, self.body_count],
+            outputs=[self.env_rollout.state.body_q, self.env_rollout.state.body_qd],
+            device=self.device,
         )
         self.assign_control_fn(self.env_rollout, controls)
 
         for t in range(self.horizon_length):
             self.env_rollout.update()
+            if CHECK_NANS:
+                if np.isnan(self.env_rollout.state.body_qd.numpy()).any():
+                    raise RuntimeError("NaN detected in rollout simulation")
+
             self.env_rollout.evaluate_cost(self.env_rollout.state, self.rollout_costs, t, self.horizon_length)
+            if CHECK_NANS:
+                if np.isnan(self.rollout_costs.numpy()).any():
+                    raise RuntimeError("NaN detected in rollout cost")
             if not self.use_graph_capture:
                 self.env_rollout.render()
 
@@ -766,7 +795,7 @@ class Controller:
                 self.sampling_seed_counter,
             ],
             outputs=[self.rollout_trajectories],
-            device=self.device
+            device=self.device,
         )
         # if DEBUG_PLOTS:
         #     fig, axes, ncols, nrows = self._create_plot_grid(self.control_dim)
