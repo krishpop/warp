@@ -224,7 +224,9 @@ def enforce_control_limits(
 
 
 class Controller:
-    noise_scale = 0.1
+    noise_scale = 0.15
+
+    show_rollouts = True
 
     interpolation_mode = InterpolationMode.INTERPOLATE_LINEAR
     # interpolation_mode = InterpolationMode.INTERPOLATE_CUBIC
@@ -499,11 +501,11 @@ class Controller:
         self.pick_best_control()
 
     def optimize(self, state):
-        num_opt_steps = 10
+        num_opt_steps = 20
         # gradient-based optimization
         if self._optimizer is None:
             # TODO try Adam
-            self._optimizer = SGD([self.rollout_trajectories.flatten()], lr=2.e-2, nesterov=False, momentum=0.0)
+            self._optimizer = SGD([self.rollout_trajectories.flatten()], lr=1.e-2, nesterov=False, momentum=0.0)
             # self._optimizer = Adam([self.rollout_trajectories.flatten()], lr=1e-2)
         if self.use_graph_capture:
             self.sample_controls(self.best_traj)
@@ -612,13 +614,14 @@ class Controller:
         )
         self.rollout_trajectories[-1].assign(self.best_traj[0])
 
-        if self.env_ref.render_mode != RenderMode.NONE:
+        if self.show_rollouts and self.env_ref.render_mode != RenderMode.NONE:
             # render position trajectories
             qs = np.array([s.body_q.numpy() for s in self.env_rollout.states])
             min_cost = np.min(costs)
             max_cost = np.max(costs)
             for i in range(self.num_threads):
-                color = wp.render.bourke_color_map(min_cost, max_cost, costs[i])
+                # flip colors, so red means best trajectory, blue worst
+                color = wp.render.bourke_color_map(-max_cost, -min_cost, -costs[i])
                 self.env_ref.renderer.render_line_strip(
                     name=f"rollout_{i}",
                     vertices=qs[:, i, :3],
