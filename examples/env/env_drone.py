@@ -306,6 +306,7 @@ def compute_drag_wrenches(
     drag_vertices: wp.array(dtype=DragVertex),
     body_q: wp.array(dtype=wp.transform),
     body_qd: wp.array(dtype=wp.spatial_vector),
+    body_com: wp.array(dtype=wp.vec3),
     wind_velocity: wp.vec3,
     # outputs
     body_f: wp.array(dtype=wp.spatial_vector),
@@ -317,7 +318,8 @@ def compute_drag_wrenches(
     lin_vel = wp.spatial_bottom(vel) - wind_velocity
     ang_vel = wp.spatial_top(vel)
     world_vertex = wp.transform_point(tf, vertex.pos)
-    world_vertex_vel = lin_vel + wp.cross(ang_vel, world_vertex)
+    moment_arm = world_vertex - wp.transform_point(tf, body_com[vertex.body])
+    world_vertex_vel = lin_vel + wp.cross(moment_arm, ang_vel)
     if vertex.omnidirectional:
         vel_normal = wp.length_sq(world_vertex_vel)
     else:
@@ -325,7 +327,7 @@ def compute_drag_wrenches(
         vel_normal = wp.dot(world_normal, world_vertex_vel)
     if vel_normal > 1e-6:
         force = world_normal * (-vertex.drag_coefficient * vel_normal**2.0 * vertex.area * air_density / 2.0)
-        torque = wp.cross(world_vertex, force)
+        torque = wp.cross(moment_arm, force)
         wp.atomic_add(body_f, vertex.body, wp.spatial_vector(torque, force))
 
 
@@ -398,7 +400,7 @@ class DroneSimulationPlugin(wp.sim.SemiImplicitIntegratorPlugin):
         wp.launch(
             compute_drag_wrenches,
             dim=self.drag_vertex_count,
-            inputs=[self.drag_vertices, state_in.body_q, state_in.body_qd, self.wind_velocity],
+            inputs=[self.drag_vertices, state_in.body_q, state_in.body_qd, model.body_com, self.wind_velocity],
             outputs=[state_in.body_f],
         )
 
@@ -425,7 +427,7 @@ def update_prop_rotation(
 ):
     tid = wp.tid()
     prop = props[tid]
-    speed = prop_control[tid] * prop.max_speed_square / 20.0  # a bit slower for better rendering
+    speed = prop_control[tid] * prop.max_speed_square / 5000.0  # a bit slower for better rendering
     wp.atomic_add(prop_rotation, tid, prop.turning_direction * speed * dt)
     shape = prop_shape[tid]
     shape_transform[shape] = wp.transform(prop.pos, wp.quat_from_axis_angle(prop.dir, prop_rotation[tid]))
@@ -464,7 +466,7 @@ def drone_cost(
     # discount = 0.5 ** wp.float(step) / wp.float(horizon_length)
     # discount = 1.0 / wp.float(horizon_length)
 
-    wp.atomic_add(cost, env_id, (1000.0 * pos_cost + 0.5 * control_cost + 0.2 * vel_cost + 10.0 * upright_cost) * discount)
+    wp.atomic_add(cost, env_id, (1000.0 * pos_cost + 0.05 * control_cost + 0.2 * vel_cost + 10.0 * upright_cost) * discount)
 
 
 @wp.kernel
@@ -528,8 +530,7 @@ def collision_cost(
 
     if d < margin:
         c = margin - d
-        # L2 distance
-        wp.atomic_add(cost, env_id, weighting * c * c)
+        wp.atomic_add(cost, env_id, weighting * c)
         # log-barrier function
         # wp.atomic_add(cost, env_id, weighting * wp.log(c))
 
@@ -590,13 +591,15 @@ class DroneEnvironment(Environment):
 
     flight_target = wp.vec3(0.0, 0.5, 1.0)
 
-    wind_velocity = wp.vec3(0.0, 0.0, 0.0)
+    wind_velocity = wp.vec3(0.5, 0.0, 0.0)
 
     visualize_air_molecules = True
     air_molecule_bounds_lower = wp.vec3(-10.0, 0.0, -10.0)
     air_molecule_bounds_upper = wp.vec3(10.0, 20.0, 10.0)
     air_molecule_noise_velocity = wp.vec3(3e-3, 3e-3, 3e-3)
     air_molecule_count = 10000
+
+    render_collision_sphere = False
 
     def __init__(self):
         self.drone_plugin = DroneSimulationPlugin(wind_velocity=self.wind_velocity)
@@ -607,7 +610,7 @@ class DroneEnvironment(Environment):
         self.prop_rotation = None
 
         # radius of the collision sphere around the drone
-        self.collision_radius = 2.5 * self.drone_crossbar_length
+        self.collision_radius = 1.5 * self.drone_crossbar_length
 
     def setup(self, builder):
         self.prop_shapes = []
@@ -658,6 +661,13 @@ class DroneEnvironment(Environment):
                 collision_group=i,
                 density=carbon_fiber_density,
             )
+            if self.render_collision_sphere:
+                builder.add_shape_sphere(
+                    drone,
+                    radius=self.collision_radius,
+                    density=0.0,
+                    collision_group=i,
+                )
 
             add_prop(drone, i, wp.vec3(self.drone_crossbar_length, 0.0, 0.0), False)
             add_prop(drone, i, wp.vec3(-self.drone_crossbar_length, 0.0, 0.0))
@@ -665,24 +675,29 @@ class DroneEnvironment(Environment):
             add_prop(drone, i, wp.vec3(0.0, 0.0, -self.drone_crossbar_length), False)
 
             obstacle_shapes = [
+                # builder.add_shape_plane(
+                #     pos=(0.0, -0.5, 0.0),
+                #     width=0.0,
+                #     length=0.0,
+                # ),
                 builder.add_shape_capsule(
                     -1,
                     pos=(0.5, 0.5, 0.5),
                     radius=0.15,
                     collision_group=i,
                 ),
-                builder.add_shape_capsule(
-                    -1,
-                    pos=(-0.5, 0.5, 0.5),
-                    radius=0.15,
-                    collision_group=i,
-                ),
-                builder.add_shape_capsule(
-                    -1,
-                    pos=(0.5, 0.5, -0.5),
-                    radius=0.15,
-                    collision_group=i,
-                ),
+                # builder.add_shape_capsule(
+                #     -1,
+                #     pos=(-0.5, 0.5, 0.5),
+                #     radius=0.15,
+                #     collision_group=i,
+                # ),
+                # builder.add_shape_capsule(
+                #     -1,
+                #     pos=(0.5, 0.5, -0.5),
+                #     radius=0.15,
+                #     collision_group=i,
+                # ),
                 builder.add_shape_capsule(
                     -1,
                     pos=(-0.5, 0.5, -0.5),
@@ -830,7 +845,7 @@ class DroneEnvironment(Environment):
                 self.model.shape_transform,
                 self.model.shape_geo,
                 self.collision_radius,
-                1e0,
+                1e4,
             ],
             outputs=[cost],
             device=self.device,
