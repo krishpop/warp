@@ -2491,7 +2491,7 @@ Instances: {len(self._instances)}"""
             self.add_shape_instance(name, shape, body, pos, rot)
         return shape
 
-    def render_ground(self, size: float = 100.0):
+    def render_ground(self, size: float = 1000.0, plane=None):
         """Add a ground plane for visualization
 
         Args:
@@ -2506,9 +2506,22 @@ Instances: {len(self._instances)}"""
             q = (0.0, 0.0, 0.0, 1.0)
         elif self._camera_axis == 2:
             q = (sqh, 0.0, 0.0, sqh)
+        pos = (0.0, 0.0, 0.0)
+        if plane is not None:
+            normal = np.array(plane[:3])
+            normal /= np.linalg.norm(normal)
+            pos = plane[3] * normal
+            if np.allclose(normal, (0.0, 1.0, 0.0)):
+                # no rotation necessary
+                q = (0.0, 0.0, 0.0, 1.0)
+            else:
+                c = np.cross(normal, (0.0, 1.0, 0.0))
+                angle = np.arcsin(np.linalg.norm(c))
+                axis = np.abs(c) / np.linalg.norm(c)
+                q = wp.quat_from_axis_angle(axis, angle)
         return self.render_plane(
             "ground",
-            (0.0, 0.0, 0.0),
+            pos,
             q,
             size,
             size,

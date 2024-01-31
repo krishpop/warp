@@ -283,7 +283,7 @@ def CreateSimRenderer(renderer):
                             self.instance_count += 1
 
             if model.ground:
-                self.render_ground()
+                self.render_ground(plane=model.ground_plane_params)
 
             if hasattr(self, "complete_setup"):
                 self.complete_setup()

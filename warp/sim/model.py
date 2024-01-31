@@ -4053,6 +4053,8 @@ class ModelBuilder:
             m = Model(device, integrator=integrator)
             m.requires_grad = requires_grad
 
+            m.ground_plane_params = self._ground_params["plane"]
+
             m.num_envs = self.num_envs
 
             # ---------------------
