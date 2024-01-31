@@ -926,9 +926,6 @@ class OpenGLRenderer:
         self.enable_mouse_interaction = enable_mouse_interaction
         self.enable_keyboard_interaction = enable_keyboard_interaction
 
-        self._camera_pos = PyVec3(*camera_pos)
-        self._camera_front = PyVec3(*camera_front)
-        self._camera_up = PyVec3(*camera_up)
         self._camera_speed = 0.04
         if isinstance(up_axis, int):
             self._camera_axis = up_axis
@@ -945,7 +942,12 @@ class OpenGLRenderer:
         self.render_2d_callbacks = []
         self.render_3d_callbacks = []
 
-        self.update_view_matrix()
+        self._camera_pos = PyVec3(0.0, 0.0, 0.0)
+        self._camera_front = PyVec3(0.0, 0.0, -1.0)
+        self._camera_up = PyVec3(0.0, 1.0, 0.0)
+
+        self._model_matrix = self.compute_model_matrix(self._camera_axis, scaling)
+        self.update_view_matrix(cam_pos=camera_pos, cam_front=camera_front, cam_up=camera_up)
         self.update_projection_matrix()
 
         self._frame_dt = 1.0 / fps
@@ -1562,37 +1564,80 @@ class OpenGLRenderer:
             self.camera_fov, aspect_ratio, self.camera_near_plane, self.camera_far_plane
         )
 
-    def update_view_matrix(self):
-        from pyglet.math import Mat4 as PyMat4
+    @property
+    def camera_pos(self):
+        return self._camera_pos
 
-        cam_pos = self._camera_pos
-        self._view_matrix = np.array(PyMat4.look_at(cam_pos, cam_pos + self._camera_front, self._camera_up))
+    @camera_pos.setter
+    def camera_pos(self, value):
+        self.update_view_matrix(cam_pos=value)
 
-    def update_model_matrix(self):
+    @property
+    def camera_front(self):
+        return self._camera_front
+
+    @camera_front.setter
+    def camera_front(self, value):
+        self.update_view_matrix(cam_front=value)
+
+    @property
+    def camera_up(self):
+        return self._camera_up
+
+    @camera_up.setter
+    def camera_up(self, value):
+        self.update_view_matrix(cam_up=value)
+
+    def update_view_matrix(self, cam_pos=None, cam_front=None, cam_up=None, stiffness=1.0):
+        from pyglet.math import Vec3, Mat4
+
+        if cam_pos is not None:
+            self._camera_pos = self._camera_pos * (1.0 - stiffness) + Vec3(*cam_pos) * stiffness
+        if cam_front is not None:
+            self._camera_front = self._camera_front * (1.0 - stiffness) + Vec3(*cam_front) * stiffness
+        if cam_up is not None:
+            self._camera_up = self._camera_up * (1.0 - stiffness) + Vec3(*cam_up) * stiffness
+
+        model = np.array(self._model_matrix).reshape((4, 4))
+        cp = model @ np.array([*self._camera_pos, 1.0])
+        cf = model @ np.array([*self._camera_front, 1.0])
+        up = model @ np.array([*self._camera_up, 0.0])
+        cp = Vec3(*cp[:3])
+        cf = Vec3(*cf[:3])
+        up = Vec3(*up[:3])
+        self._view_matrix = np.array(Mat4.look_at(cp, cp + cf, up))
+
+    def compute_model_matrix(self, camera_axis: int, scaling: float):
+        if camera_axis == 0:
+            return np.array((
+                0, 0, scaling, 0,
+                scaling, 0, 0, 0,
+                0, scaling, 0, 0,
+                0, 0, 0, 1
+            ))
+        elif camera_axis == 2:
+            return np.array((
+                -scaling, 0, 0, 0,
+                0, 0, scaling, 0,
+                0, scaling, 0, 0,
+                0, 0, 0, 1
+            ))
+    
+        return np.array((
+            scaling, 0, 0, 0,
+            0, scaling, 0, 0,
+            0, 0, scaling, 0,
+            0, 0, 0, 1
+        ))
+
+    def update_model_matrix(self, model_matrix: Optional[Mat44] = None):
         from pyglet import gl
 
         # fmt: off
-        if self._camera_axis == 0:
-            self._model_matrix = np.array((
-                0, 0, self._scaling, 0,
-                self._scaling, 0, 0, 0,
-                0, self._scaling, 0, 0,
-                0, 0, 0, 1
-            ))
-        elif self._camera_axis == 2:
-            self._model_matrix = np.array((
-                -self._scaling, 0, 0, 0,
-                0, 0, self._scaling, 0,
-                0, self._scaling, 0, 0,
-                0, 0, 0, 1
-            ))
+        if model_matrix is None:
+            self._model_matrix = self.compute_model_matrix(self._camera_axis, self._scaling)
         else:
-            self._model_matrix = np.array((
-                self._scaling, 0, 0, 0,
-                0, self._scaling, 0, 0,
-                0, 0, self._scaling, 0,
-                0, 0, 0, 1
-            ))
+            self._model_matrix = np.array(model_matrix).flatten()
         # fmt: on
         ptr = arr_pointer(self._model_matrix)
         gl.glUseProgram(self._shape_shader.id)
