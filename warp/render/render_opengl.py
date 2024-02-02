@@ -2230,11 +2230,11 @@ Instances: {len(self._instances)}"""
                 visible,
             )
             self._update_shape_instances = True
-            # if color1 is not None or color2 is not None:
-            #     vao, vbo, ebo, tri_count, vertex_cuda_buffer = self._shape_gl_buffers[shape]
-            #     gl.glBindVertexArray(vao)
-            #     self.update_instance_colors()
-            #     gl.glBindVertexArray(0)
+            if color1 is not None or color2 is not None:
+                vao, vbo, ebo, tri_count, vertex_cuda_buffer = self._shape_gl_buffers[shape]
+                gl.glBindVertexArray(vao)
+                self.update_instance_colors()
+                gl.glBindVertexArray(0)
             return True
         return False
 
