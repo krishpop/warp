@@ -2083,6 +2083,34 @@ Instances: {len(self._instances)}"""
         self._add_shape_instances = True
         self._instance_count = len(self._instances)
         return instance
+    
+    def update_instance_colors(self):
+        from pyglet import gl
+
+        colors1, colors2 = [], []
+        all_instances = list(self._instances.values())
+        for shape, instances in self._shape_instances.items():
+            for i in instances:
+                if i >= len(all_instances):
+                    continue
+                instance = all_instances[i]
+                colors1.append(instance[5])
+                colors2.append(instance[6])
+        colors1 = np.array(colors1, dtype=np.float32)
+        colors2 = np.array(colors2, dtype=np.float32)
+
+        # create buffer for checkerboard colors
+        if self._instance_color1_buffer is None:
+            self._instance_color1_buffer = gl.GLuint()
+            gl.glGenBuffers(1, self._instance_color1_buffer)
+        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self._instance_color1_buffer)
+        gl.glBufferData(gl.GL_ARRAY_BUFFER, colors1.nbytes, colors1.ctypes.data, gl.GL_STATIC_DRAW)
+
+        if self._instance_color2_buffer is None:
+            self._instance_color2_buffer = gl.GLuint()
+            gl.glGenBuffers(1, self._instance_color2_buffer)
+        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self._instance_color2_buffer)
+        gl.glBufferData(gl.GL_ARRAY_BUFFER, colors2.nbytes, colors2.ctypes.data, gl.GL_STATIC_DRAW)
 
     def allocate_shape_instances(self):
         from pyglet import gl
@@ -2117,28 +2145,7 @@ Instances: {len(self._instances)}"""
             int(self._instance_transform_gl_buffer.value), self._device
         )
 
-        colors1, colors2 = [], []
-        all_instances = list(self._instances.values())
-        for shape, instances in self._shape_instances.items():
-            for i in instances:
-                if i >= len(all_instances):
-                    continue
-                instance = all_instances[i]
-                colors1.append(instance[5])
-                colors2.append(instance[6])
-        colors1 = np.array(colors1, dtype=np.float32)
-        colors2 = np.array(colors2, dtype=np.float32)
-
-        # create buffer for checkerboard colors
-        self._instance_color1_buffer = gl.GLuint()
-        gl.glGenBuffers(1, self._instance_color1_buffer)
-        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self._instance_color1_buffer)
-        gl.glBufferData(gl.GL_ARRAY_BUFFER, colors1.nbytes, colors1.ctypes.data, gl.GL_STATIC_DRAW)
-
-        self._instance_color2_buffer = gl.GLuint()
-        gl.glGenBuffers(1, self._instance_color2_buffer)
-        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self._instance_color2_buffer)
-        gl.glBufferData(gl.GL_ARRAY_BUFFER, colors2.nbytes, colors2.ctypes.data, gl.GL_STATIC_DRAW)
+        self.update_instance_colors()
 
         # set up instance attribute pointers
         matrix_size = transforms[0].nbytes
@@ -2149,6 +2156,7 @@ Instances: {len(self._instances)}"""
         instances = list(self._instances.values())
         inverse_instance_ids = {}
         instance_count = 0
+        colors_size = np.zeros(3, dtype=np.float32).nbytes
         for shape, (vao, vbo, ebo, tri_count, vertex_cuda_buffer) in self._shape_gl_buffers.items():
             gl.glBindVertexArray(vao)
 
@@ -2163,12 +2171,12 @@ Instances: {len(self._instances)}"""
                 gl.glVertexAttribDivisor(3 + i, 1)
 
             gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self._instance_color1_buffer)
-            gl.glVertexAttribPointer(7, 3, gl.GL_FLOAT, gl.GL_FALSE, colors1[0].nbytes, ctypes.c_void_p(0))
+            gl.glVertexAttribPointer(7, 3, gl.GL_FLOAT, gl.GL_FALSE, colors_size, ctypes.c_void_p(0))
             gl.glEnableVertexAttribArray(7)
             gl.glVertexAttribDivisor(7, 1)
 
             gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self._instance_color2_buffer)
-            gl.glVertexAttribPointer(8, 3, gl.GL_FLOAT, gl.GL_FALSE, colors2[0].nbytes, ctypes.c_void_p(0))
+            gl.glVertexAttribPointer(8, 3, gl.GL_FLOAT, gl.GL_FALSE, colors_size, ctypes.c_void_p(0))
             gl.glEnableVertexAttribArray(8)
             gl.glVertexAttribDivisor(8, 1)
 
@@ -2190,7 +2198,7 @@ Instances: {len(self._instances)}"""
 
         gl.glBindVertexArray(0)
 
-    def update_shape_instance(self, name, pos, rot, color1=None, color2=None, visible=None):
+    def update_shape_instance(self, name, pos=None, rot=None, color1=None, color2=None, visible=None):
         """Update the instance transform of the shape
 
         Args:
@@ -2201,21 +2209,32 @@ Instances: {len(self._instances)}"""
             color2: The second color of the checker pattern
             visible: Whether the shape is visible
         """
+        from pyglet import gl
         if name in self._instances:
-            i, body, shape, _, scale, old_color1, old_color2, v = self._instances[name]
+            i, body, shape, tf, scale, old_color1, old_color2, v = self._instances[name]
             if visible is None:
                 visible = v
+            new_tf = np.copy(tf)
+            if pos is not None:
+                new_tf[:3] = pos
+            if rot is not None:
+                new_tf[3:] = rot
             self._instances[name] = (
                 i,
                 body,
                 shape,
-                [*pos, *rot],
+                new_tf,
                 scale,
                 color1 or old_color1,
                 color2 or old_color2,
                 visible,
             )
             self._update_shape_instances = True
+            # if color1 is not None or color2 is not None:
+            #     vao, vbo, ebo, tri_count, vertex_cuda_buffer = self._shape_gl_buffers[shape]
+            #     gl.glBindVertexArray(vao)
+            #     self.update_instance_colors()
+            #     gl.glBindVertexArray(0)
             return True
         return False
 
