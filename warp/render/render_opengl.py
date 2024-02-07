@@ -945,6 +945,7 @@ class OpenGLRenderer:
         self._camera_pos = PyVec3(0.0, 0.0, 0.0)
         self._camera_front = PyVec3(0.0, 0.0, -1.0)
         self._camera_up = PyVec3(0.0, 1.0, 0.0)
+        self._scaling = scaling
 
         self._model_matrix = self.compute_model_matrix(self._camera_axis, scaling)
         self.update_view_matrix(cam_pos=camera_pos, cam_front=camera_front, cam_up=camera_up)
@@ -1599,9 +1600,9 @@ class OpenGLRenderer:
             self._camera_up = self._camera_up * (1.0 - stiffness) + Vec3(*cam_up) * stiffness
 
         model = np.array(self._model_matrix).reshape((4, 4))
-        cp = model @ np.array([*self._camera_pos, 1.0])
-        cf = model @ np.array([*self._camera_front, 1.0])
-        up = model @ np.array([*self._camera_up, 0.0])
+        cp = model @ np.array([*self._camera_pos/self._scaling, 1.0])
+        cf = model @ np.array([*self._camera_front/self._scaling, 1.0])
+        up = model @ np.array([*self._camera_up/self._scaling, 0.0])
         cp = Vec3(*cp[:3])
         cf = Vec3(*cf[:3])
         up = Vec3(*up[:3])
