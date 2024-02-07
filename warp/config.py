@@ -5,7 +5,7 @@
 # distribution of this software and related documentation without an express
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
-version = "1.0.0-beta.5"
+version = "0.11.0"
 
 cuda_path = (
     None  # path to local CUDA toolchain, if None at init time warp will attempt to find the SDK using CUDA_PATH env var
@@ -35,3 +35,5 @@ enable_backward = True  # whether to compiler the backward passes of the kernels
 llvm_cuda = False  # use Clang/LLVM instead of NVRTC to compile CUDA
 
 graph_capture_module_load_default = True  # Default value of force_module_load for capture_begin()
+
+enable_mempools_by_default = False  # Whether CUDA devices will be initialized with mempools enabled (if supported)

@@ -2,11 +2,12 @@
 set -e
 
 SCRIPT_DIR=$(dirname ${BASH_SOURCE})
-"$SCRIPT_DIR/../../../../repo.sh" build --fetch-only $@
+"$SCRIPT_DIR/../../../repo.sh" build --fetch-only --config release $@
 
 PYTHON="$SCRIPT_DIR/../../../../_build/target-deps/python/python"
 
 echo "Installing test dependencies"
+$PYTHON -m pip install coverage[toml]
 #$PYTHON -m pip install matplotlib
 #$PYTHON -m pip install usd-core
 #$PYTHON -m pip install torch --extra-index-url https://download.pytorch.org/whl/cu113
@@ -16,4 +17,4 @@ echo "Installing Warp to Python"
 $PYTHON -m pip install -e "$SCRIPT_DIR/../../../../."
 
 echo "Running tests"
-$PYTHON -m warp.tests
+$PYTHON -m warp.tests -s autodetect

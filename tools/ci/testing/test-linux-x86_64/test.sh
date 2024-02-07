@@ -2,7 +2,7 @@
 set -e
 
 SCRIPT_DIR=$(dirname ${BASH_SOURCE})
-"$SCRIPT_DIR/../../../../repo.sh" build --fetch-only $@
+"$SCRIPT_DIR/../../../repo.sh" build --fetch-only --config release $@
 
 PYTHON="$SCRIPT_DIR/../../../../_build/target-deps/python/python"
 CUDA_BIN="$SCRIPT_DIR/../../../../_build/target-deps/cuda/bin"
@@ -19,7 +19,7 @@ fi
 $PYTHON -m pip install --upgrade pip
 $PYTHON -m pip install matplotlib
 $PYTHON -m pip install usd-core
-$PYTHON -m pip install coverage
+$PYTHON -m pip install coverage[toml]
 if [[ "$OSTYPE" == "linux-gnu" ]]; then
     $PYTHON -m pip install torch --extra-index-url https://download.pytorch.org/whl/cu115
     $PYTHON -m pip install --upgrade "jax[cuda]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
@@ -33,4 +33,4 @@ echo "Installing Warp to Python"
 $PYTHON -m pip install -e "$SCRIPT_DIR/../../../../."
 
 echo "Running tests"
-$PYTHON -m warp.tests
+$PYTHON -m warp.tests -s autodetect

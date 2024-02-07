@@ -137,9 +137,16 @@ class Example:
 
         self.inv_mass = 64.0
 
+<<<<<<< HEAD
         # self.renderer = wp.render.UsdRenderer(stage)
         self.renderer = wp.render.OpenGLRenderer(stage, vsync=False, scaling=0.2)
         self.renderer.render_ground()
+=======
+        self.renderer = None
+        if stage is not None:
+            self.renderer = wp.render.UsdRenderer(stage)
+            self.renderer.render_ground()
+>>>>>>> lukasz/lwawrzyniak/warp-cuda-pooled-allocators
 
         self.grid = wp.HashGrid(128, 128, 128)
         self.grid_cell_size = self.point_radius * 5.0
@@ -220,6 +227,9 @@ class Example:
                         self.sim_time += self.sim_dt
 
     def render(self, is_live=False):
+        if self.renderer is None:
+            return
+
         with wp.ScopedTimer("render", active=True):
             time = 0.0 if is_live else self.sim_time
 
@@ -245,4 +255,5 @@ if __name__ == "__main__":
         example.update()
         example.render()
 
-    example.renderer.save()
+    if example.renderer:
+        example.renderer.save()

@@ -137,8 +137,16 @@ class Example:
         self.model = builder.finalize(integrator=self.integrator)
         self.model.ground = False
 
+<<<<<<< HEAD
         # self.renderer = wp.sim.render.SimRenderer(self.model, stage, scaling=20.0)
         self.renderer = wp.sim.render.SimRendererOpenGL(self.model, stage, scaling=1.0)
+=======
+        self.integrator = wp.sim.XPBDIntegrator(iterations=5)
+
+        self.renderer = None
+        if stage:
+            self.renderer = wp.sim.render.SimRenderer(self.model, stage, scaling=20.0)
+>>>>>>> lukasz/lwawrzyniak/warp-cuda-pooled-allocators
 
         self.state_0 = self.model.state()
         self.state_1 = self.model.state()
@@ -170,6 +178,9 @@ class Example:
                 self.sim_time += self.frame_dt
 
     def render(self, is_live=False):
+        if self.renderer is None:
+            return
+
         with wp.ScopedTimer("render", active=True):
             time = 0.0 if is_live else self.sim_time
 
@@ -191,4 +202,5 @@ if __name__ == "__main__":
 
         wp.synchronize()
 
-    example.renderer.save()
+    if example.renderer:
+        example.renderer.save()

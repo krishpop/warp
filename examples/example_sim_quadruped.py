@@ -120,10 +120,18 @@ class Example:
         self.model.joint_attach_ke = 16000.0
         self.model.joint_attach_kd = 200.0
 
+<<<<<<< HEAD
         self.enable_rendering = enable_rendering
         self.renderer = None
         if self.enable_rendering:
             self.renderer = wp.sim.render.SimRendererOpenGL(self.model, stage)
+=======
+        self.integrator = wp.sim.XPBDIntegrator()
+
+        self.renderer = None
+        if enable_rendering and stage:
+            self.renderer = wp.sim.render.SimRenderer(self.model, stage)
+>>>>>>> lukasz/lwawrzyniak/warp-cuda-pooled-allocators
 
         self.print_timers = print_timers
 
@@ -158,13 +166,21 @@ class Example:
                 self.sim_time += self.frame_dt
 
     def render(self, is_live=False):
+<<<<<<< HEAD
         if self.enable_rendering:
             with wp.ScopedTimer("render", active=False, print=self.print_timers):
                 time = 0.0 if is_live else self.sim_time
+=======
+        if self.renderer is None:
+            return
+>>>>>>> lukasz/lwawrzyniak/warp-cuda-pooled-allocators
 
-                self.renderer.begin_frame(time)
-                self.renderer.render(self.state_0)
-                self.renderer.end_frame()
+        with wp.ScopedTimer("render", active=True, print=self.print_timers):
+            time = 0.0 if is_live else self.sim_time
+
+            self.renderer.begin_frame(time)
+            self.renderer.render(self.state_0)
+            self.renderer.end_frame()
 
     def run(self):
         profiler = {}
@@ -176,7 +192,7 @@ class Example:
 
             wp.synchronize()
 
-        if self.enable_rendering:
+        if self.renderer:
             self.renderer.save()
 
         avg_time = np.array(profiler["simulate"]).mean() / self.episode_frames

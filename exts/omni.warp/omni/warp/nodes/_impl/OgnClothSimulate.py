@@ -198,7 +198,7 @@ class InternalState:
             edge_kd=db.inputs.clothEdgeDampingStiffness * db.inputs.globalScale,
         )
 
-        # Set a uniform mass to avoid large discrepencies.
+        # Set a uniform mass to avoid large discrepancies.
         avg_mass = np.mean(builder.particle_mass)
         builder.particle_mass = np.full(
             (len(builder.particle_mass),),
@@ -311,10 +311,10 @@ class InternalState:
             wp.load_module(device=device)
             wp.load_module(module=warp.sim, device=device, recursive=True)
             wp.capture_begin(force_module_load=False)
-            step(db)
-            self.graph = wp.capture_end()
-        else:
-            self.graph = None
+            try:
+                step(db)
+            finally:
+                self.graph = wp.capture_end()
 
         self.attr_tracking.update_state(db)
 
