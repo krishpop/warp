@@ -58,6 +58,16 @@ class BsrMatrix(Generic[_BlockType]):
         block_shape = self.block_shape
         return (self.nrow * block_shape[0], self.ncol * block_shape[1])
 
+    @property
+    def dtype(self) -> type:
+        """Data type for individual block values"""
+        return self.values.dtype
+
+    @property
+    def device(self) -> wp.context.Device:
+        """Device on which offsets, columns and values are allocated -- assumed to be the same for all three arrays """
+        return self.values.device
+
 
 def bsr_matrix_t(dtype: BlockType):
     dtype = wp.types.type_to_warp(dtype)
@@ -1154,7 +1164,7 @@ def bsr_mv(
         alpha: Uniform scaling factor for `x`. If zero, `x` will not be read and may be left uninitialized.
         beta: Uniform scaling factor for `y`. If zero, `y` will not be read and may be left uninitialized.
         work_buffer: Temporary storage is required if and only if `x` and `y` are the same vector. If provided the `work_buffer` array
-            will be used for this purpose, otherwise a temporary allocation wil be performed.
+            will be used for this purpose, otherwise a temporary allocation will be performed.
     """
 
     if y is None:

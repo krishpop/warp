@@ -926,6 +926,12 @@ class OpenGLRenderer:
         self.enable_mouse_interaction = enable_mouse_interaction
         self.enable_keyboard_interaction = enable_keyboard_interaction
 
+<<<<<<< HEAD
+=======
+        self._camera_pos = PyVec3(*camera_pos)
+        self._camera_front = PyVec3(*camera_front)
+        self._camera_up = PyVec3(*camera_up)
+>>>>>>> lukasz/lwawrzyniak/warp-cuda-pooled-allocators
         self._camera_speed = 0.04
         if isinstance(up_axis, int):
             self._camera_axis = up_axis
@@ -942,6 +948,7 @@ class OpenGLRenderer:
         self.render_2d_callbacks = []
         self.render_3d_callbacks = []
 
+<<<<<<< HEAD
         self._camera_pos = PyVec3(0.0, 0.0, 0.0)
         self._camera_front = PyVec3(0.0, 0.0, -1.0)
         self._camera_up = PyVec3(0.0, 1.0, 0.0)
@@ -949,6 +956,9 @@ class OpenGLRenderer:
 
         self._model_matrix = self.compute_model_matrix(self._camera_axis, scaling)
         self.update_view_matrix(cam_pos=camera_pos, cam_front=camera_front, cam_up=camera_up)
+=======
+        self.update_view_matrix()
+>>>>>>> lukasz/lwawrzyniak/warp-cuda-pooled-allocators
         self.update_projection_matrix()
 
         self._frame_dt = 1.0 / fps
@@ -1977,10 +1987,13 @@ Instances: {len(self._instances)}"""
         if not self.enable_keyboard_interaction:
             return
 
+<<<<<<< HEAD
         for cb in self._key_callbacks:
             if cb(symbol, modifiers) == pyglet.event.EVENT_HANDLED:
                 return pyglet.event.EVENT_HANDLED
 
+=======
+>>>>>>> lukasz/lwawrzyniak/warp-cuda-pooled-allocators
         if symbol == pyglet.window.key.ESCAPE:
             self.close()
         if symbol == pyglet.window.key.SPACE:
@@ -2199,7 +2212,11 @@ Instances: {len(self._instances)}"""
 
         gl.glBindVertexArray(0)
 
+<<<<<<< HEAD
     def update_shape_instance(self, name, pos=None, rot=None, color1=None, color2=None, visible=None):
+=======
+    def update_shape_instance(self, name, pos, rot, color1=None, color2=None, visible=None):
+>>>>>>> lukasz/lwawrzyniak/warp-cuda-pooled-allocators
         """Update the instance transform of the shape
 
         Args:
@@ -2212,6 +2229,7 @@ Instances: {len(self._instances)}"""
         """
         from pyglet import gl
         if name in self._instances:
+<<<<<<< HEAD
             i, body, shape, tf, scale, old_color1, old_color2, v = self._instances[name]
             if visible is None:
                 visible = v
@@ -2220,11 +2238,20 @@ Instances: {len(self._instances)}"""
                 new_tf[:3] = pos
             if rot is not None:
                 new_tf[3:] = rot
+=======
+            i, body, shape, _, scale, old_color1, old_color2, v = self._instances[name]
+            if visible is None:
+                visible = v
+>>>>>>> lukasz/lwawrzyniak/warp-cuda-pooled-allocators
             self._instances[name] = (
                 i,
                 body,
                 shape,
+<<<<<<< HEAD
                 new_tf,
+=======
+                [*pos, *rot],
+>>>>>>> lukasz/lwawrzyniak/warp-cuda-pooled-allocators
                 scale,
                 color1 or old_color1,
                 color2 or old_color2,

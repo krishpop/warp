@@ -12,18 +12,20 @@ can be used in parallel or serial unit tests (with optional code coverage)
 """
 
 import os
+import sys
 import unittest
 
 START_DIRECTORY = os.path.realpath(os.path.dirname(__file__))
 TOP_LEVEL_DIRECTORY = os.path.realpath(os.path.join(START_DIRECTORY, "..", ".."))
 
 
-def _create_suite_from_test_classes(test_classes):
+def _create_suite_from_test_classes(test_loader, test_classes):
     suite = unittest.TestSuite()
 
     for test in test_classes:
         sub_suite = unittest.TestSuite()
-        sub_suite.addTest(unittest.defaultTestLoader.loadTestsFromTestCase(test))
+        # Note that the test_loader might have testNamePatterns set
+        sub_suite.addTest(test_loader.loadTestsFromTestCase(test))
         suite.addTest(sub_suite)
 
     return suite
@@ -35,7 +37,52 @@ def auto_discover_suite(loader=unittest.defaultTestLoader, pattern="test*.py"):
     return loader.discover(start_dir=START_DIRECTORY, pattern=pattern, top_level_dir=TOP_LEVEL_DIRECTORY)
 
 
-def explicit_suite():
+def _iter_class_suites(test_suite):
+    """Iterate class-level test suites - test suites that contains test cases
+
+    From unittest_parallel.py
+    """
+    has_cases = any(isinstance(suite, unittest.TestCase) for suite in test_suite)
+    if has_cases:
+        yield test_suite
+    else:
+        for suite in test_suite:
+            yield from _iter_class_suites(suite)
+
+
+def compare_unittest_suites(
+    test_loader: unittest.TestLoader, test_suite_name: str, reference_suite: unittest.TestSuite
+) -> None:
+    """Prints the tests in `test_suite` that are not in `reference_suite`."""
+
+    test_suite_fn = getattr(sys.modules[__name__], test_suite_name + "_suite")
+
+    test_suite = test_suite_fn(test_loader)
+
+    test_suite_classes_str = set(
+        type(test_suite._tests[0]).__name__
+        for test_suite in list(_iter_class_suites(test_suite))
+        if test_suite.countTestCases() > 0
+    )
+
+    reference_suite_classes_str = set(
+        type(test_suite._tests[0]).__name__
+        for test_suite in list(_iter_class_suites(reference_suite))
+        if test_suite.countTestCases() > 0
+    )
+
+    set_difference = reference_suite_classes_str - test_suite_classes_str
+
+    print(f"Selected test suite '{test_suite_name}'")
+    if len(set_difference) > 0:
+        print(f"Test suite '{test_suite_name}' omits the following test classes:")
+        for test_entry in set_difference:
+            print(f"    {test_entry}")
+
+    return test_suite
+
+
+def default_suite(test_loader: unittest.TestLoader):
     """Example of a manually constructed test suite.
 
     Intended to be modified to create additional test suites
@@ -44,6 +91,7 @@ def explicit_suite():
     from warp.tests.test_arithmetic import TestArithmetic
     from warp.tests.test_array import TestArray
     from warp.tests.test_array_reduce import TestArrayReduce
+    from warp.tests.test_async import TestAsync
     from warp.tests.test_atomic import TestAtomic
     from warp.tests.test_bool import TestBool
     from warp.tests.test_builtins_resolution import TestBuiltinsResolution
@@ -60,7 +108,7 @@ def explicit_suite():
     from warp.tests.test_examples import TestExamples, TestFemExamples, TestSimExamples
     from warp.tests.test_fabricarray import TestFabricArray
     from warp.tests.test_fast_math import TestFastMath
-    from warp.tests.test_fem import TestFem
+    from warp.tests.test_fem import TestFem, TestFemShapeFunctions
     from warp.tests.test_fp16 import TestFp16
     from warp.tests.test_func import TestFunc
     from warp.tests.test_generics import TestGenerics
@@ -73,6 +121,7 @@ def explicit_suite():
     from warp.tests.test_large import TestLarge
     from warp.tests.test_launch import TestLaunch
     from warp.tests.test_lerp import TestLerp
+    from warp.tests.test_linear_solvers import TestLinearSolvers
     from warp.tests.test_lvalue import TestLValue
     from warp.tests.test_marching_cubes import TestMarchingCubes
     from warp.tests.test_mat import TestMat
@@ -81,6 +130,7 @@ def explicit_suite():
     from warp.tests.test_math import TestMath
     from warp.tests.test_matmul import TestMatmul
     from warp.tests.test_matmul_lite import TestMatmulLite
+    from warp.tests.test_mempool import TestMempool
     from warp.tests.test_mesh import TestMesh
     from warp.tests.test_mesh_query_aabb import TestMeshQueryAABBMethods
     from warp.tests.test_mesh_query_point import TestMeshQueryPoint
@@ -92,6 +142,7 @@ def explicit_suite():
     from warp.tests.test_noise import TestNoise
     from warp.tests.test_operators import TestOperators
     from warp.tests.test_options import TestOptions
+    from warp.tests.test_peer import TestPeer
     from warp.tests.test_pinned import TestPinned
     from warp.tests.test_print import TestPrint
     from warp.tests.test_quat import TestQuat
@@ -121,6 +172,7 @@ def explicit_suite():
         TestArithmetic,
         TestArray,
         TestArrayReduce,
+        TestAsync,
         TestAtomic,
         TestBool,
         TestBuiltinsResolution,
@@ -140,6 +192,7 @@ def explicit_suite():
         TestFabricArray,
         TestFastMath,
         TestFem,
+        TestFemShapeFunctions,
         TestFp16,
         TestFunc,
         TestGenerics,
@@ -152,6 +205,7 @@ def explicit_suite():
         TestLarge,
         TestLaunch,
         TestLerp,
+        TestLinearSolvers,
         TestLValue,
         TestMarchingCubes,
         TestMat,
@@ -160,6 +214,7 @@ def explicit_suite():
         TestMath,
         TestMatmul,
         TestMatmulLite,
+        TestMempool,
         TestMesh,
         TestMeshQueryAABBMethods,
         TestMeshQueryPoint,
@@ -171,6 +226,7 @@ def explicit_suite():
         TestNoise,
         TestOperators,
         TestOptions,
+        TestPeer,
         TestPinned,
         TestPrint,
         TestQuat,
@@ -196,10 +252,10 @@ def explicit_suite():
         TestVolumeWrite,
     ]
 
-    return _create_suite_from_test_classes(test_classes)
+    return _create_suite_from_test_classes(test_loader, test_classes)
 
 
-def kit_suite():
+def kit_suite(test_loader: unittest.TestLoader):
     """Tries to mimic the test suite used for testing omni.warp.core in Kit
 
     Requires manual updates with test_ext.py for now.
@@ -226,7 +282,7 @@ def kit_suite():
     from warp.tests.test_matmul_lite import TestMatmulLite
     from warp.tests.test_mesh import TestMesh
     from warp.tests.test_mesh_query_aabb import TestMeshQueryAABBMethods
-    from warp.tests.test_mesh_query_point import TestMeshQuery
+    from warp.tests.test_mesh_query_point import TestMeshQueryPoint
     from warp.tests.test_mesh_query_ray import TestMeshQueryRay
     from warp.tests.test_modules_lite import TestModuleLite
     from warp.tests.test_noise import TestNoise
@@ -268,7 +324,7 @@ def kit_suite():
         TestMatmulLite,
         TestMesh,
         TestMeshQueryAABBMethods,
-        TestMeshQuery,
+        TestMeshQueryPoint,
         TestMeshQueryRay,
         TestModuleLite,
         TestNoise,
@@ -288,4 +344,4 @@ def kit_suite():
         TestVolumeWrite,
     ]
 
-    return _create_suite_from_test_classes(test_classes)
+    return _create_suite_from_test_classes(test_loader, test_classes)

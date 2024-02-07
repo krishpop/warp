@@ -203,8 +203,8 @@ uint64_t mesh_create_device(void* context, wp::array_t<wp::vec3> points, wp::arr
         // bvh_destroy_host(bvh_host);
 
         // create lower upper arrays expected by GPU BVH builder
-        mesh.lowers = (wp::vec3*)alloc_temp_device(WP_CURRENT_CONTEXT, sizeof(wp::vec3)*num_tris);
-        mesh.uppers = (wp::vec3*)alloc_temp_device(WP_CURRENT_CONTEXT, sizeof(wp::vec3)*num_tris);
+        mesh.lowers = (wp::vec3*)alloc_device(WP_CURRENT_CONTEXT, sizeof(wp::vec3)*num_tris);
+        mesh.uppers = (wp::vec3*)alloc_device(WP_CURRENT_CONTEXT, sizeof(wp::vec3)*num_tris);
 
         wp_launch_device(WP_CURRENT_CONTEXT, wp::compute_triangle_bounds, num_tris, (num_tris, points.data, indices.data, mesh.lowers, mesh.uppers));
 
@@ -272,7 +272,7 @@ void mesh_refit_device(uint64_t id)
             // for use in mesh_query_point_sign_normal()
             // since it relies on an epsilon for welding
 
-            // re-use bounds memory temporarily for computing edge lengths
+            // reuse bounds memory temporarily for computing edge lengths
             float* length_tmp_ptr = (float*)m.lowers;
             wp_launch_device(WP_CURRENT_CONTEXT, wp::compute_mesh_edge_lengths, m.num_tris, (m.num_tris, m.points, m.indices, length_tmp_ptr));
             

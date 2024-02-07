@@ -149,14 +149,46 @@ def vector(length, dtype):
 
         def __setitem__(self, key, value):
             if isinstance(key, int):
-                super().__setitem__(key, vec_t.scalar_import(value))
-                return value
+                try:
+                    return super().__setitem__(key, vec_t.scalar_import(value))
+                except (TypeError, ctypes.ArgumentError):
+                    raise TypeError(
+                        f"Expected to assign a `{self._wp_scalar_type_.__name__}` value "
+                        f"but got `{type(value).__name__}` instead"
+                    ) from None
             elif isinstance(key, slice):
+                try:
+                    iter(value)
+                except TypeError:
+                    raise TypeError(
+                        f"Expected to assign a slice from a sequence of values "
+                        f"but got `{type(value).__name__}` instead"
+                    ) from None
+
                 if self._wp_scalar_type_ == float16:
-                    super().__setitem__(key, [vec_t.scalar_import(x) for x in value])
-                    return value
-                else:
+                    converted = []
+                    try:
+                        for x in value:
+                            converted.append(vec_t.scalar_import(x))
+                    except ctypes.ArgumentError:
+                        raise TypeError(
+                            f"Expected to assign a slice from a sequence of `float16` values "
+                            f"but got `{type(x).__name__}` instead"
+                        ) from None
+
+                    value = converted
+
+                try:
                     return super().__setitem__(key, value)
+                except TypeError:
+                    for x in value:
+                        try:
+                            self._type_(x)
+                        except TypeError:
+                            raise TypeError(
+                                f"Expected to assign a slice from a sequence of `{self._wp_scalar_type_.__name__}` values "
+                                f"but got `{type(x).__name__}` instead"
+                            ) from None
             else:
                 raise KeyError(f"Invalid key {key}, expected int or slice")
 
@@ -355,10 +387,28 @@ def matrix(shape, dtype):
         def set_row(self, r, v):
             if r < 0 or r >= self._shape_[0]:
                 raise IndexError("Invalid row index")
+            try:
+                iter(v)
+            except TypeError:
+                raise TypeError(
+                    f"Expected to assign a slice from a sequence of values "
+                    f"but got `{type(v).__name__}` instead"
+                ) from None
+
             row_start = r * self._shape_[1]
             row_end = row_start + self._shape_[1]
             if self._wp_scalar_type_ == float16:
-                v = [mat_t.scalar_import(x) for x in v]
+                converted = []
+                try:
+                    for x in v:
+                        converted.append(mat_t.scalar_import(x))
+                except ctypes.ArgumentError:
+                    raise TypeError(
+                        f"Expected to assign a slice from a sequence of `float16` values "
+                        f"but got `{type(x).__name__}` instead"
+                    ) from None
+
+                v = converted
             super().__setitem__(slice(row_start, row_end), v)
 
         def __getitem__(self, key):
@@ -366,6 +416,8 @@ def matrix(shape, dtype):
                 # element indexing m[i,j]
                 if len(key) != 2:
                     raise KeyError(f"Invalid key, expected one or two indices, got {len(key)}")
+                if any(isinstance(x, slice) for x in key):
+                    raise KeyError(f"Slices are not supported when indexing matrices using the `m[i, j]` notation")
                 return mat_t.scalar_export(super().__getitem__(key[0] * self._shape_[1] + key[1]))
             elif isinstance(key, int):
                 # row vector indexing m[r]
@@ -378,12 +430,20 @@ def matrix(shape, dtype):
                 # element indexing m[i,j] = x
                 if len(key) != 2:
                     raise KeyError(f"Invalid key, expected one or two indices, got {len(key)}")
-                super().__setitem__(key[0] * self._shape_[1] + key[1], mat_t.scalar_import(value))
-                return value
+                if any(isinstance(x, slice) for x in key):
+                    raise KeyError(f"Slices are not supported when indexing matrices using the `m[i, j]` notation")
+                try:
+                    return super().__setitem__(key[0] * self._shape_[1] + key[1], mat_t.scalar_import(value))
+                except (TypeError, ctypes.ArgumentError):
+                    raise TypeError(
+                        f"Expected to assign a `{self._wp_scalar_type_.__name__}` value "
+                        f"but got `{type(value).__name__}` instead"
+                    ) from None
             elif isinstance(key, int):
                 # row vector indexing m[r] = v
-                self.set_row(key, value)
-                return value
+                return self.set_row(key, value)
+            elif isinstance(key, slice):
+                raise KeyError(f"Slices are not supported when indexing matrices using the `m[start:end]` notation")
             else:
                 raise KeyError(f"Invalid key {key}, expected int or pair of ints")
 
@@ -413,6 +473,15 @@ class bool:
     def __init__(self, x=False):
         self.value = x
 
+    def __bool__(self) -> bool:
+        return self.value != 0
+
+    def __float__(self) -> float:
+        return float(self.value != 0)
+
+    def __int__(self) -> int:
+        return int(self.value != 0)
+
 
 class float16:
     _length_ = 1
@@ -420,6 +489,15 @@ class float16:
 
     def __init__(self, x=0.0):
         self.value = x
+
+    def __bool__(self) -> bool:
+        return self.value != 0.0
+
+    def __float__(self) -> float:
+        return float(self.value)
+
+    def __int__(self) -> int:
+        return int(self.value)
 
 
 class float32:
@@ -429,6 +507,15 @@ class float32:
     def __init__(self, x=0.0):
         self.value = x
 
+    def __bool__(self) -> bool:
+        return self.value != 0.0
+
+    def __float__(self) -> float:
+        return float(self.value)
+
+    def __int__(self) -> int:
+        return int(self.value)
+
 
 class float64:
     _length_ = 1
@@ -436,6 +523,15 @@ class float64:
 
     def __init__(self, x=0.0):
         self.value = x
+
+    def __bool__(self) -> bool:
+        return self.value != 0.0
+
+    def __float__(self) -> float:
+        return float(self.value)
+
+    def __int__(self) -> int:
+        return int(self.value)
 
 
 class int8:
@@ -445,6 +541,18 @@ class int8:
     def __init__(self, x=0):
         self.value = x
 
+    def __bool__(self) -> bool:
+        return self.value != 0
+
+    def __float__(self) -> float:
+        return float(self.value)
+
+    def __int__(self) -> int:
+        return int(self.value)
+
+    def __index__(self) -> int:
+        return int(self.value)
+
 
 class uint8:
     _length_ = 1
@@ -452,6 +560,18 @@ class uint8:
 
     def __init__(self, x=0):
         self.value = x
+
+    def __bool__(self) -> bool:
+        return self.value != 0
+
+    def __float__(self) -> float:
+        return float(self.value)
+
+    def __int__(self) -> int:
+        return int(self.value)
+
+    def __index__(self) -> int:
+        return int(self.value)
 
 
 class int16:
@@ -461,6 +581,18 @@ class int16:
     def __init__(self, x=0):
         self.value = x
 
+    def __bool__(self) -> bool:
+        return self.value != 0
+
+    def __float__(self) -> float:
+        return float(self.value)
+
+    def __int__(self) -> int:
+        return int(self.value)
+
+    def __index__(self) -> int:
+        return int(self.value)
+
 
 class uint16:
     _length_ = 1
@@ -468,6 +600,18 @@ class uint16:
 
     def __init__(self, x=0):
         self.value = x
+
+    def __bool__(self) -> bool:
+        return self.value != 0
+
+    def __float__(self) -> float:
+        return float(self.value)
+
+    def __int__(self) -> int:
+        return int(self.value)
+
+    def __index__(self) -> int:
+        return int(self.value)
 
 
 class int32:
@@ -477,6 +621,18 @@ class int32:
     def __init__(self, x=0):
         self.value = x
 
+    def __bool__(self) -> bool:
+        return self.value != 0
+
+    def __float__(self) -> float:
+        return float(self.value)
+
+    def __int__(self) -> int:
+        return int(self.value)
+
+    def __index__(self) -> int:
+        return int(self.value)
+
 
 class uint32:
     _length_ = 1
@@ -484,6 +640,18 @@ class uint32:
 
     def __init__(self, x=0):
         self.value = x
+
+    def __bool__(self) -> bool:
+        return self.value != 0
+
+    def __float__(self) -> float:
+        return float(self.value)
+
+    def __int__(self) -> int:
+        return int(self.value)
+
+    def __index__(self) -> int:
+        return int(self.value)
 
 
 class int64:
@@ -493,6 +661,18 @@ class int64:
     def __init__(self, x=0):
         self.value = x
 
+    def __bool__(self) -> bool:
+        return self.value != 0
+
+    def __float__(self) -> float:
+        return float(self.value)
+
+    def __int__(self) -> int:
+        return int(self.value)
+
+    def __index__(self) -> int:
+        return int(self.value)
+
 
 class uint64:
     _length_ = 1
@@ -500,6 +680,18 @@ class uint64:
 
     def __init__(self, x=0):
         self.value = x
+
+    def __bool__(self) -> bool:
+        return self.value != 0
+
+    def __float__(self) -> float:
+        return float(self.value)
+
+    def __int__(self) -> int:
+        return int(self.value)
+
+    def __index__(self) -> int:
+        return int(self.value)
 
 
 def quaternion(dtype=Any):
@@ -1279,7 +1471,8 @@ class array(Array):
         device=None,
         pinned=False,
         copy=True,
-        owner=True,  # TODO: replace with deleter=None
+        owner=False,  # deprecated - pass deleter instead
+        deleter = None,
         ndim=None,
         grad=None,
         requires_grad=False,
@@ -1313,15 +1506,18 @@ class array(Array):
             capacity (int): Maximum size in bytes of the ptr allocation (data should be None)
             device (Devicelike): Device the array lives on
             copy (bool): Whether the incoming data will be copied or aliased, this is only possible when the incoming `data` already lives on the device specified and types match
-            owner (bool): Should the array object try to deallocate memory when it is deleted
+            owner (bool): Should the array object try to deallocate memory when it is deleted (deprecated, pass `deleter` if you wish to transfer ownership to Warp)
+            deleter (Callable): Function to be called when deallocating the array, taking two arguments, pointer and size
             requires_grad (bool): Whether or not gradients will be tracked for this array, see :class:`warp.Tape` for details
             grad (array): The gradient array to use
             pinned (bool): Whether to allocate pinned host memory, which allows asynchronous host-device transfers (only applicable with device="cpu")
 
         """
 
-        self.owner = False
+        self.deleter = None
         self.ctype = None
+
+        # properties
         self._requires_grad = False
         self._grad = None
         # __array_interface__ or __cuda_array_interface__, evaluated lazily and cached
@@ -1355,7 +1551,7 @@ class array(Array):
                 raise RuntimeError("Can only construct arrays with either `data` or `ptr` arguments, not both")
             self._init_from_data(data, dtype, shape, device, copy, pinned)
         elif ptr is not None:
-            self._init_from_ptr(ptr, dtype, shape, strides, capacity, device, owner, pinned)
+            self._init_from_ptr(ptr, dtype, shape, strides, capacity, device, pinned, deleter)
         elif shape is not None:
             self._init_new(dtype, shape, strides, device, pinned)
         else:
@@ -1370,9 +1566,8 @@ class array(Array):
                 # allocate gradient if needed
                 self._requires_grad = requires_grad
                 if requires_grad:
-                    with warp.ScopedStream(self.device.null_stream):
-                        self._alloc_grad()
-
+                    self._alloc_grad()
+            
     def _init_from_data(self, data, dtype, shape, device, copy, pinned):
         if not hasattr(data, "__len__"):
             raise RuntimeError(f"Data must be a sequence or array, got scalar {data}")
@@ -1486,7 +1681,7 @@ class array(Array):
 
         if device.is_cpu and not copy and not pinned:
             # reference numpy memory directly
-            self._init_from_ptr(arr.ctypes.data, dtype, shape, strides, None, device, False, False)
+            self._init_from_ptr(arr.ctypes.data, dtype, shape, strides, None, device, False, None)
             # keep a ref to the source array to keep allocation alive
             self._ref = arr
         else:
@@ -1499,11 +1694,10 @@ class array(Array):
                 strides=strides,
                 device="cpu",
                 copy=False,
-                owner=False,
             )
             warp.copy(self, src)
 
-    def _init_from_ptr(self, ptr, dtype, shape, strides, capacity, device, owner, pinned):
+    def _init_from_ptr(self, ptr, dtype, shape, strides, capacity, device, pinned, deleter):
         if dtype == Any:
             raise RuntimeError("A concrete data type is required to create the array")
 
@@ -1533,9 +1727,9 @@ class array(Array):
         self.strides = strides
         self.ptr = ptr
         self.device = device
-        self.owner = owner
         self.pinned = pinned if device.is_cpu else False
         self.is_contiguous = is_contiguous
+        self.deleter = deleter
 
     def _init_new(self, dtype, shape, strides, device, pinned):
         if dtype == Any:
@@ -1557,10 +1751,9 @@ class array(Array):
             is_contiguous = strides == contiguous_strides
             capacity = shape[0] * strides[0]
 
+        allocator = device.get_allocator(pinned=pinned)
         if capacity > 0:
-            ptr = device.allocator.alloc(capacity, pinned=pinned)
-            if ptr is None:
-                raise RuntimeError(f"Array allocation failed on device: {device} for {capacity} bytes")
+            ptr = allocator.alloc(capacity)
         else:
             ptr = None
 
@@ -1572,9 +1765,9 @@ class array(Array):
         self.strides = strides
         self.ptr = ptr
         self.device = device
-        self.owner = True
         self.pinned = pinned if device.is_cpu else False
         self.is_contiguous = is_contiguous
+        self.deleter = allocator.deleter
 
     def _init_annotation(self, dtype, ndim):
         self.dtype = dtype
@@ -1585,12 +1778,20 @@ class array(Array):
         self.strides = (0,) * ndim
         self.ptr = None
         self.device = None
-        self.owner = False
         self.pinned = False
         self.is_contiguous = False
 
+    def __del__(self):
+
+        if self.deleter is None:
+            return
+
+        with self.device.context_guard:
+            self.deleter(self.ptr, self.capacity)
+
     @property
     def __array_interface__(self):
+
         # raising an AttributeError here makes hasattr() return False
         if self.device is None or not self.device.is_cpu:
             raise AttributeError(f"__array_interface__ not supported because device is {self.device}")
@@ -1627,6 +1828,7 @@ class array(Array):
 
     @property
     def __cuda_array_interface__(self):
+
         # raising an AttributeError here makes hasattr() return False
         if self.device is None or not self.device.is_cuda:
             raise AttributeError(f"__cuda_array_interface__ is not supported because device is {self.device}")
@@ -1652,12 +1854,6 @@ class array(Array):
             }
 
         return self._array_interface
-
-    def __del__(self):
-        if self.owner:
-            # use CUDA context guard to avoid side effects during garbage collection
-            with self.device.context_guard:
-                self.device.allocator.free(self.ptr, self.capacity, self.pinned)
 
     def __len__(self):
         return self.shape[0]
@@ -1757,7 +1953,6 @@ class array(Array):
                 strides=tuple(new_strides),
                 device=self.grad.device,
                 pinned=self.grad.pinned,
-                owner=False,
             )
             # store back-ref to stop data being destroyed
             new_grad._ref = self.grad
@@ -1771,7 +1966,6 @@ class array(Array):
             strides=tuple(new_strides),
             device=self.device,
             pinned=self.pinned,
-            owner=False,
             grad=new_grad,
         )
 
@@ -1854,10 +2048,9 @@ class array(Array):
         self.ctype = None
 
     def _alloc_grad(self):
-        self._grad = array(
+        self._grad = warp.zeros(
             dtype=self.dtype, shape=self.shape, strides=self.strides, device=self.device, pinned=self.pinned
         )
-        self._grad.zero_()
 
         # trigger re-creation of C-representation
         self.ctype = None
@@ -1871,7 +2064,7 @@ class array(Array):
         return array._vars
 
     def zero_(self):
-        """Zeroes-out the array entires."""
+        """Zeroes-out the array entries."""
         if self.is_contiguous:
             if warp.context.runtime.tape is not None and self.dtype in warp.builtins.zero_kernels:
                 warp.launch(warp.builtins.zero_kernels[self.dtype], dim=self.shape, inputs=[self], outputs=[self], device=self.device)
@@ -2067,7 +2260,6 @@ class array(Array):
             device=self.device,
             pinned=self.pinned,
             copy=False,
-            owner=False,
             grad=None if self.grad is None else self.grad.flatten(),
         )
 
@@ -2129,7 +2321,6 @@ class array(Array):
             device=self.device,
             pinned=self.pinned,
             copy=False,
-            owner=False,
             grad=None if self.grad is None else self.grad.reshape(shape),
         )
 
@@ -2153,7 +2344,6 @@ class array(Array):
             device=self.device,
             pinned=self.pinned,
             copy=False,
-            owner=False,
             grad=None if self.grad is None else self.grad.view(dtype),
         )
 
@@ -2205,7 +2395,6 @@ class array(Array):
             device=self.device,
             pinned=self.pinned,
             copy=False,
-            owner=False,
             grad=None if self.grad is None else self.grad.transpose(axes=axes),
         )
 
@@ -2248,7 +2437,6 @@ def from_ptr(ptr, length, dtype=None, shape=None, device=None):
         ptr=0 if ptr == 0 else ctypes.cast(ptr, ctypes.POINTER(ctypes.c_size_t)).contents.value,
         shape=shape,
         device=device,
-        owner=False,
         requires_grad=False,
     )
 
@@ -2503,6 +2691,8 @@ class Bvh:
             uppers (:class:`warp.array`): Array of upper bounds :class:`warp.vec3`
         """
 
+        self.id = 0
+
         if len(lowers) != len(uppers):
             raise RuntimeError("Bvh the same number of lower and upper bounds must be provided")
 
@@ -2525,39 +2715,35 @@ class Bvh:
             else:
                 return ctypes.c_void_p(0)
 
-        from warp.context import runtime
+        self.runtime = warp.context.runtime
 
         if self.device.is_cpu:
-            self.id = runtime.core.bvh_create_host(get_data(lowers), get_data(uppers), int(len(lowers)))
+            self.id = self.runtime.core.bvh_create_host(get_data(lowers), get_data(uppers), int(len(lowers)))
         else:
-            self.id = runtime.core.bvh_create_device(
+            self.id = self.runtime.core.bvh_create_device(
                 self.device.context, get_data(lowers), get_data(uppers), int(len(lowers))
             )
 
     def __del__(self):
-        try:
-            from warp.context import runtime
+        
+        if not self.id:
+            return
 
-            if self.device.is_cpu:
-                runtime.core.bvh_destroy_host(self.id)
-            else:
-                # use CUDA context guard to avoid side effects during garbage collection
-                with self.device.context_guard:
-                    runtime.core.bvh_destroy_device(self.id)
-
-        except Exception:
-            pass
+        if self.device.is_cpu:
+            self.runtime.core.bvh_destroy_host(self.id)
+        else:
+            # use CUDA context guard to avoid side effects during garbage collection
+            with self.device.context_guard:
+                self.runtime.core.bvh_destroy_device(self.id)
 
     def refit(self):
         """Refit the BVH. This should be called after users modify the `lowers` and `uppers` arrays."""
 
-        from warp.context import runtime
-
         if self.device.is_cpu:
-            runtime.core.bvh_refit_host(self.id)
+            self.runtime.core.bvh_refit_host(self.id)
         else:
-            runtime.core.bvh_refit_device(self.id)
-            runtime.verify_cuda_device(self.device)
+            self.runtime.core.bvh_refit_device(self.id)
+            self.runtime.verify_cuda_device(self.device)
 
 
 class Mesh:
@@ -2583,6 +2769,8 @@ class Mesh:
             support_winding_number (bool): If true the mesh will build additional datastructures to support `wp.mesh_query_point_sign_winding_number()` queries
         """
 
+        self.id = 0
+
         if points.device != indices.device:
             raise RuntimeError("Mesh points and indices must live on the same device")
 
@@ -2603,10 +2791,10 @@ class Mesh:
         self.velocities = velocities
         self.indices = indices
 
-        from warp.context import runtime
+        self.runtime = warp.context.runtime
 
         if self.device.is_cpu:
-            self.id = runtime.core.mesh_create_host(
+            self.id = self.runtime.core.mesh_create_host(
                 points.__ctype__(),
                 velocities.__ctype__() if velocities else array().__ctype__(),
                 indices.__ctype__(),
@@ -2615,7 +2803,7 @@ class Mesh:
                 int(support_winding_number),
             )
         else:
-            self.id = runtime.core.mesh_create_device(
+            self.id = self.runtime.core.mesh_create_device(
                 self.device.context,
                 points.__ctype__(),
                 velocities.__ctype__() if velocities else array().__ctype__(),
@@ -2626,28 +2814,25 @@ class Mesh:
             )
 
     def __del__(self):
-        try:
-            from warp.context import runtime
 
-            if self.device.is_cpu:
-                runtime.core.mesh_destroy_host(self.id)
-            else:
-                # use CUDA context guard to avoid side effects during garbage collection
-                with self.device.context_guard:
-                    runtime.core.mesh_destroy_device(self.id)
-        except Exception:
-            pass
+        if not self.id:
+            return
+
+        if self.device.is_cpu:
+            self.runtime.core.mesh_destroy_host(self.id)
+        else:
+            # use CUDA context guard to avoid side effects during garbage collection
+            with self.device.context_guard:
+                self.runtime.core.mesh_destroy_device(self.id)
 
     def refit(self):
         """Refit the BVH to points. This should be called after users modify the `points` data."""
 
-        from warp.context import runtime
-
         if self.device.is_cpu:
-            runtime.core.mesh_refit_host(self.id)
+            self.runtime.core.mesh_refit_host(self.id)
         else:
-            runtime.core.mesh_refit_device(self.id)
-            runtime.verify_cuda_device(self.device)
+            self.runtime.core.mesh_refit_device(self.id)
+            self.runtime.verify_cuda_device(self.device)
 
 
 class Volume:
@@ -2665,9 +2850,8 @@ class Volume:
 
         self.id = 0
 
-        from warp.context import runtime
-
-        self.context = runtime
+        # keep a runtime reference for orderly destruction
+        self.runtime = warp.context.runtime
 
         if data is None:
             return
@@ -2677,9 +2861,9 @@ class Volume:
         self.device = data.device
 
         if self.device.is_cpu:
-            self.id = self.context.core.volume_create_host(ctypes.cast(data.ptr, ctypes.c_void_p), data.size)
+            self.id = self.runtime.core.volume_create_host(ctypes.cast(data.ptr, ctypes.c_void_p), data.size)
         else:
-            self.id = self.context.core.volume_create_device(
+            self.id = self.runtime.core.volume_create_device(
                 self.device.context, ctypes.cast(data.ptr, ctypes.c_void_p), data.size
             )
 
@@ -2687,31 +2871,26 @@ class Volume:
             raise RuntimeError("Failed to create volume from input array")
 
     def __del__(self):
-        if self.id == 0:
+    
+        if not self.id:
             return
 
-        try:
-            from warp.context import runtime
-
-            if self.device.is_cpu:
-                runtime.core.volume_destroy_host(self.id)
-            else:
-                # use CUDA context guard to avoid side effects during garbage collection
-                with self.device.context_guard:
-                    runtime.core.volume_destroy_device(self.id)
-
-        except Exception:
-            pass
+        if self.device.is_cpu:
+            self.runtime.core.volume_destroy_host(self.id)
+        else:
+            # use CUDA context guard to avoid side effects during garbage collection
+            with self.device.context_guard:
+                self.runtime.core.volume_destroy_device(self.id)
 
     def array(self) -> array:
         """Returns the raw memory buffer of the Volume as an array"""
         buf = ctypes.c_void_p(0)
         size = ctypes.c_uint64(0)
         if self.device.is_cpu:
-            self.context.core.volume_get_buffer_info_host(self.id, ctypes.byref(buf), ctypes.byref(size))
+            self.runtime.core.volume_get_buffer_info_host(self.id, ctypes.byref(buf), ctypes.byref(size))
         else:
-            self.context.core.volume_get_buffer_info_device(self.id, ctypes.byref(buf), ctypes.byref(size))
-        return array(ptr=buf.value, dtype=uint8, shape=size.value, device=self.device, owner=False)
+            self.runtime.core.volume_get_buffer_info_device(self.id, ctypes.byref(buf), ctypes.byref(size))
+        return array(ptr=buf.value, dtype=uint8, shape=size.value, device=self.device)
 
     def get_tiles(self) -> array:
         if self.id == 0:
@@ -2720,18 +2899,24 @@ class Volume:
         buf = ctypes.c_void_p(0)
         size = ctypes.c_uint64(0)
         if self.device.is_cpu:
-            self.context.core.volume_get_tiles_host(self.id, ctypes.byref(buf), ctypes.byref(size))
+            self.runtime.core.volume_get_tiles_host(self.id, ctypes.byref(buf), ctypes.byref(size))
+            deleter = self.device.default_allocator.deleter
         else:
-            self.context.core.volume_get_tiles_device(self.id, ctypes.byref(buf), ctypes.byref(size))
+            self.runtime.core.volume_get_tiles_device(self.id, ctypes.byref(buf), ctypes.byref(size))
+            if self.device.is_mempool_supported:
+                deleter = self.device.mempool_allocator.deleter
+            else:
+                deleter = self.device.default_allocator.deleter
         num_tiles = size.value // (3 * 4)
-        return array(ptr=buf.value, dtype=int32, shape=(num_tiles, 3), device=self.device, owner=True)
+
+        return array(ptr=buf.value, dtype=int32, shape=(num_tiles, 3), device=self.device, deleter=deleter)
 
     def get_voxel_size(self) -> Tuple[float, float, float]:
         if self.id == 0:
             raise RuntimeError("Invalid Volume")
 
         dx, dy, dz = ctypes.c_float(0), ctypes.c_float(0), ctypes.c_float(0)
-        self.context.core.volume_get_voxel_size(self.id, ctypes.byref(dx), ctypes.byref(dy), ctypes.byref(dz))
+        self.runtime.core.volume_get_voxel_size(self.id, ctypes.byref(dx), ctypes.byref(dy), ctypes.byref(dz))
         return (dx.value, dy.value, dz.value)
 
     @classmethod
@@ -2930,9 +3115,7 @@ class Volume:
             device (Devicelike): The CUDA device to create the volume on, e.g.: "cuda" or "cuda:0".
 
         """
-        from warp.context import runtime
-
-        device = runtime.get_device(device)
+        device = warp.get_device(device)
 
         if voxel_size <= 0.0:
             raise RuntimeError(f"Voxel size must be positive! Got {voxel_size}")
@@ -2951,7 +3134,7 @@ class Volume:
         volume.device = device
         in_world_space = tile_points.dtype == vec3
         if hasattr(bg_value, "__len__"):
-            volume.id = volume.context.core.volume_v_from_tiles_device(
+            volume.id = volume.runtime.core.volume_v_from_tiles_device(
                 volume.device.context,
                 ctypes.c_void_p(tile_points.ptr),
                 tile_points.shape[0],
@@ -2965,7 +3148,7 @@ class Volume:
                 in_world_space,
             )
         elif isinstance(bg_value, int):
-            volume.id = volume.context.core.volume_i_from_tiles_device(
+            volume.id = volume.runtime.core.volume_i_from_tiles_device(
                 volume.device.context,
                 ctypes.c_void_p(tile_points.ptr),
                 tile_points.shape[0],
@@ -2977,7 +3160,7 @@ class Volume:
                 in_world_space,
             )
         else:
-            volume.id = volume.context.core.volume_f_from_tiles_device(
+            volume.id = volume.runtime.core.volume_f_from_tiles_device(
                 volume.device.context,
                 ctypes.c_void_p(tile_points.ptr),
                 tile_points.shape[0],
@@ -3120,6 +3303,7 @@ def matmul(
 
     cc = device.arch
     ret = runtime.core.cutlass_gemm(
+        device.context,
         cc,
         m,
         n,
@@ -3244,6 +3428,7 @@ def adj_matmul(
     # adj_a
     if not a.is_transposed:
         ret = runtime.core.cutlass_gemm(
+            device.context,
             cc,
             m,
             k,
@@ -3264,6 +3449,7 @@ def adj_matmul(
             raise RuntimeError("adj_matmul failed.")
     else:
         ret = runtime.core.cutlass_gemm(
+            device.context,
             cc,
             k,
             m,
@@ -3286,6 +3472,7 @@ def adj_matmul(
     # adj_b
     if not b.is_transposed:
         ret = runtime.core.cutlass_gemm(
+            device.context,
             cc,
             k,
             n,
@@ -3306,6 +3493,7 @@ def adj_matmul(
             raise RuntimeError("adj_matmul failed.")
     else:
         ret = runtime.core.cutlass_gemm(
+            device.context,
             cc,
             n,
             k,
@@ -3408,6 +3596,7 @@ def batched_matmul(
         idx_start = i * max_batch_count
         idx_end = (i + 1) * max_batch_count if i < iters - 1 else batch_count
         ret = runtime.core.cutlass_gemm(
+            device.context,
             cc,
             m,
             n,
@@ -3429,6 +3618,7 @@ def batched_matmul(
     
     idx_start = iters * max_batch_count
     ret = runtime.core.cutlass_gemm(
+        device.context,
         cc,
         m,
         n,
@@ -3560,6 +3750,7 @@ def adj_batched_matmul(
         # adj_a
         if not a.is_transposed:
             ret = runtime.core.cutlass_gemm(
+                device.context,
                 cc,
                 m,
                 k,
@@ -3580,6 +3771,7 @@ def adj_batched_matmul(
                 raise RuntimeError("adj_matmul failed.")
         else:
             ret = runtime.core.cutlass_gemm(
+                device.context,
                 cc,
                 k,
                 m,
@@ -3602,6 +3794,7 @@ def adj_batched_matmul(
         # adj_b
         if not b.is_transposed:
             ret = runtime.core.cutlass_gemm(
+                device.context,
                 cc,
                 k,
                 n,
@@ -3622,6 +3815,7 @@ def adj_batched_matmul(
                 raise RuntimeError("adj_matmul failed.")
         else:
             ret = runtime.core.cutlass_gemm(
+                device.context,
                 cc,
                 n,
                 k,
@@ -3646,6 +3840,7 @@ def adj_batched_matmul(
     # adj_a
     if not a.is_transposed:
         ret = runtime.core.cutlass_gemm(
+            device.context,
             cc,
             m,
             k,
@@ -3666,6 +3861,7 @@ def adj_batched_matmul(
             raise RuntimeError("adj_matmul failed.")
     else:
         ret = runtime.core.cutlass_gemm(
+            device.context,
             cc,
             k,
             m,
@@ -3688,6 +3884,7 @@ def adj_batched_matmul(
     # adj_b
     if not b.is_transposed:
         ret = runtime.core.cutlass_gemm(
+            device.context,
             cc,
             k,
             n,
@@ -3708,6 +3905,7 @@ def adj_batched_matmul(
             raise RuntimeError("adj_matmul failed.")
     else:
         ret = runtime.core.cutlass_gemm(
+            device.context,
             cc,
             n,
             k,
@@ -3750,14 +3948,16 @@ class HashGrid:
             dim_z (int): Number of cells in z-axis
         """
 
-        from warp.context import runtime
+        self.id = 0
 
-        self.device = runtime.get_device(device)
+        self.runtime = warp.context.runtime
+
+        self.device = self.runtime.get_device(device)
 
         if self.device.is_cpu:
-            self.id = runtime.core.hash_grid_create_host(dim_x, dim_y, dim_z)
+            self.id = self.runtime.core.hash_grid_create_host(dim_x, dim_y, dim_z)
         else:
-            self.id = runtime.core.hash_grid_create_device(self.device.context, dim_x, dim_y, dim_z)
+            self.id = self.runtime.core.hash_grid_create_device(self.device.context, dim_x, dim_y, dim_z)
 
         # indicates whether the grid data has been reserved for use by a kernel
         self.reserved = False
@@ -3775,43 +3975,41 @@ class HashGrid:
                             the radius used when performing queries.
         """
 
-        from warp.context import runtime
-
         if self.device.is_cpu:
-            runtime.core.hash_grid_update_host(self.id, radius, ctypes.cast(points.ptr, ctypes.c_void_p), len(points))
+            self.runtime.core.hash_grid_update_host(self.id, radius, ctypes.cast(points.ptr, ctypes.c_void_p), len(points))
         else:
-            runtime.core.hash_grid_update_device(self.id, radius, ctypes.cast(points.ptr, ctypes.c_void_p), len(points))
+            self.runtime.core.hash_grid_update_device(self.id, radius, ctypes.cast(points.ptr, ctypes.c_void_p), len(points))
         self.reserved = True
 
     def reserve(self, num_points):
-        from warp.context import runtime
 
         if self.device.is_cpu:
-            runtime.core.hash_grid_reserve_host(self.id, num_points)
+            self.runtime.core.hash_grid_reserve_host(self.id, num_points)
         else:
-            runtime.core.hash_grid_reserve_device(self.id, num_points)
+            self.runtime.core.hash_grid_reserve_device(self.id, num_points)
         self.reserved = True
 
     def __del__(self):
-        try:
-            from warp.context import runtime
 
-            if self.device.is_cpu:
-                runtime.core.hash_grid_destroy_host(self.id)
-            else:
-                # use CUDA context guard to avoid side effects during garbage collection
-                with self.device.context_guard:
-                    runtime.core.hash_grid_destroy_device(self.id)
+        if not self.id:
+            return
 
-        except Exception:
-            pass
+        if self.device.is_cpu:
+            self.runtime.core.hash_grid_destroy_host(self.id)
+        else:
+            # use CUDA context guard to avoid side effects during garbage collection
+            with self.device.context_guard:
+                self.runtime.core.hash_grid_destroy_device(self.id)
 
 
 class MarchingCubes:
     def __init__(self, nx: int, ny: int, nz: int, max_verts: int, max_tris: int, device=None):
-        from warp.context import runtime
 
-        self.device = runtime.get_device(device)
+        self.id = 0
+
+        self.runtime = warp.context.runtime
+
+        self.device = self.runtime.get_device(device)
 
         if not self.device.is_cuda:
             raise RuntimeError("Only CUDA devices are supported for marching cubes")
@@ -3824,10 +4022,10 @@ class MarchingCubes:
         self.max_tris = max_tris
 
         # bindings to warp.so
-        self.alloc = runtime.core.marching_cubes_create_device
+        self.alloc = self.runtime.core.marching_cubes_create_device
         self.alloc.argtypes = [ctypes.c_void_p]
         self.alloc.restype = ctypes.c_uint64
-        self.free = runtime.core.marching_cubes_destroy_device
+        self.free = self.runtime.core.marching_cubes_destroy_device
 
         from warp.context import zeros
 
@@ -3838,6 +4036,10 @@ class MarchingCubes:
         self.id = ctypes.c_uint64(self.alloc(self.device.context))
 
     def __del__(self):
+
+        if not self.id:
+            return
+
         # use CUDA context guard to avoid side effects during garbage collection
         with self.device.context_guard:
             # destroy surfacer
@@ -3852,15 +4054,13 @@ class MarchingCubes:
         self.max_tris = max_tris
 
     def surface(self, field: array(dtype=float), threshold: float):
-        from warp.context import runtime
-
         # WP_API int marching_cubes_surface_host(const float* field, int nx, int ny, int nz, float threshold, wp::vec3* verts, int* triangles, int max_verts, int max_tris, int* out_num_verts, int* out_num_tris);
         num_verts = ctypes.c_int(0)
         num_tris = ctypes.c_int(0)
 
-        runtime.core.marching_cubes_surface_device.restype = ctypes.c_int
+        self.runtime.core.marching_cubes_surface_device.restype = ctypes.c_int
 
-        error = runtime.core.marching_cubes_surface_device(
+        error = self.runtime.core.marching_cubes_surface_device(
             self.id,
             ctypes.cast(field.ptr, ctypes.c_void_p),
             self.nx,

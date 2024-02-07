@@ -10,7 +10,12 @@ import os
 import unittest
 
 import warp as wp
-from warp.tests.unittest_utils import get_unique_cuda_test_devices, sanitize_identifier
+from warp.tests.unittest_utils import (
+    USD_AVAILABLE,
+    get_test_devices,
+    get_unique_cuda_test_devices,
+    sanitize_identifier,
+)
 
 wp.init()
 
@@ -39,13 +44,17 @@ def add_example_test(cls, name, devices=None, options={}):
 
         # create default USD stage output path which many examples expect
         test_options.setdefault(
-            "stage", os.path.join(os.path.dirname(__file__), f"outputs/{name}_{sanitize_identifier(device)}.usd")
+            "stage",
+            os.path.join(os.path.dirname(__file__), f"outputs/{name}_{sanitize_identifier(device)}.usd")
+            if USD_AVAILABLE
+            else None,
         )
 
-        try:
-            os.remove(test_options["stage"])
-        except OSError:
-            pass
+        if test_options["stage"]:
+            try:
+                os.remove(test_options["stage"])
+            except OSError:
+                pass
 
         num_frames = test_options.get("num_frames", 10)
         test_options.pop("num_frames", None)
@@ -86,6 +95,7 @@ def add_example_test(cls, name, devices=None, options={}):
 
 # TODO: Make the example classes use the passed in device
 cuda_test_devices = get_unique_cuda_test_devices()
+test_devices = get_test_devices()
 
 # NOTE: To give the parallel test runner more opportunities to parallelize test cases,
 # we break up the tests into multiple TestCase classes that should be non-conflicting
@@ -185,48 +195,78 @@ add_example_test(
     options={"quiet": True, "num_frames": 1, "enable_backward": False},
 )
 
-# The following examples do not need CUDA, but they need USD
+# The following examples do not need CUDA
 add_example_test(
     TestFemExamples,
     name="fem.example_apic_fluid",
-    devices=cuda_test_devices,
+    devices=test_devices,
     options={"quiet": True, "res": [16, 16, 16], "enable_backward": False},
 )
 add_example_test(
     TestFemExamples,
     name="fem.example_diffusion",
-    devices=cuda_test_devices,
+    devices=test_devices,
     options={"quiet": True, "resolution": 10, "mesh": "tri", "num_frames": 1, "enable_backward": False},
 )
 add_example_test(
     TestFemExamples,
     name="fem.example_diffusion_3d",
-    devices=cuda_test_devices,
+    devices=test_devices,
     options={"quiet": True, "resolution": 10, "num_frames": 1, "enable_backward": False},
 )
 add_example_test(
     TestFemExamples,
     name="fem.example_deformed_geometry",
-    devices=cuda_test_devices,
+    devices=test_devices,
     options={"quiet": True, "resolution": 10, "num_frames": 1, "mesh": "tri", "enable_backward": False},
 )
 add_example_test(
     TestFemExamples,
     name="fem.example_convection_diffusion",
-    devices=cuda_test_devices,
+    devices=test_devices,
     options={"quiet": True, "resolution": 20, "enable_backward": False},
+)
+add_example_test(
+    TestExamples,
+    name="fem.example_convection_diffusion_dg0",
+    devices=test_devices,
+    options={"quiet": True, "resolution": 20, "num_frames": 25, "mesh": "quad", "enable_backward": False},
+)
+add_example_test(
+    TestExamples,
+    name="fem.example_convection_diffusion_dg",
+    devices=test_devices,
+    options={"quiet": True, "resolution": 20, "num_frames": 25, "mesh": "tri", "enable_backward": False},
 )
 add_example_test(
     TestFemExamples,
     name="fem.example_mixed_elasticity",
-    devices=cuda_test_devices,
+    devices=test_devices,
     options={"quiet": True, "nonconforming_stresses": True, "mesh": "quad", "num_frames": 1, "enable_backward": False},
 )
 add_example_test(
     TestFemExamples,
     name="fem.example_stokes_transfer",
-    devices=cuda_test_devices,
+    devices=test_devices,
     options={"quiet": True, "num_frames": 1, "enable_backward": False},
+)
+add_example_test(
+    TestExamples,
+    name="fem.example_stokes",
+    devices=test_devices,
+    options={
+        "quiet": True,
+        "num_frames": 1,
+        "resolution": 10,
+        "nonconforming_pressures": True,
+        "enable_backward": False,
+    },
+)
+add_example_test(
+    TestExamples,
+    name="fem.example_navier_stokes",
+    devices=test_devices,
+    options={"quiet": True, "num_frames": 100, "resolution": 10, "tri_mesh": True, "enable_backward": False},
 )
 
 
