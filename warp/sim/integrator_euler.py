@@ -1390,22 +1390,20 @@ def eval_joint_force(
 
     limit_f = 0.0
     damping_f = 0.0
-
-    if mode == wp.sim.JOINT_MODE_TARGET_POSITION or mode == wp.sim.JOINT_MODE_LIMIT:
-        # compute limit forces, damping only active when limit is violated
-        if q < limit_lower:
-            limit_f = limit_ke * (limit_lower - q)
-            damping_f = -limit_kd * qd
-
-        if q > limit_upper:
-            limit_f = limit_ke * (limit_upper - q)
-            damping_f = -limit_kd * qd
-
     target_f = 0.0
-    if mode == wp.sim.JOINT_MODE_TARGET_POSITION:
-        target_f = target_ke * (target - q) - target_kd * qd
-    if mode == wp.sim.JOINT_MODE_TARGET_VELOCITY:
-        target_f = target_ke * (target - qd)
+
+        # compute limit forces, damping only active when limit is violated
+    if q < limit_lower:
+        limit_f = limit_ke * (limit_lower - q)
+        damping_f = -limit_kd * qd
+    elif q > limit_upper:
+        limit_f = limit_ke * (limit_upper - q)
+        damping_f = -limit_kd * qd
+    else:
+        if mode == wp.sim.JOINT_MODE_TARGET_POSITION:
+            target_f = target_ke * (target - q) - target_kd * qd
+        if mode == wp.sim.JOINT_MODE_TARGET_VELOCITY:
+            target_f = target_ke * (target - qd)
 
     return act + limit_f + damping_f + target_f
 
