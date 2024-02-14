@@ -380,7 +380,8 @@ def remesh_ftetwild(vertices, faces, stop_quality=10, max_its=50, edge_length_r=
         stop_quality=stop_quality, max_its=max_its, edge_length_r=edge_length_r, epsilon=epsilon)
     tetra.set_mesh(vertices, np.array(faces).reshape(-1, 3))
     tetra.tetrahedralize()
-    tet_vertices, tet_indices, _ = tetra.get_tet_mesh()
+    res = tetra.get_tet_mesh()
+    tet_vertices, tet_indices = list(res)[:2]
 
     def face_indices(tet):
         face1 = (tet[0], tet[2], tet[1])
