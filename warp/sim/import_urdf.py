@@ -36,6 +36,8 @@ def parse_urdf(
     shape_thickness=0.0,
     limit_ke=100.0,
     limit_kd=10.0,
+    joint_limit_lower=-1e6,
+    joint_limit_upper=1e6,
     scale=1.0,
     parse_visuals_as_colliders=False,
     force_show_colliders=False,
@@ -46,39 +48,39 @@ def parse_urdf(
     collapse_fixed_joints=False,
 ):
     """
-    Parses a URDF file and adds the bodies and joints to the given ModelBuilder.
+        Parses a URDF file and adds the bodies and joints to the given ModelBuilder.
 
-    Args:
-        urdf_filename (str): The filename of the URDF file to parse.
-        builder (ModelBuilder): The :class:`ModelBuilder` to add the bodies and joints to.
-        xform (:ref:`transform <transform>`): The transform to apply to the root body.
-        floating (bool): If True, the root body is a free joint. If False, the root body is connected via a fixed joint to the world, unless a `base_joint` is defined.
-        base_joint (Union[str, dict]): The joint by which the root body is connected to the world. This can be either a string defining the joint axes of a D6 joint with comma-separated positional and angular axis names (e.g. "px,py,rz" for a D6 joint with linear axes in x, y and an angular axis in z) or a dict with joint parameters (see :meth:`ModelBuilder.add_joint`).
-        density (float): The density of the shapes in kg/m^3 which will be used to calculate the body mass and inertia.
-        stiffness (float): The stiffness of the joints.
-        damping (float): The damping of the joints.
-        armature (float): The armature of the joints (bias to add to the inertia diagonals that may stabilize the simulation).
-        shape_ke (float): The stiffness of the shape contacts (used by SemiImplicitIntegrator).
-        shape_kd (float): The damping of the shape contacts (used by SemiImplicitIntegrator).
-        shape_kf (float): The friction stiffness of the shape contacts (used by SemiImplicitIntegrator).
-        shape_ka (float): The adhesion distance of the shape contacts (used by SemiImplicitIntegrator).
-        shape_mu (float): The friction coefficient of the shape contacts.
-        shape_restitution (float): The restitution coefficient of the shape contacts.
-        shape_thickness (float): The thickness to add to the shape geometry.
-        limit_ke (float): The stiffness of the joint limits (used by SemiImplicitIntegrator).
-        limit_kd (float): The damping of the joint limits (used by SemiImplicitIntegrator).
-        scale (float): The scaling factor to apply to the imported mechanism.
-<<<<<<< HEAD
-        parse_visuals_as_colliders (bool): If True, the geometry defined under the `<visual>` tags is used for collision handling instead of the `<collision>` geoemtries.
-        force_show_colliders (bool): If True, the collision shapes are always shown, even if there are visual shapes.
-=======
-        parse_visuals_as_colliders (bool): If True, the geometry defined under the `<visual>` tags is used for collision handling instead of the `<collision>` geometries.
->>>>>>> lukasz/lwawrzyniak/warp-cuda-pooled-allocators
-        enable_self_collisions (bool): If True, self-collisions are enabled.
-        ignore_inertial_definitions (bool): If True, the inertial parameters defined in the URDF are ignored and the inertia is calculated from the shape geometry.
-        ensure_nonstatic_links (bool): If True, links with zero mass are given a small mass (see `static_link_mass`) to ensure they are dynamic.
-        static_link_mass (float): The mass to assign to links with zero mass (if `ensure_nonstatic_links` is set to True).
-        collapse_fixed_joints (bool): If True, fixed joints are removed and the respective bodies are merged.
+        Args:
+            urdf_filename (str): The filename of the URDF file to parse.
+            builder (ModelBuilder): The :class:`ModelBuilder` to add the bodies and joints to.
+            xform (:ref:`transform <transform>`): The transform to apply to the root body.
+            floating (bool): If True, the root body is a free joint. If False, the root body is connected via a fixed joint to the world, unless a `base_joint` is defined.
+            base_joint (Union[str, dict]): The joint by which the root body is connected to the world. This can be either a string defining the joint axes of a D6 joint with comma-separated positional and angular axis names (e.g. "px,py,rz" for a D6 joint with linear axes in x, y and an angular axis in z) or a dict with joint parameters (see :meth:`ModelBuilder.add_joint`).
+            density (float): The density of the shapes in kg/m^3 which will be used to calculate the body mass and inertia.
+            stiffness (float): The stiffness of the joints.
+            damping (float): The damping of the joints.
+            armature (float): The armature of the joints (bias to add to the inertia diagonals that may stabilize the simulation).
+            shape_ke (float): The stiffness of the shape contacts (used by SemiImplicitIntegrator).
+            shape_kd (float): The damping of the shape contacts (used by SemiImplicitIntegrator).
+            shape_kf (float): The friction stiffness of the shape contacts (used by SemiImplicitIntegrator).
+            shape_ka (float): The adhesion distance of the shape contacts (used by SemiImplicitIntegrator).
+            shape_mu (float): The friction coefficient of the shape contacts.
+            shape_restitution (float): The restitution coefficient of the shape contacts.
+            shape_thickness (float): The thickness to add to the shape geometry.
+            limit_ke (float): The stiffness of the joint limits (used by SemiImplicitIntegrator).
+            limit_kd (float): The damping of the joint limits (used by SemiImplicitIntegrator).
+            scale (float): The scaling factor to apply to the imported mechanism.
+    <<<<<<< HEAD
+            parse_visuals_as_colliders (bool): If True, the geometry defined under the `<visual>` tags is used for collision handling instead of the `<collision>` geoemtries.
+            force_show_colliders (bool): If True, the collision shapes are always shown, even if there are visual shapes.
+    =======
+            parse_visuals_as_colliders (bool): If True, the geometry defined under the `<visual>` tags is used for collision handling instead of the `<collision>` geometries.
+    >>>>>>> lukasz/lwawrzyniak/warp-cuda-pooled-allocators
+            enable_self_collisions (bool): If True, self-collisions are enabled.
+            ignore_inertial_definitions (bool): If True, the inertial parameters defined in the URDF are ignored and the inertia is calculated from the shape geometry.
+            ensure_nonstatic_links (bool): If True, links with zero mass are given a small mass (see `static_link_mass`) to ensure they are dynamic.
+            static_link_mass (float): The mass to assign to links with zero mass (if `ensure_nonstatic_links` is set to True).
+            collapse_fixed_joints (bool): If True, fixed joints are removed and the respective bodies are merged.
     """
 
     file = ET.parse(urdf_filename)
@@ -336,8 +338,8 @@ def parse_urdf(
             "origin": parse_transform(joint),
             "damping": damping,
             "friction": 0.0,
-            "limit_lower": -1.0e6,
-            "limit_upper": 1.0e6,
+            "limit_lower": joint_limit_lower,  # -1.0e6,
+            "limit_upper": joint_limit_upper,  #  1.0e6,
         }
         if joint.find("axis") is not None:
             joint_data["axis"] = joint.find("axis").get("xyz")
