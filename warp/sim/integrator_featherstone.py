@@ -2131,6 +2131,7 @@ class FeatherstoneIntegrator:
                     outputs=[
                         state_out.body_qd,
                     ],
+                    device=model.device,
                 )
 
             # ----------------------------
