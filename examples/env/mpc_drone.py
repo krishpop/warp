@@ -109,7 +109,7 @@ def sample_gaussian(
         else:
             break
     rollout_trajectories[env_id, point_id, control_id] = wp.clamp(sample, lo, hi)
-    seed[0] = seed[0] + 1
+    wp.atomic_add(seed, 0, 1)
 
 
 @wp.kernel
@@ -612,7 +612,7 @@ class Controller:
             outputs=[self.best_traj],
             device=self.device,
         )
-        self.rollout_trajectories[-1].assign(self.best_traj[0])
+        # self.rollout_trajectories[-1].assign(self.best_traj[0])
 
         if self.show_rollouts and self.env_ref.render_mode != RenderMode.NONE:
             # render position trajectories
