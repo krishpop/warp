@@ -443,6 +443,7 @@ class Controller:
 
             if DEBUG_PLOTS:
                 self.ref_cost_plot.setData(np.arange(t + 1), self.env_ref_costs)
+                pg.QtWidgets.QApplication.processEvents()
             #     fig, axes, ncols, nrows = self._create_plot_grid(self.control_dim)
             #     fig.suptitle("best traj")
             #     best_traj = self.best_traj.numpy()
@@ -481,7 +482,6 @@ class Controller:
         if self.use_graph_capture:
             self.sample_controls(self.best_traj)
             if self._opt_graph is None or self.env_ref.invalidate_cuda_graph:
-                self.env_rollout.flight_target = self.env_ref.flight_target
                 wp.capture_begin()
                 self.tape = wp.Tape()
                 with self.tape:
