@@ -36,6 +36,8 @@ def parse_urdf(
     shape_thickness=0.0,
     limit_ke=100.0,
     limit_kd=10.0,
+    joint_limit_lower=-1e6,
+    joint_limit_upper=1e6,
     scale=1.0,
     parse_visuals_as_colliders=False,
     force_show_colliders=False,
@@ -332,8 +334,8 @@ def parse_urdf(
             "origin": parse_transform(joint),
             "damping": damping,
             "friction": 0.0,
-            "limit_lower": -1.0e6,
-            "limit_upper": 1.0e6,
+            "limit_lower": joint_limit_lower,  # -1.0e6,
+            "limit_upper": joint_limit_upper,  #  1.0e6,
         }
         if joint.find("axis") is not None:
             joint_data["axis"] = joint.find("axis").get("xyz")

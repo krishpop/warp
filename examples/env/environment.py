@@ -235,7 +235,7 @@ class Environment:
         self.model = builder.finalize(integrator=self.integrator, requires_grad=self.requires_grad)
         self.customize_model(self.model)
         self.device = self.model.device
-        if not self.device.is_cuda:
+        if not self.model.device.is_cuda:
             self.use_graph_capture = False
         self.model.ground = self.activate_ground_plane
 
@@ -313,6 +313,12 @@ class Environment:
     def after_simulate(self):
         pass
 
+    def before_step(self):
+        pass
+
+    def after_step(self):
+        pass
+
     def custom_update(self):
         pass
 
@@ -337,6 +343,7 @@ class Environment:
         return self.state_1
 
     def update_nograd(self):
+        self.before_step()
         if self.use_graph_capture:
             state_0_dict = self.state_0.__dict__
             state_1_dict = self.state_1.__dict__
@@ -365,8 +372,10 @@ class Environment:
                         state_1_dict[key].assign(state_temp_dict[key])
             self.sim_time += self.sim_dt
             self.sim_step += 1
+        self.after_step()
 
     def update_grad(self):
+        self.before_step()
         for i in range(self.sim_substeps):
             if self.custom_dynamics is not None:
                 self.custom_update()
@@ -382,6 +391,7 @@ class Environment:
                 )
             self.sim_time += self.sim_dt
             self.sim_step += 1
+        self.after_step()
 
     def render(self, state=None):
         if self.renderer is not None:
