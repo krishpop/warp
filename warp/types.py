@@ -2132,10 +2132,7 @@ class array(Array):
 
         # prefer using memtile for contiguous arrays, because it should be faster than generic fill
         if self.is_contiguous:
-            if warp.context.runtime.tape is not None and self.dtype in warp.builtins.fill_kernels:
-                warp.launch(warp.builtins.fill_kernels[self.dtype], dim=self.shape, inputs=[value], outputs=[self], device=self.device)
-            else:
-                self.device.memtile(self.ptr, cvalue_ptr, cvalue_size, self.size)
+            self.device.memtile(self.ptr, cvalue_ptr, cvalue_size, self.size)
         else:
             carr = self.__ctype__()
             carr_ptr = ctypes.pointer(carr)
