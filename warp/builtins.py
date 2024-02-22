@@ -3428,11 +3428,3 @@ def array_zero_f32(_: array(dtype=float32), arr: array(dtype=float32)):
 def array_zero_i32(_: array(dtype=int32), arr: array(dtype=int32)):
     i = warp.tid()
     arr[i] = 0
-
-zero_kernels = {
-    float32: array_zero_f32,
-    int32: array_zero_i32,
-    vec3: array_zero_v3,
-    spatial_vector: array_zero_sv,
-    transform: array_zero_tf,
-}
