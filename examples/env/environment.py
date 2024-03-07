@@ -357,10 +357,10 @@ class Environment:
                 self.custom_update()
                 wp.sim.collide(self.model, self.state_0, edge_sdf_iter=self.edge_sdf_iter, iterate_mesh_vertices=self.rigid_contact_iterate_mesh_vertices)
                 self.integrator.simulate(self.model, self.state_0, self.state_1, self.sim_dt)
-            if i < self.sim_substeps - 1 or not self.use_graph_capture:
+            if not self.use_graph_capture:
                 # we can just swap the state references
                 self.state_0, self.state_1 = self.state_1, self.state_0
-            elif self.use_graph_capture:
+            else:
                 assert (
                     hasattr(self, "state_temp") and self.state_temp is not None
                 ), "state_temp must be allocated when using graph capture"
@@ -403,7 +403,7 @@ class Environment:
                     # render_state = state or self.states[min(self.sim_steps, self.sim_step + 1)]
                     render_state = state or self.states[min(self.sim_steps, self.sim_step)]
                 else:
-                    render_state = state or self.next_state
+                    render_state = state or self.state
                 self.custom_render(render_state)
                 self.renderer.render(render_state)
                 self.renderer.end_frame()
