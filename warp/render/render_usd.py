@@ -235,8 +235,33 @@ class UsdRenderer:
 
         return prim_path
 
-    def render_ground(self, size: float = 100.0):
+    def render_ground(self, size: float = 100.0, plane=None):
         from pxr import UsdGeom
+
+        if plane is not None:
+            # copied from render_opengl
+            color1 = (200 / 255, 200 / 255, 200 / 255)
+            normal = np.array(plane[:3])
+            normal /= np.linalg.norm(normal)
+            pos = plane[3] * normal
+            if np.allclose(normal, (0.0, 1.0, 0.0)):
+                # no rotation necessary
+                q = (0.0, 0.0, 0.0, 1.0)
+            else:
+                c = np.cross(normal, (0.0, 1.0, 0.0))
+                angle = np.arcsin(np.linalg.norm(c))
+                axis = np.abs(c) / np.linalg.norm(c)
+                q = wp.quat_from_axis_angle(axis, angle)
+            return self.render_plane(
+                "ground",
+                pos,
+                q,
+                size,
+                size,
+                color1,
+                # u_scaling=1.0,
+                # v_scaling=1.0,
+            )
 
         mesh = UsdGeom.Mesh.Define(self.stage, self.root.GetPath().AppendChild("ground"))
         mesh.CreateDoubleSidedAttr().Set(True)
