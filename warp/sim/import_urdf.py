@@ -27,13 +27,13 @@ def parse_urdf(
     stiffness=100.0,
     damping=10.0,
     armature=0.0,
-    shape_ke=1.0e4,
-    shape_kd=1.0e3,
-    shape_kf=1.0e2,
-    shape_ka=0.0,
-    shape_mu=0.25,
-    shape_restitution=0.5,
-    shape_thickness=0.0,
+    contact_ke=1.0e4,
+    contact_kd=1.0e3,
+    contact_kf=1.0e2,
+    contact_ka=0.0,
+    contact_mu=0.25,
+    contact_restitution=0.5,
+    contact_thickness=0.0,
     limit_ke=100.0,
     limit_kd=10.0,
     joint_limit_lower=-1e6,
@@ -60,15 +60,17 @@ def parse_urdf(
         stiffness (float): The stiffness of the joints.
         damping (float): The damping of the joints.
         armature (float): The armature of the joints (bias to add to the inertia diagonals that may stabilize the simulation).
-        shape_ke (float): The stiffness of the shape contacts (used by SemiImplicitIntegrator).
-        shape_kd (float): The damping of the shape contacts (used by SemiImplicitIntegrator).
-        shape_kf (float): The friction stiffness of the shape contacts (used by SemiImplicitIntegrator).
-        shape_ka (float): The adhesion distance of the shape contacts (used by SemiImplicitIntegrator).
-        shape_mu (float): The friction coefficient of the shape contacts.
-        shape_restitution (float): The restitution coefficient of the shape contacts.
-        shape_thickness (float): The thickness to add to the shape geometry.
-        limit_ke (float): The stiffness of the joint limits (used by SemiImplicitIntegrator).
-        limit_kd (float): The damping of the joint limits (used by SemiImplicitIntegrator).
+        contact_ke (float): The stiffness of the shape contacts (used by the Euler integrators).
+        contact_kd (float): The damping of the shape contacts (used by the Euler integrators).
+        contact_kf (float): The friction stiffness of the shape contacts (used by the Euler integrators).
+        contact_ka (float): The adhesion distance of the shape contacts (used by the Euler integrators).
+        contact_mu (float): The friction coefficient of the shape contacts.
+        contact_restitution (float): The restitution coefficient of the shape contacts.
+        contact_thickness (float): The thickness to add to the shape geometry.
+        limit_ke (float): The stiffness of the joint limits (used by the Euler integrators).
+        limit_kd (float): The damping of the joint limits (used by the Euler integrators).
+        joint_limit_lower (float): The default lower joint limit if not specified in the URDF.
+        joint_limit_upper (float): The default upper joint limit if not specified in the URDF.
         scale (float): The scaling factor to apply to the imported mechanism.
         parse_visuals_as_colliders (bool): If True, the geometry defined under the `<visual>` tags is used for collision handling instead of the `<collision>` geoemtries.
         force_show_colliders (bool): If True, the collision shapes are always shown, even if there are visual shapes.
@@ -82,6 +84,16 @@ def parse_urdf(
     file = ET.parse(urdf_filename)
     root = file.getroot()
 
+    contact_vars = dict(
+        ke=contact_ke,
+        kd=contact_kd,
+        kf=contact_kf,
+        ka=contact_ka,
+        mu=contact_mu,
+        restitution=contact_restitution,
+        thickness=contact_thickness,
+    )
+
     def parse_transform(element):
         if element is None or element.find("origin") is None:
             return wp.transform()
@@ -92,15 +104,15 @@ def parse_urdf(
         rpy = [float(x) for x in rpy.split()]
         return wp.transform(xyz, wp.quat_rpy(*rpy))
 
-    def parse_shapes(link, collisions, density, incoming_xform=None, visible=True, just_visual=False):
+    def parse_shapes(link, geoms, density, incoming_xform=None, visible=True, just_visual=False):
         shapes = []
         # add geometry
-        for collision in collisions:
-            geo = collision.find("geometry")
+        for geom_group in geoms:
+            geo = geom_group.find("geometry")
             if geo is None:
                 continue
 
-            tf = parse_transform(collision)
+            tf = parse_transform(geom_group)
             if incoming_xform is not None:
                 tf = incoming_xform * tf
 
@@ -115,15 +127,9 @@ def parse_urdf(
                     hy=size[1] * 0.5 * scale,
                     hz=size[2] * 0.5 * scale,
                     density=density,
-                    ke=shape_ke,
-                    kd=shape_kd,
-                    kf=shape_kf,
-                    ka=shape_ka,
-                    mu=shape_mu,
-                    restitution=shape_restitution,
-                    thickness=shape_thickness,
                     is_visible=visible,
                     has_ground_collision=not just_visual,
+                    **contact_vars,
                 )
                 shapes.append(s)
 
@@ -134,15 +140,9 @@ def parse_urdf(
                     rot=wp.quat(tf.q),
                     radius=float(sphere.get("radius") or "1") * scale,
                     density=density,
-                    ke=shape_ke,
-                    kd=shape_kd,
-                    kf=shape_kf,
-                    ka=shape_ka,
-                    mu=shape_mu,
-                    restitution=shape_restitution,
-                    thickness=shape_thickness,
                     is_visible=visible,
                     has_ground_collision=not just_visual,
+                    **contact_vars,
                 )
                 shapes.append(s)
 
@@ -154,16 +154,10 @@ def parse_urdf(
                     radius=float(cylinder.get("radius") or "1") * scale,
                     half_height=float(cylinder.get("length") or "1") * 0.5 * scale,
                     density=density,
-                    ke=shape_ke,
-                    kd=shape_kd,
-                    kf=shape_kf,
-                    ka=shape_ka,
-                    mu=shape_mu,
                     up_axis=2,  # cylinders in URDF are aligned with z-axis
-                    restitution=shape_restitution,
-                    thickness=shape_thickness,
                     is_visible=visible,
                     has_ground_collision=not just_visual,
+                    **contact_vars,
                 )
                 shapes.append(s)
 
@@ -209,15 +203,9 @@ def parse_urdf(
                             rot=wp.quat(tf.q),
                             mesh=mesh,
                             density=density,
-                            ke=shape_ke,
-                            kd=shape_kd,
-                            kf=shape_kf,
-                            ka=shape_ka,
-                            mu=shape_mu,
-                            restitution=shape_restitution,
-                            thickness=shape_thickness,
                             is_visible=visible,
                             has_ground_collision=not just_visual,
+                            **contact_vars,
                         )
                         shapes.append(s)
                 else:
@@ -231,25 +219,18 @@ def parse_urdf(
                         rot=tf.q,
                         mesh=mesh,
                         density=density,
-                        ke=shape_ke,
-                        kd=shape_kd,
-                        kf=shape_kf,
-                        ka=shape_ka,
-                        mu=shape_mu,
-                        restitution=shape_restitution,
-                        thickness=shape_thickness,
                         is_visible=visible,
                         has_ground_collision=not just_visual,
+                        **contact_vars,
                     )
                     shapes.append(s)
 
-        if just_visual:
-            for i in range(len(shapes)):
-                for j in range(i):
-                    builder.shape_collision_filter_pairs.add((shapes[i], shapes[j]))
+        return shapes
 
     # maps from link name -> link index
     link_index = {}
+
+    visual_shapes = []
 
     builder.add_articulation()
 
@@ -269,7 +250,8 @@ def parse_urdf(
         if parse_visuals_as_colliders:
             colliders = visuals
         else:
-            parse_shapes(link, visuals, density=0.0, just_visual=True)
+            s = parse_shapes(link, visuals, density=0.0, just_visual=True)
+            visual_shapes.extend(s)
 
         show_colliders = force_show_colliders
         if parse_visuals_as_colliders:
@@ -334,8 +316,8 @@ def parse_urdf(
             "origin": parse_transform(joint),
             "damping": damping,
             "friction": 0.0,
-            "limit_lower": joint_limit_lower,  # -1.0e6,
-            "limit_upper": joint_limit_upper,  #  1.0e6,
+            "limit_lower": joint_limit_lower,
+            "limit_upper": joint_limit_upper,
         }
         if joint.find("axis") is not None:
             joint_data["axis"] = joint.find("axis").get("xyz")
@@ -520,6 +502,10 @@ def parse_urdf(
             )
         else:
             raise Exception("Unsupported joint type: " + joint["type"])
+
+    for i in range(start_shape_count, end_shape_count):
+        for j in visual_shapes:
+            builder.shape_collision_filter_pairs.add((i, j))
 
     if not enable_self_collisions:
         for i in range(start_shape_count, end_shape_count):
